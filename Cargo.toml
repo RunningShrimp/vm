@@ -13,6 +13,7 @@ members = [
  "vm-device",
  "vm-osal",
  "vm-passthrough",
+ "vm-boot",
  "vm-cli",
  "vm-tests",
 ]
