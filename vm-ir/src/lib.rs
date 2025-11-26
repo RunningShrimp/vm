@@ -4,7 +4,7 @@ pub type RegId = u32;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AtomicOp {
-    Add, Sub, And, Or, Xor, Xchg, CmpXchg, Min, Max, MinS, MaxS
+    Add, Sub, And, Or, Xor, Xchg, CmpXchg, Min, Max, MinS, MaxS, Minu, Maxu, Swap
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -81,6 +81,26 @@ pub enum IROp {
     Vec256Add { dst0: RegId, dst1: RegId, dst2: RegId, dst3: RegId, src10: RegId, src11: RegId, src12: RegId, src13: RegId, src20: RegId, src21: RegId, src22: RegId, src23: RegId, element_size: u8, signed: bool },
     Vec256Sub { dst0: RegId, dst1: RegId, dst2: RegId, dst3: RegId, src10: RegId, src11: RegId, src12: RegId, src13: RegId, src20: RegId, src21: RegId, src22: RegId, src23: RegId, element_size: u8, signed: bool },
     Vec256Mul { dst0: RegId, dst1: RegId, dst2: RegId, dst3: RegId, src10: RegId, src11: RegId, src12: RegId, src13: RegId, src20: RegId, src21: RegId, src22: RegId, src23: RegId, element_size: u8, signed: bool },
+
+    // Floating Point
+    Fadd { dst: RegId, src1: RegId, src2: RegId },
+    Fsub { dst: RegId, src1: RegId, src2: RegId },
+    Fmul { dst: RegId, src1: RegId, src2: RegId },
+    Fdiv { dst: RegId, src1: RegId, src2: RegId },
+    Fsqrt { dst: RegId, src: RegId },
+    Fmin { dst: RegId, src1: RegId, src2: RegId },
+    Fmax { dst: RegId, src1: RegId, src2: RegId },
+    
+    // Branches (for direct translation)
+    Beq { src1: RegId, src2: RegId, target: GuestAddr },
+    Bne { src1: RegId, src2: RegId, target: GuestAddr },
+    Blt { src1: RegId, src2: RegId, target: GuestAddr },
+    Bge { src1: RegId, src2: RegId, target: GuestAddr },
+    Bltu { src1: RegId, src2: RegId, target: GuestAddr },
+    Bgeu { src1: RegId, src2: RegId, target: GuestAddr },
+    
+    // Atomic (high-level)
+    Atomic { dst: RegId, base: RegId, src: RegId, op: AtomicOp, size: u8 },
 
     // System
     SysCall,

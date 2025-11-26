@@ -11,5 +11,9 @@ winit = "0.29"
 pollster = "0.3"
 log = "0.4"
 
+[dependencies.libc]
+version = "0.2"
+optional = true
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

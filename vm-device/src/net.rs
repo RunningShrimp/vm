@@ -1,6 +1,9 @@
-//! VirtIO 网络设备完整实现
+//! virtio-net 网络设备实现
 //!
 //! 支持 smoltcp (NAT) 和 TAP/TUN (桥接) 两种后端
+
+#[cfg(unix)]
+use libc;
 
 use vm_core::MmioDevice;
 use std::sync::{Arc, Mutex};

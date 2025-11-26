@@ -2,6 +2,9 @@
 //!
 //! 支持 virtio-net 和多种网络后端
 
+#[cfg(unix)]
+use libc;
+
 use std::sync::{Arc, Mutex};
 
 /// MAC 地址

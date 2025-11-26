@@ -35,6 +35,7 @@ pub struct CpuFeatures {
     pub npt: bool,           // AMD Nested Page Tables
     pub vpid: bool,          // Virtual Processor ID
     pub avic: bool,          // AMD Advanced Virtual Interrupt Controller
+    pub x2avic: bool,        // AMD x2AVIC (Extended AVIC)
     pub apicv: bool,         // Intel APICv
     
     // SIMD 特性
