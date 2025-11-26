@@ -13,6 +13,8 @@ use std::path::Path;
 // 子模块
 pub mod runtime;
 pub mod snapshot;
+pub mod incremental_snapshot;
+pub mod fast_boot;
 pub mod hotplug;
 pub mod iso9660;
 pub mod eltorito;

@@ -17,8 +17,46 @@ impl VirglContext {
 
     /// 处理 VirGL 命令
     pub fn process_command(&mut self, cmd: &[u8]) {
-        // TODO: 解析并处理 VirGL 命令
-        println!("Processing VirGL command for context {}: {:?}", self.context_id, cmd);
+        if cmd.is_empty() {
+            return;
+        }
+        
+        // VirGL 命令格式：[header(4 bytes)][data...]
+        let cmd_type = u32::from_le_bytes([cmd[0], cmd[1], cmd[2], cmd[3]]);
+        
+        match cmd_type {
+            0x01 => self.handle_clear(cmd),
+            0x02 => self.handle_draw(cmd),
+            0x03 => self.handle_create_resource(cmd),
+            0x04 => self.handle_destroy_resource(cmd),
+            0x05 => self.handle_transfer_to_host(cmd),
+            0x06 => self.handle_transfer_from_host(cmd),
+            _ => println!("Unknown VirGL command: {:#x}", cmd_type),
+        }
+    }
+    
+    fn handle_clear(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Clear command for context {}", self.context_id);
+    }
+    
+    fn handle_draw(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Draw command for context {}", self.context_id);
+    }
+    
+    fn handle_create_resource(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Create resource for context {}", self.context_id);
+    }
+    
+    fn handle_destroy_resource(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Destroy resource for context {}", self.context_id);
+    }
+    
+    fn handle_transfer_to_host(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Transfer to host for context {}", self.context_id);
+    }
+    
+    fn handle_transfer_from_host(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Transfer from host for context {}", self.context_id);
     }
 }
 
@@ -83,11 +121,58 @@ impl VirtioGpuVirgl {
 
     /// 处理 virtio-gpu 命令
     pub fn process_gpu_command(&mut self, cmd: &[u8]) {
-        // TODO: 解析 virtio-gpu 命令，并将其转发到 VirGL
-        // 例如，处理 `VIRTIO_GPU_CMD_CTX_CREATE` 命令
+        if cmd.len() < 4 {
+            return;
+        }
+        
+        // virtio-gpu 命令格式：[type(4 bytes)][flags(4 bytes)][data...]
+        let cmd_type = u32::from_le_bytes([cmd[0], cmd[1], cmd[2], cmd[3]]);
+        
+        match cmd_type {
+            0x0100 => self.handle_ctx_create(cmd),      // VIRTIO_GPU_CMD_CTX_CREATE
+            0x0101 => self.handle_ctx_destroy(cmd),     // VIRTIO_GPU_CMD_CTX_DESTROY
+            0x0102 => self.handle_ctx_attach_resource(cmd), // VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE
+            0x0103 => self.handle_ctx_detach_resource(cmd), // VIRTIO_GPU_CMD_CTX_DETACH_RESOURCE
+            0x0200 => self.handle_submit_3d(cmd),       // VIRTIO_GPU_CMD_SUBMIT_3D
+            _ => println!("Unknown virtio-gpu command: {:#x}", cmd_type),
+        }
+    }
+    
+    fn handle_ctx_create(&mut self, _cmd: &[u8]) {
         if let Ok(mut manager) = self.virgl_manager.lock() {
-            let _context_id = manager.create_context();
-            // ...
+            let context_id = manager.create_context();
+            println!("Created VirGL context: {}", context_id);
+        }
+    }
+    
+    fn handle_ctx_destroy(&mut self, cmd: &[u8]) {
+        if cmd.len() >= 8 {
+            let context_id = u32::from_le_bytes([cmd[4], cmd[5], cmd[6], cmd[7]]);
+            if let Ok(mut manager) = self.virgl_manager.lock() {
+                manager.destroy_context(context_id);
+                println!("Destroyed VirGL context: {}", context_id);
+            }
+        }
+    }
+    
+    fn handle_ctx_attach_resource(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Attach resource to context");
+    }
+    
+    fn handle_ctx_detach_resource(&mut self, _cmd: &[u8]) {
+        println!("VirGL: Detach resource from context");
+    }
+    
+    fn handle_submit_3d(&mut self, cmd: &[u8]) {
+        if cmd.len() >= 8 {
+            let context_id = u32::from_le_bytes([cmd[4], cmd[5], cmd[6], cmd[7]]);
+            // 将 VirGL 命令转发到对应的上下文
+            if let Ok(manager) = self.virgl_manager.lock() {
+                if let Some(_ctx) = manager.get_context(context_id) {
+                    // 在实际实现中，应该将命令转发到上下文
+                    println!("Submitting 3D command to context {}", context_id);
+                }
+            }
         }
     }
 }

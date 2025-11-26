@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 // 模块定义
 mod regs;
+pub mod syscall;
 pub use regs::GuestRegs;
 
 // ============================================================================
