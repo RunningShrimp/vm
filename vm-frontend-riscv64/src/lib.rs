@@ -40,9 +40,15 @@ impl Decoder for RiscvDecoder {
                 b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
             }
             0x33 => {
-                match (funct3, (insn >> 25) & 0x7f) {
+                let funct7 = (insn >> 25) & 0x7f;
+                match (funct3, funct7) {
                     (0, 0x00) => { let dst = reg_file.write(rd as usize); b.push(IROp::Add { dst, src1: reg_file.read(rs1 as usize), src2: reg_file.read(rs2 as usize) }) },
                     (0, 0x20) => { let dst = reg_file.write(rd as usize); b.push(IROp::Sub { dst, src1: reg_file.read(rs1 as usize), src2: reg_file.read(rs2 as usize) }) },
+                    (0, 0x01) => { let dst = reg_file.write(rd as usize); b.push(IROp::Mul { dst, src1: reg_file.read(rs1 as usize), src2: reg_file.read(rs2 as usize) }) }, // MUL
+                    (4, 0x01) => { let dst = reg_file.write(rd as usize); b.push(IROp::Div { dst, src1: reg_file.read(rs1 as usize), src2: reg_file.read(rs2 as usize), signed: true }) }, // DIV
+                    (5, 0x01) => { let dst = reg_file.write(rd as usize); b.push(IROp::Div { dst, src1: reg_file.read(rs1 as usize), src2: reg_file.read(rs2 as usize), signed: false }) }, // DIVU
+                    (6, 0x01) => { let dst = reg_file.write(rd as usize); b.push(IROp::Rem { dst, src1: reg_file.read(rs1 as usize), src2: reg_file.read(rs2 as usize), signed: true }) }, // REM
+                    (7, 0x01) => { let dst = reg_file.write(rd as usize); b.push(IROp::Rem { dst, src1: reg_file.read(rs1 as usize), src2: reg_file.read(rs2 as usize), signed: false }) }, // REMU
                     (1, 0x00) => { let dst = reg_file.write(rd as usize); b.push(IROp::Sll { dst, src: reg_file.read(rs1 as usize), shreg: reg_file.read(rs2 as usize) }) },
                     (5, 0x00) => { let dst = reg_file.write(rd as usize); b.push(IROp::Srl { dst, src: reg_file.read(rs1 as usize), shreg: reg_file.read(rs2 as usize) }) },
                     (5, 0x20) => { let dst = reg_file.write(rd as usize); b.push(IROp::Sra { dst, src: reg_file.read(rs1 as usize), shreg: reg_file.read(rs2 as usize) }) },
@@ -107,6 +113,73 @@ impl Decoder for RiscvDecoder {
                 let dst = reg_file.write(rd as usize);
                 b.push(IROp::MovImm { dst, imm: pc.wrapping_add(4) });
                 b.set_term(Terminator::Jmp { target: ((pc as i64).wrapping_add(imm)) as u64 });
+            }
+            0x2f => {
+                // AMO (Atomic Memory Operations)
+                let funct5 = (insn >> 27) & 0x1f;
+                let aq = (insn >> 26) & 0x1;
+                let rl = (insn >> 25) & 0x1;
+                let mut flags = MemFlags::default();
+                flags.atomic = true;
+                if aq != 0 { flags.fence_before = true; flags.order = vm_ir::MemOrder::Acquire; }
+                if rl != 0 { flags.fence_after = true; flags.order = vm_ir::MemOrder::Release; }
+                if aq != 0 && rl != 0 { flags.order = vm_ir::MemOrder::AcqRel; }
+                
+                let size = match funct3 {
+                    2 => 4, // .W
+                    3 => 8, // .D
+                    _ => 4,
+                };
+                
+                match funct5 {
+                    0x02 => { // LR (Load Reserved)
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::Load { dst, base: reg_file.read(rs1 as usize), offset: 0, size, flags });
+                    }
+                    0x03 => { // SC (Store Conditional)
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::Store { src: reg_file.read(rs2 as usize), base: reg_file.read(rs1 as usize), offset: 0, size, flags });
+                        b.push(IROp::MovImm { dst, imm: 0 }); // Success
+                    }
+                    0x01 => { // AMOSWAP
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Xchg, size });
+                    }
+                    0x00 => { // AMOADD
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Add, size });
+                    }
+                    0x04 => { // AMOXOR
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Xor, size });
+                    }
+                    0x0c => { // AMOAND
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::And, size });
+                    }
+                    0x08 => { // AMOOR
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Or, size });
+                    }
+                    0x10 => { // AMOMIN
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::MinS, size });
+                    }
+                    0x14 => { // AMOMAX
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::MaxS, size });
+                    }
+                    0x18 => { // AMOMINU
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Min, size });
+                    }
+                    0x1c => { // AMOMAXU
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Max, size });
+                    }
+                    _ => {}
+                }
+                b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
             }
             0x67 => {
                 let imm = ((insn as i32) >> 20) as i64;

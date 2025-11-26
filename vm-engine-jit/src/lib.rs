@@ -431,6 +431,54 @@ impl Jit {
                     let res = builder.ins().select(cmp, one, zero);
                     Self::store_reg(&mut builder, regs_ptr, *dst, res);
                 }
+                IROp::Mul { dst, src1, src2 } => {
+                    let v1 = Self::load_reg(&mut builder, regs_ptr, *src1);
+                    let v2 = Self::load_reg(&mut builder, regs_ptr, *src2);
+                    let res = builder.ins().imul(v1, v2);
+                    Self::store_reg(&mut builder, regs_ptr, *dst, res);
+                }
+                IROp::Div { dst, src1, src2, signed } => {
+                    let v1 = Self::load_reg(&mut builder, regs_ptr, *src1);
+                    let v2 = Self::load_reg(&mut builder, regs_ptr, *src2);
+                    let res = if *signed {
+                        builder.ins().sdiv(v1, v2)
+                    } else {
+                        builder.ins().udiv(v1, v2)
+                    };
+                    Self::store_reg(&mut builder, regs_ptr, *dst, res);
+                }
+                IROp::Rem { dst, src1, src2, signed } => {
+                    let v1 = Self::load_reg(&mut builder, regs_ptr, *src1);
+                    let v2 = Self::load_reg(&mut builder, regs_ptr, *src2);
+                    let res = if *signed {
+                        builder.ins().srem(v1, v2)
+                    } else {
+                        builder.ins().urem(v1, v2)
+                    };
+                    Self::store_reg(&mut builder, regs_ptr, *dst, res);
+                }
+                IROp::AtomicRMW { dst, base, src, op, size } => {
+                    // For now, use helper function for atomic operations
+                    let addr = Self::load_reg(&mut builder, regs_ptr, *base);
+                    let val = Self::load_reg(&mut builder, regs_ptr, *src);
+                    let op_code = builder.ins().iconst(types::I32, *op as i64);
+                    let sz = builder.ins().iconst(types::I32, *size as i64);
+                    
+                    // Call atomic RMW helper
+                    let mut sig_atomic = self.module.make_signature();
+                    sig_atomic.params.push(AbiParam::new(types::I64)); // ctx
+                    sig_atomic.params.push(AbiParam::new(types::I64)); // addr
+                    sig_atomic.params.push(AbiParam::new(types::I64)); // val
+                    sig_atomic.params.push(AbiParam::new(types::I32)); // op
+                    sig_atomic.params.push(AbiParam::new(types::I32)); // size
+                    sig_atomic.returns.push(AbiParam::new(types::I64));
+                    let sig_atomic_ref = builder.import_signature(sig_atomic);
+                    
+                    let atomic_fn = builder.ins().iconst(types::I64, jit_atomic_rmw as i64);
+                    let call = builder.ins().call_indirect(sig_atomic_ref, atomic_fn, &[ctx_ptr, addr, val, op_code, sz]);
+                    let old_val = builder.inst_results(call)[0];
+                    Self::store_reg(&mut builder, regs_ptr, *dst, old_val);
+                }
                 _ => {}
             }
         }

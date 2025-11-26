@@ -1,5 +1,8 @@
 pub mod gpu;
 pub mod virtio;
+pub mod block;
+pub mod clint;
+pub mod plic;
 
 pub trait Device {
     fn reset(&mut self);

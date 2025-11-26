@@ -166,6 +166,82 @@ impl Decoder for Arm64Decoder {
                 continue;
             }
 
+            // MUL/MADD/MSUB (Data-processing 3 source)
+            if (insn & 0x1F000000) == 0x1B000000 {
+                let op54 = (insn >> 29) & 3;
+                let rm = (insn >> 16) & 0x1F;
+                let ra = (insn >> 10) & 0x1F;
+                let rn = (insn >> 5) & 0x1F;
+                let rd = insn & 0x1F;
+                
+                if op54 == 0 {
+                    // MADD/MUL: Rd = Ra + Rn * Rm
+                    if ra == 31 {
+                        // MUL: Rd = Rn * Rm
+                        builder.push(IROp::Mul { dst: rd, src1: rn, src2: rm });
+                    } else {
+                        // MADD: Rd = Ra + Rn * Rm
+                        let tmp = 32; // temporary register
+                        builder.push(IROp::Mul { dst: tmp, src1: rn, src2: rm });
+                        builder.push(IROp::Add { dst: rd, src1: ra, src2: tmp });
+                    }
+                } else if op54 == 1 {
+                    // MSUB: Rd = Ra - Rn * Rm
+                    let tmp = 32;
+                    builder.push(IROp::Mul { dst: tmp, src1: rn, src2: rm });
+                    builder.push(IROp::Sub { dst: rd, src1: ra, src2: tmp });
+                }
+                current_pc += 4;
+                continue;
+            }
+            
+            // SDIV/UDIV
+            if (insn & 0x1FE0FC00) == 0x1AC00800 {
+                let sf = (insn >> 31) & 1;
+                let is_signed = (insn & 0x00000400) == 0;
+                let rm = (insn >> 16) & 0x1F;
+                let rn = (insn >> 5) & 0x1F;
+                let rd = insn & 0x1F;
+                
+                builder.push(IROp::Div { dst: rd, src1: rn, src2: rm, signed: is_signed });
+                current_pc += 4;
+                continue;
+            }
+            
+            // Atomic memory operations (LSE)
+            // LDADD, LDCLR, LDEOR, LDSET, etc.
+            if (insn & 0x3F200C00) == 0x38200000 {
+                let size = (insn >> 30) & 3;
+                let opc = (insn >> 12) & 7;
+                let rs = (insn >> 16) & 0x1F;
+                let rn = (insn >> 5) & 0x1F;
+                let rt = insn & 0x1F;
+                
+                let mem_size = match size {
+                    0 => 1, // byte
+                    1 => 2, // halfword
+                    2 => 4, // word
+                    3 => 8, // doubleword
+                    _ => 4,
+                };
+                
+                let op = match opc {
+                    0 => vm_ir::AtomicOp::Add,    // LDADD
+                    1 => vm_ir::AtomicOp::And,    // LDCLR (implemented as AND with complement)
+                    2 => vm_ir::AtomicOp::Xor,    // LDEOR
+                    3 => vm_ir::AtomicOp::Or,     // LDSET
+                    4 => vm_ir::AtomicOp::MaxS,   // LDSMAX
+                    5 => vm_ir::AtomicOp::MinS,   // LDSMIN
+                    6 => vm_ir::AtomicOp::Max,    // LDUMAX
+                    7 => vm_ir::AtomicOp::Min,    // LDUMIN
+                    _ => vm_ir::AtomicOp::Xchg,
+                };
+                
+                builder.push(IROp::AtomicRMW { dst: rt, base: rn, src: rs, op, size: mem_size });
+                current_pc += 4;
+                continue;
+            }
+            
             // ADD/SUB (shifted register)
             if (insn & 0x1F200000) == 0x0B000000 {
                  let is_sub = (insn & 0x40000000) != 0;

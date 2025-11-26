@@ -8,6 +8,7 @@ members = [
  "vm-frontend-riscv64",
  "vm-engine-interpreter",
  "vm-engine-jit",
+ "vm-engine-hybrid",
  "vm-accel",
  "vm-device",
  "vm-osal",

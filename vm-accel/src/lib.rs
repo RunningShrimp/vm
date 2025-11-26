@@ -1,4 +1,4 @@
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "cpuid"))]
 use raw_cpuid::CpuId;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -14,7 +14,7 @@ pub struct CpuFeatures {
 pub fn detect() -> CpuFeatures {
     let mut features = CpuFeatures::default();
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "cpuid"))]
     {
         let cpuid = CpuId::new();
         

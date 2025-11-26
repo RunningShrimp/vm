@@ -17,6 +17,10 @@ pub enum X86Mnemonic {
     Jcc,
     // SIMD
     Movaps, Addps, Subps, Mulps, Maxps, Minps,
+    // Multiply/Divide
+    Mul, Imul, Div, Idiv,
+    // Atomic
+    Xchg, Cmpxchg, Xadd, Lock,
     // System
     Syscall, Cpuid, Hlt, Int,
 }
