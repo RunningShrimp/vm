@@ -675,3 +675,7 @@ mod tests {
         assert_eq!(hits1, hits2);
     }
 }
+
+pub mod mmu;
+pub mod tlb;
+pub mod asm_opt;

@@ -218,3 +218,58 @@ mod tests {
         }
     }
 }
+
+/// Intel Posted Interrupts 支持
+pub struct PostedInterrupts {
+    enabled: bool,
+}
+
+impl PostedInterrupts {
+    pub fn new() -> Self {
+        let cpu_info = CpuInfo::get();
+        Self {
+            enabled: cpu_info.features.apicv,
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// 配置 Posted Interrupt Descriptor
+    pub fn configure_pi_descriptor(&self) -> Option<PostedInterruptDescriptor> {
+        if !self.enabled {
+            return None;
+        }
+
+        Some(PostedInterruptDescriptor {
+            posted_interrupt_requests: 0,
+            outstanding_notification: 0,
+            suppress_notification: 0,
+            notification_vector: 0xF2, // 典型的 Posted Interrupt 向量
+            notification_destination: 0,
+        })
+    }
+}
+
+/// Posted Interrupt Descriptor (PID)
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PostedInterruptDescriptor {
+    /// Posted Interrupt Requests (PIR) - 256 位
+    pub posted_interrupt_requests: u64,
+    /// Outstanding Notification (ON)
+    pub outstanding_notification: u64,
+    /// Suppress Notification (SN)
+    pub suppress_notification: u64,
+    /// Notification Vector
+    pub notification_vector: u8,
+    /// Notification Destination
+    pub notification_destination: u32,
+}
+
+impl Default for PostedInterrupts {
+    fn default() -> Self {
+        Self::new()
+    }
+}

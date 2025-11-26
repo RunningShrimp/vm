@@ -285,3 +285,71 @@ mod tests {
         }
     }
 }
+
+/// AMD AVIC (Advanced Virtual Interrupt Controller) 支持
+pub struct AmdAvic {
+    enabled: bool,
+    x2avic_supported: bool,
+}
+
+impl AmdAvic {
+    pub fn new() -> Self {
+        let cpu_info = CpuInfo::get();
+        Self {
+            enabled: cpu_info.features.avic,
+            x2avic_supported: cpu_info.features.x2avic,
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn supports_x2avic(&self) -> bool {
+        self.x2avic_supported
+    }
+
+    /// 配置 AVIC
+    pub fn configure(&self) -> Option<AvicConfig> {
+        if !self.enabled {
+            return None;
+        }
+
+        Some(AvicConfig {
+            enable_avic: true,
+            enable_x2avic: self.x2avic_supported,
+            max_vcpus: if self.x2avic_supported { 512 } else { 255 },
+            doorbell_page_addr: 0,
+            backing_page_addr: 0,
+        })
+    }
+
+    /// 获取性能提升估计
+    pub fn get_performance_gain(&self) -> &'static str {
+        if !self.enabled {
+            return "N/A";
+        }
+
+        if self.x2avic_supported {
+            "显著提升（支持 x2AVIC，最多 512 vCPU）"
+        } else {
+            "中等提升（最多 255 vCPU）"
+        }
+    }
+}
+
+/// AVIC 配置
+#[derive(Debug, Clone)]
+pub struct AvicConfig {
+    pub enable_avic: bool,
+    pub enable_x2avic: bool,
+    pub max_vcpus: usize,
+    pub doorbell_page_addr: u64,
+    pub backing_page_addr: u64,
+}
+
+impl Default for AmdAvic {
+    fn default() -> Self {
+        Self::new()
+    }
+}
