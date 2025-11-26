@@ -1,0 +1,16 @@
+[package]
+name = "vm-engine-jit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+cranelift = "0.113"
+cranelift-codegen = "0.113"
+cranelift-frontend = "0.113"
+cranelift-module = "0.113"
+cranelift-jit = "0.113"
+cranelift-native = "0.113"
+target-lexicon = "0.12"
+

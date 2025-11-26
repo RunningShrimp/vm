@@ -1,0 +1,11 @@
+[package]
+name = "vm-accel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+raw-cpuid = { version = "11", optional = true }
+
+[features]
+cpuid = ["raw-cpuid"]
+

@@ -1,0 +1,12 @@
+[package]
+name = "vm-device"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-osal = { path = "../vm-osal" }
+wgpu = "0.19"
+winit = "0.29"
+pollster = "0.3"
+log = "0.4"

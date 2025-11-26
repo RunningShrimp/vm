@@ -1,0 +1,9 @@
+[package]
+name = "vm-engine-interpreter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+vm-osal = { path = "../vm-osal" }

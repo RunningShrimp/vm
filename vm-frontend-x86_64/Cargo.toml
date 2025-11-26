@@ -1,0 +1,9 @@
+[package]
+name = "vm-frontend-x86_64"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+

@@ -1,0 +1,18 @@
+[workspace]
+members = [
+ "vm-core",
+ "vm-ir",
+ "vm-mem",
+ "vm-frontend-arm64",
+ "vm-frontend-x86_64",
+ "vm-frontend-riscv64",
+ "vm-engine-interpreter",
+ "vm-engine-jit",
+ "vm-accel",
+ "vm-device",
+ "vm-osal",
+ "vm-cli",
+ "vm-tests",
+]
+resolver = "2"
+

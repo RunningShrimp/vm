@@ -1,0 +1,15 @@
+[package]
+name = "vm-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+vm-engine-interpreter = { path = "../vm-engine-interpreter" }
+vm-mem = { path = "../vm-mem" }
+vm-frontend-riscv64 = { path = "../vm-frontend-riscv64" }
+vm-frontend-arm64 = { path = "../vm-frontend-arm64" }
+vm-frontend-x86_64 = { path = "../vm-frontend-x86_64" }
+vm-device = { path = "../vm-device" }
+vm-accel = { path = "../vm-accel" }
