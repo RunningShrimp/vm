@@ -10,3 +10,6 @@ wgpu = "0.19"
 winit = "0.29"
 pollster = "0.3"
 log = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

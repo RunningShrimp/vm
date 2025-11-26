@@ -27,8 +27,32 @@ pub fn host_os() -> &'static str {
     { return "android"; }
     #[cfg(target_os = "ios")]
     { return "ios"; }
+    // HarmonyOS 基于 Linux 内核，可通过系统属性检测
+    #[cfg(target_os = "linux")]
+    {
+        if is_harmonyos() {
+            return "harmonyos";
+        }
+    }
     #[allow(unreachable_code)]
     "unknown"
+}
+
+/// 检测是否为 HarmonyOS
+#[cfg(target_os = "linux")]
+fn is_harmonyos() -> bool {
+    use std::fs;
+    // 检查 /etc/os-release 或系统属性
+    if let Ok(content) = fs::read_to_string("/etc/os-release") {
+        return content.to_lowercase().contains("harmonyos") || 
+               content.to_lowercase().contains("openharmony");
+    }
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_harmonyos() -> bool {
+    false
 }
 
 pub fn host_arch() -> &'static str {
@@ -471,6 +495,12 @@ pub fn register_sigsegv_handler(handler: SignalHandler) -> bool {
 pub fn register_sigsegv_handler(_handler: SignalHandler) -> bool {
     false
 }
+
+// ============================================================================
+// 平台特定集成
+// ============================================================================
+
+pub mod platform;
 
 // ============================================================================
 // 测试

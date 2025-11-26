@@ -1700,6 +1700,7 @@ dependencies = [
 name = "vm-device"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "log",
  "pollster",
  "vm-core",
@@ -1787,6 +1788,7 @@ name = "vm-osal"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "num_cpus",
  "windows-sys 0.52.0",
 ]
 

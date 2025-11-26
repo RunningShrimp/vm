@@ -3,6 +3,8 @@ pub mod virtio;
 pub mod block;
 pub mod clint;
 pub mod plic;
+pub mod graphics;
+pub mod network;
 
 pub trait Device {
     fn reset(&mut self);
