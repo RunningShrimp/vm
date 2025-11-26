@@ -15,7 +15,7 @@ impl VirtioBlock {
 }
 
 impl MmioDevice for VirtioBlock {
-    fn read(&mut self, offset: u64, _size: u8) -> u64 {
+    fn read(&self, offset: u64, _size: u8) -> u64 {
         match offset {
             0x00 => 0x74726976, // Magic "virt"
             0x04 => 2,          // Version
@@ -44,7 +44,7 @@ impl VirtioNet {
 }
 
 impl MmioDevice for VirtioNet {
-    fn read(&mut self, offset: u64, _size: u8) -> u64 {
+    fn read(&self, offset: u64, _size: u8) -> u64 {
         match offset {
             0x00 => 0x74726976, // Magic "virt"
             0x04 => 2,          // Version

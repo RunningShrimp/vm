@@ -1,10 +1,32 @@
 use vm_core::{ExecutionEngine, ExecResult, ExecStatus, ExecStats, MMU, AccessType, GuestAddr};
 use vm_ir::{IRBlock, IROp, Terminator, AtomicOp};
 
+/// Helper to create ExecStats with all required fields
+fn make_stats(executed_ops: u64) -> ExecStats {
+    ExecStats {
+        executed_insns: executed_ops, // For interpreter, ops ≈ instructions
+        executed_ops,
+        tlb_hits: 0,
+        tlb_misses: 0,
+        jit_compiles: 0,
+        jit_compile_time_ns: 0,
+    }
+}
+
+/// Helper to create ExecResult with proper next_pc
+fn make_result(status: ExecStatus, executed_ops: u64, next_pc: GuestAddr) -> ExecResult {
+    ExecResult {
+        status,
+        stats: make_stats(executed_ops),
+        next_pc,
+    }
+}
+
 pub struct Interpreter {
     regs: [u64; 32],
-    intr_handler: Option<Box<dyn Fn(InterruptCtx, &mut Interpreter) -> ExecInterruptAction>>,
-    intr_handler_ext: Option<Box<dyn Fn(InterruptCtxExt, &mut Interpreter) -> ExecInterruptAction>>,
+    pc: GuestAddr,
+    intr_handler: Option<Box<dyn Fn(InterruptCtx, &mut Interpreter) -> ExecInterruptAction + Send>>,
+    intr_handler_ext: Option<Box<dyn Fn(InterruptCtxExt, &mut Interpreter) -> ExecInterruptAction + Send>>,
     pub fence_acquire_count: u64,
     pub fence_release_count: u64,
     pub intr_mask_until: u32,
@@ -17,7 +39,7 @@ pub struct InterruptCtx { pub vector: u32, pub pc: GuestAddr }
 pub struct InterruptCtxExt { pub vector: u32, pub pc: GuestAddr, pub regs_ptr: *mut u64 }
 
 impl Interpreter {
-        pub fn new() -> Self { Self { regs: [0; 32], intr_handler: None, intr_handler_ext: None, fence_acquire_count: 0, fence_release_count: 0, intr_mask_until: 0 } }
+    pub fn new() -> Self { Self { regs: [0; 32], pc: 0, intr_handler: None, intr_handler_ext: None, fence_acquire_count: 0, fence_release_count: 0, intr_mask_until: 0 } }
 
     pub fn set_reg(&mut self, idx: u32, val: u64) {
         let hi = idx >> 16;
@@ -32,10 +54,10 @@ impl Interpreter {
     pub fn get_regs_ptr(&mut self) -> *mut u64 {
         self.regs.as_mut_ptr()
     }
-    pub fn set_interrupt_handler<F: 'static + Fn(InterruptCtx, &mut Interpreter) -> ExecInterruptAction>(&mut self, f: F) {
+    pub fn set_interrupt_handler<F: 'static + Send + Fn(InterruptCtx, &mut Interpreter) -> ExecInterruptAction>(&mut self, f: F) {
         self.intr_handler = Some(Box::new(f));
     }
-    pub fn set_interrupt_handler_ext<F: 'static + Fn(InterruptCtxExt, &mut Interpreter) -> ExecInterruptAction>(&mut self, f: F) {
+    pub fn set_interrupt_handler_ext<F: 'static + Send + Fn(InterruptCtxExt, &mut Interpreter) -> ExecInterruptAction>(&mut self, f: F) {
         self.intr_handler_ext = Some(Box::new(f));
     }
     pub fn get_fence_counts(&self) -> (u64, u64) { (self.fence_acquire_count, self.fence_release_count) }
@@ -193,45 +215,45 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                 IROp::Load { dst, base, offset, size, flags } => {
                     let va = self.get_reg(*base).wrapping_add(*offset as u64);
                     if flags.align != 0 && (va % flags.align as u64 != 0) {
-                        return ExecResult { status: ExecStatus::Fault(vm_core::Fault::AccessViolation), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(vm_core::Fault::AccessViolation { addr: 0, access: AccessType::Read }), count, block.start_pc);
                     }
                     if flags.atomic && !(matches!(size, 1 | 2 | 4 | 8) && flags.align == *size) {
-                        return ExecResult { status: ExecStatus::Fault(vm_core::Fault::AccessViolation), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(vm_core::Fault::AccessViolation { addr: 0, access: AccessType::Read }), count, block.start_pc);
                     }
                     match flags.order { vm_ir::MemOrder::Acquire => { self.fence_acquire_count += 1; }, vm_ir::MemOrder::Release => {}, vm_ir::MemOrder::AcqRel => { self.fence_acquire_count += 1; }, vm_ir::MemOrder::None => {} }
 
                     let pa = match mmu.translate(va, AccessType::Read) { Ok(p) => p, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     match mmu.read(pa, *size) {
                         Ok(v) => { self.set_reg(*dst, v); }
-                        Err(e) => { return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } }; }
+                        Err(e) => { return make_result(ExecStatus::Fault(e), count, block.start_pc); }
                     }
                     count += 1;
                 }
                 IROp::Store { src, base, offset, size, flags } => {
                     let va = self.get_reg(*base).wrapping_add(*offset as u64);
                     if flags.align != 0 && (va % flags.align as u64 != 0) {
-                        return ExecResult { status: ExecStatus::Fault(vm_core::Fault::AccessViolation), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(vm_core::Fault::AccessViolation { addr: 0, access: AccessType::Read }), count, block.start_pc);
                     }
                     if flags.atomic && !(matches!(size, 1 | 2 | 4 | 8) && flags.align == *size) {
-                        return ExecResult { status: ExecStatus::Fault(vm_core::Fault::AccessViolation), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(vm_core::Fault::AccessViolation { addr: 0, access: AccessType::Read }), count, block.start_pc);
                     }
                     match flags.order { vm_ir::MemOrder::Release => { self.fence_release_count += 1; }, vm_ir::MemOrder::AcqRel => { self.fence_release_count += 1; }, _ => {} }
                     let pa = match mmu.translate(va, AccessType::Write) { Ok(p) => p, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     match mmu.write(pa, self.get_reg(*src), *size) {
                         Ok(()) => {}
-                        Err(e) => { return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } }; }
+                        Err(e) => { return make_result(ExecStatus::Fault(e), count, block.start_pc); }
                     }
                     count += 1;
                 }
                 IROp::SysCall => {
-                    return ExecResult { status: ExecStatus::Fault(vm_core::Fault::AccessViolation), stats: ExecStats { executed_ops: count } }; // TODO: Handle syscall
+                    return make_result(ExecStatus::Fault(vm_core::Fault::AccessViolation { addr: 0, access: AccessType::Read }), count, block.start_pc); // TODO: Handle syscall
                 }
                 IROp::DebugBreak => {
-                    return ExecResult { status: ExecStatus::Ok, stats: ExecStats { executed_ops: count } };
+                    return make_result(ExecStatus::Ok, count, block.start_pc);
                 }
                 IROp::TlbFlush { vaddr: _ } => {
                     // Interpreter uses SoftMMU which might not need explicit flush or we can't easily flush it here without MMU API change.
@@ -361,17 +383,17 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                 IROp::AtomicCmpXchg { dst, base, expected, new, size } => {
                     let va = self.get_reg(*base);
                     let pa_r = match mmu.translate(va, AccessType::Read) { Ok(p) => p, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     let old = match mmu.read(pa_r, *size) { Ok(v) => v, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     if old == self.get_reg(*expected) {
                         let pa_w = match mmu.translate(va, AccessType::Write) { Ok(p) => p, Err(e) => {
-                            return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                            return make_result(ExecStatus::Fault(e), count, block.start_pc);
                         } };
                         if let Err(e) = mmu.write(pa_w, self.get_reg(*new), *size) {
-                            return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                            return make_result(ExecStatus::Fault(e), count, block.start_pc);
                         }
                     }
                     self.set_reg(*dst, old);
@@ -380,18 +402,18 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                 IROp::AtomicCmpXchgFlag { dst_old, dst_flag, base, expected, new, size } => {
                     let va = self.get_reg(*base);
                     let pa_r = match mmu.translate(va, AccessType::Read) { Ok(p) => p, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     let old = match mmu.read(pa_r, *size) { Ok(v) => v, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     let mut success = 0;
                     if old == self.get_reg(*expected) {
                         let pa_w = match mmu.translate(va, AccessType::Write) { Ok(p) => p, Err(e) => {
-                            return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                            return make_result(ExecStatus::Fault(e), count, block.start_pc);
                         } };
                         if let Err(e) = mmu.write(pa_w, self.get_reg(*new), *size) {
-                            return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                            return make_result(ExecStatus::Fault(e), count, block.start_pc);
                         }
                         success = 1;
                     }
@@ -402,10 +424,10 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                 IROp::AtomicRmwFlag { dst_old, dst_flag, base, src, op, size } => {
                     let va = self.get_reg(*base);
                     let pa_r = match mmu.translate(va, AccessType::Read) { Ok(p) => p, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     let old = match mmu.read(pa_r, *size) { Ok(v) => v, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     let newv = match op {
                         vm_ir::AtomicOp::And => old & self.get_reg(*src),
@@ -430,10 +452,10 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         _ => old,
                     };
                     let pa_w = match mmu.translate(va, AccessType::Write) { Ok(p) => p, Err(e) => {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     } };
                     if let Err(e) = mmu.write(pa_w, newv, *size) {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: count } };
+                        return make_result(ExecStatus::Fault(e), count, block.start_pc);
                     }
                     self.set_reg(*dst_old, old);
                     self.set_reg(*dst_flag, 1);
@@ -618,7 +640,7 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let val = self.get_reg(*src);
                     let current = match mmu.read(addr, *size) {
                         Ok(v) => v,
-                        Err(e) => return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: 0 } },
+                        Err(e) => return make_result(ExecStatus::Fault(e), 0, block.start_pc),
                     };
                     let res = match op {
                         AtomicOp::Add => current.wrapping_add(val),
@@ -648,14 +670,43 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let mask = if *size == 8 { !0 } else { (1u64 << (*size * 8)) - 1 };
                     let res = res & mask;
                     if let Err(e) = mmu.write(addr, res, *size) {
-                        return ExecResult { status: ExecStatus::Fault(e), stats: ExecStats { executed_ops: 0 } };
+                        return make_result(ExecStatus::Fault(e), 0, block.start_pc);
                     }
                     self.set_reg(*dst, current);
                 }
                 _ => {}
             }
         }
-        ExecResult { status: ExecStatus::Ok, stats: ExecStats { executed_ops: count } }
+        // Compute next_pc based on terminator
+        let next_pc = match &block.term {
+            Terminator::Jmp { target } => *target,
+            Terminator::JmpReg { base, offset } => self.get_reg(*base).wrapping_add(*offset as u64),
+            Terminator::CondJmp { cond, target_true, target_false } => {
+                if self.get_reg(*cond) != 0 { *target_true } else { *target_false }
+            }
+            Terminator::Ret => block.start_pc, // Will exit loop
+            Terminator::Fault { cause: _ } => block.start_pc,
+            Terminator::Interrupt { vector: _ } => block.start_pc.wrapping_add(4),
+            Terminator::Call { target, ret_pc: _ } => *target,
+        };
+        self.pc = next_pc;
+        make_result(ExecStatus::Ok, count, next_pc)
+    }
+
+    fn get_reg(&self, idx: usize) -> u64 {
+        if idx < 32 { self.regs[idx] } else { 0 }
+    }
+
+    fn set_reg(&mut self, idx: usize, val: u64) {
+        if idx > 0 && idx < 32 { self.regs[idx] = val; }
+    }
+
+    fn get_pc(&self) -> GuestAddr {
+        self.pc
+    }
+
+    fn set_pc(&mut self, pc: GuestAddr) {
+        self.pc = pc;
     }
 }
 
@@ -676,7 +727,7 @@ pub fn run_chain(decoder: &mut dyn crate_decoder::DecoderDyn, mmu: &mut dyn MMU,
                 if interp.get_reg(cond) != 0 { pc = target_true; } else { pc = target_false; }
             }
             Terminator::Ret => { break; }
-            Terminator::Fault { cause: _ } => { return ExecResult { status: ExecStatus::Fault(vm_core::Fault::AccessViolation), stats: ExecStats { executed_ops: total } }; }
+            Terminator::Fault { cause: _ } => { return make_result(ExecStatus::Fault(vm_core::Fault::AccessViolation { addr: pc, access: AccessType::Exec }), total, pc); }
             Terminator::Interrupt { vector } => {
                 let mut tmp_ext = interp.intr_handler_ext.take();
                 let action = if let Some(h) = tmp_ext.take() {
@@ -698,18 +749,18 @@ pub fn run_chain(decoder: &mut dyn crate_decoder::DecoderDyn, mmu: &mut dyn MMU,
                     ExecInterruptAction::Mask => { pc = pc.wrapping_add(4); continue; }
                     ExecInterruptAction::Deliver => { pc = pc.wrapping_add(4); continue; }
                     ExecInterruptAction::Abort => {
-                        return ExecResult { status: ExecStatus::Fault(vm_core::Fault::AccessViolation), stats: ExecStats { executed_ops: total } };
+                        return make_result(ExecStatus::Fault(vm_core::Fault::AccessViolation { addr: pc, access: AccessType::Exec }), total, pc);
                     }
                 }
             }
             Terminator::Call { target, ret_pc: _ } => { pc = target; }
         }
     }
-    ExecResult { status: ExecStatus::Ok, stats: ExecStats { executed_ops: total } }
+    make_result(ExecStatus::Ok, total, pc)
 }
 
 pub mod crate_decoder {
-    use vm_core::{Decoder, MMU, GuestAddr};
+    use vm_core::{Decoder, MMU, GuestAddr, Fault, AccessType};
     use vm_ir::{IRBlock, Terminator};
     pub trait DecoderDyn {
         fn decode_dyn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> IRBlock;
@@ -719,7 +770,15 @@ pub mod crate_decoder {
             match <T as Decoder>::decode(self, mmu, pc) {
                 Ok(b) => b,
                 Err(e) => {
-                    let cause = match e { vm_core::Fault::InvalidOpcode => 3, vm_core::Fault::PageFault => 2, vm_core::Fault::AccessViolation => 1 } as u64;
+                    let cause = match e {
+                        Fault::InvalidOpcode { .. } => 3,
+                        Fault::PageFault { .. } => 2,
+                        Fault::AccessViolation { .. } => 1,
+                        Fault::AlignmentFault { .. } => 4,
+                        Fault::DeviceError { .. } => 5,
+                        Fault::Halt => 6,
+                        Fault::Shutdown => 7,
+                    } as u64;
                     IRBlock { start_pc: pc, ops: vec![], term: Terminator::Fault { cause } }
                 }
             }

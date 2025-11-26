@@ -3,5 +3,9 @@ name = "vm-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+no_std = []
+
 [dependencies]
 log = "0.4"

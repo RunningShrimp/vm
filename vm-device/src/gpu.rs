@@ -51,7 +51,7 @@ impl GpuDevice {
 }
 
 impl MmioDevice for GpuDevice {
-    fn read(&mut self, offset: u64, _size: u8) -> u64 {
+    fn read(&self, offset: u64, _size: u8) -> u64 {
         // Mock register read
         match offset {
             0x00 => 0x12345678, // Device ID

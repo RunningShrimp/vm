@@ -171,7 +171,7 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
             0x5F => (X86Mnemonic::Maxps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
             0x5D => (X86Mnemonic::Minps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
             0x80..=0x8F => (X86Mnemonic::Jcc, OpKind::Rel, OpKind::None, OpKind::None), // Jcc rel32
-            _ => return Err(Fault::InvalidOpcode),
+            _ => return Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
         }
     } else {
         match opcode {
@@ -215,10 +215,10 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
                     4 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None),
                     5 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None), // Far jmp?
                     6 => (X86Mnemonic::Push, OpKind::Rm, OpKind::None, OpKind::None),
-                    _ => return Err(Fault::InvalidOpcode),
+                    _ => return Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
                 }
             },
-            _ => return Err(Fault::InvalidOpcode),
+            _ => return Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
         }
     };
 
@@ -382,7 +382,7 @@ fn load_operand(builder: &mut IRBuilder, op: &X86Operand, op_bytes: u8) -> Resul
             builder.push(IROp::Load { dst: val_reg, base: addr_reg, offset: 0, size: op_bytes, flags: MemFlags::default() });
             Ok(val_reg)
         },
-        _ => Err(Fault::InvalidOpcode),
+        _ => Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
     }
 }
 
@@ -406,7 +406,7 @@ fn write_operand(builder: &mut IRBuilder, op: &X86Operand, val: u32, op_bytes: u
             builder.push(IROp::Store { src: val, base: addr_reg, offset: 0, size: op_bytes, flags: MemFlags::default() });
             Ok(())
         },
-        _ => Err(Fault::InvalidOpcode),
+        _ => Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
     }
 }
 
@@ -444,7 +444,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
                 }
                 write_operand(builder, &insn.op1, addr_reg, op_bytes)?;
             } else {
-                return Err(Fault::InvalidOpcode);
+                return Err(Fault::InvalidOpcode { pc: 0, opcode: 0 });
             }
         },
         X86Mnemonic::Push => {
@@ -577,7 +577,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
                 builder.set_term(Terminator::Interrupt { vector: 3 });
             }
         },
-        _ => return Err(Fault::InvalidOpcode),
+        _ => return Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
     }
     Ok(())
 }
@@ -823,7 +823,7 @@ mod tests {
         fn read(&self, addr: GuestAddr, size: u8) -> Result<u64, Fault> {
             let offset = (addr - self.base) as usize;
             if offset + size as usize > self.data.len() {
-                return Err(Fault::PageFault);
+                return Err(Fault::PageFault { addr, access: vm_core::AccessType::Read });
             }
             let mut val = 0;
             for i in 0..size as usize {
@@ -833,6 +833,15 @@ mod tests {
         }
         fn write(&mut self, _addr: GuestAddr, _val: u64, _size: u8) -> Result<(), Fault> {
             Ok(())
+        }
+        fn map_mmio(&mut self, _base: u64, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
+            // No-op for mock
+        }
+        fn flush_tlb(&mut self) {
+            // No-op for mock
+        }
+        fn memory_size(&self) -> usize {
+            self.data.len()
         }
     }
 

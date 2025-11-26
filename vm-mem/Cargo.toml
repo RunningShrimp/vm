@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 vm-core = { path = "../vm-core" }
 memmap2 = { version = "0.9", optional = true }
-vm-device = { path = "../vm-device" }
 
 [features]
 memmap = ["memmap2"]
