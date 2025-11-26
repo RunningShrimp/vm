@@ -182,6 +182,8 @@ mod kvm_impl;
 mod hvf_impl;
 #[cfg(target_os = "windows")]
 mod whpx_impl;
+#[cfg(target_os = "windows")]
+mod whpx_io;
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 mod vz_impl;
 

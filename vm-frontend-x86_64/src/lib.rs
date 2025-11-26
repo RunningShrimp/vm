@@ -1,5 +1,7 @@
-use vm_core::{Decoder, MMU, GuestAddr, Fault};
+use vm_core::{Decoder, GuestAddr, GuestRegs, Fault, AccessType};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
+
+mod extended_insns;
 
 pub struct X86Decoder;
 
