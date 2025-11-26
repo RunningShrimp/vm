@@ -1791,6 +1791,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm-passthrough"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "thiserror",
+ "vm-core",
+ "windows 0.58.0",
+]
+
+[[package]]
 name = "vm-tests"
 version = "0.1.0"
 dependencies = [
