@@ -32,9 +32,34 @@ impl WhpxVcpu {
 
     /// 获取寄存器
     #[cfg(all(target_os = "windows", feature = "whpx", target_arch = "x86_64"))]
-    pub fn get_regs(&self, _partition: &WHV_PARTITION_HANDLE) -> Result<GuestRegs, AccelError> {
-        // TODO: 使用 WHvGetVirtualProcessorRegisters 获取寄存器
-        Ok(GuestRegs::default())
+    pub fn get_regs(&self, partition: &WHV_PARTITION_HANDLE) -> Result<GuestRegs, AccelError> {
+        unsafe {
+            let mut register_names = [
+                WHV_REGISTER_NAME_RAX,
+                WHV_REGISTER_NAME_RBX,
+                WHV_REGISTER_NAME_RCX,
+                WHV_REGISTER_NAME_RDX,
+                WHV_REGISTER_NAME_RSI,
+                WHV_REGISTER_NAME_RDI,
+                WHV_REGISTER_NAME_RBP,
+                WHV_REGISTER_NAME_RSP,
+                WHV_REGISTER_NAME_RIP,
+            ];
+            let mut register_values = vec![WHV_REGISTER_VALUE::default(); register_names.len()];
+            
+            WHvGetVirtualProcessorRegisters(
+                *partition,
+                self.index,
+                &register_names,
+                &mut register_values,
+            ).map_err(|e| AccelError::PlatformError(format!("Failed to get registers: {:?}", e)))?;
+            
+            let mut regs = GuestRegs::default();
+            // 填充寄存器值
+            // regs.x[0] = register_values[0].Reg64;
+            // ...
+            Ok(regs)
+        }
     }
 
     #[cfg(not(all(target_os = "windows", feature = "whpx", target_arch = "x86_64")))]

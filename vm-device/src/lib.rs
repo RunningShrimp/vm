@@ -1,11 +1,13 @@
 pub mod gpu;
 pub mod virtio;
+pub mod virtio_multiqueue;
 pub mod block;
 pub mod clint;
 pub mod plic;
 pub mod graphics;
 pub mod network;
 pub mod cdrom;
+pub mod virgl;
 
 pub trait Device {
     fn reset(&mut self);

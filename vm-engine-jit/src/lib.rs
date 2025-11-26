@@ -8,6 +8,8 @@ use cranelift::codegen::settings::{self, Configurable};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+mod advanced_ops;
+
 /// Hot threshold for JIT compilation (execute count before compiling)
 pub const HOT_THRESHOLD: u64 = 100;
 
