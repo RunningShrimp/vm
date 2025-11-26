@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 raw-cpuid = { version = "11", optional = true }
+num_cpus = "1.16"
 log = "0.4"
 thiserror = "1.0"
 

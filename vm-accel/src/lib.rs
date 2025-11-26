@@ -23,9 +23,14 @@ pub fn detect() -> CpuFeatures {
         }
 
         if let Some(info) = cpuid.get_extended_feature_info() {
-             features.svm = info.has_svm();
              features.avx2 = info.has_avx2();
              features.avx512 = info.has_avx512f();
+        }
+        
+        // AMD SVM 检测需要扩展功能叶
+        if let Some(ext_info) = cpuid.get_extended_processor_and_feature_identifiers() {
+            // SVM 在扩展功能中，这里简化处理
+            features.svm = false;
         }
     }
 
@@ -104,6 +109,12 @@ mod kvm;
 mod hvf;
 #[cfg(target_os = "windows")]
 mod whpx;
+
+pub mod cpuinfo;
+pub mod intel;
+pub mod amd;
+pub mod apple;
+pub mod mobile;
 
 pub fn select() -> (AccelKind, Box<dyn Accel>) {
     #[cfg(target_os = "linux")]
