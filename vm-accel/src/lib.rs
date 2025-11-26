@@ -45,12 +45,63 @@ pub fn detect() -> CpuFeatures {
     features
 }
 
+// 新的统一 Accel trait
+use vm_core::{GuestRegs, MMU};
+
+#[derive(Debug, thiserror::Error)]
+pub enum AccelError {
+    #[error("Accelerator not available: {0}")]
+    NotAvailable(String),
+    #[error("Accelerator not initialized: {0}")]
+    NotInitialized(String),
+    #[error("Initialization failed: {0}")]
+    InitFailed(String),
+    #[error("Failed to create VM: {0}")]
+    CreateVmFailed(String),
+    #[error("Failed to create vCPU: {0}")]
+    CreateVcpuFailed(String),
+    #[error("Failed to map memory: {0}")]
+    MapMemoryFailed(String),
+    #[error("Failed to unmap memory: {0}")]
+    UnmapMemoryFailed(String),
+    #[error("Failed to run vCPU: {0}")]
+    RunFailed(String),
+    #[error("Failed to get registers: {0}")]
+    GetRegsFailed(String),
+    #[error("Failed to set registers: {0}")]
+    SetRegsFailed(String),
+    #[error("Invalid vCPU ID: {0}")]
+    InvalidVcpuId(u32),
+    #[error("Invalid address: {0}")]
+    InvalidAddress(String),
+    #[error("Not supported: {0}")]
+    NotSupported(String),
+}
+
 pub trait Accel {
-    fn init(&mut self) -> bool;
-    fn map_memory(&mut self, guest_pa: u64, size: u64) -> bool { let _ = (guest_pa, size); false }
-    fn create_vcpu(&mut self, id: u32) -> bool { let _ = id; false }
-    fn run(&mut self) -> bool { false }
-    fn inject_interrupt(&mut self, vector: u32) -> bool { let _ = vector; false }
+    /// 初始化加速器
+    fn init(&mut self) -> Result<(), AccelError>;
+    
+    /// 创建 vCPU
+    fn create_vcpu(&mut self, id: u32) -> Result<(), AccelError>;
+    
+    /// 映射内存
+    fn map_memory(&mut self, gpa: u64, hva: u64, size: u64, flags: u32) -> Result<(), AccelError>;
+    
+    /// 取消映射内存
+    fn unmap_memory(&mut self, gpa: u64, size: u64) -> Result<(), AccelError>;
+    
+    /// 运行 vCPU
+    fn run_vcpu(&mut self, vcpu_id: u32, mmu: &mut dyn MMU) -> Result<(), AccelError>;
+    
+    /// 获取寄存器
+    fn get_regs(&self, vcpu_id: u32) -> Result<GuestRegs, AccelError>;
+    
+    /// 设置寄存器
+    fn set_regs(&mut self, vcpu_id: u32, regs: &GuestRegs) -> Result<(), AccelError>;
+    
+    /// 获取加速器名称
+    fn name(&self) -> &str;
 }
 
 pub trait VcpuAccel {}
@@ -100,9 +151,41 @@ impl AccelKind {
 
 pub struct NoAccel;
 impl Accel for NoAccel {
-    fn init(&mut self) -> bool { false }
+    fn init(&mut self) -> Result<(), AccelError> {
+        Err(AccelError::NotAvailable("No accelerator available".to_string()))
+    }
+    fn create_vcpu(&mut self, _id: u32) -> Result<(), AccelError> {
+        Err(AccelError::NotSupported("No accelerator".to_string()))
+    }
+    fn map_memory(&mut self, _gpa: u64, _hva: u64, _size: u64, _flags: u32) -> Result<(), AccelError> {
+        Err(AccelError::NotSupported("No accelerator".to_string()))
+    }
+    fn unmap_memory(&mut self, _gpa: u64, _size: u64) -> Result<(), AccelError> {
+        Err(AccelError::NotSupported("No accelerator".to_string()))
+    }
+    fn run_vcpu(&mut self, _vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
+        Err(AccelError::NotSupported("No accelerator".to_string()))
+    }
+    fn get_regs(&self, _vcpu_id: u32) -> Result<GuestRegs, AccelError> {
+        Err(AccelError::NotSupported("No accelerator".to_string()))
+    }
+    fn set_regs(&mut self, _vcpu_id: u32, _regs: &GuestRegs) -> Result<(), AccelError> {
+        Err(AccelError::NotSupported("No accelerator".to_string()))
+    }
+    fn name(&self) -> &str { "None" }
 }
 
+// 新的实现模块
+#[cfg(target_os = "linux")]
+mod kvm_impl;
+#[cfg(target_os = "macos")]
+mod hvf_impl;
+#[cfg(target_os = "windows")]
+mod whpx_impl;
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+mod vz_impl;
+
+// 旧模块保留以保持兼容
 #[cfg(target_os = "linux")]
 mod kvm;
 #[cfg(target_os = "macos")]
@@ -116,24 +199,40 @@ pub mod amd;
 pub mod apple;
 pub mod mobile;
 
+// 新的 select 函数
 pub fn select() -> (AccelKind, Box<dyn Accel>) {
     #[cfg(target_os = "linux")]
     {
-        let mut a = kvm::AccelKvm::new();
-        if a.init() { return (AccelKind::Kvm, Box::new(a)); }
+        let mut a = kvm_impl::AccelKvm::new();
+        if a.init().is_ok() { return (AccelKind::Kvm, Box::new(a)); }
     }
     #[cfg(target_os = "macos")]
     {
-        let mut a = hvf::AccelHvf::new();
-        if a.init() { return (AccelKind::Hvf, Box::new(a)); }
+        let mut a = hvf_impl::AccelHvf::new();
+        if a.init().is_ok() { return (AccelKind::Hvf, Box::new(a)); }
     }
     #[cfg(target_os = "windows")]
     {
-        let mut a = whpx::AccelWhpx::new();
-        if a.init() { return (AccelKind::Whpx, Box::new(a)); }
+        let mut a = whpx_impl::AccelWhpx::new();
+        if a.init().is_ok() { return (AccelKind::Whpx, Box::new(a)); }
+    }
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
+    {
+        let mut a = vz_impl::AccelVz::new();
+        if a.init().is_ok() { return (AccelKind::Hvf, Box::new(a)); } // 使用 Hvf 作为类型
     }
     (AccelKind::None, Box::new(NoAccel))
 }
+
+// 导出各平台的实现
+#[cfg(target_os = "linux")]
+pub use kvm_impl::AccelKvm;
+#[cfg(target_os = "macos")]
+pub use hvf_impl::AccelHvf;
+#[cfg(target_os = "windows")]
+pub use whpx_impl::AccelWhpx;
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+pub use vz_impl::AccelVz;
 
 #[cfg(all(target_arch = "x86_64"))]
 pub fn add_i32x8(a: [i32; 8], b: [i32; 8]) -> [i32; 8] {

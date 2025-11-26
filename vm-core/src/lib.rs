@@ -12,6 +12,10 @@ use alloc::{boxed::Box, vec::Vec, string::String, sync::Arc};
 #[cfg(not(feature = "no_std"))]
 use std::sync::{Arc, Mutex};
 
+// 模块定义
+mod regs;
+pub use regs::GuestRegs;
+
 // ============================================================================
 // 基础类型定义
 // ============================================================================

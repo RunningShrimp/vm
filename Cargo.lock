@@ -1671,6 +1671,7 @@ dependencies = [
  "num_cpus",
  "raw-cpuid",
  "thiserror",
+ "vm-core",
  "windows 0.58.0",
 ]
 
