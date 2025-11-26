@@ -14,6 +14,8 @@ use std::path::Path;
 pub mod runtime;
 pub mod snapshot;
 pub mod hotplug;
+pub mod iso9660;
+pub mod eltorito;
 
 // 重新导出常用类型
 pub use runtime::{RuntimeController, RuntimeCommand, RuntimeState, RuntimeEvent};
@@ -44,6 +46,8 @@ pub enum BootMethod {
     Uefi,
     /// BIOS 固件启动
     Bios,
+    /// ISO 镜像引导
+    Iso,
 }
 
 /// 启动配置
@@ -59,6 +63,8 @@ pub struct BootConfig {
     pub initrd: Option<String>,
     /// 固件路径（UEFI/BIOS）
     pub firmware: Option<String>,
+    /// ISO 镜像路径
+    pub iso: Option<String>,
     /// 内核加载地址
     pub kernel_load_addr: GuestAddr,
     /// Initrd 加载地址
@@ -73,6 +79,7 @@ impl Default for BootConfig {
             cmdline: None,
             initrd: None,
             firmware: None,
+            iso: None,
             kernel_load_addr: 0x80000000, // 默认 RISC-V/ARM64 加载地址
             initrd_load_addr: 0x84000000,
         }
@@ -112,6 +119,12 @@ impl BootConfig {
         self
     }
 
+    /// 设置 ISO 镜像路径
+    pub fn with_iso(mut self, path: impl Into<String>) -> Self {
+        self.iso = Some(path.into());
+        self
+    }
+
     /// 设置内核加载地址
     pub fn with_kernel_addr(mut self, addr: GuestAddr) -> Self {
         self.kernel_load_addr = addr;
@@ -135,6 +148,11 @@ impl BootConfig {
             BootMethod::Uefi | BootMethod::Bios => {
                 if self.firmware.is_none() {
                     return Err(BootError::InvalidConfig(format!("{:?} boot requires firmware path", self.method)));
+                }
+            }
+            BootMethod::Iso => {
+                if self.iso.is_none() {
+                    return Err(BootError::InvalidConfig("ISO boot requires ISO path".to_string()));
                 }
             }
         }
@@ -222,6 +240,7 @@ impl BootLoader {
             BootMethod::Direct => self.direct_boot(memory),
             BootMethod::Uefi => self.uefi_boot(memory),
             BootMethod::Bios => self.bios_boot(memory),
+            BootMethod::Iso => self.iso_boot(memory),
         }
     }
 
@@ -303,6 +322,56 @@ impl BootLoader {
 
         Ok(BootInfo {
             entry_point: 0xFFF0, // BIOS 重置向量
+            initrd_addr: None,
+            initrd_size: None,
+            cmdline_addr: None,
+        })
+    }
+
+    /// ISO 引导
+    fn iso_boot(&self, memory: &mut dyn vm_core::MMU) -> Result<BootInfo, BootError> {
+        use std::fs::File;
+        use crate::iso9660::Iso9660;
+        use crate::eltorito::ElTorito;
+
+        log::info!("Starting ISO Boot");
+
+        let iso_path = self.config.iso.as_ref()
+            .ok_or_else(|| BootError::InvalidConfig("No ISO specified".to_string()))?;
+
+        let file = File::open(iso_path)
+            .map_err(|e| BootError::Io(e))?;
+
+        // 解析 El Torito 引导目录
+        let mut eltorito = ElTorito::new(file)
+            .map_err(|e| BootError::InvalidConfig(format!("Failed to parse El Torito: {}", e)))?;
+
+        let catalog = eltorito.boot_catalog()
+            .ok_or_else(|| BootError::InvalidConfig("No boot catalog found".to_string()))?;
+
+        log::info!("Found El Torito boot catalog");
+        log::info!("Platform ID: {}", catalog.validation_entry.platform_id);
+        log::info!("Boot media type: {:?}", catalog.initial_entry.boot_media_type);
+
+        // 读取引导镜像
+        let boot_image = eltorito.read_boot_image(&catalog.initial_entry)
+            .map_err(|e| BootError::InvalidConfig(format!("Failed to read boot image: {}", e)))?;
+
+        log::info!("Loaded boot image ({} bytes)", boot_image.len());
+
+        // 将引导镜像加载到内存
+        // 对于 BIOS 引导，通常加载到 0x7C00
+        let boot_addr = 0x7C00u64;
+
+        for (i, &byte) in boot_image.iter().enumerate() {
+            memory.write(boot_addr + i as u64, byte as u64, 1)
+                .map_err(|e| BootError::InvalidConfig(format!("Memory write failed: {:?}", e)))?;
+        }
+
+        log::info!("Boot image loaded at 0x{:x}", boot_addr);
+
+        Ok(BootInfo {
+            entry_point: boot_addr,
             initrd_addr: None,
             initrd_size: None,
             cmdline_addr: None,

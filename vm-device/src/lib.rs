@@ -5,6 +5,7 @@ pub mod clint;
 pub mod plic;
 pub mod graphics;
 pub mod network;
+pub mod cdrom;
 
 pub trait Device {
     fn reset(&mut self);
