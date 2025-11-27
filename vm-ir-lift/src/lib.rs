@@ -47,7 +47,10 @@ use vm_core::{CoreError, ExecutionError, VmError};
 pub mod arm64_semantics;
 pub mod decoder;
 pub mod ir_gen;
+#[cfg(feature = "llvm")]
 pub mod llvm_integration;
+#[cfg(feature = "llvm")]
+pub mod inkwell_integration;
 pub mod optimizer;
 pub mod riscv64_semantics;
 pub mod semantics;
@@ -55,9 +58,14 @@ pub mod semantics;
 // Re-export commonly used types
 pub use decoder::{ISA, Instruction, InstructionDecoder, OperandType, create_decoder};
 pub use ir_gen::{BasicBlock, IRBuilder, IROptimizer, LLVMFunction};
+#[cfg(feature = "llvm")]
 pub use llvm_integration::{
     LLVMCodeGenerator, LLVMContext, LLVMFunction as LLVMFunc, LLVMFunctionBuilder, LLVMModule,
     LLVMPassExecutor, OptimizationRunStats,
+};
+#[cfg(feature = "llvm")]
+pub use inkwell_integration::{
+    InkwellCodeGenerator, InkwellContext, InkwellModule, InkwellBuilder,
 };
 pub use optimizer::{OptimizationLevel, OptimizationPreset, OptimizationStats, PassManager};
 pub use semantics::{FlagsState, Semantics, X86_64Semantics, create_semantics};

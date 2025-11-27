@@ -179,7 +179,9 @@ pub unsafe fn ld1b(base: *const u8, offset: isize, pred: &SvePredicate, vl: &Vec
     let mut result = Vec::with_capacity(vl.get());
     for i in 0..vl.get() {
         if pred.test(i) {
-            result.push(*base.add(offset as usize + i));
+            unsafe {
+                result.push(*base.add(offset as usize + i));
+            }
         } else {
             result.push(0); // 未激活的元素设为0
         }
@@ -196,7 +198,9 @@ pub unsafe fn ld1h(base: *const u16, offset: isize, pred: &SvePredicate, vl: &Ve
     let mut result = Vec::with_capacity(vl.get() / 2);
     for i in 0..(vl.get() / 2) {
         if pred.test(i) {
-            result.push(*base.add((offset as usize / 2) + i));
+            unsafe {
+                result.push(*base.add((offset as usize / 2) + i));
+            }
         } else {
             result.push(0);
         }
@@ -213,7 +217,9 @@ pub unsafe fn ld1w(base: *const u32, offset: isize, pred: &SvePredicate, vl: &Ve
     let mut result = Vec::with_capacity(vl.get() / 4);
     for i in 0..(vl.get() / 4) {
         if pred.test(i) {
-            result.push(*base.add((offset as usize / 4) + i));
+            unsafe {
+                result.push(*base.add((offset as usize / 4) + i));
+            }
         } else {
             result.push(0);
         }
@@ -230,7 +236,9 @@ pub unsafe fn ld1d(base: *const u64, offset: isize, pred: &SvePredicate, vl: &Ve
     let mut result = Vec::with_capacity(vl.get() / 8);
     for i in 0..(vl.get() / 8) {
         if pred.test(i) {
-            result.push(*base.add((offset as usize / 8) + i));
+            unsafe {
+                result.push(*base.add((offset as usize / 8) + i));
+            }
         } else {
             result.push(0);
         }

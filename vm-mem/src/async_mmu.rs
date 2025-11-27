@@ -42,6 +42,12 @@ pub trait AsyncMMU: Send + Sync {
     /// 异步批量写入
     async fn write_bulk_async(&self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError>;
 
+    /// 异步批量地址转换
+    async fn translate_bulk_async(
+        &self,
+        vas: &[(GuestAddr, AccessType)],
+    ) -> Result<Vec<GuestPhysAddr>, VmError>;
+
     /// 异步刷新TLB
     async fn flush_tlb_async(&self) -> Result<(), VmError>;
 }
@@ -113,6 +119,21 @@ impl AsyncMMU for AsyncMmuWrapper {
         let mut mmu = self.inner.lock().await;
         mmu.flush_tlb();
         Ok(())
+    }
+
+    async fn translate_bulk_async(
+        &self,
+        vas: &[(GuestAddr, AccessType)],
+    ) -> Result<Vec<GuestPhysAddr>, VmError> {
+        let mut mmu = self.inner.lock().await;
+        let mut results = Vec::with_capacity(vas.len());
+        
+        for &(va, access) in vas {
+            let pa = mmu.translate(va, access)?;
+            results.push(pa);
+        }
+        
+        Ok(results)
     }
 }
 
@@ -468,5 +489,53 @@ mod tests {
         // // 验证写入结果
         // let value = async_mmu.read_async(0x1000, 4).await.unwrap();
         // assert_eq!(value, 0x12345678);
+    }
+
+    #[tokio::test]
+    async fn test_async_mmu_bulk_translate() {
+        use crate::SoftMmu;
+        
+        // 创建SoftMMU实例
+        let mut soft_mmu = SoftMmu::new(1024 * 1024, false);
+        
+        // 测试Bare模式下的批量地址转换
+        let async_mmu = AsyncMmuWrapper::new(Box::new(soft_mmu));
+        
+        // 创建测试用的虚拟地址和访问类型
+        let vas = vec![
+            (0x1000, vm_core::AccessType::Read),
+            (0x2000, vm_core::AccessType::Write),
+            (0x3000, vm_core::AccessType::Exec),
+        ];
+        
+        // 执行批量地址转换
+        let results = async_mmu.translate_bulk_async(&vas).await;
+        assert!(results.is_ok());
+        
+        let pas = results.unwrap();
+        assert_eq!(pas.len(), vas.len());
+        
+        // 在Bare模式下，虚拟地址应该等于物理地址
+        for (i, pa) in pas.iter().enumerate() {
+            assert_eq!(*pa, vas[i].0);
+        }
+    }
+
+    // #[tokio::test]
+    // async fn test_async_file_io() {
+    //     // 创建临时文件（需要tempfile依赖）
+    //     // let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+    //     // let temp_path = temp_file.path().to_str().unwrap().to_string();
+        
+    //     // // 写入测试数据
+    //     // let test_data = b"Hello, async file I/O!";
+    //     // super::async_file_io::write_memory_to_file(temp_path.clone(), test_data).await
+    //     //     .expect("Failed to write to file");
+        
+    //     // // 读取测试数据
+    //     // let read_data = super::async_file_io::read_file_to_memory(temp_path.clone()).await
+    //     //     .expect("Failed to read from file");
+    //     // assert_eq!(read_data, test_data);
+    // }
     }
 }

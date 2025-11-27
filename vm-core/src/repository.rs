@@ -40,16 +40,16 @@ pub trait EventRepository: Send + Sync {
     fn save_event(&self, vm_id: &VmId, event: DomainEventEnum) -> VmResult<()>;
 
     /// 加载事件历史
-    fn load_events(&self, vm_id: &VmId, from_version: Option<u64>, to_version: Option<u64>) -> VmResult<Vec<DomainEventEnum>>;
+    fn load_events(&self, vm_id: &VmId, from_version: Option<u64>, to_version: Option<u64>) -> VmResult<Vec<crate::event_store::StoredEvent>>;
 
     /// 获取最新事件版本
     fn get_latest_version(&self, vm_id: &VmId) -> VmResult<Option<u64>>;
 
     /// 迁移事件版本
     fn migrate_events(&self, vm_id: &VmId) -> VmResult<Vec<DomainEventEnum>> {
-        let events = self.load_events(vm_id, None, None)?;
-        let migrated_events = events.into_iter()
-            .map(|event| EventVersionMigrator::migrate_to_latest(event))
+        let stored_events = self.load_events(vm_id, None, None)?;
+        let migrated_events = stored_events.into_iter()
+            .map(|stored_event| EventVersionMigrator::migrate_to_latest(stored_event.event))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(migrated_events)
     }
@@ -223,9 +223,14 @@ impl AggregateRepository for InMemoryAggregateRepository {
             if stored_events.is_empty() {
                 Ok(None)
             } else {
+                // 从事件中提取配置：查找VmCreated事件获取初始配置
+                let domain_events: Vec<DomainEventEnum> = stored_events.iter()
+                    .map(|stored_event| stored_event.event.clone())
+                    .collect();
+                let config = Self::extract_config_from_events(&domain_events);
                 let aggregate = VirtualMachineAggregate::from_events(
                     vm_id.as_str().to_string(),
-                    VmConfig::default(), // TODO: 从事件中提取配置
+                    config,
                     stored_events,
                 );
                 Ok(Some(aggregate))
@@ -252,6 +257,67 @@ impl AggregateRepository for InMemoryAggregateRepository {
 
     fn get_aggregate_version(&self, vm_id: &VmId) -> VmResult<Option<u64>> {
         self.event_repo.get_latest_version(vm_id)
+    }
+}
+
+impl InMemoryAggregateRepository {
+    /// 从事件历史中提取VM配置
+    /// 
+    /// 遍历事件列表，查找VmCreated或VmCreatedV2事件以获取初始配置，
+    /// 然后应用后续的配置变更事件（如果有）
+    fn extract_config_from_events(events: &[DomainEventEnum]) -> VmConfig {
+        use crate::domain_events::{VmLifecycleEvent, VmConfigSnapshot};
+        use crate::{GuestArch, ExecMode};
+        
+        // 查找VmCreated事件获取初始配置
+        for event in events.iter() {
+            if let DomainEventEnum::VmLifecycle(lifecycle_event) = event {
+                match lifecycle_event {
+                    VmLifecycleEvent::VmCreated { config, .. } => {
+                        return Self::config_from_snapshot(config);
+                    }
+                    VmLifecycleEvent::VmCreatedV2 { config, .. } => {
+                        return Self::config_from_snapshot(config);
+                    }
+                    _ => continue,
+                }
+            }
+        }
+        
+        // 如果没有找到创建事件，返回默认配置
+        VmConfig::default()
+    }
+    
+    /// 从VmConfigSnapshot转换为VmConfig
+    fn config_from_snapshot(snapshot: &crate::domain_events::VmConfigSnapshot) -> VmConfig {
+        use crate::{GuestArch, ExecMode};
+        
+        // 解析guest_arch
+        let guest_arch = match snapshot.guest_arch.to_lowercase().as_str() {
+            "x86_64" | "x86-64" | "amd64" => GuestArch::X86_64,
+            "arm64" | "aarch64" => GuestArch::Arm64,
+            "riscv64" | "riscv-64" => GuestArch::Riscv64,
+            _ => GuestArch::Riscv64, // 默认使用RISC-V
+        };
+        
+        // 解析exec_mode
+        let exec_mode = if snapshot.exec_mode.contains("Jit") || snapshot.exec_mode.contains("JIT") {
+            ExecMode::Jit
+        } else if snapshot.exec_mode.contains("Hybrid") {
+            ExecMode::Hybrid
+        } else if snapshot.exec_mode.contains("Accel") {
+            ExecMode::Accelerated
+        } else {
+            ExecMode::Interpreter
+        };
+        
+        VmConfig {
+            guest_arch,
+            memory_size: snapshot.memory_size as usize,
+            vcpu_count: snapshot.vcpu_count,
+            exec_mode,
+            ..VmConfig::default()
+        }
     }
 }
 
@@ -288,7 +354,7 @@ impl EventRepository for InMemoryEventRepository {
         Ok(())
     }
 
-    fn load_events(&self, vm_id: &VmId, from_version: Option<u64>, to_version: Option<u64>) -> VmResult<Vec<DomainEventEnum>> {
+    fn load_events(&self, vm_id: &VmId, from_version: Option<u64>, to_version: Option<u64>) -> VmResult<Vec<crate::event_store::StoredEvent>> {
         let events = self.events.read().map_err(|_| {
             VmError::Core(crate::CoreError::Concurrency {
                 message: "Failed to acquire read lock".to_string(),
@@ -305,7 +371,12 @@ impl EventRepository for InMemoryEventRepository {
                 let from_ok = from_version.map_or(true, |from| version >= from);
                 let to_ok = to_version.map_or(true, |to| version <= to);
                 if from_ok && to_ok {
-                    Some(event)
+                    Some(crate::event_store::StoredEvent {
+                        sequence_number: version,
+                        vm_id: vm_id.as_str().to_string(),
+                        event,
+                        stored_at: std::time::SystemTime::now(),
+                    })
                 } else {
                     None
                 }
@@ -370,13 +441,60 @@ impl InMemorySnapshotRepository {
             snapshots: Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
     }
+    
+    /// 从snapshot中提取vm_id
+    /// 
+    /// 使用多种策略提取vm_id：
+    /// 1. 如果snapshot.id包含冒号，使用冒号前的部分作为vm_id
+    /// 2. 如果snapshot.name不为空，使用name的第一个单词作为vm_id
+    /// 3. 否则，尝试从memory_dump_path中提取
+    /// 4. 最后返回默认值
+    fn extract_vm_id_from_snapshot(snapshot: &snapshot::Snapshot) -> String {
+        // 策略1：从id中提取（格式：vm_id:snapshot_uuid 或 vm_id-snapshot_uuid）
+        if let Some(colon_pos) = snapshot.id.find(':') {
+            return snapshot.id[..colon_pos].to_string();
+        }
+        if let Some(dash_pos) = snapshot.id.find('-') {
+            // 检查是否看起来像UUID（包含多个短横线）
+            let dash_count = snapshot.id.chars().filter(|&c| c == '-').count();
+            if dash_count <= 2 {
+                // 可能是 vm_id-xxx 格式
+                return snapshot.id[..dash_pos].to_string();
+            }
+        }
+        
+        // 策略2：从name中提取
+        if !snapshot.name.is_empty() {
+            let name_parts: Vec<&str> = snapshot.name.split(|c: char| c.is_whitespace() || c == '-' || c == '_').collect();
+            if !name_parts.is_empty() && name_parts[0].len() > 2 {
+                return name_parts[0].to_string();
+            }
+        }
+        
+        // 策略3：从memory_dump_path中提取
+        if !snapshot.memory_dump_path.is_empty() {
+            // 尝试从路径中提取目录名作为vm_id
+            if let Some(path) = std::path::Path::new(&snapshot.memory_dump_path).parent() {
+                if let Some(dir_name) = path.file_name() {
+                    if let Some(name) = dir_name.to_str() {
+                        if !name.is_empty() && name != "snapshots" && name != "." {
+                            return name.to_string();
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 策略4：返回默认值
+        "default-vm".to_string()
+    }
 }
 
 impl SnapshotRepository for InMemorySnapshotRepository {
     fn save_snapshot(&self, snapshot: &snapshot::Snapshot) -> VmResult<()> {
-        // 注意：当前Snapshot结构没有vm_id字段，我们使用一个默认值
-        // 这是一个临时解决方案，需要扩展Snapshot结构
-        let vm_id = "default-vm"; // TODO: 从snapshot中获取vm_id
+        // 从snapshot的id或name中提取vm_id
+        // 约定：snapshot.id格式为 "vm_id:snapshot_uuid" 或 snapshot.name以vm_id开头
+        let vm_id = Self::extract_vm_id_from_snapshot(snapshot);
 
         let mut snapshots = self.snapshots.write().map_err(|_| {
             VmError::Core(crate::CoreError::Concurrency {
@@ -539,6 +657,9 @@ mod tests {
         // 加载事件
         let events = repo.load_events(&vm_id, None, None).unwrap();
         assert_eq!(events.len(), 1);
+        // 验证返回的是StoredEvent
+        assert_eq!(events[0].sequence_number, 1);
+        assert_eq!(events[0].vm_id, vm_id.as_str());
     }
 
     #[test]

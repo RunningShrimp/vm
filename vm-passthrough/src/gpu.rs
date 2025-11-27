@@ -306,12 +306,22 @@ impl PassthroughDevice for AmdGpu {
     }
 }
 
-/// GPU 管理器
-pub struct GpuManager {
+/// 直通 GPU 设备管理器
+/// 
+/// 管理直通模式下的物理 GPU 设备（NVIDIA、AMD 等），
+/// 提供设备枚举、添加和查询功能。
+/// 
+/// 注意：与 `vm-device` 中的 `VirtualGpuManager` 不同，
+/// 本管理器专注于物理 GPU 的直通管理，而非虚拟化后端选择。
+pub struct PassthroughGpuManager {
     gpus: HashMap<PciAddress, Box<dyn PassthroughDevice>>,
 }
 
-impl GpuManager {
+/// 向后兼容的类型别名
+#[deprecated(since = "0.2.0", note = "Use PassthroughGpuManager instead")]
+pub type GpuManager = PassthroughGpuManager;
+
+impl PassthroughGpuManager {
     /// 创建新的 GPU 管理器
     pub fn new() -> Self {
         Self {
@@ -345,7 +355,7 @@ impl GpuManager {
     }
 }
 
-impl Default for GpuManager {
+impl Default for PassthroughGpuManager {
     fn default() -> Self {
         Self::new()
     }

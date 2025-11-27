@@ -37,6 +37,7 @@ mod config;
 mod optimizer;
 mod codegen_direct;
 mod codegen_llvm;
+pub mod codegen_cranelift;
 mod incremental;
 mod dependency_analyzer;
 mod ir_processor;

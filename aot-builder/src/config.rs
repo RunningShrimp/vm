@@ -27,6 +27,8 @@ pub enum CodegenMode {
     Direct,
     /// 通过 LLVM 生成
     LLVM,
+    /// 通过 Cranelift 生成
+    Cranelift,
 }
 
 impl Default for CompilationOptions {
@@ -35,7 +37,7 @@ impl Default for CompilationOptions {
             optimization_level: 2,
             target_isa: ISA::X86_64,
             enable_applicability_check: true,
-            codegen_mode: CodegenMode::LLVM,
+            codegen_mode: CodegenMode::Cranelift,
             enable_parallel_compilation: true,
             parallel_threads: 0, // 自动检测
             respect_dependencies: true,

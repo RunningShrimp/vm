@@ -1,9 +1,10 @@
-//! # vm-runtime - 多运行时支持
+//! # vm-runtime - 多运行时支持与GMP型协程调度器
 //!
-//! 提供多种异步运行时的支持和统一抽象，包括Tokio、Async-std、Smol等。
+//! 提供多种异步运行时的支持、统一抽象，以及基于Go GMP模型的高性能协程调度器。
 //!
 //! ## 主要功能
 //!
+//! - **GMP型协程调度器**: 虚拟CPU协程（G）、处理器（P）、工作线程（M）、反应器（Reactor）
 //! - **运行时抽象层**: 统一的异步运行时接口
 //! - **多运行时支持**: 支持Tokio、Async-std、Smol等运行时
 //! - **运行时选择**: 基于工作负载的智能运行时选择
@@ -27,11 +28,36 @@ impl PerformanceMonitor {
     }
     pub fn record_metric(&self, _: &str, _: f64, _: std::collections::HashMap<String, String>) {}
 }
+
+/// GMP型协程调度器模块
+pub mod scheduler;
+pub use scheduler::{
+    CoroutineScheduler, Coroutine, Processor, WorkerThread, Reactor,
+    Priority, CoroutineState, YieldReason, SchedulerStats,
+};
+
+/// 遗留的CoroutinePool（已废弃，推荐使用新的CoroutineScheduler）
+#[deprecated(
+    since = "0.2.0",
+    note = "Use CoroutineScheduler instead - it provides better performance and GMP model support"
+)]
 pub mod coroutine_pool;
+
+/// 遗留的GMP运行时适配器（已废弃，功能已整合到新的scheduler模块）
+#[deprecated(
+    since = "0.2.0",
+    note = "GMP functionality has been integrated into the new scheduler module"
+)]
 mod gmp;
+
+#[deprecated(since = "0.2.0", note = "Use CoroutineScheduler instead")]
 pub use coroutine_pool::CoroutinePool;
-pub use gmp::{GmpRuntimeAdapter, Priority, yield_now};
+#[deprecated(since = "0.2.0", note = "Use Priority from scheduler module instead")]
+pub use gmp::Priority as GmpPriority;
+#[deprecated(since = "0.2.0", note = "Integrated into scheduler module")]
+pub use gmp::yield_now;
 #[cfg(target_family = "unix")]
+#[deprecated(since = "0.2.0", note = "Integrated into scheduler module")]
 pub use gmp::{register_readable, register_writable, unregister};
 
 /// 运行时类型枚举
@@ -256,9 +282,10 @@ impl RuntimeManager {
     }
 
     async fn register_custom_runtime(&mut self) -> Result<(), VmError> {
-        let runtime = GmpRuntimeAdapter::new();
-        self.available_runtimes
-            .insert(RuntimeType::Custom, Box::new(runtime));
+        // Custom runtime registration disabled - using new CoroutineScheduler instead
+        // let runtime = GmpRuntimeAdapter::new();
+        // self.available_runtimes
+        //     .insert(RuntimeType::Custom, Box::new(runtime));
         Ok(())
     }
 
@@ -308,8 +335,6 @@ impl RuntimeManager {
                 <AsyncStdRuntime as AsyncRuntime>::submit_task(r, task).await
             } else if let Some(r) = runtime.as_any().downcast_ref::<SmolRuntime>() {
                 <SmolRuntime as AsyncRuntime>::submit_task(r, task).await
-            } else if let Some(r) = runtime.as_any().downcast_ref::<GmpRuntimeAdapter>() {
-                <GmpRuntimeAdapter as AsyncRuntime>::submit_task(r, task).await
             } else {
                 Err(VmError::Core(vm_core::CoreError::InvalidState {
                     message: "Unknown runtime type".to_string(),
@@ -337,13 +362,18 @@ impl RuntimeManager {
         Fut: std::future::Future<Output = Result<(), VmError>> + Send + 'static,
     {
         if let Some(ref runtime) = self.current_runtime {
-            if let Some(custom) = runtime.as_any().downcast_ref::<GmpRuntimeAdapter>() {
-                Ok(custom.submit_task_with_priority(task, priority))
+            if let Some(_custom) = runtime.as_any().downcast_ref::<TokioRuntime>() {
+                // Priority submission delegated to the new CoroutineScheduler
+                Err(VmError::Core(vm_core::CoreError::InvalidState {
+                    message: "Use CoroutineScheduler::submit_task for priority scheduling".to_string(),
+                    current: "using-old-runtime".to_string(),
+                    expected: "using-coroutine-scheduler".to_string(),
+                }))
             } else {
                 Err(VmError::Core(vm_core::CoreError::InvalidState {
-                    message: "Priority submission only supported on custom runtime".to_string(),
-                    current: "non-custom".to_string(),
-                    expected: "custom".to_string(),
+                    message: "Priority submission requires CoroutineScheduler".to_string(),
+                    current: "non-scheduler".to_string(),
+                    expected: "coroutine-scheduler".to_string(),
                 }))
             }
         } else {
@@ -364,8 +394,6 @@ impl RuntimeManager {
                 <AsyncStdRuntime as AsyncRuntime>::wait_task(r, handle).await
             } else if let Some(r) = runtime.as_any().downcast_ref::<SmolRuntime>() {
                 <SmolRuntime as AsyncRuntime>::wait_task(r, handle).await
-            } else if let Some(r) = runtime.as_any().downcast_ref::<GmpRuntimeAdapter>() {
-                <GmpRuntimeAdapter as AsyncRuntime>::wait_task(r, handle).await
             } else {
                 Err(VmError::Core(vm_core::CoreError::InvalidState {
                     message: "Unknown runtime type".to_string(),

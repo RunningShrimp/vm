@@ -4,7 +4,7 @@
 
 use crate::VmError;
 use crate::domain_event_bus::{DomainEventBus, EventHandler, EventSubscriptionId};
-use crate::domain_events::DomainEvent;
+// #[allow(dead_code)] use crate::domain_events::DomainEvent; // 保留以备将来使用
 use std::collections::VecDeque;
 use std::sync::{
     Arc, Mutex,

@@ -19,12 +19,14 @@ num_cpus = "1.17"
 parking_lot = "0.12"
 thiserror = "2.0"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", optional = true }
 core_affinity = "0.8"
 crossbeam-queue = "0.3"
 stacker = "0.1"
 mio = { version = "1.1", features = ["os-poll", "os-ext"] }
 psm = "0.1"
 context = "3.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

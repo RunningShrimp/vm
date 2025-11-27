@@ -7,6 +7,13 @@ edition = "2024"
 vm-engine-jit = { path = "../vm-engine-jit" }
 vm-ir = { path = "../vm-ir" }
 vm-ir-lift = { path = "../vm-ir-lift" }
+cranelift = "0.126"
+cranelift-codegen = "0.126"
+cranelift-frontend = "0.126"
+cranelift-module = "0.126"
+cranelift-object = "0.126"
+cranelift-native = "0.126"
+target-lexicon = "0.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 serde = { version = "1.0", features = ["derive"] }

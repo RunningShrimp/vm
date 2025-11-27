@@ -45,8 +45,8 @@
 
 use std::collections::{HashMap, HashSet};
 use vm_ir::{IROp, RegId};
-use crate::ir_utils;
-use super::register_allocator::{RegisterAllocatorTrait, RegisterAllocation, RegisterAllocatorStats};
+use crate::optimizing_compiler::ir_utils;
+use crate::optimizing_compiler::register_allocator::{RegisterAllocatorTrait, RegisterAllocation, RegisterAllocatorStats};
 
 /// 图着色寄存器分配器配置
 #[derive(Debug, Clone)]
@@ -313,9 +313,9 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
         }
 
         // 3. 图着色分配
-        let mut allocations = HashMap::new();
-        let mut colored = HashMap::new();
-        let mut spilled = Vec::new();
+        let mut allocations: HashMap<u32, RegisterAllocation> = HashMap::new();
+        let mut colored: HashMap<u32, usize> = HashMap::new();
+        let mut spilled: Vec<u32> = Vec::new();
 
         let k = self.config.available_registers;
 
@@ -339,14 +339,14 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
                 for &neighbor in neighbors {
                     // 检查合并映射
                     let actual_neighbor = coalesce_map.get(&neighbor).copied().unwrap_or(neighbor);
-                    if let Some(color) = colored.get(&actual_neighbor) {
-                        used_colors.insert(*color);
+                    if let Some(&color) = colored.get(&actual_neighbor) {
+                        used_colors.insert(color);
                     }
                 }
             }
 
             // 优先级着色：优先分配使用频率高的寄存器
-            let mut color_candidates: Vec<u32> = (1..=k as u32).collect();
+            let color_candidates: Vec<usize> = (1..=k).collect();
             if self.config.enable_priority_coloring {
                 // 根据使用频率排序颜色候选（简化实现）
                 // 实际应该考虑寄存器压力分布
@@ -359,7 +359,7 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
                         colored.insert(reg, color);
                         allocations.insert(
                             reg,
-                            RegisterAllocation::Register(color),
+                            RegisterAllocation::Register(color as u32),
                         );
                         break;
                     }
@@ -390,9 +390,10 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
 
     fn get_stats(&self) -> RegisterAllocatorStats {
         RegisterAllocatorStats {
-            spill_count: self.spilled_regs.len(),
-            allocated_count: self.reg_lifetimes.len(),
-            algorithm_used: "graph_coloring".to_string(),
+            total_allocations: self.reg_lifetimes.len() as u64,
+            spills: self.spilled_regs.len() as u64,
+            physical_regs_used: self.config.available_registers as u32,
+            avg_allocation_time_ns: 0, // TODO: track allocation time
         }
     }
 }

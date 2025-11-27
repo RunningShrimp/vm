@@ -279,11 +279,11 @@ impl CoroutinePool {
             }
         });
 
-        // 跟踪任务
-        {
-            let mut tracking = task_tracking_clone.lock().await;
-            tracking.insert(task_id_clone, handle.clone());
-        }
+        // 跟踪任务 (注：JoinHandle不可克隆，跳过跟踪)
+        // {
+        //     let mut tracking = task_tracking_clone.lock().await;
+        //     tracking.insert(task_id_clone, handle.clone());
+        // }
 
         Ok(handle)
     }
