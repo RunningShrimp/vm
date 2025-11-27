@@ -4,6 +4,22 @@
 
 use vm_core::{MMU, MmioDevice, GuestAddr, GuestPhysAddr, AccessType, Fault};
 
+/// Host 虚拟地址
+pub type HostAddr = u64;
+
+/// 内存错误类型
+#[derive(Debug)]
+pub enum MemoryError {
+    /// 地址越界
+    OutOfBounds,
+    /// 访问权限错误
+    PermissionDenied,
+    /// 页表错误
+    PageFault,
+    /// 对齐错误
+    UnalignedAccess,
+}
+
 // ============================================================================
 // 页表相关常量（RISC-V SV39）
 // ============================================================================

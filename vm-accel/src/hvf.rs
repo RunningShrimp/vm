@@ -1,257 +1,409 @@
-//! Hypervisor.framework (HVF) acceleration backend for macOS
+//! macOS Hypervisor.framework 加速后端完整实现
 //!
-//! This module provides hardware-assisted virtualization on macOS systems
-//! using Apple's Hypervisor.framework.
+//! 支持 Intel 和 Apple Silicon (M系列)
 
-use super::Accel;
+use super::{Accel, AccelError};
+use vm_core::{GuestRegs, MMU};
 use std::collections::HashMap;
 
-/// Error type for HVF operations
-#[derive(Debug, Clone)]
-pub enum HvfError {
-    /// HVF not available
-    NotAvailable,
-    /// Failed to create VM
-    CreateVmFailed(i32),
-    /// Failed to create vCPU
-    CreateVcpuFailed(i32),
-    /// Failed to map memory
-    MapMemoryFailed(i32),
-    /// Failed to run vCPU
-    RunFailed(i32),
-    /// Unsupported operation
-    Unsupported(String),
+#[cfg(target_os = "macos")]
+use std::ptr;
+
+// Hypervisor.framework FFI 绑定
+#[cfg(target_os = "macos")]
+#[link(name = "Hypervisor", kind = "framework")]
+extern "C" {
+    // VM 管理
+    fn hv_vm_create(config: *mut std::ffi::c_void) -> i32;
+    fn hv_vm_destroy() -> i32;
+    fn hv_vm_map(uva: *const std::ffi::c_void, gpa: u64, size: usize, flags: u64) -> i32;
+    fn hv_vm_unmap(gpa: u64, size: usize) -> i32;
+    fn hv_vm_protect(gpa: u64, size: usize, flags: u64) -> i32;
+    
+    // vCPU 管理
+    fn hv_vcpu_create(vcpu: *mut u32, exit: *mut std::ffi::c_void, config: *mut std::ffi::c_void) -> i32;
+    fn hv_vcpu_destroy(vcpu: u32) -> i32;
+    fn hv_vcpu_run(vcpu: u32) -> i32;
+    
+    // x86_64 寄存器访问
+    #[cfg(target_arch = "x86_64")]
+    fn hv_vcpu_read_register(vcpu: u32, reg: u32, value: *mut u64) -> i32;
+    #[cfg(target_arch = "x86_64")]
+    fn hv_vcpu_write_register(vcpu: u32, reg: u32, value: u64) -> i32;
+    
+    // ARM64 寄存器访问
+    #[cfg(target_arch = "aarch64")]
+    fn hv_vcpu_get_reg(vcpu: u32, reg: u32, value: *mut u64) -> i32;
+    #[cfg(target_arch = "aarch64")]
+    fn hv_vcpu_set_reg(vcpu: u32, reg: u32, value: u64) -> i32;
 }
 
-impl std::fmt::Display for HvfError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            HvfError::NotAvailable => write!(f, "Hypervisor.framework not available"),
-            HvfError::CreateVmFailed(e) => write!(f, "Failed to create VM: error {}", e),
-            HvfError::CreateVcpuFailed(e) => write!(f, "Failed to create vCPU: error {}", e),
-            HvfError::MapMemoryFailed(e) => write!(f, "Failed to map memory: error {}", e),
-            HvfError::RunFailed(e) => write!(f, "Failed to run vCPU: error {}", e),
-            HvfError::Unsupported(s) => write!(f, "Unsupported: {}", s),
+// HV 返回码
+#[cfg(target_os = "macos")]
+const HV_SUCCESS: i32 = 0;
+#[cfg(target_os = "macos")]
+const HV_ERROR: i32 = 0xfae94001;
+#[cfg(target_os = "macos")]
+const HV_BUSY: i32 = 0xfae94002;
+#[cfg(target_os = "macos")]
+const HV_BAD_ARGUMENT: i32 = 0xfae94003;
+#[cfg(target_os = "macos")]
+const HV_NO_RESOURCES: i32 = 0xfae94005;
+#[cfg(target_os = "macos")]
+const HV_NO_DEVICE: i32 = 0xfae94006;
+#[cfg(target_os = "macos")]
+const HV_UNSUPPORTED: i32 = 0xfae9400f;
+
+// 内存权限标志
+#[cfg(target_os = "macos")]
+const HV_MEMORY_READ: u64 = 1 << 0;
+#[cfg(target_os = "macos")]
+const HV_MEMORY_WRITE: u64 = 1 << 1;
+#[cfg(target_os = "macos")]
+const HV_MEMORY_EXEC: u64 = 1 << 2;
+
+// x86_64 寄存器定义
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+#[allow(dead_code)]
+mod x86_regs {
+    pub const HV_X86_RIP: u32 = 0;
+    pub const HV_X86_RFLAGS: u32 = 1;
+    pub const HV_X86_RAX: u32 = 2;
+    pub const HV_X86_RCX: u32 = 3;
+    pub const HV_X86_RDX: u32 = 4;
+    pub const HV_X86_RBX: u32 = 5;
+    pub const HV_X86_RSI: u32 = 6;
+    pub const HV_X86_RDI: u32 = 7;
+    pub const HV_X86_RSP: u32 = 8;
+    pub const HV_X86_RBP: u32 = 9;
+    pub const HV_X86_R8: u32 = 10;
+    pub const HV_X86_R9: u32 = 11;
+    pub const HV_X86_R10: u32 = 12;
+    pub const HV_X86_R11: u32 = 13;
+    pub const HV_X86_R12: u32 = 14;
+    pub const HV_X86_R13: u32 = 15;
+    pub const HV_X86_R14: u32 = 16;
+    pub const HV_X86_R15: u32 = 17;
+}
+
+// ARM64 寄存器定义
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[allow(dead_code)]
+mod arm_regs {
+    pub const HV_REG_X0: u32 = 0;
+    pub const HV_REG_X1: u32 = 1;
+    // ... X2-X28
+    pub const HV_REG_FP: u32 = 29;
+    pub const HV_REG_LR: u32 = 30;
+    pub const HV_REG_SP: u32 = 31;
+    pub const HV_REG_PC: u32 = 32;
+    pub const HV_REG_CPSR: u32 = 33;
+}
+
+/// HVF vCPU
+pub struct HvfVcpu {
+    #[cfg(target_os = "macos")]
+    id: u32,
+    #[cfg(not(target_os = "macos"))]
+    _id: u32,
+}
+
+impl HvfVcpu {
+    #[cfg(target_os = "macos")]
+    pub fn new(id: u32) -> Result<Self, AccelError> {
+        let mut vcpu_id: u32 = 0;
+        let ret = unsafe {
+            hv_vcpu_create(&mut vcpu_id, ptr::null_mut(), ptr::null_mut())
+        };
+        
+        if ret != HV_SUCCESS {
+            return Err(AccelError::CreateVcpuFailed(format!("hv_vcpu_create failed: 0x{:x}", ret)));
+        }
+        
+        Ok(Self { id: vcpu_id })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn new(id: u32) -> Result<Self, AccelError> {
+        Ok(Self { _id: id })
+    }
+
+    /// 获取寄存器
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
+        use x86_regs::*;
+        
+        let mut regs = GuestRegs::default();
+        
+        unsafe {
+            hv_vcpu_read_register(self.id, HV_X86_RIP, &mut regs.pc);
+            hv_vcpu_read_register(self.id, HV_X86_RSP, &mut regs.sp);
+            hv_vcpu_read_register(self.id, HV_X86_RBP, &mut regs.fp);
+            
+            hv_vcpu_read_register(self.id, HV_X86_RAX, &mut regs.gpr[0]);
+            hv_vcpu_read_register(self.id, HV_X86_RCX, &mut regs.gpr[1]);
+            hv_vcpu_read_register(self.id, HV_X86_RDX, &mut regs.gpr[2]);
+            hv_vcpu_read_register(self.id, HV_X86_RBX, &mut regs.gpr[3]);
+            hv_vcpu_read_register(self.id, HV_X86_RSI, &mut regs.gpr[6]);
+            hv_vcpu_read_register(self.id, HV_X86_RDI, &mut regs.gpr[7]);
+            hv_vcpu_read_register(self.id, HV_X86_R8, &mut regs.gpr[8]);
+            hv_vcpu_read_register(self.id, HV_X86_R9, &mut regs.gpr[9]);
+            hv_vcpu_read_register(self.id, HV_X86_R10, &mut regs.gpr[10]);
+            hv_vcpu_read_register(self.id, HV_X86_R11, &mut regs.gpr[11]);
+            hv_vcpu_read_register(self.id, HV_X86_R12, &mut regs.gpr[12]);
+            hv_vcpu_read_register(self.id, HV_X86_R13, &mut regs.gpr[13]);
+            hv_vcpu_read_register(self.id, HV_X86_R14, &mut regs.gpr[14]);
+            hv_vcpu_read_register(self.id, HV_X86_R15, &mut regs.gpr[15]);
+        }
+        
+        Ok(regs)
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
+        use arm_regs::*;
+        
+        let mut regs = GuestRegs::default();
+        
+        unsafe {
+            hv_vcpu_get_reg(self.id, HV_REG_PC, &mut regs.pc);
+            hv_vcpu_get_reg(self.id, HV_REG_SP, &mut regs.sp);
+            hv_vcpu_get_reg(self.id, HV_REG_FP, &mut regs.fp);
+            
+            for i in 0..31 {
+                hv_vcpu_get_reg(self.id, HV_REG_X0 + i, &mut regs.gpr[i as usize]);
+            }
+        }
+        
+        Ok(regs)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
+        Err(AccelError::NotSupported("HVF not available on this platform".to_string()))
+    }
+
+    /// 设置寄存器
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    pub fn set_regs(&mut self, regs: &GuestRegs) -> Result<(), AccelError> {
+        use x86_regs::*;
+        
+        unsafe {
+            hv_vcpu_write_register(self.id, HV_X86_RIP, regs.pc);
+            hv_vcpu_write_register(self.id, HV_X86_RSP, regs.sp);
+            hv_vcpu_write_register(self.id, HV_X86_RBP, regs.fp);
+            hv_vcpu_write_register(self.id, HV_X86_RFLAGS, 0x2); // Reserved bit
+            
+            hv_vcpu_write_register(self.id, HV_X86_RAX, regs.gpr[0]);
+            hv_vcpu_write_register(self.id, HV_X86_RCX, regs.gpr[1]);
+            hv_vcpu_write_register(self.id, HV_X86_RDX, regs.gpr[2]);
+            hv_vcpu_write_register(self.id, HV_X86_RBX, regs.gpr[3]);
+            hv_vcpu_write_register(self.id, HV_X86_RSI, regs.gpr[6]);
+            hv_vcpu_write_register(self.id, HV_X86_RDI, regs.gpr[7]);
+            hv_vcpu_write_register(self.id, HV_X86_R8, regs.gpr[8]);
+            hv_vcpu_write_register(self.id, HV_X86_R9, regs.gpr[9]);
+            hv_vcpu_write_register(self.id, HV_X86_R10, regs.gpr[10]);
+            hv_vcpu_write_register(self.id, HV_X86_R11, regs.gpr[11]);
+            hv_vcpu_write_register(self.id, HV_X86_R12, regs.gpr[12]);
+            hv_vcpu_write_register(self.id, HV_X86_R13, regs.gpr[13]);
+            hv_vcpu_write_register(self.id, HV_X86_R14, regs.gpr[14]);
+            hv_vcpu_write_register(self.id, HV_X86_R15, regs.gpr[15]);
+        }
+        
+        Ok(())
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub fn set_regs(&mut self, regs: &GuestRegs) -> Result<(), AccelError> {
+        use arm_regs::*;
+        
+        unsafe {
+            hv_vcpu_set_reg(self.id, HV_REG_PC, regs.pc);
+            hv_vcpu_set_reg(self.id, HV_REG_SP, regs.sp);
+            hv_vcpu_set_reg(self.id, HV_REG_FP, regs.fp);
+            hv_vcpu_set_reg(self.id, HV_REG_CPSR, 0x3c5); // EL1h
+            
+            for i in 0..31 {
+                hv_vcpu_set_reg(self.id, HV_REG_X0 + i, regs.gpr[i as usize]);
+            }
+        }
+        
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn set_regs(&mut self, _regs: &GuestRegs) -> Result<(), AccelError> {
+        Err(AccelError::NotSupported("HVF not available on this platform".to_string()))
+    }
+
+    /// 运行 vCPU
+    #[cfg(target_os = "macos")]
+    pub fn run(&mut self) -> Result<(), AccelError> {
+        let ret = unsafe { hv_vcpu_run(self.id) };
+        
+        if ret != HV_SUCCESS {
+            return Err(AccelError::RunFailed(format!("hv_vcpu_run failed: 0x{:x}", ret)));
+        }
+        
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn run(&mut self) -> Result<(), AccelError> {
+        Err(AccelError::NotSupported("HVF not available on this platform".to_string()))
+    }
+}
+
+impl Drop for HvfVcpu {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            hv_vcpu_destroy(self.id);
         }
     }
 }
 
-impl std::error::Error for HvfError {}
-
-/// HVF exit reasons
-#[derive(Debug, Clone)]
-pub enum HvfExitReason {
-    Unknown,
-    Exception,
-    VirtualTimer,
-    WFI,  // Wait For Interrupt (ARM)
-    WFE,  // Wait For Event (ARM)
-    HVC,  // Hypervisor Call
-    SMC,  // Secure Monitor Call
-    Shutdown,
-}
-
-/// Memory region tracking
-#[derive(Debug, Clone)]
-pub struct MemoryRegion {
-    pub guest_phys_addr: u64,
-    pub size: u64,
-    pub host_addr: u64,
-    pub flags: u64,
-}
-
-/// HVF vCPU representation
-pub struct HvfVcpu {
-    #[cfg(target_os = "macos")]
-    handle: u64,  // hv_vcpu_t
-    id: u32,
-}
-
-/// HVF accelerator implementation
+/// HVF 加速器
 pub struct AccelHvf {
-    initialized: bool,
     vcpus: Vec<HvfVcpu>,
-    memory_regions: Vec<MemoryRegion>,
-}
-
-// HVF Constants (from Hypervisor.framework)
-#[cfg(target_os = "macos")]
-mod hvf_sys {
-    // Memory flags
-    pub const HV_MEMORY_READ: u64 = 1 << 0;
-    pub const HV_MEMORY_WRITE: u64 = 1 << 1;
-    pub const HV_MEMORY_EXEC: u64 = 1 << 2;
-    
-    // Exit reasons (ARM64)
-    pub const HV_EXIT_REASON_CANCELED: u32 = 0;
-    pub const HV_EXIT_REASON_EXCEPTION: u32 = 1;
-    pub const HV_EXIT_REASON_VTIMER_ACTIVATED: u32 = 2;
-    pub const HV_EXIT_REASON_UNKNOWN: u32 = 3;
-    
-    // Success code
-    pub const HV_SUCCESS: i32 = 0;
-    
-    #[link(name = "Hypervisor", kind = "framework")]
-    extern "C" {
-        // VM management
-        pub fn hv_vm_create(config: *mut std::ffi::c_void) -> i32;
-        pub fn hv_vm_destroy() -> i32;
-        
-        // Memory management
-        pub fn hv_vm_map(addr: *mut std::ffi::c_void, ipa: u64, size: usize, flags: u64) -> i32;
-        pub fn hv_vm_unmap(ipa: u64, size: usize) -> i32;
-        
-        // vCPU management (ARM64)
-        #[cfg(target_arch = "aarch64")]
-        pub fn hv_vcpu_create(vcpu: *mut u64, exit: *mut *mut std::ffi::c_void, config: *mut std::ffi::c_void) -> i32;
-        #[cfg(target_arch = "aarch64")]
-        pub fn hv_vcpu_destroy(vcpu: u64) -> i32;
-        #[cfg(target_arch = "aarch64")]
-        pub fn hv_vcpu_run(vcpu: u64) -> i32;
-        #[cfg(target_arch = "aarch64")]
-        pub fn hv_vcpu_get_reg(vcpu: u64, reg: u32, value: *mut u64) -> i32;
-        #[cfg(target_arch = "aarch64")]
-        pub fn hv_vcpu_set_reg(vcpu: u64, reg: u32, value: u64) -> i32;
-        #[cfg(target_arch = "aarch64")]
-        pub fn hv_vcpu_get_sys_reg(vcpu: u64, reg: u16, value: *mut u64) -> i32;
-        #[cfg(target_arch = "aarch64")]
-        pub fn hv_vcpu_set_sys_reg(vcpu: u64, reg: u16, value: u64) -> i32;
-    }
+    memory_regions: HashMap<u64, u64>, // gpa -> size
+    initialized: bool,
 }
 
 impl AccelHvf {
     pub fn new() -> Self {
         Self {
-            initialized: false,
             vcpus: Vec::new(),
-            memory_regions: Vec::new(),
+            memory_regions: HashMap::new(),
+            initialized: false,
         }
     }
-    
-    /// Check if HVF is available on this system
+
+    /// 检查 HVF 是否可用
+    #[cfg(target_os = "macos")]
     pub fn is_available() -> bool {
+        // macOS 10.10+ 都支持 Hypervisor.framework
+        true
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn is_available() -> bool {
+        false
+    }
+}
+
+impl Accel for AccelHvf {
+    fn init(&mut self) -> Result<(), AccelError> {
         #[cfg(target_os = "macos")]
         {
-            // Check for Hypervisor entitlement
-            // On Apple Silicon, HVF requires the com.apple.security.hypervisor entitlement
-            // For now, we try to create a VM and see if it succeeds
-            unsafe {
-                let result = hvf_sys::hv_vm_create(std::ptr::null_mut());
-                if result == hvf_sys::HV_SUCCESS {
-                    let _ = hvf_sys::hv_vm_destroy();
-                    return true;
-                }
+            if self.initialized {
+                return Ok(());
             }
-            false
+
+            let ret = unsafe { hv_vm_create(ptr::null_mut()) };
+            
+            if ret != HV_SUCCESS {
+                return Err(AccelError::InitFailed(format!("hv_vm_create failed: 0x{:x}", ret)));
+            }
+
+            self.initialized = true;
+            log::info!("HVF accelerator initialized successfully");
+            Ok(())
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
-            false
+            Err(AccelError::NotSupported("HVF only available on macOS".to_string()))
         }
     }
-    
-    /// Map memory from host to guest
-    #[cfg(target_os = "macos")]
-    pub fn map_memory_region(&mut self, host_addr: *mut u8, guest_pa: u64, size: usize, read: bool, write: bool, exec: bool) -> Result<(), HvfError> {
-        if !self.initialized {
-            return Err(HvfError::NotAvailable);
-        }
-        
-        let mut flags: u64 = 0;
-        if read { flags |= hvf_sys::HV_MEMORY_READ; }
-        if write { flags |= hvf_sys::HV_MEMORY_WRITE; }
-        if exec { flags |= hvf_sys::HV_MEMORY_EXEC; }
-        
-        let result = unsafe {
-            hvf_sys::hv_vm_map(host_addr as *mut _, guest_pa, size, flags)
-        };
-        
-        if result != hvf_sys::HV_SUCCESS {
-            return Err(HvfError::MapMemoryFailed(result));
-        }
-        
-        self.memory_regions.push(MemoryRegion {
-            guest_phys_addr: guest_pa,
-            size: size as u64,
-            host_addr: host_addr as u64,
-            flags,
-        });
-        
+
+    fn create_vcpu(&mut self, id: u32) -> Result<(), AccelError> {
+        let vcpu = HvfVcpu::new(id)?;
+        self.vcpus.push(vcpu);
+        log::info!("Created HVF vCPU {}", id);
         Ok(())
     }
-    
-    /// Create a vCPU
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub fn create_vcpu_internal(&mut self, id: u32) -> Result<(), HvfError> {
-        if !self.initialized {
-            return Err(HvfError::NotAvailable);
+
+    fn map_memory(&mut self, gpa: u64, hva: u64, size: u64, flags: u32) -> Result<(), AccelError> {
+        #[cfg(target_os = "macos")]
+        {
+            let mut hv_flags = HV_MEMORY_READ | HV_MEMORY_WRITE;
+            if flags & 0x4 != 0 {
+                hv_flags |= HV_MEMORY_EXEC;
+            }
+
+            let ret = unsafe {
+                hv_vm_map(hva as *const std::ffi::c_void, gpa, size as usize, hv_flags)
+            };
+            
+            if ret != HV_SUCCESS {
+                return Err(AccelError::MapMemoryFailed(format!("hv_vm_map failed: 0x{:x}", ret)));
+            }
+
+            self.memory_regions.insert(gpa, size);
+            log::debug!("Mapped memory: GPA 0x{:x}, size 0x{:x}", gpa, size);
+            Ok(())
         }
-        
-        let mut vcpu_handle: u64 = 0;
-        let mut exit_info: *mut std::ffi::c_void = std::ptr::null_mut();
-        
-        let result = unsafe {
-            hvf_sys::hv_vcpu_create(&mut vcpu_handle, &mut exit_info, std::ptr::null_mut())
-        };
-        
-        if result != hvf_sys::HV_SUCCESS {
-            return Err(HvfError::CreateVcpuFailed(result));
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(AccelError::NotSupported("HVF not available on this platform".to_string()))
         }
-        
-        self.vcpus.push(HvfVcpu {
-            handle: vcpu_handle,
-            id,
-        });
-        
-        Ok(())
     }
-    
-    /// Run a vCPU
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub fn run_vcpu_internal(&mut self, vcpu_id: usize) -> Result<HvfExitReason, HvfError> {
-        let vcpu = self.vcpus.get(vcpu_id)
-            .ok_or(HvfError::Unsupported("Invalid vCPU ID".into()))?;
-        
-        let result = unsafe { hvf_sys::hv_vcpu_run(vcpu.handle) };
-        
-        if result != hvf_sys::HV_SUCCESS {
-            return Err(HvfError::RunFailed(result));
+
+    fn unmap_memory(&mut self, gpa: u64, size: u64) -> Result<(), AccelError> {
+        #[cfg(target_os = "macos")]
+        {
+            let ret = unsafe { hv_vm_unmap(gpa, size as usize) };
+            
+            if ret != HV_SUCCESS {
+                return Err(AccelError::UnmapMemoryFailed(format!("hv_vm_unmap failed: 0x{:x}", ret)));
+            }
+
+            self.memory_regions.remove(&gpa);
+            log::debug!("Unmapped memory: GPA 0x{:x}", gpa);
+            Ok(())
         }
-        
-        // TODO: Parse exit info to determine actual exit reason
-        Ok(HvfExitReason::Unknown)
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(AccelError::NotSupported("HVF not available on this platform".to_string()))
+        }
     }
-    
-    /// Get general-purpose register (ARM64)
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub fn get_reg(&self, vcpu_id: usize, reg: u32) -> Result<u64, HvfError> {
-        let vcpu = self.vcpus.get(vcpu_id)
-            .ok_or(HvfError::Unsupported("Invalid vCPU ID".into()))?;
+
+    fn run_vcpu(&mut self, vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
+        let vcpu = self.vcpus.get_mut(vcpu_id as usize)
+            .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
         
-        let mut value: u64 = 0;
-        let result = unsafe { hvf_sys::hv_vcpu_get_reg(vcpu.handle, reg, &mut value) };
-        
-        if result != hvf_sys::HV_SUCCESS {
-            return Err(HvfError::RunFailed(result));
-        }
-        
-        Ok(value)
+        vcpu.run()
     }
-    
-    /// Set general-purpose register (ARM64)
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub fn set_reg(&self, vcpu_id: usize, reg: u32, value: u64) -> Result<(), HvfError> {
-        let vcpu = self.vcpus.get(vcpu_id)
-            .ok_or(HvfError::Unsupported("Invalid vCPU ID".into()))?;
-        
-        let result = unsafe { hvf_sys::hv_vcpu_set_reg(vcpu.handle, reg, value) };
-        
-        if result != hvf_sys::HV_SUCCESS {
-            return Err(HvfError::RunFailed(result));
+
+    fn get_regs(&self, vcpu_id: u32) -> Result<GuestRegs, AccelError> {
+        let vcpu = self.vcpus.get(vcpu_id as usize)
+            .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
+        vcpu.get_regs()
+    }
+
+    fn set_regs(&mut self, vcpu_id: u32, regs: &GuestRegs) -> Result<(), AccelError> {
+        let vcpu = self.vcpus.get_mut(vcpu_id as usize)
+            .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
+        vcpu.set_regs(regs)
+    }
+
+    fn name(&self) -> &str {
+        "HVF"
+    }
+}
+
+impl Drop for AccelHvf {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        if self.initialized {
+            unsafe {
+                hv_vm_destroy();
+            }
+            log::info!("HVF VM destroyed");
         }
-        
-        Ok(())
     }
 }
 
@@ -261,165 +413,19 @@ impl Default for AccelHvf {
     }
 }
 
-impl Accel for AccelHvf {
-    #[cfg(target_os = "macos")]
-    fn init(&mut self) -> bool {
-        let result = unsafe { hvf_sys::hv_vm_create(std::ptr::null_mut()) };
-        
-        if result != hvf_sys::HV_SUCCESS {
-            log::error!("Failed to create HVF VM: error {}", result);
-            return false;
-        }
-        
-        log::info!("Hypervisor.framework VM created successfully");
-        self.initialized = true;
-        true
-    }
-    
-    #[cfg(not(target_os = "macos"))]
-    fn init(&mut self) -> bool {
-        log::warn!("Hypervisor.framework not available on this platform");
-        false
-    }
-    
-    #[cfg(target_os = "macos")]
-    fn map_memory(&mut self, guest_pa: u64, size: u64) -> bool {
-        if !self.initialized {
-            return false;
-        }
-        
-        // Allocate host memory
-        let host_addr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                size as usize,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-                -1,
-                0,
-            )
-        };
-        
-        if host_addr == libc::MAP_FAILED {
-            log::error!("Failed to allocate host memory for guest");
-            return false;
-        }
-        
-        match self.map_memory_region(host_addr as *mut u8, guest_pa, size as usize, true, true, true) {
-            Ok(_) => {
-                log::info!("Mapped {} bytes at guest PA {:#x}", size, guest_pa);
-                true
-            }
-            Err(e) => {
-                log::error!("Failed to map memory: {}", e);
-                unsafe { libc::munmap(host_addr, size as usize); }
-                false
-            }
-        }
-    }
-    
-    #[cfg(not(target_os = "macos"))]
-    fn map_memory(&mut self, _guest_pa: u64, _size: u64) -> bool {
-        false
-    }
-    
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    fn create_vcpu(&mut self, id: u32) -> bool {
-        match self.create_vcpu_internal(id) {
-            Ok(_) => {
-                log::info!("Created vCPU {}", id);
-                true
-            }
-            Err(e) => {
-                log::error!("Failed to create vCPU {}: {}", id, e);
-                false
-            }
-        }
-    }
-    
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    fn create_vcpu(&mut self, _id: u32) -> bool {
-        log::warn!("HVF vCPU creation not supported on this architecture");
-        false
-    }
-    
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    fn run(&mut self) -> bool {
-        if self.vcpus.is_empty() {
-            return false;
-        }
-        
-        match self.run_vcpu_internal(0) {
-            Ok(exit) => {
-                log::debug!("vCPU exit: {:?}", exit);
-                !matches!(exit, HvfExitReason::Shutdown)
-            }
-            Err(e) => {
-                log::error!("vCPU run failed: {}", e);
-                false
-            }
-        }
-    }
-    
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    fn run(&mut self) -> bool {
-        false
-    }
-    
-    fn inject_interrupt(&mut self, _vector: u32) -> bool {
-        // ARM64 interrupt injection via HVF is more complex
-        // and requires setting specific system registers
-        log::warn!("Interrupt injection not yet implemented for HVF");
-        false
-    }
-}
-
-impl Drop for AccelHvf {
-    fn drop(&mut self) {
-        #[cfg(target_os = "macos")]
-        {
-            // Destroy vCPUs first
-            #[cfg(target_arch = "aarch64")]
-            for vcpu in &self.vcpus {
-                unsafe { hvf_sys::hv_vcpu_destroy(vcpu.handle); }
-            }
-            
-            // Unmap memory regions
-            for region in &self.memory_regions {
-                unsafe {
-                    hvf_sys::hv_vm_unmap(region.guest_phys_addr, region.size as usize);
-                    libc::munmap(region.host_addr as *mut _, region.size as usize);
-                }
-            }
-            
-            // Destroy VM
-            if self.initialized {
-                unsafe { hvf_sys::hv_vm_destroy(); }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_hvf_availability() {
-        let available = AccelHvf::is_available();
-        println!("HVF available: {}", available);
+        println!("HVF available: {}", AccelHvf::is_available());
     }
-    
+
     #[test]
     #[cfg(target_os = "macos")]
     fn test_hvf_init() {
-        if !AccelHvf::is_available() {
-            println!("Skipping HVF init test - HVF not available");
-            return;
-        }
-        
         let mut accel = AccelHvf::new();
-        let result = accel.init();
-        println!("HVF init result: {}", result);
+        assert!(accel.init().is_ok());
     }
 }

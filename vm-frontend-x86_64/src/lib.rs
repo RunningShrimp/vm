@@ -1,6 +1,6 @@
-use vm_core::{Decoder, GuestAddr, GuestRegs, Fault, AccessType};
+//! x86-64 前端解码器
+use vm_core::{Decoder, GuestAddr, GuestRegs, Fault, MMU};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
-
 mod extended_insns;
 
 pub struct X86Decoder;
