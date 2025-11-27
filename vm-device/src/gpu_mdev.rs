@@ -1,10 +1,3 @@
-///! Mediated Device (mdev) GPU 虚拟化实现
-///!
-///! 支持 Intel GVT-g、NVIDIA vGPU 等技术
-
-use std::path::{Path, PathBuf};
-use std::fs;
-use std::io::Write;
 use vm_passthrough::{PciAddress, PassthroughError};
 
 /// Mediated Device 类型

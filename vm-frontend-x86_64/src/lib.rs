@@ -36,9 +36,18 @@
 //!
 //! [`api`] 模块提供指令编码功能，用于生成 x86-64 机器码。
 
-use vm_core::{Decoder, GuestAddr, GuestRegs, Fault, MMU};
+use vm_core::{Decoder, GuestAddr, Fault, MMU};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
+
 mod extended_insns;
+mod prefix_decode;
+mod opcode_decode;
+mod operand_decode;
+
+// Re-export key decoding stages for modular architecture
+pub use prefix_decode::{PrefixInfo, RexPrefix, decode_prefixes};
+pub use opcode_decode::{OpcodeInfo, OperandKind, decode_opcode};
+pub use operand_decode::{Operand, OperandDecoder, ModRM, SIB};
 
 pub struct X86Decoder;
 
@@ -84,6 +93,7 @@ pub struct X86Instruction {
     pub rep: bool,
     pub repne: bool,
     pub next_pc: GuestAddr,
+    pub jcc_cc: Option<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -203,43 +213,43 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
     };
 
     // Table lookup
-    let (mnemonic, k1, k2, k3) = if is_two_byte {
+    let (mnemonic, k1, k2, k3, cc_opt) = if is_two_byte {
         match opcode {
-            0x05 => (X86Mnemonic::Syscall, OpKind::None, OpKind::None, OpKind::None),
-            0xA2 => (X86Mnemonic::Cpuid, OpKind::None, OpKind::None, OpKind::None),
-            0x28 => (X86Mnemonic::Movaps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
-            0x58 => (X86Mnemonic::Addps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
-            0x59 => (X86Mnemonic::Mulps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
-            0x5C => (X86Mnemonic::Subps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
-            0x5F => (X86Mnemonic::Maxps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
-            0x5D => (X86Mnemonic::Minps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None),
-            0x80..=0x8F => (X86Mnemonic::Jcc, OpKind::Rel, OpKind::None, OpKind::None), // Jcc rel32
+            0x05 => (X86Mnemonic::Syscall, OpKind::None, OpKind::None, OpKind::None, None),
+            0xA2 => (X86Mnemonic::Cpuid, OpKind::None, OpKind::None, OpKind::None, None),
+            0x28 => (X86Mnemonic::Movaps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x58 => (X86Mnemonic::Addps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x59 => (X86Mnemonic::Mulps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x5C => (X86Mnemonic::Subps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x5F => (X86Mnemonic::Maxps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x5D => (X86Mnemonic::Minps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x80..=0x8F => (X86Mnemonic::Jcc, OpKind::Rel, OpKind::None, OpKind::None, Some(opcode - 0x80)),
             _ => return Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
         }
     } else {
         match opcode {
-            0x90 => (X86Mnemonic::Nop, OpKind::None, OpKind::None, OpKind::None),
-            0x01 => (X86Mnemonic::Add, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x29 => (X86Mnemonic::Sub, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x21 => (X86Mnemonic::And, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x09 => (X86Mnemonic::Or, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x31 => (X86Mnemonic::Xor, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x39 => (X86Mnemonic::Cmp, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x85 => (X86Mnemonic::Test, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x89 => (X86Mnemonic::Mov, OpKind::Rm, OpKind::Reg, OpKind::None),
-            0x8B => (X86Mnemonic::Mov, OpKind::Reg, OpKind::Rm, OpKind::None),
-            0x8D => (X86Mnemonic::Lea, OpKind::Reg, OpKind::Rm, OpKind::None),
-            0xB8..=0xBF => (X86Mnemonic::Mov, OpKind::OpReg, OpKind::Imm, OpKind::None),
-            0x50..=0x57 => (X86Mnemonic::Push, OpKind::OpReg, OpKind::None, OpKind::None),
-            0x58..=0x5F => (X86Mnemonic::Pop, OpKind::OpReg, OpKind::None, OpKind::None),
-            0xEB => (X86Mnemonic::Jmp, OpKind::Rel, OpKind::None, OpKind::None), // rel8
-            0xE9 => (X86Mnemonic::Jmp, OpKind::Rel, OpKind::None, OpKind::None), // rel32
-            0xE8 => (X86Mnemonic::Call, OpKind::Rel, OpKind::None, OpKind::None),
-            0xC3 => (X86Mnemonic::Ret, OpKind::None, OpKind::None, OpKind::None),
-            0x70..=0x7F => (X86Mnemonic::Jcc, OpKind::Rel, OpKind::None, OpKind::None), // Jcc rel8
-            0xF4 => (X86Mnemonic::Hlt, OpKind::None, OpKind::None, OpKind::None),
-            0xCC => (X86Mnemonic::Int, OpKind::None, OpKind::None, OpKind::None), // INT 3
-            0xCD => (X86Mnemonic::Int, OpKind::Imm8, OpKind::None, OpKind::None), // INT imm8
+            0x90 => (X86Mnemonic::Nop, OpKind::None, OpKind::None, OpKind::None, None),
+            0x01 => (X86Mnemonic::Add, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x29 => (X86Mnemonic::Sub, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x21 => (X86Mnemonic::And, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x09 => (X86Mnemonic::Or, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x31 => (X86Mnemonic::Xor, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x39 => (X86Mnemonic::Cmp, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x85 => (X86Mnemonic::Test, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x89 => (X86Mnemonic::Mov, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x8B => (X86Mnemonic::Mov, OpKind::Reg, OpKind::Rm, OpKind::None, None),
+            0x8D => (X86Mnemonic::Lea, OpKind::Reg, OpKind::Rm, OpKind::None, None),
+            0xB8..=0xBF => (X86Mnemonic::Mov, OpKind::OpReg, OpKind::Imm, OpKind::None, None),
+            0x50..=0x57 => (X86Mnemonic::Push, OpKind::OpReg, OpKind::None, OpKind::None, None),
+            0x58..=0x5F => (X86Mnemonic::Pop, OpKind::OpReg, OpKind::None, OpKind::None, None),
+            0xEB => (X86Mnemonic::Jmp, OpKind::Rel, OpKind::None, OpKind::None, None),
+            0xE9 => (X86Mnemonic::Jmp, OpKind::Rel, OpKind::None, OpKind::None, None),
+            0xE8 => (X86Mnemonic::Call, OpKind::Rel, OpKind::None, OpKind::None, None),
+            0xC3 => (X86Mnemonic::Ret, OpKind::None, OpKind::None, OpKind::None, None),
+            0x70..=0x7F => (X86Mnemonic::Jcc, OpKind::Rel, OpKind::None, OpKind::None, Some(opcode - 0x70)),
+            0xF4 => (X86Mnemonic::Hlt, OpKind::None, OpKind::None, OpKind::None, None),
+            0xCC => (X86Mnemonic::Int, OpKind::None, OpKind::None, OpKind::None, None),
+            0xCD => (X86Mnemonic::Int, OpKind::Imm8, OpKind::None, OpKind::None, None),
             0xFF => {
                 // Group 5: Inc/Dec/Call/Jmp/Push
                 // We need to check reg field of ModR/M, but we don't have it yet.
@@ -251,13 +261,13 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
                 let b = stream.mmu.read(stream.pc, 1)? as u8; // Peek next byte
                 let reg = (b >> 3) & 7;
                 match reg {
-                    0 => (X86Mnemonic::Inc, OpKind::Rm, OpKind::None, OpKind::None),
-                    1 => (X86Mnemonic::Dec, OpKind::Rm, OpKind::None, OpKind::None),
-                    2 => (X86Mnemonic::Call, OpKind::Rm, OpKind::None, OpKind::None),
-                    3 => (X86Mnemonic::Call, OpKind::Rm, OpKind::None, OpKind::None), // Far call?
-                    4 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None),
-                    5 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None), // Far jmp?
-                    6 => (X86Mnemonic::Push, OpKind::Rm, OpKind::None, OpKind::None),
+                    0 => (X86Mnemonic::Inc, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    1 => (X86Mnemonic::Dec, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    2 => (X86Mnemonic::Call, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    3 => (X86Mnemonic::Call, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    4 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    5 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    6 => (X86Mnemonic::Push, OpKind::Rm, OpKind::None, OpKind::None, None),
                     _ => return Err(Fault::InvalidOpcode { pc: 0, opcode: 0 }),
                 }
             },
@@ -402,6 +412,7 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
         rep: prefix.rep,
         repne: prefix.repne,
         next_pc: stream.pc,
+        jcc_cc: cc_opt,
     })
 }
 
@@ -503,12 +514,14 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
         },
         X86Mnemonic::Jmp => {
             if let X86Operand::Rel(target) = insn.op1 {
-                builder.set_term(Terminator::Jmp { target: target as u64 });
+                let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
+                builder.set_term(Terminator::Jmp { target: abs });
             }
         },
         X86Mnemonic::Call => {
             if let X86Operand::Rel(target) = insn.op1 {
-                builder.set_term(Terminator::Call { target: target as u64, ret_pc: insn.next_pc });
+                let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
+                builder.set_term(Terminator::Call { target: abs, ret_pc: insn.next_pc });
             }
         },
         X86Mnemonic::Ret => {
@@ -569,10 +582,10 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
         X86Mnemonic::Cmp => {
             let src1 = load_operand(builder, &insn.op1, op_bytes)?;
             let src2 = load_operand(builder, &insn.op2, op_bytes)?;
-            // CMP is Sub but without writing back result.
-            // We need to update flags. For now, let's just emit Sub to a temp.
-            let dst = 103;
-            builder.push(IROp::Sub { dst, src1, src2 });
+            let a = 200;
+            let b = 201;
+            builder.push(IROp::AddImm { dst: a, src: src1, imm: 0 });
+            builder.push(IROp::AddImm { dst: b, src: src2, imm: 0 });
         },
         X86Mnemonic::Test => {
             let src1 = load_operand(builder, &insn.op1, op_bytes)?;
@@ -595,12 +608,35 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
         },
         X86Mnemonic::Jcc => {
             if let X86Operand::Rel(target) = insn.op1 {
-                // Conditional jump. We need a condition.
-                // For now, let's assume it's always taken or not taken, or we need to implement flags.
-                // Since we don't have flags in IR yet, let's emit a Branch with a dummy condition.
+                let cc = insn.jcc_cc.unwrap_or(4);
+                let lhs = 200;
+                let rhs = 201;
                 let cond = 106;
-                builder.push(IROp::MovImm { dst: cond, imm: 1 }); // Always true for now
-                builder.set_term(Terminator::CondJmp { cond, target_true: target as u64, target_false: insn.next_pc });
+                match cc {
+                    0x4 => builder.push(IROp::CmpEq { dst: cond, lhs, rhs }),
+                    0x5 => builder.push(IROp::CmpNe { dst: cond, lhs, rhs }),
+                    0x2 => builder.push(IROp::CmpLtU { dst: cond, lhs, rhs }),
+                    0x3 => builder.push(IROp::CmpGeU { dst: cond, lhs, rhs }),
+                    0x6 => {
+                        let t1 = 107; let t2 = 108;
+                        builder.push(IROp::CmpLtU { dst: t1, lhs, rhs });
+                        builder.push(IROp::CmpEq { dst: t2, lhs, rhs });
+                        builder.push(IROp::Or { dst: cond, src1: t1, src2: t2 });
+                    },
+                    0x7 => builder.push(IROp::CmpLtU { dst: cond, lhs: rhs, rhs: lhs }),
+                    0xC => builder.push(IROp::CmpLt { dst: cond, lhs, rhs }),
+                    0xD => builder.push(IROp::CmpGe { dst: cond, lhs, rhs }),
+                    0xE => {
+                        let t1 = 107; let t2 = 108;
+                        builder.push(IROp::CmpLt { dst: t1, lhs, rhs });
+                        builder.push(IROp::CmpEq { dst: t2, lhs, rhs });
+                        builder.push(IROp::Or { dst: cond, src1: t1, src2: t2 });
+                    },
+                    0xF => builder.push(IROp::CmpLt { dst: cond, lhs: rhs, rhs: lhs }),
+                    _ => builder.push(IROp::CmpEq { dst: cond, lhs, rhs }),
+                }
+                let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
+                builder.set_term(Terminator::CondJmp { cond, target_true: abs, target_false: insn.next_pc });
             }
         },
         X86Mnemonic::Maxps => {
@@ -857,6 +893,7 @@ mod tests {
     }
 
 impl MMU for MockMMU {
+impl MMU for MockMMU {
         fn translate(&mut self, va: GuestAddr, _access: vm_core::AccessType) -> Result<GuestAddr, Fault> {
             Ok(va)
         }
@@ -886,6 +923,16 @@ impl MMU for MockMMU {
         fn memory_size(&self) -> usize {
             self.data.len()
         }
+        fn dump_memory(&self) -> Vec<u8> {
+            self.data.clone()
+        }
+        fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
+            self.data.clear();
+            self.data.extend_from_slice(data);
+            Ok(())
+        }
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
         fn dump_memory(&self) -> Vec<u8> {
             self.data.clone()
         }

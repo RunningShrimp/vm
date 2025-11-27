@@ -2,7 +2,7 @@
 //!
 //! 混合执行引擎，结合解释器和JIT编译器，实现热点追踪和自适应优化
 
-use vm_core::{ExecutionEngine, MMU, Fault, ExecResult, ExecStatus, ExecStats, GuestAddr};
+use vm_core::{ExecutionEngine, MMU, ExecResult, ExecStatus, ExecStats};
 use vm_ir::IRBlock;
 use vm_engine_interpreter::Interpreter;
 use vm_engine_jit::Jit;

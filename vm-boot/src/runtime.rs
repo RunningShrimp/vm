@@ -67,7 +67,9 @@ impl RuntimeController {
 
     /// 获取当前状态
     pub fn state(&self) -> RuntimeState {
-        *self.state.lock().unwrap()
+        self.state.lock()
+            .map(|state| *state)
+            .unwrap_or(RuntimeState::Stopped)
     }
 
     /// 检查是否正在运行
@@ -133,8 +135,43 @@ impl RuntimeController {
 
     /// 处理命令（在主循环中调用）
     pub fn process_commands(&self) -> Option<RuntimeCommand> {
-        let rx = self.cmd_rx.lock().unwrap();
-        rx.try_recv().ok()
+        if let Ok(rx) = self.cmd_rx.lock() {
+            rx.try_recv().ok()
+        } else {
+            None
+        }
+    }
+
+    /// 轮询事件：将命令转化为事件并执行状态更新
+    pub fn poll_events(&self) -> Option<RuntimeEvent> {
+        if let Some(cmd) = self.process_commands() {
+            match cmd {
+                RuntimeCommand::Pause => {
+                    self.update_state(RuntimeState::Paused);
+                    Some(RuntimeEvent::Paused)
+                }
+                RuntimeCommand::Resume => {
+                    self.update_state(RuntimeState::Running);
+                    Some(RuntimeEvent::Resumed)
+                }
+                RuntimeCommand::Shutdown => {
+                    self.update_state(RuntimeState::ShuttingDown);
+                    Some(RuntimeEvent::ShuttingDown)
+                }
+                RuntimeCommand::Stop => {
+                    self.update_state(RuntimeState::Stopped);
+                    Some(RuntimeEvent::Stopped)
+                }
+                RuntimeCommand::Reset => {
+                    self.update_state(RuntimeState::Running);
+                    Some(RuntimeEvent::Reset)
+                }
+                RuntimeCommand::SaveSnapshot => Some(RuntimeEvent::SnapshotSaved("default".into())),
+                RuntimeCommand::LoadSnapshot => Some(RuntimeEvent::SnapshotLoaded("default".into())),
+            }
+        } else {
+            None
+        }
     }
 
     /// 轮询事件：将命令转化为事件并执行状态更新
@@ -171,9 +208,13 @@ impl RuntimeController {
 
     /// 更新状态
     pub fn update_state(&self, new_state: RuntimeState) {
-        let mut state = self.state.lock().unwrap();
-        log::info!("State transition: {:?} -> {:?}", *state, new_state);
-        *state = new_state;
+        if let Ok(mut state) = self.state.lock() {
+            log::info!("State transition: {:?} -> {:?}", *state, new_state);
+            *state = new_state;
+        } else {
+            log::error!("Failed to acquire runtime state lock");
+            return;
+        }
 
         // 更新标志
         match new_state {
@@ -279,12 +320,12 @@ mod tests {
         assert!(!controller.is_running());
         assert!(!controller.is_paused());
 
-        controller.start().unwrap();
+        controller.start().expect("Should start from stopped state");
         assert_eq!(controller.state(), RuntimeState::Running);
         assert!(controller.is_running());
 
-        controller.pause().unwrap();
-        let cmd = controller.process_commands().unwrap();
+        controller.pause().expect("Pause command should succeed");
+        let cmd = controller.process_commands().expect("Expected pause command");
         assert_eq!(cmd, RuntimeCommand::Pause);
     }
 
@@ -294,7 +335,7 @@ mod tests {
         
         assert!(controller.pause().is_err()); // 不能从 Stopped 暂停
         
-        controller.start().unwrap();
+        controller.start().expect("Should start for pause test");
         assert!(controller.pause().is_ok());
         
         controller.update_state(RuntimeState::Paused);

@@ -16,7 +16,8 @@ members = [
  "vm-passthrough",
  "vm-boot",
  "vm-cli",
- "vm-tests",
+    "vm-tests",
+    "vm-service",
 ]
 resolver = "2"
 

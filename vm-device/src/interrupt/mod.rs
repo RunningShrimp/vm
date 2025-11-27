@@ -13,7 +13,8 @@
 //!   - 中断优先级管理
 //!   - 中断使能控制
 
-// 重导出现有模块
-pub use crate::clint::*;
-pub use crate::plic::*;
-
+// 精确重导避免名称冲突
+pub use crate::clint::{Clint, ClintMmio};
+pub use crate::plic::{Plic, PlicMmio};
+pub use crate::clint::offsets as clint_offsets;
+pub use crate::plic::offsets as plic_offsets;

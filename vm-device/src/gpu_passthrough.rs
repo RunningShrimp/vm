@@ -1,9 +1,3 @@
-///! GPU 直通模式实现
-///!
-///! 支持将物理 GPU 直接分配给虚拟机
-
-use std::path::{Path, PathBuf};
-use std::fs;
 use vm_passthrough::{PciAddress, PciDeviceInfo, PassthroughError, PassthroughDevice};
 use vm_passthrough::pcie::VfioDevice;
 
@@ -208,7 +202,7 @@ impl PassthroughDevice for GpuPassthrough {
 
 /// 扫描可用的 GPU 设备
 pub fn scan_available_gpus() -> Vec<GpuInfo> {
-    let mut gpus = Vec::new();
+    let gpus = Vec::new();
 
     #[cfg(target_os = "linux")]
     {

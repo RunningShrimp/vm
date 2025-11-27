@@ -1,5 +1,12 @@
 //! vm-simd - 平台向量运算辅助库
 //! 为解释器和 JIT 提供可复用的 SIMD 优化路径。
+//!
+//! ## 特性
+//! - 自动检测并使用最佳 SIMD 指令集 (SSE2/AVX2/AVX-512/NEON)
+//! - 64-bit、128-bit、256-bit、512-bit 向量支持
+//! - 饱和算术运算
+//! - 浮点向量运算
+//! - 位运算和比较操作
 
 /// 计算单个 64-bit packed 向量的逐元素加法（按 element_size 分段）。
 pub fn vec_add(a: u64, b: u64, element_size: u8) -> u64 {
@@ -14,6 +21,204 @@ pub fn vec_sub(a: u64, b: u64, element_size: u8) -> u64 {
 /// 计算逐元素乘法。
 pub fn vec_mul(a: u64, b: u64, element_size: u8) -> u64 {
     platform::vec_mul(a, b, element_size).unwrap_or_else(|| fallback_vec_binop(a, b, element_size, |x, y| x.wrapping_mul(y)))
+}
+
+/// 饱和加法 (无符号)
+pub fn vec_add_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
+    platform::vec_add_sat_u(a, b, element_size).unwrap_or_else(|| {
+        let lane_bits = (element_size.max(1) as u64) * 8;
+        let lanes = 64 / lane_bits;
+        let mut acc = 0u64;
+        let max_val = ((1u128 << lane_bits) - 1) as u128;
+        for i in 0..lanes {
+            let shift = i * lane_bits;
+            let mask = ((1u128 << lane_bits) - 1) as u128;
+            let av = ((a >> shift) as u128) & mask;
+            let bv = ((b >> shift) as u128) & mask;
+            let sum = av + bv;
+            let rv = if sum > max_val { max_val } else { sum } as u64;
+            acc |= rv << shift;
+        }
+        acc
+    })
+}
+
+/// 饱和减法 (无符号)
+pub fn vec_sub_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
+    platform::vec_sub_sat_u(a, b, element_size).unwrap_or_else(|| {
+        fallback_vec_binop(a, b, element_size, |x, y| x.saturating_sub(y))
+    })
+}
+
+/// 饱和加法 (有符号)
+pub fn vec_add_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
+    let lane_bits = (element_size.max(1) as u64) * 8;
+    let lanes = 64 / lane_bits;
+    let mut acc = 0u64;
+    let mask = ((1u128 << lane_bits) - 1) as u64;
+    let sign_bit = 1u64 << (lane_bits - 1);
+    let max_val = sign_bit - 1; // e.g., 0x7F for i8
+    let min_val_bits = sign_bit; // e.g., 0x80 for i8 (represents -128)
+    
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let av = (a >> shift) & mask;
+        let bv = (b >> shift) & mask;
+        let a_signed = if av & sign_bit != 0 { (av | !mask) as i64 } else { av as i64 };
+        let b_signed = if bv & sign_bit != 0 { (bv | !mask) as i64 } else { bv as i64 };
+        let sum = (a_signed as i128) + (b_signed as i128);
+        let max_i = max_val as i128;
+        let min_i = -(min_val_bits as i128);
+        let clamped = if sum > max_i { max_i } else if sum < min_i { min_i } else { sum };
+        let rv = (clamped as u64) & mask;
+        acc |= rv << shift;
+    }
+    acc
+}
+
+/// 饱和减法 (有符号)
+pub fn vec_sub_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
+    let lane_bits = (element_size.max(1) as u64) * 8;
+    let lanes = 64 / lane_bits;
+    let mut acc = 0u64;
+    let mask = ((1u128 << lane_bits) - 1) as u64;
+    let sign_bit = 1u64 << (lane_bits - 1);
+    
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let av = (a >> shift) & mask;
+        let bv = (b >> shift) & mask;
+        let a_signed = if av & sign_bit != 0 { (av | !mask) as i64 } else { av as i64 };
+        let b_signed = if bv & sign_bit != 0 { (bv | !mask) as i64 } else { bv as i64 };
+        let mut diff = a_signed - b_signed;
+        let max_val = (sign_bit - 1) as i64;
+        let min_val = -(sign_bit as i64);
+        if diff > max_val { diff = max_val; }
+        if diff < min_val { diff = min_val; }
+        let rv = (diff as u64) & mask;
+        acc |= rv << shift;
+    }
+    acc
+}
+
+/// 饱和乘法 (无符号)
+pub fn vec_mul_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
+    let lane_bits = (element_size.max(1) as u64) * 8;
+    let lanes = 64 / lane_bits;
+    let mut acc = 0u64;
+    let mask = ((1u128 << lane_bits) - 1) as u64;
+    let max_val = mask;
+    
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let av = (a >> shift) & mask;
+        let bv = (b >> shift) & mask;
+        
+        // 无符号饱和乘法
+        let product = (av as u128) * (bv as u128);
+        let rv = if product > max_val as u128 {
+            max_val
+        } else {
+            product as u64
+        };
+        acc |= rv << shift;
+    }
+    acc
+}
+
+/// 饱和乘法 (有符号)
+pub fn vec_mul_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
+    let lane_bits = (element_size.max(1) as u64) * 8;
+    let lanes = 64 / lane_bits;
+    let mut acc = 0u64;
+    let mask = ((1u128 << lane_bits) - 1) as u64;
+    let sign_bit = 1u64 << (lane_bits - 1);
+    let max_val = (sign_bit - 1) as i64; // e.g., 0x7F for i8
+    let min_val = -(sign_bit as i64);    // e.g., -128 for i8
+    
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let av = (a >> shift) & mask;
+        let bv = (b >> shift) & mask;
+        
+        // 符号扩展到 i64
+        let a_signed = if av & sign_bit != 0 {
+            (av | !mask) as i64
+        } else {
+            av as i64
+        };
+        let b_signed = if bv & sign_bit != 0 {
+            (bv | !mask) as i64
+        } else {
+            bv as i64
+        };
+        
+        // 有符号饱和乘法
+        let product = (a_signed as i128) * (b_signed as i128);
+        let rv = if product > max_val as i128 {
+            max_val as u64
+        } else if product < min_val as i128 {
+            (min_val as u64) & mask
+        } else {
+            (product as u64) & mask
+        };
+        acc |= rv << shift;
+    }
+    acc
+}
+
+/// 按位与
+pub fn vec_and(a: u64, b: u64) -> u64 {
+    a & b
+}
+
+/// 按位或
+pub fn vec_or(a: u64, b: u64) -> u64 {
+    a | b
+}
+
+/// 按位异或
+pub fn vec_xor(a: u64, b: u64) -> u64 {
+    a ^ b
+}
+
+/// 按位非
+pub fn vec_not(a: u64) -> u64 {
+    !a
+}
+
+/// 逐元素最小值 (无符号)
+pub fn vec_min_u(a: u64, b: u64, element_size: u8) -> u64 {
+    platform::vec_min_u(a, b, element_size).unwrap_or_else(|| {
+        fallback_vec_binop(a, b, element_size, |x, y| x.min(y))
+    })
+}
+
+/// 逐元素最大值 (无符号)
+pub fn vec_max_u(a: u64, b: u64, element_size: u8) -> u64 {
+    platform::vec_max_u(a, b, element_size).unwrap_or_else(|| {
+        fallback_vec_binop(a, b, element_size, |x, y| x.max(y))
+    })
+}
+
+/// 逐元素比较相等
+pub fn vec_cmpeq(a: u64, b: u64, element_size: u8) -> u64 {
+    fallback_vec_binop(a, b, element_size, |x, y| if x == y { !0u64 } else { 0 })
+}
+
+/// 逐元素比较大于 (无符号)
+pub fn vec_cmpgt_u(a: u64, b: u64, element_size: u8) -> u64 {
+    fallback_vec_binop(a, b, element_size, |x, y| if x > y { !0u64 } else { 0 })
+}
+
+/// 逐元素左移
+pub fn vec_shl(a: u64, shift: u8, element_size: u8) -> u64 {
+    fallback_vec_unop(a, element_size, |x| x << (shift as u64 % (element_size as u64 * 8)))
+}
+
+/// 逐元素右移 (逻辑)
+pub fn vec_shr_u(a: u64, shift: u8, element_size: u8) -> u64 {
+    fallback_vec_unop(a, element_size, |x| x >> (shift as u64 % (element_size as u64 * 8)))
 }
 
 /// 256-bit（4×u64）向量加法。
@@ -43,6 +248,134 @@ pub fn vec256_mul(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
     }
 }
 
+/// 256-bit 向量饱和加法（无符号）
+pub fn vec256_add_sat_u(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
+    combine_chunks(a, b, element_size, |x, y, es| vec_add_sat_u(x, y, es))
+}
+
+/// 256-bit 向量饱和加法（有符号）
+pub fn vec256_add_sat_s(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
+    combine_chunks(a, b, element_size, |x, y, es| vec_add_sat_s(x, y, es))
+}
+
+/// 256-bit 向量饱和减法（无符号）
+pub fn vec256_sub_sat_u(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
+    combine_chunks(a, b, element_size, |x, y, es| vec_sub_sat_u(x, y, es))
+}
+
+/// 256-bit 向量饱和减法（有符号）
+pub fn vec256_sub_sat_s(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
+    combine_chunks(a, b, element_size, |x, y, es| vec_sub_sat_s(x, y, es))
+}
+
+/// 256-bit 向量饱和乘法（无符号）
+pub fn vec256_mul_sat_u(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
+    combine_chunks(a, b, element_size, |x, y, es| vec_mul_sat_u(x, y, es))
+}
+
+/// 256-bit 向量饱和乘法（有符号）
+pub fn vec256_mul_sat_s(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
+    combine_chunks(a, b, element_size, |x, y, es| vec_mul_sat_s(x, y, es))
+}
+
+/// 512-bit（8×u64）向量加法
+pub fn vec512_add(a: [u64; 8], b: [u64; 8], element_size: u8) -> [u64; 8] {
+    if let Some(res) = platform::vec512_add(&a, &b, element_size) {
+        res
+    } else {
+        combine_chunks_512(a, b, element_size, vec_add)
+    }
+}
+
+/// 512-bit（8×u64）向量减法
+pub fn vec512_sub(a: [u64; 8], b: [u64; 8], element_size: u8) -> [u64; 8] {
+    if let Some(res) = platform::vec512_sub(&a, &b, element_size) {
+        res
+    } else {
+        combine_chunks_512(a, b, element_size, vec_sub)
+    }
+}
+
+/// 512-bit（8×u64）向量乘法
+pub fn vec512_mul(a: [u64; 8], b: [u64; 8], element_size: u8) -> [u64; 8] {
+    if let Some(res) = platform::vec512_mul(&a, &b, element_size) {
+        res
+    } else {
+        combine_chunks_512(a, b, element_size, vec_mul)
+    }
+}
+
+// ============================================================
+// 浮点向量运算
+// ============================================================
+
+/// 单精度浮点向量加法 (4 x f32)
+pub fn vec_fadd_f32(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    platform::vec_fadd_f32(&a, &b).unwrap_or_else(|| {
+        [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
+    })
+}
+
+/// 单精度浮点向量减法 (4 x f32)
+pub fn vec_fsub_f32(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    platform::vec_fsub_f32(&a, &b).unwrap_or_else(|| {
+        [a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]]
+    })
+}
+
+/// 单精度浮点向量乘法 (4 x f32)
+pub fn vec_fmul_f32(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    platform::vec_fmul_f32(&a, &b).unwrap_or_else(|| {
+        [a[0] * b[0], a[1] * b[1], a[2] * b[2], a[3] * b[3]]
+    })
+}
+
+/// 单精度浮点向量除法 (4 x f32)
+pub fn vec_fdiv_f32(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    platform::vec_fdiv_f32(&a, &b).unwrap_or_else(|| {
+        [a[0] / b[0], a[1] / b[1], a[2] / b[2], a[3] / b[3]]
+    })
+}
+
+/// 双精度浮点向量加法 (2 x f64)
+pub fn vec_fadd_f64(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    platform::vec_fadd_f64(&a, &b).unwrap_or([a[0] + b[0], a[1] + b[1]])
+}
+
+/// 双精度浮点向量减法 (2 x f64)
+pub fn vec_fsub_f64(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    platform::vec_fsub_f64(&a, &b).unwrap_or([a[0] - b[0], a[1] - b[1]])
+}
+
+/// 双精度浮点向量乘法 (2 x f64)
+pub fn vec_fmul_f64(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    platform::vec_fmul_f64(&a, &b).unwrap_or([a[0] * b[0], a[1] * b[1]])
+}
+
+/// 双精度浮点向量除法 (2 x f64)
+pub fn vec_fdiv_f64(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    platform::vec_fdiv_f64(&a, &b).unwrap_or([a[0] / b[0], a[1] / b[1]])
+}
+
+/// FMA: a * b + c (单精度)
+pub fn vec_fma_f32(a: [f32; 4], b: [f32; 4], c: [f32; 4]) -> [f32; 4] {
+    platform::vec_fma_f32(&a, &b, &c).unwrap_or_else(|| {
+        [
+            a[0].mul_add(b[0], c[0]),
+            a[1].mul_add(b[1], c[1]),
+            a[2].mul_add(b[2], c[2]),
+            a[3].mul_add(b[3], c[3]),
+        ]
+    })
+}
+
+/// FMA: a * b + c (双精度)
+pub fn vec_fma_f64(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> [f64; 2] {
+    platform::vec_fma_f64(&a, &b, &c).unwrap_or_else(|| {
+        [a[0].mul_add(b[0], c[0]), a[1].mul_add(b[1], c[1])]
+    })
+}
+
 fn combine_chunks(
     a: [u64; 4],
     b: [u64; 4],
@@ -54,6 +387,24 @@ fn combine_chunks(
         f(a[1], b[1], element_size),
         f(a[2], b[2], element_size),
         f(a[3], b[3], element_size),
+    ]
+}
+
+fn combine_chunks_512(
+    a: [u64; 8],
+    b: [u64; 8],
+    element_size: u8,
+    f: fn(u64, u64, u8) -> u64,
+) -> [u64; 8] {
+    [
+        f(a[0], b[0], element_size),
+        f(a[1], b[1], element_size),
+        f(a[2], b[2], element_size),
+        f(a[3], b[3], element_size),
+        f(a[4], b[4], element_size),
+        f(a[5], b[5], element_size),
+        f(a[6], b[6], element_size),
+        f(a[7], b[7], element_size),
     ]
 }
 
@@ -77,9 +428,46 @@ fn fallback_vec_binop(
     acc
 }
 
+fn fallback_vec_binop_signed(
+    a: u64,
+    b: u64,
+    element_size: u8,
+    op: impl Fn(u64, u64) -> u64,
+) -> u64 {
+    let lane_bits = (element_size.max(1) as u64) * 8;
+    let lanes = 64 / lane_bits;
+    let mut acc = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u128 << lane_bits) - 1) as u64;
+        let av = (a >> shift) & mask;
+        let bv = (b >> shift) & mask;
+        let rv = op(av, bv) & mask;
+        acc |= rv << shift;
+    }
+    acc
+}
+
+fn fallback_vec_unop(
+    a: u64,
+    element_size: u8,
+    op: impl Fn(u64) -> u64,
+) -> u64 {
+    let lane_bits = (element_size.max(1) as u64) * 8;
+    let lanes = 64 / lane_bits;
+    let mut acc = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u128 << lane_bits) - 1) as u64;
+        let av = (a >> shift) & mask;
+        let rv = op(av) & mask;
+        acc |= rv << shift;
+    }
+    acc
+}
+
 #[cfg(target_arch = "x86_64")]
 mod platform {
-    use super::*;
     use std::arch::x86_64::*;
 
     pub fn vec_add(a: u64, b: u64, element_size: u8) -> Option<u64> {
@@ -102,6 +490,34 @@ mod platform {
         }
         unsafe { sse_mul(a, b, element_size) }
     }
+    
+    pub fn vec_add_sat_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe { sse_sat_op(a, b, element_size, SatOp::AddU) }
+    }
+    
+    pub fn vec_sub_sat_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe { sse_sat_op(a, b, element_size, SatOp::SubU) }
+    }
+    
+    pub fn vec_min_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe { sse_minmax(a, b, element_size, true) }
+    }
+    
+    pub fn vec_max_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe { sse_minmax(a, b, element_size, false) }
+    }
 
     pub fn vec256_add(a: &[u64; 4], b: &[u64; 4], element_size: u8) -> Option<[u64; 4]> {
         if !is_x86_feature_detected!("avx2") {
@@ -123,11 +539,173 @@ mod platform {
         }
         unsafe { avx_mul(a, b, element_size) }
     }
+    
+    pub fn vec512_add(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> {
+        // AVX-512 support would go here
+        None
+    }
+    
+    pub fn vec512_sub(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> {
+        None
+    }
+    
+    pub fn vec512_mul(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> {
+        None
+    }
+    
+    // 浮点向量操作
+    pub fn vec_fadd_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        if !is_x86_feature_detected!("sse") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_ps(a.as_ptr());
+            let vb = _mm_loadu_ps(b.as_ptr());
+            let res = _mm_add_ps(va, vb);
+            let mut out = [0f32; 4];
+            _mm_storeu_ps(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fsub_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        if !is_x86_feature_detected!("sse") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_ps(a.as_ptr());
+            let vb = _mm_loadu_ps(b.as_ptr());
+            let res = _mm_sub_ps(va, vb);
+            let mut out = [0f32; 4];
+            _mm_storeu_ps(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fmul_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        if !is_x86_feature_detected!("sse") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_ps(a.as_ptr());
+            let vb = _mm_loadu_ps(b.as_ptr());
+            let res = _mm_mul_ps(va, vb);
+            let mut out = [0f32; 4];
+            _mm_storeu_ps(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fdiv_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        if !is_x86_feature_detected!("sse") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_ps(a.as_ptr());
+            let vb = _mm_loadu_ps(b.as_ptr());
+            let res = _mm_div_ps(va, vb);
+            let mut out = [0f32; 4];
+            _mm_storeu_ps(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fadd_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_pd(a.as_ptr());
+            let vb = _mm_loadu_pd(b.as_ptr());
+            let res = _mm_add_pd(va, vb);
+            let mut out = [0f64; 2];
+            _mm_storeu_pd(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fsub_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_pd(a.as_ptr());
+            let vb = _mm_loadu_pd(b.as_ptr());
+            let res = _mm_sub_pd(va, vb);
+            let mut out = [0f64; 2];
+            _mm_storeu_pd(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fmul_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_pd(a.as_ptr());
+            let vb = _mm_loadu_pd(b.as_ptr());
+            let res = _mm_mul_pd(va, vb);
+            let mut out = [0f64; 2];
+            _mm_storeu_pd(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fdiv_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        if !is_x86_feature_detected!("sse2") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_pd(a.as_ptr());
+            let vb = _mm_loadu_pd(b.as_ptr());
+            let res = _mm_div_pd(va, vb);
+            let mut out = [0f64; 2];
+            _mm_storeu_pd(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> Option<[f32; 4]> {
+        if !is_x86_feature_detected!("fma") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_ps(a.as_ptr());
+            let vb = _mm_loadu_ps(b.as_ptr());
+            let vc = _mm_loadu_ps(c.as_ptr());
+            let res = _mm_fmadd_ps(va, vb, vc);
+            let mut out = [0f32; 4];
+            _mm_storeu_ps(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fma_f64(a: &[f64; 2], b: &[f64; 2], c: &[f64; 2]) -> Option<[f64; 2]> {
+        if !is_x86_feature_detected!("fma") {
+            return None;
+        }
+        unsafe {
+            let va = _mm_loadu_pd(a.as_ptr());
+            let vb = _mm_loadu_pd(b.as_ptr());
+            let vc = _mm_loadu_pd(c.as_ptr());
+            let res = _mm_fmadd_pd(va, vb, vc);
+            let mut out = [0f64; 2];
+            _mm_storeu_pd(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
 
     #[derive(Clone, Copy)]
     enum BinOp {
         Add,
         Sub,
+    }
+    
+    #[derive(Clone, Copy)]
+    enum SatOp {
+        AddU,
+        SubU,
     }
 
     #[target_feature(enable = "sse2")]
@@ -151,6 +729,35 @@ mod platform {
                 BinOp::Add => _mm_add_epi64(va, vb),
                 BinOp::Sub => _mm_sub_epi64(va, vb),
             },
+            _ => return None,
+        };
+        Some(_mm_cvtsi128_si64(res) as u64)
+    }
+    
+    #[target_feature(enable = "sse2")]
+    unsafe fn sse_sat_op(a: u64, b: u64, element_size: u8, op: SatOp) -> Option<u64> {
+        let va = _mm_cvtsi64_si128(a as i64);
+        let vb = _mm_cvtsi64_si128(b as i64);
+        let res = match element_size {
+            1 => match op {
+                SatOp::AddU => _mm_adds_epu8(va, vb),
+                SatOp::SubU => _mm_subs_epu8(va, vb),
+            },
+            2 => match op {
+                SatOp::AddU => _mm_adds_epu16(va, vb),
+                SatOp::SubU => _mm_subs_epu16(va, vb),
+            },
+            _ => return None,
+        };
+        Some(_mm_cvtsi128_si64(res) as u64)
+    }
+    
+    #[target_feature(enable = "sse2")]
+    unsafe fn sse_minmax(a: u64, b: u64, element_size: u8, is_min: bool) -> Option<u64> {
+        let va = _mm_cvtsi64_si128(a as i64);
+        let vb = _mm_cvtsi64_si128(b as i64);
+        let res = match element_size {
+            1 => if is_min { _mm_min_epu8(va, vb) } else { _mm_max_epu8(va, vb) },
             _ => return None,
         };
         Some(_mm_cvtsi128_si64(res) as u64)
@@ -211,12 +818,458 @@ mod platform {
     }
 }
 
-#[cfg(not(target_arch = "x86_64"))]
+#[cfg(target_arch = "aarch64")]
+mod platform {
+    use std::arch::aarch64::*;
+    
+    pub fn vec_add(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        unsafe { neon_binop(a, b, element_size, NeonOp::Add) }
+    }
+    
+    pub fn vec_sub(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        unsafe { neon_binop(a, b, element_size, NeonOp::Sub) }
+    }
+    
+    pub fn vec_mul(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        unsafe { neon_mul(a, b, element_size) }
+    }
+    
+    pub fn vec_add_sat_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        unsafe { neon_sat_op(a, b, element_size, true, true) }
+    }
+    
+    pub fn vec_sub_sat_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        unsafe { neon_sat_op(a, b, element_size, false, true) }
+    }
+    
+    pub fn vec_min_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        unsafe { neon_minmax(a, b, element_size, true) }
+    }
+    
+    pub fn vec_max_u(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        unsafe { neon_minmax(a, b, element_size, false) }
+    }
+    
+    pub fn vec256_add(a: &[u64; 4], b: &[u64; 4], element_size: u8) -> Option<[u64; 4]> {
+        // Process as two 128-bit operations
+        let lo_a = [a[0], a[1]];
+        let lo_b = [b[0], b[1]];
+        let hi_a = [a[2], a[3]];
+        let hi_b = [b[2], b[3]];
+        
+        unsafe {
+            let lo = neon_128_binop(&lo_a, &lo_b, element_size, NeonOp::Add)?;
+            let hi = neon_128_binop(&hi_a, &hi_b, element_size, NeonOp::Add)?;
+            Some([lo[0], lo[1], hi[0], hi[1]])
+        }
+    }
+    
+    pub fn vec256_sub(a: &[u64; 4], b: &[u64; 4], element_size: u8) -> Option<[u64; 4]> {
+        let lo_a = [a[0], a[1]];
+        let lo_b = [b[0], b[1]];
+        let hi_a = [a[2], a[3]];
+        let hi_b = [b[2], b[3]];
+        
+        unsafe {
+            let lo = neon_128_binop(&lo_a, &lo_b, element_size, NeonOp::Sub)?;
+            let hi = neon_128_binop(&hi_a, &hi_b, element_size, NeonOp::Sub)?;
+            Some([lo[0], lo[1], hi[0], hi[1]])
+        }
+    }
+    
+    pub fn vec256_mul(a: &[u64; 4], b: &[u64; 4], element_size: u8) -> Option<[u64; 4]> {
+        let lo_a = [a[0], a[1]];
+        let lo_b = [b[0], b[1]];
+        let hi_a = [a[2], a[3]];
+        let hi_b = [b[2], b[3]];
+        
+        unsafe {
+            let lo = neon_128_mul(&lo_a, &lo_b, element_size)?;
+            let hi = neon_128_mul(&hi_a, &hi_b, element_size)?;
+            Some([lo[0], lo[1], hi[0], hi[1]])
+        }
+    }
+    
+    pub fn vec512_add(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> {
+        None // SVE would be needed for native 512-bit
+    }
+    
+    pub fn vec512_sub(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> {
+        None
+    }
+    
+    pub fn vec512_mul(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> {
+        None
+    }
+    
+    // 浮点向量操作
+    pub fn vec_fadd_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        unsafe {
+            let va = vld1q_f32(a.as_ptr());
+            let vb = vld1q_f32(b.as_ptr());
+            let res = vaddq_f32(va, vb);
+            let mut out = [0f32; 4];
+            vst1q_f32(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fsub_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        unsafe {
+            let va = vld1q_f32(a.as_ptr());
+            let vb = vld1q_f32(b.as_ptr());
+            let res = vsubq_f32(va, vb);
+            let mut out = [0f32; 4];
+            vst1q_f32(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fmul_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        unsafe {
+            let va = vld1q_f32(a.as_ptr());
+            let vb = vld1q_f32(b.as_ptr());
+            let res = vmulq_f32(va, vb);
+            let mut out = [0f32; 4];
+            vst1q_f32(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fdiv_f32(a: &[f32; 4], b: &[f32; 4]) -> Option<[f32; 4]> {
+        unsafe {
+            let va = vld1q_f32(a.as_ptr());
+            let vb = vld1q_f32(b.as_ptr());
+            let res = vdivq_f32(va, vb);
+            let mut out = [0f32; 4];
+            vst1q_f32(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fadd_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        unsafe {
+            let va = vld1q_f64(a.as_ptr());
+            let vb = vld1q_f64(b.as_ptr());
+            let res = vaddq_f64(va, vb);
+            let mut out = [0f64; 2];
+            vst1q_f64(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fsub_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        unsafe {
+            let va = vld1q_f64(a.as_ptr());
+            let vb = vld1q_f64(b.as_ptr());
+            let res = vsubq_f64(va, vb);
+            let mut out = [0f64; 2];
+            vst1q_f64(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fmul_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        unsafe {
+            let va = vld1q_f64(a.as_ptr());
+            let vb = vld1q_f64(b.as_ptr());
+            let res = vmulq_f64(va, vb);
+            let mut out = [0f64; 2];
+            vst1q_f64(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fdiv_f64(a: &[f64; 2], b: &[f64; 2]) -> Option<[f64; 2]> {
+        unsafe {
+            let va = vld1q_f64(a.as_ptr());
+            let vb = vld1q_f64(b.as_ptr());
+            let res = vdivq_f64(va, vb);
+            let mut out = [0f64; 2];
+            vst1q_f64(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> Option<[f32; 4]> {
+        unsafe {
+            let va = vld1q_f32(a.as_ptr());
+            let vb = vld1q_f32(b.as_ptr());
+            let vc = vld1q_f32(c.as_ptr());
+            let res = vfmaq_f32(vc, va, vb);
+            let mut out = [0f32; 4];
+            vst1q_f32(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    pub fn vec_fma_f64(a: &[f64; 2], b: &[f64; 2], c: &[f64; 2]) -> Option<[f64; 2]> {
+        unsafe {
+            let va = vld1q_f64(a.as_ptr());
+            let vb = vld1q_f64(b.as_ptr());
+            let vc = vld1q_f64(c.as_ptr());
+            let res = vfmaq_f64(vc, va, vb);
+            let mut out = [0f64; 2];
+            vst1q_f64(out.as_mut_ptr(), res);
+            Some(out)
+        }
+    }
+    
+    #[derive(Clone, Copy)]
+    enum NeonOp {
+        Add,
+        Sub,
+    }
+    
+    unsafe fn neon_binop(a: u64, b: u64, element_size: u8, op: NeonOp) -> Option<u64> {
+        match element_size {
+            1 => {
+                let va = vreinterpret_u8_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u8_u64(vdup_n_u64(b));
+                let res = match op {
+                    NeonOp::Add => vadd_u8(va, vb),
+                    NeonOp::Sub => vsub_u8(va, vb),
+                };
+                Some(vget_lane_u64(vreinterpret_u64_u8(res), 0))
+            }
+            2 => {
+                let va = vreinterpret_u16_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u16_u64(vdup_n_u64(b));
+                let res = match op {
+                    NeonOp::Add => vadd_u16(va, vb),
+                    NeonOp::Sub => vsub_u16(va, vb),
+                };
+                Some(vget_lane_u64(vreinterpret_u64_u16(res), 0))
+            }
+            4 => {
+                let va = vreinterpret_u32_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u32_u64(vdup_n_u64(b));
+                let res = match op {
+                    NeonOp::Add => vadd_u32(va, vb),
+                    NeonOp::Sub => vsub_u32(va, vb),
+                };
+                Some(vget_lane_u64(vreinterpret_u64_u32(res), 0))
+            }
+            8 => {
+                match op {
+                    NeonOp::Add => Some(a.wrapping_add(b)),
+                    NeonOp::Sub => Some(a.wrapping_sub(b)),
+                }
+            }
+            _ => None,
+        }
+    }
+    
+    unsafe fn neon_mul(a: u64, b: u64, element_size: u8) -> Option<u64> {
+        match element_size {
+            1 => {
+                let va = vreinterpret_u8_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u8_u64(vdup_n_u64(b));
+                let res = vmul_u8(va, vb);
+                Some(vget_lane_u64(vreinterpret_u64_u8(res), 0))
+            }
+            2 => {
+                let va = vreinterpret_u16_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u16_u64(vdup_n_u64(b));
+                let res = vmul_u16(va, vb);
+                Some(vget_lane_u64(vreinterpret_u64_u16(res), 0))
+            }
+            4 => {
+                let va = vreinterpret_u32_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u32_u64(vdup_n_u64(b));
+                let res = vmul_u32(va, vb);
+                Some(vget_lane_u64(vreinterpret_u64_u32(res), 0))
+            }
+            _ => None,
+        }
+    }
+    
+    unsafe fn neon_sat_op(a: u64, b: u64, element_size: u8, is_add: bool, _is_unsigned: bool) -> Option<u64> {
+        match element_size {
+            1 => {
+                let va = vreinterpret_u8_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u8_u64(vdup_n_u64(b));
+                let res = if is_add { vqadd_u8(va, vb) } else { vqsub_u8(va, vb) };
+                Some(vget_lane_u64(vreinterpret_u64_u8(res), 0))
+            }
+            2 => {
+                let va = vreinterpret_u16_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u16_u64(vdup_n_u64(b));
+                let res = if is_add { vqadd_u16(va, vb) } else { vqsub_u16(va, vb) };
+                Some(vget_lane_u64(vreinterpret_u64_u16(res), 0))
+            }
+            _ => None,
+        }
+    }
+    
+    unsafe fn neon_minmax(a: u64, b: u64, element_size: u8, is_min: bool) -> Option<u64> {
+        match element_size {
+            1 => {
+                let va = vreinterpret_u8_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u8_u64(vdup_n_u64(b));
+                let res = if is_min { vmin_u8(va, vb) } else { vmax_u8(va, vb) };
+                Some(vget_lane_u64(vreinterpret_u64_u8(res), 0))
+            }
+            2 => {
+                let va = vreinterpret_u16_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u16_u64(vdup_n_u64(b));
+                let res = if is_min { vmin_u16(va, vb) } else { vmax_u16(va, vb) };
+                Some(vget_lane_u64(vreinterpret_u64_u16(res), 0))
+            }
+            4 => {
+                let va = vreinterpret_u32_u64(vdup_n_u64(a));
+                let vb = vreinterpret_u32_u64(vdup_n_u64(b));
+                let res = if is_min { vmin_u32(va, vb) } else { vmax_u32(va, vb) };
+                Some(vget_lane_u64(vreinterpret_u64_u32(res), 0))
+            }
+            _ => None,
+        }
+    }
+    
+    unsafe fn neon_128_binop(a: &[u64; 2], b: &[u64; 2], element_size: u8, op: NeonOp) -> Option<[u64; 2]> {
+        match element_size {
+            1 => {
+                let va = vld1q_u8(a.as_ptr() as *const u8);
+                let vb = vld1q_u8(b.as_ptr() as *const u8);
+                let res = match op {
+                    NeonOp::Add => vaddq_u8(va, vb),
+                    NeonOp::Sub => vsubq_u8(va, vb),
+                };
+                let mut out = [0u64; 2];
+                vst1q_u8(out.as_mut_ptr() as *mut u8, res);
+                Some(out)
+            }
+            2 => {
+                let va = vld1q_u16(a.as_ptr() as *const u16);
+                let vb = vld1q_u16(b.as_ptr() as *const u16);
+                let res = match op {
+                    NeonOp::Add => vaddq_u16(va, vb),
+                    NeonOp::Sub => vsubq_u16(va, vb),
+                };
+                let mut out = [0u64; 2];
+                vst1q_u16(out.as_mut_ptr() as *mut u16, res);
+                Some(out)
+            }
+            4 => {
+                let va = vld1q_u32(a.as_ptr() as *const u32);
+                let vb = vld1q_u32(b.as_ptr() as *const u32);
+                let res = match op {
+                    NeonOp::Add => vaddq_u32(va, vb),
+                    NeonOp::Sub => vsubq_u32(va, vb),
+                };
+                let mut out = [0u64; 2];
+                vst1q_u32(out.as_mut_ptr() as *mut u32, res);
+                Some(out)
+            }
+            8 => {
+                let va = vld1q_u64(a.as_ptr());
+                let vb = vld1q_u64(b.as_ptr());
+                let res = match op {
+                    NeonOp::Add => vaddq_u64(va, vb),
+                    NeonOp::Sub => vsubq_u64(va, vb),
+                };
+                let mut out = [0u64; 2];
+                vst1q_u64(out.as_mut_ptr(), res);
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+    
+    unsafe fn neon_128_mul(a: &[u64; 2], b: &[u64; 2], element_size: u8) -> Option<[u64; 2]> {
+        match element_size {
+            1 => {
+                let va = vld1q_u8(a.as_ptr() as *const u8);
+                let vb = vld1q_u8(b.as_ptr() as *const u8);
+                let res = vmulq_u8(va, vb);
+                let mut out = [0u64; 2];
+                vst1q_u8(out.as_mut_ptr() as *mut u8, res);
+                Some(out)
+            }
+            2 => {
+                let va = vld1q_u16(a.as_ptr() as *const u16);
+                let vb = vld1q_u16(b.as_ptr() as *const u16);
+                let res = vmulq_u16(va, vb);
+                let mut out = [0u64; 2];
+                vst1q_u16(out.as_mut_ptr() as *mut u16, res);
+                Some(out)
+            }
+            4 => {
+                let va = vld1q_u32(a.as_ptr() as *const u32);
+                let vb = vld1q_u32(b.as_ptr() as *const u32);
+                let res = vmulq_u32(va, vb);
+                let mut out = [0u64; 2];
+                vst1q_u32(out.as_mut_ptr() as *mut u32, res);
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod platform {
     pub fn vec_add(_a: u64, _b: u64, _element_size: u8) -> Option<u64> { None }
     pub fn vec_sub(_a: u64, _b: u64, _element_size: u8) -> Option<u64> { None }
     pub fn vec_mul(_a: u64, _b: u64, _element_size: u8) -> Option<u64> { None }
+    pub fn vec_add_sat_u(_a: u64, _b: u64, _element_size: u8) -> Option<u64> { None }
+    pub fn vec_sub_sat_u(_a: u64, _b: u64, _element_size: u8) -> Option<u64> { None }
+    pub fn vec_min_u(_a: u64, _b: u64, _element_size: u8) -> Option<u64> { None }
+    pub fn vec_max_u(_a: u64, _b: u64, _element_size: u8) -> Option<u64> { None }
     pub fn vec256_add(_a: &[u64; 4], _b: &[u64; 4], _element_size: u8) -> Option<[u64; 4]> { None }
     pub fn vec256_sub(_a: &[u64; 4], _b: &[u64; 4], _element_size: u8) -> Option<[u64; 4]> { None }
     pub fn vec256_mul(_a: &[u64; 4], _b: &[u64; 4], _element_size: u8) -> Option<[u64; 4]> { None }
+    pub fn vec512_add(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> { None }
+    pub fn vec512_sub(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> { None }
+    pub fn vec512_mul(_a: &[u64; 8], _b: &[u64; 8], _element_size: u8) -> Option<[u64; 8]> { None }
+    pub fn vec_fadd_f32(_a: &[f32; 4], _b: &[f32; 4]) -> Option<[f32; 4]> { None }
+    pub fn vec_fsub_f32(_a: &[f32; 4], _b: &[f32; 4]) -> Option<[f32; 4]> { None }
+    pub fn vec_fmul_f32(_a: &[f32; 4], _b: &[f32; 4]) -> Option<[f32; 4]> { None }
+    pub fn vec_fdiv_f32(_a: &[f32; 4], _b: &[f32; 4]) -> Option<[f32; 4]> { None }
+    pub fn vec_fadd_f64(_a: &[f64; 2], _b: &[f64; 2]) -> Option<[f64; 2]> { None }
+    pub fn vec_fsub_f64(_a: &[f64; 2], _b: &[f64; 2]) -> Option<[f64; 2]> { None }
+    pub fn vec_fmul_f64(_a: &[f64; 2], _b: &[f64; 2]) -> Option<[f64; 2]> { None }
+    pub fn vec_fdiv_f64(_a: &[f64; 2], _b: &[f64; 2]) -> Option<[f64; 2]> { None }
+    pub fn vec_fma_f32(_a: &[f32; 4], _b: &[f32; 4], _c: &[f32; 4]) -> Option<[f32; 4]> { None }
+    pub fn vec_fma_f64(_a: &[f64; 2], _b: &[f64; 2], _c: &[f64; 2]) -> Option<[f64; 2]> { None }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_vec_add_u8() {
+        let a = 0x0102030405060708u64;
+        let b = 0x0101010101010101u64;
+        let result = vec_add(a, b, 1);
+        assert_eq!(result, 0x0203040506070809u64);
+    }
+    
+    #[test]
+    fn test_vec_add_sat_u8() {
+        let a = 0xFF00FF00FF00FF00u64;
+        let b = 0x0101010101010101u64;
+        let result = vec_add_sat_u(a, b, 1);
+        // 0xFF + 0x01 saturates to 0xFF, 0x00 + 0x01 = 0x01
+        assert_eq!(result, 0xFF01FF01FF01FF01u64);
+    }
+    
+    #[test]
+    fn test_vec_fadd_f32() {
+        let a = [1.0f32, 2.0, 3.0, 4.0];
+        let b = [0.5f32, 0.5, 0.5, 0.5];
+        let result = vec_fadd_f32(a, b);
+        assert_eq!(result, [1.5f32, 2.5, 3.5, 4.5]);
+    }
+    
+    #[test]
+    fn test_vec_fma_f32() {
+        let a = [2.0f32, 2.0, 2.0, 2.0];
+        let b = [3.0f32, 3.0, 3.0, 3.0];
+        let c = [1.0f32, 1.0, 1.0, 1.0];
+        let result = vec_fma_f32(a, b, c);
+        // 2*3+1 = 7
+        assert_eq!(result, [7.0f32, 7.0, 7.0, 7.0]);
+    }
 }

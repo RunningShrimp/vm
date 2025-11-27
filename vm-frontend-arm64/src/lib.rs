@@ -68,23 +68,16 @@ impl Decoder for Arm64Decoder {
             }
 
             // LDR/STR (Unsigned Immediate)
-            // 31 30 29 28 27 26 25 24 23 22 21 ... 10 9 ... 5 4 ... 0
-            // size 1 1  1  0  0  1  0  1  0  imm12    Rn      Rt
-            // Mask: 1011 1001 00... -> B90...
-            // Check bits 22-29: 11100101 (LDR) or 11100100 (STR)
-            // Actually bit 22 is 0 for unsigned offset? No.
-            // LDR (imm unsigned): 1x11 1001 01...
-            // STR (imm unsigned): 1x11 1001 00...
-            if (insn & 0xBFA00000) == 0xB9000000 {
-                let size_bit = (insn >> 30) & 1;
+            if (insn & 0x3F000000) == 0x39000000 || (insn & 0xFF000000) == 0xF9000000 || (insn & 0xFF000000) == 0xF9400000 {
+                let size_bits = (insn >> 30) & 0x3;
                 let is_load = (insn & 0x00400000) != 0;
                 let imm12 = (insn >> 10) & 0xFFF;
                 let rn = (insn >> 5) & 0x1F;
                 let rt = insn & 0x1F;
-                
-                let size = if size_bit == 1 { 8 } else { 4 };
+
+                let size = match size_bits { 0 => 1, 1 => 2, 2 => 4, 3 => 8, _ => 8 };
                 let offset = (imm12 as i64) * (size as i64);
-                
+
                 if is_load {
                     builder.push(IROp::Load { dst: rt, base: rn, offset, size, flags: MemFlags::default() });
                 } else {
@@ -128,6 +121,39 @@ impl Decoder for Arm64Decoder {
             // 1101 0110 0101 1111 0000 00...
             if (insn & 0xFFFFFC1F) == 0xD65F0000 {
                 builder.set_term(Terminator::Ret);
+                break;
+            }
+
+            // CBZ/CBNZ (Compare and Branch)
+            if {
+                let top = insn & 0xFF000000;
+                top == 0x34000000 || top == 0x35000000 || top == 0xB4000000 || top == 0xB5000000
+            } {
+                let top = insn & 0xFF000000;
+                let is_nz = top == 0x35000000 || top == 0xB5000000;
+                let imm19 = (insn >> 5) & 0x7FFFF;
+                let off = ((imm19 << 13) as i32 >> 13) as i64 * 4;
+                let target = current_pc.wrapping_add(off as u64);
+                let rt = insn & 0x1F;
+                let zero = 100;
+                builder.push(IROp::MovImm { dst: zero, imm: 0 });
+                let cond = 101;
+                if is_nz {
+                    builder.push(IROp::CmpNe { dst: cond, lhs: rt, rhs: zero });
+                } else {
+                    builder.push(IROp::CmpEq { dst: cond, lhs: rt, rhs: zero });
+                }
+                builder.set_term(Terminator::CondJmp { cond, target_true: target, target_false: current_pc + 4 });
+                break;
+            }
+
+            // B.cond (Conditional Branch)
+            if (insn & 0xFF000000) == 0x54000000 {
+                let imm19 = (insn >> 5) & 0x7FFFF;
+                let off = ((imm19 << 13) as i32 >> 13) as i64 * 4;
+                let target = current_pc.wrapping_add(off as u64);
+                let cond_reg = 106;
+                builder.set_term(Terminator::CondJmp { cond: cond_reg, target_true: target, target_false: current_pc + 4 });
                 break;
             }
 
@@ -238,8 +264,36 @@ impl Decoder for Arm64Decoder {
                     7 => vm_ir::AtomicOp::Min,    // LDUMIN
                     _ => vm_ir::AtomicOp::Xchg,
                 };
-                
-                builder.push(IROp::AtomicRMW { dst: rt, base: rn, src: rs, op, size: mem_size });
+                // ARM64 LSE 指令支持 acquire/release 变体，这里先以保守默认值填充
+                let mut flags = MemFlags::default();
+                flags.atomic = true;
+                let acq = ((insn >> 23) & 1) != 0;
+                let rel = ((insn >> 22) & 1) != 0;
+                if acq && rel { flags.order = vm_ir::MemOrder::AcqRel; }
+                else if acq { flags.order = vm_ir::MemOrder::Acquire; }
+                else if rel { flags.order = vm_ir::MemOrder::Release; }
+                builder.push(IROp::AtomicRMWOrder { dst: rt, base: rn, src: rs, op, size: mem_size, flags });
+                current_pc += 4;
+                continue;
+            }
+
+            // CAS/CASA/CASAL (LSE compare-and-swap)
+            if (insn & 0x3F200C00) == 0x38200400 {
+                let size_bits = (insn >> 30) & 3;
+                let rs = (insn >> 16) & 0x1F; // expected
+                let rn = (insn >> 5) & 0x1F;  // address
+                let rt = insn & 0x1F;        // new value, also receives old
+
+                let size = match size_bits { 0 => 1, 1 => 2, 2 => 4, 3 => 8, _ => 4 };
+                let mut flags = MemFlags::default();
+                flags.atomic = true;
+                let acq = ((insn >> 23) & 1) != 0;
+                let rel = ((insn >> 22) & 1) != 0;
+                if acq && rel { flags.order = vm_ir::MemOrder::AcqRel; }
+                else if acq { flags.order = vm_ir::MemOrder::Acquire; }
+                else if rel { flags.order = vm_ir::MemOrder::Release; }
+
+                builder.push(IROp::AtomicCmpXchgOrder { dst: rt, base: rn, expected: rs, new: rt, size, flags });
                 current_pc += 4;
                 continue;
             }
@@ -582,6 +636,17 @@ pub mod api {
         0x37000000u32 | b5 | b40 | ((v & 0x3FFF) << 5) | (rt & 0x1F)
     }
 
+    pub fn encode_ldr_x_unsigned(rt: u32, rn: u32, imm_bytes: i64) -> u32 {
+        let scale = 3u32;
+        let imm12 = ((imm_bytes / 8) as u32) & 0xFFF;
+        (scale << 30) | 0xF9400000u32 | ((imm12 & 0xFFF) << 10) | ((rn & 0x1F) << 5) | (rt & 0x1F)
+    }
+    pub fn encode_str_x_unsigned(rt: u32, rn: u32, imm_bytes: i64) -> u32 {
+        let scale = 3u32;
+        let imm12 = ((imm_bytes / 8) as u32) & 0xFFF;
+        (scale << 30) | 0xF9000000u32 | ((imm12 & 0xFFF) << 10) | ((rn & 0x1F) << 5) | (rt & 0x1F)
+    }
+
     pub fn encode_csel(rd: u32, rn: u32, rm: u32, cond: u32, is64: bool) -> u32 {
         let sf = if is64 { 1u32 } else { 0u32 };
         (sf << 31) | 0x1A800000u32 | ((rm & 0x1F) << 16) | ((cond & 0xF) << 12) | ((rn & 0x1F) << 5) | (rd & 0x1F)
@@ -661,4 +726,78 @@ pub mod api {
     pub fn encode_cneg_pl(rd: u32, rn: u32, is64: bool) -> u32 { encode_cneg_alias_cc(rd, rn, Cond::PL, is64) }
     pub fn encode_cneg_vs(rd: u32, rn: u32, is64: bool) -> u32 { encode_cneg_alias_cc(rd, rn, Cond::VS, is64) }
     pub fn encode_cneg_vc(rd: u32, rn: u32, is64: bool) -> u32 { encode_cneg_alias_cc(rd, rn, Cond::VC, is64) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vm_core::{MMU, GuestAddr, Fault, AccessType, GuestPhysAddr};
+
+    struct TestMmu { insn: u32 }
+    impl MMU for TestMmu {
+        fn translate(&mut self, va: GuestAddr, _access: AccessType) -> Result<GuestPhysAddr, Fault> { Ok(va) }
+        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, Fault> { Ok(self.insn as u64) }
+        fn read(&self, _pa: GuestAddr, _size: u8) -> Result<u64, Fault> { Ok(0) }
+        fn write(&mut self, _pa: GuestAddr, _val: u64, _size: u8) -> Result<(), Fault> { Ok(()) }
+        fn map_mmio(&mut self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {}
+        fn flush_tlb(&mut self) {}
+        fn memory_size(&self) -> usize { 4096 }
+        fn dump_memory(&self) -> Vec<u8> { vec![] }
+        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> { Ok(()) }
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    }
+
+    fn assemble_lse_base(base: u32, size_bits: u32, rs: u32, rn: u32, rt: u32, acq: bool, rel: bool) -> u32 {
+        base
+            | ((size_bits & 0x3) << 30)
+            | ((rs & 0x1F) << 16)
+            | ((rn & 0x1F) << 5)
+            | (rt & 0x1F)
+            | ((acq as u32) << 23)
+            | ((rel as u32) << 22)
+    }
+
+    #[test]
+    fn decode_lse_cas_acquire_word() {
+        let pc: GuestAddr = 0x1000;
+        // CAS (word), acquire only
+        let insn = assemble_lse_base(0x3820_0400, 2, 3, 5, 7, true, false);
+        let mmu = TestMmu { insn };
+
+        let mut dec = Arm64Decoder;
+        let block = dec.decode(&mmu, pc).expect("Failed to decode ARM64 LSE CAL instruction");
+        // Expect one AtomicCmpXchgOrder op
+        assert!(matches!(block.ops[0], IROp::AtomicCmpXchgOrder { .. }));
+        if let IROp::AtomicCmpXchgOrder { dst, base, expected, new, size, flags } = &block.ops[0] {
+            assert_eq!(*dst, 7);
+            assert_eq!(*expected, 3);
+            assert_eq!(*new, 7);
+            assert_eq!(*base, 5);
+            assert_eq!(*size, 4);
+            assert!(matches!(flags.order, vm_ir::MemOrder::Acquire));
+            assert!(flags.atomic);
+        }
+    }
+
+    #[test]
+    fn decode_lse_casal_acqrel_dword() {
+        let pc: GuestAddr = 0x2000;
+        // CASAL (doubleword), acquire+release
+        let insn = assemble_lse_base(0x3820_0400, 3, 2, 4, 6, true, true);
+        let mmu = TestMmu { insn };
+
+        let mut dec = Arm64Decoder;
+        let block = dec.decode(&mmu, pc).expect("Failed to decode ARM64 LSE CASAL instruction");
+        assert!(matches!(block.ops[0], IROp::AtomicCmpXchgOrder { .. }));
+        if let IROp::AtomicCmpXchgOrder { dst, base, expected, new, size, flags } = &block.ops[0] {
+            assert_eq!(*dst, 6);
+            assert_eq!(*expected, 2);
+            assert_eq!(*new, 6);
+            assert_eq!(*base, 4);
+            assert_eq!(*size, 8);
+            assert!(matches!(flags.order, vm_ir::MemOrder::AcqRel));
+            assert!(flags.atomic);
+        }
+    }
 }

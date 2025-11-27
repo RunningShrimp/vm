@@ -127,7 +127,8 @@ impl HotplugManager {
 
     /// 分配地址
     fn allocate_addr(&self, size: u64) -> Result<GuestAddr, HotplugError> {
-        let mut next_addr = self.next_addr.lock().unwrap();
+        let mut next_addr = self.next_addr.lock()
+            .map_err(|_| HotplugError::InvalidOperation("Failed to lock next_addr".into()))?;
         
         let addr = *next_addr;
         let new_next = addr + size;
@@ -144,7 +145,8 @@ impl HotplugManager {
 
     /// 检查地址冲突
     fn check_address_conflict(&self, base_addr: GuestAddr, size: u64) -> Result<(), HotplugError> {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.lock()
+            .map_err(|_| HotplugError::InvalidOperation("Failed to lock devices".into()))?;
         
         for device in devices.values() {
             let dev_start = device.info.base_addr;
@@ -153,7 +155,7 @@ impl HotplugManager {
             let new_end = base_addr + size;
             
             // 检查是否有重叠
-            if (new_start < dev_end && new_end > dev_start) {
+            if new_start < dev_end && new_end > dev_start {
                 return Err(HotplugError::AddressConflict(base_addr));
             }
         }
@@ -167,7 +169,8 @@ impl HotplugManager {
         mut info: DeviceInfo,
         device: Box<dyn MmioDevice>,
     ) -> Result<(), HotplugError> {
-        let mut devices = self.devices.lock().unwrap();
+        let mut devices = self.devices.lock()
+            .map_err(|_| HotplugError::InvalidOperation("Failed to lock devices".into()))?;
         
         // 检查设备是否已存在
         if devices.contains_key(&info.id) {
@@ -204,7 +207,8 @@ impl HotplugManager {
 
     /// 移除设备
     pub fn remove_device(&self, id: &str) -> Result<DeviceInfo, HotplugError> {
-        let mut devices = self.devices.lock().unwrap();
+        let mut devices = self.devices.lock()
+            .map_err(|_| HotplugError::InvalidOperation("Failed to lock devices".into()))?;
         
         let device = devices.remove(id)
             .ok_or_else(|| HotplugError::DeviceNotFound(id.to_string()))?;
@@ -229,7 +233,8 @@ impl HotplugManager {
 
     /// 获取设备信息
     pub fn get_device_info(&self, id: &str) -> Result<DeviceInfo, HotplugError> {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.lock()
+            .map_err(|_| HotplugError::InvalidOperation("Failed to lock devices".into()))?;
         
         devices.get(id)
             .map(|d| d.info.clone())
@@ -237,30 +242,36 @@ impl HotplugManager {
     }
 
     /// 列出所有设备
-    pub fn list_devices(&self) -> Vec<DeviceInfo> {
-        let devices = self.devices.lock().unwrap();
-        devices.values().map(|d| d.info.clone()).collect()
+    pub fn list_devices(&self) -> Result<Vec<DeviceInfo>, HotplugError> {
+        let devices = self.devices.lock()
+            .map_err(|_| HotplugError::InvalidOperation("Failed to lock devices".into()))?;
+        Ok(devices.values().map(|d| d.info.clone()).collect())
     }
 
     /// 检查设备是否存在
     pub fn device_exists(&self, id: &str) -> bool {
-        let devices = self.devices.lock().unwrap();
-        devices.contains_key(id)
+        if let Ok(devices) = self.devices.lock() {
+            devices.contains_key(id)
+        } else {
+            false
+        }
     }
 
     /// 获取设备数量
     pub fn device_count(&self) -> usize {
-        let devices = self.devices.lock().unwrap();
-        devices.len()
+        self.devices.lock()
+            .map(|devices| devices.len())
+            .unwrap_or(0)
     }
 
     /// 按类型列出设备
-    pub fn list_devices_by_type(&self, device_type: DeviceType) -> Vec<DeviceInfo> {
-        let devices = self.devices.lock().unwrap();
-        devices.values()
+    pub fn list_devices_by_type(&self, device_type: DeviceType) -> Result<Vec<DeviceInfo>, HotplugError> {
+        let devices = self.devices.lock()
+            .map_err(|_| HotplugError::InvalidOperation("Failed to lock devices".into()))?;
+        Ok(devices.values()
             .filter(|d| d.info.device_type == device_type)
             .map(|d| d.info.clone())
-            .collect()
+            .collect())
     }
 }
 
@@ -318,14 +329,14 @@ mod tests {
         let info = DeviceInfo::new("test0", DeviceType::Block, 0, 0x1000);
         let device = Box::new(DummyDevice);
         
-        manager.add_device(info, device).unwrap();
+        manager.add_device(info, device).expect("Failed to add device");
         assert!(manager.device_exists("test0"));
         assert_eq!(manager.device_count(), 1);
         
-        let info = manager.get_device_info("test0").unwrap();
+        let info = manager.get_device_info("test0").expect("Failed to get device info");
         assert_ne!(info.base_addr, 0); // 应该已分配地址
         
-        manager.remove_device("test0").unwrap();
+        manager.remove_device("test0").expect("Failed to remove device");
         assert!(!manager.device_exists("test0"));
     }
 
@@ -336,11 +347,11 @@ mod tests {
         let info1 = DeviceInfo::new("dev1", DeviceType::Block, 0, 0x1000);
         let info2 = DeviceInfo::new("dev2", DeviceType::Network, 0, 0x2000);
         
-        manager.add_device(info1, Box::new(DummyDevice)).unwrap();
-        manager.add_device(info2, Box::new(DummyDevice)).unwrap();
+        manager.add_device(info1, Box::new(DummyDevice)).expect("Failed to add dev1");
+        manager.add_device(info2, Box::new(DummyDevice)).expect("Failed to add dev2");
         
-        let dev1_info = manager.get_device_info("dev1").unwrap();
-        let dev2_info = manager.get_device_info("dev2").unwrap();
+        let dev1_info = manager.get_device_info("dev1").expect("Failed to get dev1 info");
+        let dev2_info = manager.get_device_info("dev2").expect("Failed to get dev2 info");
         
         // 地址不应该重叠
         assert!(dev1_info.base_addr + dev1_info.size <= dev2_info.base_addr);
@@ -353,7 +364,7 @@ mod tests {
         let info1 = DeviceInfo::new("dev1", DeviceType::Block, 0x10000000, 0x1000);
         let info2 = DeviceInfo::new("dev2", DeviceType::Network, 0x10000000, 0x1000);
         
-        manager.add_device(info1, Box::new(DummyDevice)).unwrap();
+        manager.add_device(info1, Box::new(DummyDevice)).expect("Failed to add dev1");
         let result = manager.add_device(info2, Box::new(DummyDevice));
         
         assert!(result.is_err());

@@ -47,8 +47,8 @@ impl SnapshotMetadata {
             name: name.into(),
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
             arch: arch.into(),
             memory_size,
             vcpu_count,
@@ -349,7 +349,7 @@ mod tests {
             .with_description("Test snapshot");
         
         let json = metadata.to_json();
-        let loaded = SnapshotMetadata::from_json(&json).unwrap();
+        let loaded = SnapshotMetadata::from_json(&json).expect("Failed to deserialize snapshot metadata");
         
         assert_eq!(loaded.name, "test");
         assert_eq!(loaded.arch, "riscv64");
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn test_snapshot_manager() {
         let temp_dir = std::env::temp_dir().join("vm_snapshots_test");
-        let manager = SnapshotManager::new(&temp_dir).unwrap();
+        let manager = SnapshotManager::new(&temp_dir).expect("Failed to create snapshot manager");
         
         let metadata = SnapshotMetadata::new("test", "riscv64", 1024, 1);
         let vcpu = VcpuSnapshot {
@@ -380,15 +380,15 @@ mod tests {
             memory,
         };
         
-        manager.save(&snapshot).unwrap();
-        let loaded = manager.load("test").unwrap();
+        manager.save(&snapshot).expect("Failed to save snapshot");
+        let loaded = manager.load("test").expect("Failed to load snapshot");
         
         assert_eq!(loaded.metadata.name, "test");
         assert_eq!(loaded.vcpus.len(), 1);
         assert_eq!(loaded.memory.data.len(), 1024);
         
         // 清理
-        manager.delete("test").unwrap();
+        manager.delete("test").expect("Failed to delete snapshot");
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

@@ -3,8 +3,8 @@
 //! 实现虚拟机的增量快照和恢复
 
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write, Seek, SeekFrom};
+use std::fs::File;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use serde::{Serialize, Deserialize};
 
@@ -75,8 +75,8 @@ impl IncrementalSnapshotManager {
             parent_id: parent_id.clone(),
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
             description,
             memory_size: memory.len() as u64,
             dirty_pages: self.dirty_pages.len(),
@@ -221,9 +221,16 @@ mod tests {
 
     #[test]
     fn test_incremental_snapshot() {
-        let unique = format!("vm_snapshots_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+        let unique = format!(
+            "vm_snapshots_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        );
         let temp_dir = env::temp_dir().join(unique);
-        let mut manager = IncrementalSnapshotManager::new(&temp_dir).unwrap();
+        let mut manager = IncrementalSnapshotManager::new(&temp_dir)
+            .expect("Failed to create incremental snapshot manager");
 
         // 创建初始内存
         let mut memory = vec![0u8; 8192]; // 2 pages
@@ -236,7 +243,7 @@ mod tests {
             None,
             "Initial snapshot".to_string(),
             &memory,
-        ).unwrap();
+        ).expect("Failed to create full snapshot");
 
         // 修改内存并标记脏页
         memory[0] = 0xCC;
@@ -248,11 +255,12 @@ mod tests {
             Some("snap1".to_string()),
             "Incremental snapshot".to_string(),
             &memory,
-        ).unwrap();
+        ).expect("Failed to create incremental snapshot");
 
         // 恢复快照
         let mut restored_memory = vec![0u8; 8192];
-        manager.restore_snapshot("snap2", &mut restored_memory).unwrap();
+        manager.restore_snapshot("snap2", &mut restored_memory)
+            .expect("Failed to restore incremental snapshot");
 
         assert_eq!(restored_memory[0], 0xCC);
         assert_eq!(restored_memory[4096], 0xBB);

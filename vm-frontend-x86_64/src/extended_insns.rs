@@ -92,6 +92,7 @@ impl ExtendedDecoder {
                 rep: false,
                 repne: false,
                 next_pc: pc + opcode.len() as u64,
+                jcc_cc: None,
             });
         }
 
@@ -116,6 +117,7 @@ impl ExtendedDecoder {
                 rep: false,
                 repne: false,
                 next_pc: pc + opcode.len() as u64,
+                jcc_cc: None,
             });
         }
 
@@ -140,6 +142,7 @@ impl ExtendedDecoder {
                 rep: false,
                 repne: false,
                 next_pc: pc + opcode.len() as u64,
+                jcc_cc: None,
             });
         }
 
@@ -164,6 +167,7 @@ impl ExtendedDecoder {
                 rep: false,
                 repne: false,
                 next_pc: pc + opcode.len() as u64,
+                jcc_cc: None,
             });
         }
 

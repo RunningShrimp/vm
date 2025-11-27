@@ -6,11 +6,13 @@ edition = "2024"
 [features]
 default = ["async-io"]
 async-io = []
+io_uring = ["tokio-uring"]
 
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-osal = { path = "../vm-osal" }
 vm-passthrough = { path = "../vm-passthrough" }
+vm-mem = { path = "../vm-mem" }
 vm-mem = { path = "../vm-mem" }
 wgpu = "27"
 winit = "0.30"
@@ -18,6 +20,7 @@ pollster = "0.4"
 log = "0.4"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
+tokio-uring = { version = "0.4", optional = true }
 # vfio-ioctls = "0.4"  # Temporarily disabled due to dependency conflicts with kvm-ioctls
 vfio-bindings = "0.6"
 uuid = { version = "1", features = ["v4"] }

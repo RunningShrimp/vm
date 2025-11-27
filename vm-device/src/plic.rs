@@ -4,6 +4,8 @@
 
 use vm_core::MmioDevice;
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::time::Instant;
 
 /// PLIC 寄存器偏移
 pub mod offsets {
@@ -43,6 +45,10 @@ pub struct Plic {
     thresholds: Vec<u32>,
     /// 每个 context 当前声明的中断
     claimed: Vec<Option<usize>>,
+    last_tick: Instant,
+    tick_interval_ms: u64,
+    virtio_queue_source_base: usize,
+    source_map: HashMap<String, (usize, usize)>,
 }
 
 impl Plic {
@@ -56,6 +62,10 @@ impl Plic {
             enables: vec![vec![false; num_sources + 1]; num_contexts],
             thresholds: vec![0; num_contexts],
             claimed: vec![None; num_contexts],
+            last_tick: Instant::now(),
+            tick_interval_ms: 100,
+            virtio_queue_source_base: 16,
+            source_map: HashMap::new(),
         }
     }
 
@@ -283,6 +293,20 @@ impl PlicMmio {
     pub fn plic(&self) -> Arc<Mutex<Plic>> {
         Arc::clone(&self.plic)
     }
+
+    pub fn set_virtio_queue_source_base(&self, base: usize) {
+        let mut p = self.plic.lock().unwrap();
+        p.virtio_queue_source_base = base;
+    }
+
+    pub fn register_source_range(&self, name: &str, base: usize, len: usize) {
+        let mut p = self.plic.lock().unwrap();
+        p.source_map.insert(name.to_string(), (base, len));
+    }
+    pub fn unregister_source(&self, name: &str) {
+        let mut p = self.plic.lock().unwrap();
+        p.source_map.remove(name);
+    }
 }
 
 impl MmioDevice for PlicMmio {
@@ -305,5 +329,22 @@ impl MmioDevice for PlicMmio {
     fn write(&mut self, offset: u64, val: u64, size: u8) {
         let mut plic = self.plic.lock().unwrap();
         plic.write(offset, val, size);
+    }
+
+    fn poll(&mut self, _mmu: &mut dyn vm_core::MMU) {
+        let mut plic = self.plic.lock().unwrap();
+        let elapsed = plic.last_tick.elapsed();
+        if elapsed.as_millis() as u64 >= plic.tick_interval_ms {
+            plic.set_pending(1);
+            plic.last_tick = Instant::now();
+        }
+        if let Ok(status) = _mmu.read(0x1000_0000 + 0x030, 4) {
+            if status != 0 { plic.set_pending(1); }
+        }
+        let cause = _mmu.read(0x1000_0000 + 0x048, 8).unwrap_or(0);
+        let base = plic.virtio_queue_source_base;
+        for i in 0..32 {
+            if ((cause >> i) & 1) != 0 { plic.set_pending(base + i as usize); }
+        }
     }
 }

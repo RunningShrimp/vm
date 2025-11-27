@@ -97,14 +97,14 @@ impl NvidiaGpu {
     /// 检测 NVIDIA GPU 架构
     fn detect_architecture(device_id: u16) -> GpuArchitecture {
         match device_id {
-            // Blackwell (B100, B200)
-            0x2300..=0x23FF => GpuArchitecture::Blackwell,
-            // Hopper (H100, H200)
+            // Hopper (H100, H200) - narrow subrange first
             0x2330..=0x233F => GpuArchitecture::Hopper,
+            // Blackwell (B100, B200) - exclude Hopper subrange
+            0x2300..=0x232F | 0x2340..=0x23FF => GpuArchitecture::Blackwell,
             // Ada Lovelace (RTX 40 series)
             0x2684..=0x2704 => GpuArchitecture::Ada,
             // Ampere (RTX 30 series, A100)
-            0x2200..=0x2300 => GpuArchitecture::Ampere,
+            0x2200..=0x22FF => GpuArchitecture::Ampere,
             // Turing (RTX 20 series)
             0x1E00..=0x1FFF => GpuArchitecture::Turing,
             // Volta (V100)
@@ -120,10 +120,10 @@ impl NvidiaGpu {
     /// 获取 CUDA 计算能力
     fn get_compute_capability(device_id: u16) -> Option<(u32, u32)> {
         match device_id {
-            0x2300..=0x23FF => Some((10, 0)),  // Blackwell: 10.0
             0x2330..=0x233F => Some((9, 0)),   // Hopper: 9.0
+            0x2300..=0x232F | 0x2340..=0x23FF => Some((10, 0)),  // Blackwell: 10.0
             0x2684..=0x2704 => Some((8, 9)),   // Ada: 8.9
-            0x2200..=0x2300 => Some((8, 6)),   // Ampere: 8.6
+            0x2200..=0x22FF => Some((8, 6)),   // Ampere: 8.6
             0x1E00..=0x1FFF => Some((7, 5)),   // Turing: 7.5
             0x1D00..=0x1DFF => Some((7, 0)),   // Volta: 7.0
             0x1B00..=0x1CFF => Some((6, 1)),   // Pascal: 6.1

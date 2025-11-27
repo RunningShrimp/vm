@@ -7,8 +7,7 @@
 //!
 //! 同时提供运行时控制、快照和设备热插拔功能
 
-use vm_core::{GuestAddr, VmError, VmResult};
-use std::path::Path;
+use vm_core::GuestAddr;
 
 // 子模块
 pub mod runtime;
@@ -332,7 +331,7 @@ impl BootLoader {
     /// ISO 引导
     fn iso_boot(&self, memory: &mut dyn vm_core::MMU) -> Result<BootInfo, BootError> {
         use std::fs::File;
-        use crate::iso9660::Iso9660;
+        
         use crate::eltorito::ElTorito;
 
         log::info!("Starting ISO Boot");

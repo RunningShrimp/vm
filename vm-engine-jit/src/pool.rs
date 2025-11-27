@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, mpsc::{self, Sender, Receiver}};
+use std::sync::{Arc, Mutex, mpsc::{self, Sender}};
 use std::thread;
 use std::collections::HashMap;
 use crate::{Jit, CodePtr};

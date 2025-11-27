@@ -4,7 +4,7 @@
 
 use cranelift::prelude::*;
 use cranelift_codegen::ir::AtomicRmwOp;
-use vm_ir::{IROp, AtomicOp, MemOrder};
+use vm_ir::{IROp, AtomicOp};
 
 /// 编译浮点运算指令
 pub fn compile_float_op(
@@ -151,6 +151,7 @@ pub fn compile_atomic_op(
 ) -> bool {
     match op {
         IROp::AtomicRMW { dst, base, src, op: atomic_op, size } => {
+            let _size = size;
             let addr_val = load_reg(builder, regs_ptr, *base);
             let val_val = load_reg(builder, regs_ptr, *src);
             
@@ -220,7 +221,7 @@ impl LoopUnroller {
     }
 
     /// 检测并展开简单循环
-    pub fn try_unroll(&self, ops: &[IROp]) -> Option<Vec<IROp>> {
+    pub fn try_unroll(&self, _ops: &[IROp]) -> Option<Vec<IROp>> {
         // 简化实现：检测简单的计数循环并展开
         // 实际实现需要更复杂的循环检测和分析
         None

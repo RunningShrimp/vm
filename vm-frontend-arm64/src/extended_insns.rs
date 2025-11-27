@@ -140,7 +140,7 @@ mod tests {
     fn test_neon_decode() {
         // FADD V0.4S, V1.4S, V2.4S
         let insn = 0x4E22D420;
-        let result = ExtendedDecoder::decode_neon(insn);
+        let _result = ExtendedDecoder::decode_neon(insn);
         // 实际测试需要更精确的解码逻辑
     }
 

@@ -1,0 +1,127 @@
+name: linux-ci
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Restore cache
+        uses: Swatinem/rust-cache@v2
+      - name: Build workspace
+        run: cargo build --locked --workspace
+      - name: Test workspace
+        run: cargo test --locked --workspace
+      - name: Test vm-device with io_uring feature (Linux only)
+        run: cargo test -p vm-device --features io_uring -- --quiet
+      - name: JIT log guard
+        run: |
+          RUST_LOG=debug cargo test -p vm-engine-jit --test log_sample -- --nocapture 2>&1 | tee jit_out.txt
+          grep -q "jit: execute compiled block" jit_out.txt
+          grep -q "jit: periodic-sample" jit_out.txt
+          grep -c "jit: periodic-sample" jit_out.txt > jit_log_stats.txt
+      - name: Checkout main baseline
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline
+      - name: Baseline JIT log guard
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          cd baseline
+          RUST_LOG=debug cargo test -p vm-engine-jit --test log_sample -- --nocapture 2>&1 | tee ../jit_out_main.txt
+          grep -q "jit: periodic-sample" ../jit_out_main.txt
+          grep -c "jit: periodic-sample" ../jit_out_main.txt > ../jit_log_stats_main.txt
+          cd -
+          CUR=$(cat jit_log_stats.txt); BASE=$(cat jit_log_stats_main.txt); echo "current=$CUR base=$BASE" | tee jit_log_compare.txt
+      - name: JIT sampling trend warning (non-blocking)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          CUR=$(cat jit_log_stats.txt 2>/dev/null || echo 0)
+          BASE=$(cat jit_log_stats_main.txt 2>/dev/null || echo 0)
+          TREND=$(awk -v cur="$CUR" -v base="$BASE" 'BEGIN{if (base>0){if (cur<base*0.8) print "LOW"; else if (cur>base*1.2) print "HIGH"; else print "OK"} else print "NA"}')
+          echo "trend=$TREND current=$CUR base=$BASE" | tee -a jit_log_compare.txt
+          if [ "$TREND" = "LOW" ]; then echo "::warning::JIT sampling decreased (current=$CUR base=$BASE)"; fi
+          if [ "$TREND" = "HIGH" ]; then echo "::warning::JIT sampling increased (current=$CUR base=$BASE)"; fi
+      - name: Upload JIT log artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jit-log-artifacts
+          path: |
+            jit_out.txt
+            jit_log_stats.txt
+            jit_out_main.txt
+            jit_log_stats_main.txt
+            jit_log_compare.txt
+  build-test-linux-strict-align:
+    runs-on: ubuntu-latest
+    env:
+      VM_STRICT_ALIGN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Restore cache
+        uses: Swatinem/rust-cache@v2
+      - name: Build workspace (strict align)
+        run: cargo build --locked --workspace
+      - name: Test workspace (strict align)
+        run: cargo test --locked --workspace
+      - name: Test vm-device io_uring (strict align)
+        run: cargo test -p vm-device --features io_uring -- --quiet
+      - name: AlignmentFault summary (non-blocking)
+        run: |
+          cargo test -p vm-tests -- --nocapture 2>&1 | tee align_out.txt
+          CNT=$(grep -o 'ALIGNMENT_FAULTS=[0-9]*' align_out.txt | tail -1 | cut -d= -f2)
+          echo "alignment_faults=$CNT" | tee -a align_summary.txt
+          if [ -n "$CNT" ]; then echo "::warning::Strict-align CI: AlignmentFaults detected ($CNT)"; else echo "::warning::Strict-align CI: No summary found"; fi
+      - name: Checkout main baseline (strict align)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline_align
+      - name: Baseline AlignmentFault summary
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          cd baseline_align
+          export VM_STRICT_ALIGN=1
+          cargo test -p vm-tests -- --nocapture 2>&1 | tee ../align_out_main.txt
+          BASE=$(grep -o 'ALIGNMENT_FAULTS=[0-9]*' ../align_out_main.txt | tail -1 | cut -d= -f2)
+          echo "alignment_faults_base=$BASE" | tee -a ../align_summary_main.txt
+          cd -
+      - name: Strict-align trend warning (non-blocking)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          CUR=$(grep -o 'alignment_faults=[0-9]*' align_summary.txt | tail -1 | cut -d= -f2)
+          BASE=$(grep -o 'alignment_faults_base=[0-9]*' align_summary_main.txt | tail -1 | cut -d= -f2)
+          
+          # Handle missing values with defaults and warnings
+          if [ -z "$CUR" ]; then CUR=0; echo "::warning::Strict-align CI: Current faults data missing, defaulting to 0"; fi
+          if [ -z "$BASE" ]; then 
+            BASE=0
+            echo "::warning::Strict-align CI: Baseline faults data missing. Defaulting to 0."
+          fi
+          
+          TREND=$(awk -v cur="$CUR" -v base="$BASE" 'BEGIN{if (base>0){if (cur<base*0.8) print "LOW"; else if (cur>base*1.2) print "HIGH"; else print "OK"} else {if (cur>0) print "HIGH"; else print "NA"}}')
+          
+          echo "strict_align_trend=$TREND current=$CUR base=$BASE" | tee -a align_compare.txt
+          if [ "$TREND" = "LOW" ]; then echo "::warning::Strict-align faults decreased (current=$CUR base=$BASE)"; fi
+          if [ "$TREND" = "HIGH" ]; then echo "::warning::Strict-align faults increased (current=$CUR base=$BASE)"; fi
+      - name: Upload strict-align artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: strict-align-artifacts
+          path: |
+            align_out.txt
+            align_summary.txt
+            align_out_main.txt
+            align_summary_main.txt
+            align_compare.txt

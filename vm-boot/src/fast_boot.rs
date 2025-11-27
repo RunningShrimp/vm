@@ -4,7 +4,7 @@
 
 use std::path::Path;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 
 /// 启动缓存
 pub struct BootCache {
@@ -139,9 +139,16 @@ impl FastBootOptimizer {
         });
 
         // 等待加载完成
-        self.cache.kernel_cache = Some(kernel_handle.join().unwrap()?);
+        let kernel_result = kernel_handle.join()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Kernel loader thread panicked"))?;
+        let kernel_data = kernel_result?;
+        self.cache.kernel_cache = Some(kernel_data);
+
         if let Some(handle) = initrd_handle {
-            self.cache.initrd_cache = Some(handle.join().unwrap()?);
+            let initrd_result = handle.join()
+                .map_err(|_| io::Error::new(io::ErrorKind::Other, "Initrd loader thread panicked"))?;
+            let initrd_data = initrd_result?;
+            self.cache.initrd_cache = Some(initrd_data);
         }
 
         Ok(())
@@ -257,14 +264,18 @@ mod tests {
         let kernel_path = temp_dir.join("test_kernel");
         
         // 创建测试文件
-        let mut file = File::create(&kernel_path).unwrap();
-        file.write_all(b"test kernel data").unwrap();
+        let mut file = File::create(&kernel_path)
+            .expect("Failed to create kernel test file");
+        file.write_all(b"test kernel data")
+            .expect("Failed to write kernel test data");
 
         let mut cache = BootCache::new();
-        cache.preload_kernel(&kernel_path).unwrap();
+        cache.preload_kernel(&kernel_path)
+            .expect("Failed to preload kernel");
 
         assert!(cache.get_kernel().is_some());
-        assert_eq!(cache.get_kernel().unwrap(), b"test kernel data");
+        let cached_kernel = cache.get_kernel().expect("Kernel should be cached");
+        assert_eq!(cached_kernel, b"test kernel data");
 
         // 清理
         std::fs::remove_file(kernel_path).ok();
@@ -276,11 +287,16 @@ mod tests {
         let kernel_path = temp_dir.join("test_kernel2");
         
         // 创建测试文件
-        let mut file = File::create(&kernel_path).unwrap();
-        file.write_all(b"test kernel data").unwrap();
+        let mut file = File::create(&kernel_path)
+            .expect("Failed to create kernel test file");
+        file.write_all(b"test kernel data")
+            .expect("Failed to write kernel test data");
 
         let mut optimizer = FastBootOptimizer::new();
-        optimizer.optimize_boot(kernel_path.to_str().unwrap(), None).unwrap();
+        optimizer.optimize_boot(
+            kernel_path.to_str().expect("Kernel path is not valid UTF-8"),
+            None,
+        ).expect("Optimized boot should succeed");
 
         assert!(optimizer.cache().get_kernel().is_some());
 

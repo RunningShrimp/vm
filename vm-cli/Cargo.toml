@@ -2,18 +2,14 @@
 name = "vm-cli"
 version = "0.1.0"
 edition = "2024"
+edition = "2024"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
-vm-ir = { path = "../vm-ir" }
-vm-engine-interpreter = { path = "../vm-engine-interpreter" }
-vm-mem = { path = "../vm-mem" }
-vm-device = { path = "../vm-device" }
-vm-frontend-riscv64 = { path = "../vm-frontend-riscv64" }
-vm-engine-jit = { path = "../vm-engine-jit" }
-vm-accel = { path = "../vm-accel" }
+vm-service = { path = "../vm-service" }
 vm-osal = { path = "../vm-osal" }
-wgpu = "27"
+vm-device = { path = "../vm-device" } # For HardwareDetector if needed
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.11"
 log = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

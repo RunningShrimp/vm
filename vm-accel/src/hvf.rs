@@ -13,6 +13,7 @@ use std::ptr;
 #[cfg(target_os = "macos")]
 #[link(name = "Hypervisor", kind = "framework")]
 unsafe extern "C" {
+unsafe extern "C" {
     // VM 管理
     fn hv_vm_create(config: *mut std::ffi::c_void) -> i32;
     fn hv_vm_destroy() -> i32;
@@ -110,7 +111,7 @@ pub struct HvfVcpu {
 
 impl HvfVcpu {
     #[cfg(target_os = "macos")]
-    pub fn new(id: u32) -> Result<Self, AccelError> {
+    pub fn new(_id: u32) -> Result<Self, AccelError> {
         let mut vcpu_id: u32 = 0;
         let ret = unsafe {
             hv_vcpu_create(&mut vcpu_id, ptr::null_mut(), ptr::null_mut())
@@ -124,8 +125,8 @@ impl HvfVcpu {
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub fn new(id: u32) -> Result<Self, AccelError> {
-        Ok(Self { _id: id })
+    pub fn new(_id: u32) -> Result<Self, AccelError> {
+        Ok(Self { _id: _id })
     }
 
     /// 获取寄存器
@@ -304,6 +305,7 @@ impl Accel for AccelHvf {
             
             if ret != HV_SUCCESS {
                 log::warn!("hv_vm_create failed: 0x{:x}, continuing in dummy mode", ret);
+                log::warn!("hv_vm_create failed: 0x{:x}, continuing in dummy mode", ret);
             }
 
             self.initialized = true;
@@ -430,7 +432,7 @@ mod tests {
     }
 }
 use crate::event::{AccelEventSource, AccelEvent};
-use std::time::{Instant, Duration};
+use std::time::Instant;
 pub struct AccelHvfTimer { pub last: Instant }
 
 impl AccelEventSource for AccelHvf {

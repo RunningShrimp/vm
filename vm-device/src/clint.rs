@@ -159,4 +159,9 @@ impl MmioDevice for ClintMmio {
         let mut clint = self.clint.lock().unwrap();
         clint.write(offset, val, size);
     }
+
+    fn poll(&mut self, _mmu: &mut dyn vm_core::MMU) {
+        let mut clint = self.clint.lock().unwrap();
+        clint.update_time();
+    }
 }

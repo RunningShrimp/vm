@@ -36,7 +36,8 @@ fn main() {
     ];
 
     for (i, insn) in code.iter().enumerate() {
-        mmu.write(code_base + (i as u64 * 4), *insn as u64, 4).unwrap();
+        mmu.write(code_base + (i as u64 * 4), *insn as u64, 4)
+            .expect("Failed to write instruction into MMU");
     }
 
     // 3. Setup Engine
@@ -57,7 +58,8 @@ fn main() {
         println!("x{}: {}", i, interp.get_reg(i));
     }
     
-    let mem_val = mmu.read(data_base as u64, 4).unwrap();
+    let mem_val = mmu.read(data_base as u64, 4)
+        .expect("Failed to read from MMU");
     println!("Memory[0x{:x}]: {}", data_base, mem_val);
     
     assert_eq!(interp.get_reg(3), 30);

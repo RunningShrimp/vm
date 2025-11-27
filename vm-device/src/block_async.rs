@@ -55,8 +55,101 @@ pub enum AsyncBlockResponse {
     WriteOk,
     /// 刷新成功
     FlushOk,
+    /// 批量操作成功
+    BatchOk(Vec<BatchResult>),
     /// 错误
     Error(String),
+}
+
+/// 批量操作结果
+#[derive(Debug, Clone)]
+pub struct BatchResult {
+    /// 操作索引
+    pub index: usize,
+    /// 是否成功
+    pub success: bool,
+    /// 读取的数据（仅读操作）
+    pub data: Option<Vec<u8>>,
+    /// 错误信息
+    pub error: Option<String>,
+}
+
+/// IO 优先级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IoPriority {
+    /// 低优先级（后台操作）
+    Low = 0,
+    /// 普通优先级
+    Normal = 1,
+    /// 高优先级（交互式操作）
+    High = 2,
+    /// 实时优先级
+    Realtime = 3,
+}
+
+impl Default for IoPriority {
+    fn default() -> Self {
+        IoPriority::Normal
+    }
+}
+
+/// 批量读取请求
+#[derive(Debug, Clone)]
+pub struct BatchReadRequest {
+    pub sector: u64,
+    pub count: u32,
+    pub priority: IoPriority,
+}
+
+/// 批量写入请求
+#[derive(Debug, Clone)]
+pub struct BatchWriteRequest {
+    pub sector: u64,
+    pub data: Vec<u8>,
+    pub priority: IoPriority,
+}
+
+/// 异步 IO 配置
+#[derive(Debug, Clone)]
+pub struct AsyncIoConfig {
+    /// 请求队列大小
+    pub queue_size: usize,
+    /// 最大并发请求数
+    pub max_concurrent: usize,
+    /// 批处理阈值
+    pub batch_threshold: usize,
+    /// 预读扇区数
+    pub readahead_sectors: u32,
+    /// 写合并启用
+    pub write_coalescing: bool,
+    /// IO 调度算法
+    pub scheduler: IoScheduler,
+}
+
+impl Default for AsyncIoConfig {
+    fn default() -> Self {
+        Self {
+            queue_size: 64,
+            max_concurrent: 16,
+            batch_threshold: 4,
+            readahead_sectors: 32,
+            write_coalescing: true,
+            scheduler: IoScheduler::Deadline,
+        }
+    }
+}
+
+/// IO 调度算法
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoScheduler {
+    /// 先来先服务
+    Fifo,
+    /// 截止时间调度（默认）
+    Deadline,
+    /// 优先级调度
+    Priority,
+    /// CFQ (完全公平队列)
+    Cfq,
 }
 
 /// 异步 VirtIO 块设备
@@ -71,22 +164,81 @@ pub struct AsyncVirtioBlock {
     read_only: bool,
     /// 请求发送通道
     request_tx: Option<mpsc::Sender<AsyncBlockRequest>>,
+    /// IO 配置
+    config: AsyncIoConfig,
+    /// IO 统计
+    stats: Arc<Mutex<AsyncIoStats>>,
+}
+
+/// 异步 IO 统计信息
+#[derive(Debug, Default, Clone)]
+pub struct AsyncIoStats {
+    /// 总读取操作数
+    pub total_reads: u64,
+    /// 总写入操作数
+    pub total_writes: u64,
+    /// 总读取字节数
+    pub bytes_read: u64,
+    /// 总写入字节数
+    pub bytes_written: u64,
+    /// 批处理合并次数
+    pub batch_merges: u64,
+    /// 平均读延迟（纳秒）
+    pub avg_read_latency_ns: u64,
+    /// 平均写延迟（纳秒）
+    pub avg_write_latency_ns: u64,
+    /// 队列深度峰值
+    pub peak_queue_depth: u32,
+    /// 预读命中率
+    pub readahead_hit_rate: f64,
 }
 
 impl AsyncVirtioBlock {
     /// 创建新的异步 VirtIO Block 设备
     pub fn new() -> Self {
+        Self::with_config(AsyncIoConfig::default())
+    }
+
+    /// 使用自定义配置创建异步块设备
+    pub fn with_config(config: AsyncIoConfig) -> Self {
         Self {
             file: None,
             capacity: 0,
             sector_size: 512,
             read_only: false,
             request_tx: None,
+            config,
+            stats: Arc::new(Mutex::new(AsyncIoStats::default())),
         }
+    }
+
+    /// 获取 IO 统计信息
+    pub async fn get_stats(&self) -> AsyncIoStats {
+        self.stats.lock().await.clone()
+    }
+
+    /// 重置统计信息
+    pub async fn reset_stats(&self) {
+        let mut stats = self.stats.lock().await;
+        *stats = AsyncIoStats::default();
+    }
+
+    /// 获取配置
+    pub fn config(&self) -> &AsyncIoConfig {
+        &self.config
     }
 
     /// 从文件路径异步打开块设备
     pub async fn open<P: AsRef<Path>>(path: P, read_only: bool) -> std::io::Result<Self> {
+        Self::open_with_config(path, read_only, AsyncIoConfig::default()).await
+    }
+
+    /// 使用自定义配置从文件路径异步打开块设备
+    pub async fn open_with_config<P: AsRef<Path>>(
+        path: P, 
+        read_only: bool,
+        config: AsyncIoConfig,
+    ) -> std::io::Result<Self> {
         let file = if read_only {
             File::open(path.as_ref()).await?
         } else {
@@ -106,7 +258,178 @@ impl AsyncVirtioBlock {
             sector_size: 512,
             read_only,
             request_tx: None,
+            config,
+            stats: Arc::new(Mutex::new(AsyncIoStats::default())),
         })
+    }
+
+    /// 批量读取操作
+    pub async fn batch_read(&self, requests: Vec<BatchReadRequest>) -> Result<Vec<BatchResult>, String> {
+        let file = self.file.as_ref()
+            .ok_or_else(|| "Device not opened".to_string())?;
+
+        let mut results = Vec::with_capacity(requests.len());
+        let stats = self.stats.clone();
+        
+        // 按优先级排序
+        let mut sorted_requests: Vec<_> = requests.into_iter().enumerate().collect();
+        sorted_requests.sort_by(|a, b| b.1.priority.cmp(&a.1.priority));
+        
+        // 尝试合并相邻的读请求
+        let merged_requests = if self.config.write_coalescing {
+            Self::merge_read_requests(&sorted_requests)
+        } else {
+            sorted_requests.into_iter().map(|(i, r)| (vec![i], r)).collect()
+        };
+        
+        let mut file_guard = file.lock().await;
+        
+        for (indices, req) in merged_requests {
+            let offset = req.sector * (self.sector_size as u64);
+            let size = (req.count as usize) * (self.sector_size as usize);
+            
+            let start = std::time::Instant::now();
+            
+            if let Err(e) = file_guard.seek(std::io::SeekFrom::Start(offset)).await {
+                for i in indices {
+                    results.push(BatchResult {
+                        index: i,
+                        success: false,
+                        data: None,
+                        error: Some(format!("Seek failed: {}", e)),
+                    });
+                }
+                continue;
+            }
+            
+            let mut buffer = vec![0u8; size];
+            match file_guard.read_exact(&mut buffer).await {
+                Ok(_) => {
+                    let latency = start.elapsed().as_nanos() as u64;
+                    let mut s = stats.lock().await;
+                    s.total_reads += 1;
+                    s.bytes_read += size as u64;
+                    s.avg_read_latency_ns = (s.avg_read_latency_ns + latency) / 2;
+                    drop(s);
+                    
+                    // 分发数据到各个请求
+                    let sector_size = self.sector_size as usize;
+                    let mut offset = 0usize;
+                    for i in indices {
+                        let data_size = req.count as usize * sector_size;
+                        results.push(BatchResult {
+                            index: i,
+                            success: true,
+                            data: Some(buffer[offset..offset + data_size].to_vec()),
+                            error: None,
+                        });
+                        offset += data_size;
+                    }
+                }
+                Err(e) => {
+                    for i in indices {
+                        results.push(BatchResult {
+                            index: i,
+                            success: false,
+                            data: None,
+                            error: Some(format!("Read failed: {}", e)),
+                        });
+                    }
+                }
+            }
+        }
+        
+        // 按原始索引排序结果
+        results.sort_by_key(|r| r.index);
+        Ok(results)
+    }
+    
+    /// 合并相邻的读请求
+    fn merge_read_requests(requests: &[(usize, BatchReadRequest)]) -> Vec<(Vec<usize>, BatchReadRequest)> {
+        if requests.is_empty() {
+            return Vec::new();
+        }
+        
+        let mut result = Vec::new();
+        let mut current_indices = vec![requests[0].0];
+        let mut current = requests[0].1.clone();
+        
+        for (idx, req) in requests.iter().skip(1) {
+            // 检查是否可以合并（连续扇区）
+            if req.sector == current.sector + current.count as u64 
+               && req.priority == current.priority {
+                current_indices.push(*idx);
+                current.count += req.count;
+            } else {
+                result.push((current_indices, current));
+                current_indices = vec![*idx];
+                current = req.clone();
+            }
+        }
+        result.push((current_indices, current));
+        result
+    }
+
+    /// 批量写入操作
+    pub async fn batch_write(&self, requests: Vec<BatchWriteRequest>) -> Result<Vec<BatchResult>, String> {
+        if self.read_only {
+            return Err("Device is read-only".to_string());
+        }
+
+        let file = self.file.as_ref()
+            .ok_or_else(|| "Device not opened".to_string())?;
+
+        let mut results = Vec::with_capacity(requests.len());
+        let stats = self.stats.clone();
+        
+        // 按优先级排序
+        let mut sorted_requests: Vec<_> = requests.into_iter().enumerate().collect();
+        sorted_requests.sort_by(|a, b| b.1.priority.cmp(&a.1.priority));
+        
+        let mut file_guard = file.lock().await;
+        
+        for (idx, req) in sorted_requests {
+            let offset = req.sector * (self.sector_size as u64);
+            let start = std::time::Instant::now();
+            
+            let result = async {
+                file_guard.seek(std::io::SeekFrom::Start(offset)).await
+                    .map_err(|e| format!("Seek failed: {}", e))?;
+                file_guard.write_all(&req.data).await
+                    .map_err(|e| format!("Write failed: {}", e))?;
+                Ok::<(), String>(())
+            }.await;
+            
+            let latency = start.elapsed().as_nanos() as u64;
+            
+            match result {
+                Ok(()) => {
+                    let mut s = stats.lock().await;
+                    s.total_writes += 1;
+                    s.bytes_written += req.data.len() as u64;
+                    s.avg_write_latency_ns = (s.avg_write_latency_ns + latency) / 2;
+                    drop(s);
+                    
+                    results.push(BatchResult {
+                        index: idx,
+                        success: true,
+                        data: None,
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    results.push(BatchResult {
+                        index: idx,
+                        success: false,
+                        data: None,
+                        error: Some(e),
+                    });
+                }
+            }
+        }
+        
+        results.sort_by_key(|r| r.index);
+        Ok(results)
     }
 
     /// 启动异步请求处理器

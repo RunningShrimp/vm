@@ -3,7 +3,7 @@
 //! 支持 VFIO (Virtual Function I/O) 和 IOMMU
 
 use super::{PciAddress, PciDeviceInfo, PassthroughError};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// IOMMU 组
 #[derive(Debug, Clone)]
@@ -220,14 +220,14 @@ impl Default for IommuManager {
 
 /// PCIe 配置空间访问
 pub struct PciConfigSpace {
-    address: PciAddress,
+    _address: PciAddress,
     config_path: PathBuf,
 }
 
 impl PciConfigSpace {
     pub fn new(address: PciAddress) -> Self {
         let config_path = PathBuf::from(format!("/sys/bus/pci/devices/{}/config", address.to_string()));
-        Self { address, config_path }
+        Self { _address: address, config_path }
     }
 
     /// 读取配置空间

@@ -134,48 +134,48 @@ impl Decoder for RiscvDecoder {
                 match funct5 {
                     0x02 => { // LR (Load Reserved)
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::Load { dst, base: reg_file.read(rs1 as usize), offset: 0, size, flags });
+                        let mut lr_flags = flags;
+                        b.push(IROp::AtomicLoadReserve { dst, base: reg_file.read(rs1 as usize), offset: 0, size, flags: lr_flags });
                     }
                     0x03 => { // SC (Store Conditional)
-                        let dst = reg_file.write(rd as usize);
-                        b.push(IROp::Store { src: reg_file.read(rs2 as usize), base: reg_file.read(rs1 as usize), offset: 0, size, flags });
-                        b.push(IROp::MovImm { dst, imm: 0 }); // Success
+                        let dst_flag = reg_file.write(rd as usize);
+                        b.push(IROp::AtomicStoreCond { src: reg_file.read(rs2 as usize), base: reg_file.read(rs1 as usize), offset: 0, size, dst_flag, flags });
                     }
                     0x01 => { // AMOSWAP
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Xchg, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Xchg, size, flags });
                     }
                     0x00 => { // AMOADD
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Add, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Add, size, flags });
                     }
                     0x04 => { // AMOXOR
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Xor, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Xor, size, flags });
                     }
                     0x0c => { // AMOAND
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::And, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::And, size, flags });
                     }
                     0x08 => { // AMOOR
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Or, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Or, size, flags });
                     }
                     0x10 => { // AMOMIN
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::MinS, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::MinS, size, flags });
                     }
                     0x14 => { // AMOMAX
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::MaxS, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::MaxS, size, flags });
                     }
                     0x18 => { // AMOMINU
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Min, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Min, size, flags });
                     }
                     0x1c => { // AMOMAXU
                         let dst = reg_file.write(rd as usize);
-                        b.push(IROp::AtomicRMW { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Max, size });
+                        b.push(IROp::AtomicRMWOrder { dst, base: reg_file.read(rs1 as usize), src: reg_file.read(rs2 as usize), op: vm_ir::AtomicOp::Max, size, flags });
                     }
                     _ => {}
                 }
@@ -196,6 +196,59 @@ impl Decoder for RiscvDecoder {
                 b.push(IROp::And { dst: t29_new, src1: t29, src2: t28 });
                 
                 b.set_term(Terminator::JmpReg { base: t29_new, offset: 0 });
+            }
+            0x73 => {
+                let csr = ((insn >> 20) & 0xFFF) as u16;
+                match funct3 {
+                    0x1 => { // CSRRW
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::CsrRead { dst, csr });
+                        b.push(IROp::CsrWrite { csr, src: reg_file.read(rs1 as usize) });
+                        b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
+                    }
+                    0x2 => { // CSRRS
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::CsrRead { dst, csr });
+                        b.push(IROp::CsrSet { csr, src: reg_file.read(rs1 as usize) });
+                        b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
+                    }
+                    0x3 => { // CSRRC
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::CsrRead { dst, csr });
+                        b.push(IROp::CsrClear { csr, src: reg_file.read(rs1 as usize) });
+                        b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
+                    }
+                    0x5 => { // CSRRWI
+                        let zimm = ((insn >> 15) & 0x1f) as u32;
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::CsrRead { dst, csr });
+                        b.push(IROp::CsrWriteImm { csr, imm: zimm, dst });
+                        b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
+                    }
+                    0x6 => { // CSRRSI
+                        let zimm = ((insn >> 15) & 0x1f) as u32;
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::CsrRead { dst, csr });
+                        b.push(IROp::CsrSetImm { csr, imm: zimm, dst });
+                        b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
+                    }
+                    0x7 => { // CSRRCI
+                        let zimm = ((insn >> 15) & 0x1f) as u32;
+                        let dst = reg_file.write(rd as usize);
+                        b.push(IROp::CsrRead { dst, csr });
+                        b.push(IROp::CsrClearImm { csr, imm: zimm, dst });
+                        b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) });
+                    }
+                    0x0 => {
+                        if insn == 0x00000073 { b.push(IROp::SysCall); b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
+                        else if insn == 0x00100073 { b.push(IROp::DebugBreak); b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
+                        else if insn == 0x30200073 { b.push(IROp::SysMret); b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
+                        else if insn == 0x10200073 { b.push(IROp::SysSret); b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
+                        else if insn == 0x10500073 { b.push(IROp::SysWfi); b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
+                        else { b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
+                    }
+                    _ => { b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
+                }
             }
             _ => { b.set_term(Terminator::Jmp { target: pc.wrapping_add(4) }); }
         }

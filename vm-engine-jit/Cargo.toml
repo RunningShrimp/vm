@@ -2,12 +2,15 @@
 name = "vm-engine-jit"
 version = "0.1.0"
 edition = "2024"
+edition = "2024"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-simd = { path = "../vm-simd" }
+vm-mem = { path = "../vm-mem" }
 cranelift = "0.126"
+tracing = "0.1"
 cranelift-codegen = "0.126"
 cranelift-frontend = "0.126"
 cranelift-module = "0.126"
@@ -18,6 +21,10 @@ rayon = "1.10"
 
 [dev-dependencies]
 criterion = "0.5"
+vm-engine-interpreter = { path = "../vm-engine-interpreter" }
+vm-mem = { path = "../vm-mem" }
+vm-ir = { path = "../vm-ir" }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
 [[bench]]
 name = "jit_compile"

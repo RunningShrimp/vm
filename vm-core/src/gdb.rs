@@ -32,14 +32,18 @@ impl GdbServer {
 
         println!("GDB server listening on {}", addr);
         self.listener = Some(listener);
-        *self.running.lock().unwrap() = true;
+        let mut running = self.running.lock()
+            .map_err(|e| format!("Failed to lock running state: {}", e))?;
+        *running = true;
 
         Ok(())
     }
 
     /// 停止 GDB 服务器
     pub fn stop(&mut self) {
-        *self.running.lock().unwrap() = false;
+        if let Ok(mut running) = self.running.lock() {
+            *running = false;
+        }
         self.listener = None;
     }
 
@@ -58,7 +62,9 @@ impl GdbServer {
 
     /// 是否正在运行
     pub fn is_running(&self) -> bool {
-        *self.running.lock().unwrap()
+        self.running.lock()
+            .map(|state| *state)
+            .unwrap_or(false)
     }
 }
 
@@ -346,7 +352,8 @@ mod tests {
     #[test]
     fn test_hex_conversion() {
         let hex = "48656c6c6f";
-        let bytes = GdbSession::hex_to_bytes(hex).unwrap();
+        let bytes = GdbSession::hex_to_bytes(hex)
+            .expect("Failed to convert hex string");
         assert_eq!(bytes, b"Hello");
     }
 }

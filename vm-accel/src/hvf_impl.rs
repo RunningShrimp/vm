@@ -110,7 +110,7 @@ pub struct HvfVcpu {
 
 impl HvfVcpu {
     #[cfg(target_os = "macos")]
-    pub fn new(id: u32) -> Result<Self, AccelError> {
+    pub fn new(_id: u32) -> Result<Self, AccelError> {
         let mut vcpu_id: u32 = 0;
         let ret = unsafe {
             hv_vcpu_create(&mut vcpu_id, ptr::null_mut(), ptr::null_mut())
@@ -124,8 +124,8 @@ impl HvfVcpu {
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub fn new(id: u32) -> Result<Self, AccelError> {
-        Ok(Self { _id: id })
+    pub fn new(_id: u32) -> Result<Self, AccelError> {
+        Ok(Self { _id: _id })
     }
 
     /// 获取寄存器
