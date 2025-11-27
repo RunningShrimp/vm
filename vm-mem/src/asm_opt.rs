@@ -115,36 +115,36 @@ pub unsafe fn page_walk_x86_64(va: u64, page_table_base: u64) -> Option<u64> {
         // L4 页表
         "mov {pte}, [{pt_base} + {l4_idx}*8]",
         "test {pte}, 1",                    // 检查 Present 位
-        "jz 1f",                            // 如果不存在，跳转到失败
+        "jz 2f",                            // 如果不存在，跳转到失败
         "and {pte}, ~0xFFF",                // 清除低 12 位
         
         // L3 页表
         "mov {pte}, [{pte} + {l3_idx}*8]",
         "test {pte}, 1",
-        "jz 1f",
+        "jz 2f",
         "and {pte}, ~0xFFF",
         
         // L2 页表
         "mov {pte}, [{pte} + {l2_idx}*8]",
         "test {pte}, 1",
-        "jz 1f",
+        "jz 2f",
         "and {pte}, ~0xFFF",
         
         // L1 页表
         "mov {pte}, [{pte} + {l1_idx}*8]",
         "test {pte}, 1",
-        "jz 1f",
+        "jz 2f",
         "and {pte}, ~0xFFF",
         
         // 计算物理地址
         "add {pte}, {offset}",
         "mov {pa}, {pte}",
-        "jmp end",
+        "jmp 3f",
         
-        "fail:",                            // 失败
+        "2:",                               // 失败
         "xor {pa}, {pa}",
         
-        "end:",                             // 结束
+        "3:",                               // 结束
         
         pa = out(reg) pa,
         pte = out(reg) pte,

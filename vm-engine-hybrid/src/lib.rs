@@ -2,7 +2,7 @@
 //!
 //! 混合执行引擎，结合解释器和JIT编译器，实现热点追踪和自适应优化
 
-use vm_core::{ExecutionEngine, MMU, Fault};
+use vm_core::{ExecutionEngine, MMU, Fault, ExecResult, ExecStatus, ExecStats, GuestAddr};
 use vm_ir::IRBlock;
 use vm_engine_interpreter::Interpreter;
 use vm_engine_jit::Jit;
@@ -113,7 +113,7 @@ impl HybridEngine {
     }
 
     /// 设置寄存器值
-    pub fn set_reg(&mut self, idx: u32, val: u64) {
+    pub fn set_reg_internal(&mut self, idx: u32, val: u64) {
         self.interpreter.set_reg(idx, val);
         if (idx as usize) < self.jit.regs.len() {
             self.jit.regs[idx as usize] = val;
@@ -121,7 +121,7 @@ impl HybridEngine {
     }
 
     /// 获取寄存器值
-    pub fn get_reg(&self, idx: u32) -> u64 {
+    pub fn get_reg_internal(&self, idx: u32) -> u64 {
         self.interpreter.get_reg(idx)
     }
 
@@ -179,12 +179,12 @@ impl ExecutionEngine<vm_ir::IRBlock> for HybridEngine {
         }
     }
 
-    fn set_reg(&mut self, idx: u32, val: u64) {
-        self.set_reg(idx, val);
+    fn set_reg(&mut self, idx: usize, val: u64) {
+        self.set_reg_internal(idx as u32, val);
     }
 
-    fn get_reg(&self, idx: u32) -> u64 {
-        self.get_reg(idx)
+    fn get_reg(&self, idx: usize) -> u64 {
+        self.get_reg_internal(idx as u32)
     }
 
     fn set_pc(&mut self, pc: u64) {

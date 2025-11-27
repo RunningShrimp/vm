@@ -356,7 +356,8 @@ impl BootLoader {
         log::info!("Boot media type: {:?}", catalog.initial_entry.boot_media_type);
 
         // 读取引导镜像
-        let boot_image = eltorito.read_boot_image(&catalog.initial_entry)
+        let initial_entry = catalog.initial_entry.clone();
+        let boot_image = eltorito.read_boot_image(&initial_entry)
             .map_err(|e| BootError::InvalidConfig(format!("Failed to read boot image: {}", e)))?;
 
         log::info!("Loaded boot image ({} bytes)", boot_image.len());
