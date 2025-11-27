@@ -6,10 +6,19 @@ edition = "2021"
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-osal = { path = "../vm-osal" }
-wgpu = "0.19"
+vm-passthrough = { path = "../vm-passthrough" }
+wgpu = "0.20.0"
 winit = "0.29"
 pollster = "0.3"
 log = "0.4"
+vfio-ioctls = "0.5.2"
+vfio-bindings = "0.6.1"
+uuid = { version = "1.0", features = ["v4"] }
+
+
+
+
+
 
 [dependencies.libc]
 version = "0.2"

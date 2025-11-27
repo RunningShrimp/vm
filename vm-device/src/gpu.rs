@@ -2,6 +2,7 @@ use vm_core::MmioDevice;
 use wgpu::{Instance, Surface, Adapter, Device, Queue};
 use winit::window::Window;
 use std::sync::Arc;
+use crate::virgl::VirtioGpuVirgl;
 
 pub struct GpuDevice {
     instance: Instance,
@@ -10,6 +11,7 @@ pub struct GpuDevice {
     device: Option<Device>,
     queue: Option<Queue>,
     window: Option<Arc<Window>>,
+    virgl: VirtioGpuVirgl,
 }
 
 impl GpuDevice {
@@ -22,6 +24,7 @@ impl GpuDevice {
             device: None,
             queue: None,
             window: None,
+            virgl: VirtioGpuVirgl::new(),
         }
     }
 
@@ -64,7 +67,8 @@ impl MmioDevice for GpuDevice {
         match offset {
             0x10 => {
                 // Trigger render command
-                println!("GPU: Render command received: {:#x}", val);
+                let cmd_buf = val.to_le_bytes();
+                self.virgl.process_gpu_command(&cmd_buf);
             }
             _ => {}
         }

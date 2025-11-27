@@ -3,6 +3,92 @@
 //! 实现 GVA -> GPA -> HVA 的两级地址转换
 
 use crate::{GuestAddr, HostAddr, MemoryError};
+
+/// 大页支持
+pub mod hugepage {
+    use super::*;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum HugePageSize {
+        Size2M,
+        Size1G,
+    }
+
+    impl HugePageSize {
+        pub fn size(&self) -> u64 {
+            match self {
+                HugePageSize::Size2M => 2 * 1024 * 1024,
+                HugePageSize::Size1G => 1024 * 1024 * 1024,
+            }
+        }
+
+        pub fn alignment(&self) -> u64 {
+            self.size()
+        }
+    }
+
+    pub struct HugePageAllocator {
+        enabled: bool,
+        preferred_size: HugePageSize,
+    }
+
+    impl HugePageAllocator {
+        pub fn new(enabled: bool, preferred_size: HugePageSize) -> Self {
+            Self { enabled, preferred_size }
+        }
+
+        pub fn is_enabled(&self) -> bool {
+            self.enabled
+        }
+
+        pub fn preferred_size(&self) -> HugePageSize {
+            self.preferred_size
+        }
+
+        pub fn is_aligned(&self, addr: u64) -> bool {
+            addr % self.preferred_size.alignment() == 0
+        }
+
+        pub fn align_up(&self, addr: u64) -> u64 {
+            let alignment = self.preferred_size.alignment();
+            (addr + alignment - 1) & !(alignment - 1)
+        }
+
+        pub fn align_down(&self, addr: u64) -> u64 {
+            let alignment = self.preferred_size.alignment();
+            addr & !(alignment - 1)
+        }
+
+        #[cfg(target_os = "linux")]
+        pub fn allocate_linux(&self, size: usize) -> Result<*mut u8, String> {
+            if !self.enabled {
+                return Err("Huge pages not enabled".to_string());
+            }
+            use std::ptr;
+            let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_HUGETLB;
+            let prot = libc::PROT_READ | libc::PROT_WRITE;
+            let addr = unsafe {
+                libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0)
+            };
+            if addr == libc::MAP_FAILED {
+                Err("Failed to allocate huge pages".to_string())
+            } else {
+                Ok(addr as *mut u8)
+            }
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        pub fn allocate_linux(&self, _size: usize) -> Result<*mut u8, String> {
+            Err("Huge pages only supported on Linux".to_string())
+        }
+    }
+
+    impl Default for HugePageAllocator {
+        fn default() -> Self {
+            Self::new(false, HugePageSize::Size2M)
+        }
+    }
+}
 use std::collections::HashMap;
 
 /// 页面大小

@@ -1,4 +1,5 @@
-use vm_core::{VirtualMachine, VmConfig, GuestArch, ExecMode, Decoder, ExecutionEngine, VirtioConfig, NetMode};
+use vm_core::{VirtualMachine, VmConfig, GuestArch, ExecMode, Decoder, ExecutionEngine};
+use vm_ir::IRBlock;
 use vm_mem::SoftMmu;
 use vm_frontend_riscv64::RiscvDecoder;
 use vm_engine_interpreter::Interpreter;
@@ -6,6 +7,11 @@ use vm_osal::{host_os, host_arch};
 use vm_device::block::{VirtioBlock, VirtioBlockMmio};
 use vm_device::clint::{Clint, ClintMmio};
 use vm_device::plic::{Plic, PlicMmio};
+use vm_device::hw_detect::HardwareDetector;
+use vm_device::gpu_virt::GpuManager;
+use vm_device::virtio_ai::{VirtioAi, VirtioAiMmio};
+
+use tokio;
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 
@@ -17,6 +23,8 @@ struct CliArgs {
     exec_mode: ExecMode,
     enable_accel: bool,
     debug: bool,
+    detect_hw: bool,
+    gpu_backend: Option<String>,
 }
 
 impl Default for CliArgs {
@@ -29,6 +37,8 @@ impl Default for CliArgs {
             exec_mode: ExecMode::Interpreter,
             enable_accel: false,
             debug: false,
+            detect_hw: false,
+            gpu_backend: None,
         }
     }
 }
@@ -71,6 +81,14 @@ fn parse_args() -> CliArgs {
             }
             "--debug" => {
                 args.debug = true;
+            }
+            "--detect-hw" => {
+                args.detect_hw = true;
+            }
+            "--gpu-backend" => {
+                if let Some(name) = iter.next() {
+                    args.gpu_backend = Some(name);
+                }
             }
             "--help" | "-h" => {
                 print_usage();
@@ -117,11 +135,39 @@ fn print_usage() {
     println!("    --hybrid                 Use hybrid mode (interpreter + JIT)");
     println!("    --accel                  Use hardware acceleration");
     println!("    --debug                  Enable debug output");
+    println!("    --detect-hw              Detect and display hardware information");
+    println!("    --gpu-backend <NAME>     Select GPU backend (e.g., WGPU, Passthrough)");
     println!("    -h, --help               Print this help message");
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = parse_args();
+
+    let mut gpu_manager = GpuManager::new();
+    if let Some(backend_name) = &args.gpu_backend {
+        if let Err(e) = gpu_manager.select_backend_by_name(backend_name) {
+            eprintln!("Failed to select GPU backend: {}", e);
+        }
+    } else {
+        gpu_manager.auto_select_backend();
+    }
+
+    
+
+    if let Err(e) = gpu_manager.init_selected_backend() {
+        eprintln!("Failed to initialize GPU backend: {}", e);
+    }
+
+    if args.detect_hw {
+        let summary = HardwareDetector::detect().await;
+        HardwareDetector::print_summary(&summary);
+
+        
+
+        
+        return;
+    }
 
     println!("=== RISC-V64 Virtual Machine ===");
     println!("Host: {} / {}", host_os(), host_arch());
@@ -156,8 +202,8 @@ fn main() {
     println!();
 
     // 创建 MMU
-    let mmu = SoftMmu::new(config.memory_size);
-    let mut vm = VirtualMachine::with_mmu(config.clone(), Box::new(mmu));
+    let mmu = SoftMmu::new(config.memory_size, false);
+    let mut vm: VirtualMachine<IRBlock> = VirtualMachine::with_mmu(config.clone(), Box::new(mmu));
     let mmu_arc = vm.mmu();
 
     // 初始化 CLINT (时钟中断控制器)
@@ -167,6 +213,9 @@ fn main() {
     // 初始化 PLIC (平台级中断控制器)
     let plic = Arc::new(Mutex::new(Plic::new(127, args.vcpus as usize * 2))); // 127 sources, 2 contexts per hart
     let plic_mmio = PlicMmio::new(Arc::clone(&plic));
+
+    // 初始化 VirtIO AI
+    let virtio_ai = VirtioAiMmio::new(VirtioAi::new());
 
     // 映射设备到 MMIO 区域
     {
@@ -184,6 +233,7 @@ fn main() {
                 Ok(block_dev) => {
                     let block_mmio = VirtioBlockMmio::new(block_dev);
                     mmu.map_mmio(0x1000_0000, 0x1000, Box::new(block_mmio));
+                    mmu.map_mmio(0x1000_1000, 0x1000, Box::new(virtio_ai));
                     println!("VirtIO Block device initialized at 0x1000_0000");
                 }
                 Err(e) => {

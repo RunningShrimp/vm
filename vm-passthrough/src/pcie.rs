@@ -218,6 +218,86 @@ impl Default for IommuManager {
     }
 }
 
+/// PCIe 配置空间访问
+pub struct PciConfigSpace {
+    address: PciAddress,
+    config_path: PathBuf,
+}
+
+impl PciConfigSpace {
+    pub fn new(address: PciAddress) -> Self {
+        let config_path = PathBuf::from(format!("/sys/bus/pci/devices/{}/config", address.to_string()));
+        Self { address, config_path }
+    }
+
+    /// 读取配置空间
+    #[cfg(target_os = "linux")]
+    pub fn read(&self, offset: usize, size: usize) -> Result<Vec<u8>, PassthroughError> {
+        use std::fs;
+        use std::io::{Read, Seek};
+
+        let mut file = fs::File::open(&self.config_path)?;
+        let mut buffer = vec![0u8; size];
+        
+        file.seek(std::io::SeekFrom::Start(offset as u64))?;
+        file.read_exact(&mut buffer)?;
+        
+        Ok(buffer)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub fn read(&self, _offset: usize, _size: usize) -> Result<Vec<u8>, PassthroughError> {
+        Err(PassthroughError::IoError(
+            std::io::Error::new(std::io::ErrorKind::Unsupported, "Not supported on this platform")
+        ))
+    }
+
+    /// 写入配置空间
+    #[cfg(target_os = "linux")]
+    pub fn write(&self, offset: usize, data: &[u8]) -> Result<(), PassthroughError> {
+        use std::fs;
+        use std::io::{Write, Seek};
+
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .open(&self.config_path)?;
+        
+        file.seek(std::io::SeekFrom::Start(offset as u64))?;
+        file.write_all(data)?;
+        
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub fn write(&self, _offset: usize, _data: &[u8]) -> Result<(), PassthroughError> {
+        Err(PassthroughError::IoError(
+            std::io::Error::new(std::io::ErrorKind::Unsupported, "Not supported on this platform")
+        ))
+    }
+
+    /// 读取 16 位值
+    pub fn read_u16(&self, offset: usize) -> Result<u16, PassthroughError> {
+        let data = self.read(offset, 2)?;
+        Ok(u16::from_le_bytes([data[0], data[1]]))
+    }
+
+    /// 读取 32 位值
+    pub fn read_u32(&self, offset: usize) -> Result<u32, PassthroughError> {
+        let data = self.read(offset, 4)?;
+        Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+    }
+
+    /// 写入 16 位值
+    pub fn write_u16(&self, offset: usize, value: u16) -> Result<(), PassthroughError> {
+        self.write(offset, &value.to_le_bytes())
+    }
+
+    /// 写入 32 位值
+    pub fn write_u32(&self, offset: usize, value: u32) -> Result<(), PassthroughError> {
+        self.write(offset, &value.to_le_bytes())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

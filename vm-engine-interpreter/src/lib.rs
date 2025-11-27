@@ -705,8 +705,18 @@ impl ExecutionEngine<IRBlock> for Interpreter {
         self.pc
     }
 
-    fn set_pc(&mut self, pc: GuestAddr) {
-        self.pc = pc;
+    fn set_pc(&mut self, pc: GuestAddr) { self.pc = pc; }
+
+    fn get_vcpu_state(&self) -> vm_core::VcpuStateContainer {
+        vm_core::VcpuStateContainer {
+            regs: self.regs,
+            pc: self.pc,
+        }
+    }
+
+    fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
+        self.regs = state.regs;
+        self.pc = state.pc;
     }
 }
 

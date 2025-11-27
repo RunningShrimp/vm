@@ -195,6 +195,15 @@ impl ExecutionEngine<vm_ir::IRBlock> for HybridEngine {
     fn get_pc(&self) -> u64 {
         self.interpreter.get_pc()
     }
+
+    fn get_vcpu_state(&self) -> vm_core::VcpuStateContainer {
+        self.interpreter.get_vcpu_state()
+    }
+
+    fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
+        self.interpreter.set_vcpu_state(state);
+        self.jit.set_vcpu_state(state);
+    }
 }
 
 #[cfg(test)]

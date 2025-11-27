@@ -15,6 +15,10 @@ use std::sync::{Arc, Mutex};
 // 模块定义
 mod regs;
 pub mod syscall;
+pub mod snapshot;
+pub mod template;
+pub mod migration;
+pub mod gdb;
 pub use regs::GuestRegs;
 
 // ============================================================================
@@ -33,7 +37,7 @@ pub type HostAddr = usize;
 // ============================================================================
 
 /// 支持的 Guest 架构
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GuestArch {
     Riscv64,
     Arm64,
@@ -41,7 +45,7 @@ pub enum GuestArch {
 }
 
 impl GuestArch {
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> &str {
         match self {
             GuestArch::Riscv64 => "riscv64",
             GuestArch::Arm64 => "arm64",
@@ -55,7 +59,7 @@ impl GuestArch {
 // ============================================================================
 
 /// 执行引擎模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ExecMode {
     /// 纯解释执行
     Interpreter,
@@ -85,7 +89,7 @@ pub enum Fault {
     AccessViolation { addr: GuestAddr, access: AccessType },
     InvalidOpcode { pc: GuestAddr, opcode: u32 },
     AlignmentFault { addr: GuestAddr, size: u8 },
-    DeviceError { msg: &'static str },
+    DeviceError { msg: String },
     Halt,
     Shutdown,
 }
@@ -131,7 +135,7 @@ pub type VmResult<T> = Result<T, VmError>;
 // ============================================================================
 
 /// VirtIO 设备配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VirtioConfig {
     /// 块设备镜像路径
     pub block_image: Option<String>,
@@ -155,7 +159,7 @@ impl Default for VirtioConfig {
 }
 
 /// 网络模式
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum NetMode {
     /// 用户态 NAT（smoltcp）
     User,
@@ -164,7 +168,7 @@ pub enum NetMode {
 }
 
 /// VM 配置结构
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VmConfig {
     /// Guest 架构
     pub guest_arch: GuestArch,
@@ -241,6 +245,12 @@ pub trait MMU: Send {
     
     /// 获取物理内存大小
     fn memory_size(&self) -> usize;
+
+    /// 转储整个物理内存内容
+    fn dump_memory(&self) -> Vec<u8>;
+
+    /// 从转储中恢复物理内存
+    fn restore_memory(&mut self, data: &[u8]) -> Result<(), String>;
 }
 
 // ============================================================================
@@ -291,6 +301,13 @@ pub struct ExecResult {
 // 核心 Trait 定义
 // ============================================================================
 
+/// vCPU 状态的完整表示
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct VcpuStateContainer {
+    pub regs: [u64; 32],
+    pub pc: GuestAddr,
+}
+
 /// 执行引擎 Trait
 pub trait ExecutionEngine<B>: Send {
     /// 执行单个基本块
@@ -307,6 +324,12 @@ pub trait ExecutionEngine<B>: Send {
     
     /// 设置 PC
     fn set_pc(&mut self, pc: GuestAddr);
+
+    /// 获取完整的 vCPU 状态
+    fn get_vcpu_state(&self) -> VcpuStateContainer;
+
+    /// 设置完整的 vCPU 状态
+    fn set_vcpu_state(&mut self, state: &VcpuStateContainer);
 }
 
 /// 解码器 Trait
@@ -368,27 +391,40 @@ pub enum VmState {
 
 /// 虚拟机核心结构
 #[cfg(not(feature = "no_std"))]
-pub struct VirtualMachine {
+pub struct VirtualMachine<B> {
     /// 配置
     config: VmConfig,
     /// 状态
     state: VmState,
     /// MMU（共享访问）
     mmu: Arc<Mutex<Box<dyn MMU>>>,
+    /// vCPU 列表
+    vcpus: Vec<Arc<Mutex<dyn ExecutionEngine<B>>>>,
     /// 执行统计
     stats: ExecStats,
+    /// 快照管理器
+    snapshot_manager: Mutex<snapshot::SnapshotManager>,
+    /// 模板管理器
+    template_manager: Mutex<template::TemplateManager>,
 }
 
 #[cfg(not(feature = "no_std"))]
-impl VirtualMachine {
+impl<B: 'static> VirtualMachine<B> {
     /// 使用提供的 MMU 创建 VM
     pub fn with_mmu(config: VmConfig, mmu: Box<dyn MMU>) -> Self {
         Self {
             config,
             state: VmState::Created,
             mmu: Arc::new(Mutex::new(mmu)),
+            vcpus: Vec::new(),
             stats: ExecStats::default(),
+            snapshot_manager: Mutex::new(snapshot::SnapshotManager::new()),
+            template_manager: Mutex::new(template::TemplateManager::new()),
         }
+    }
+
+    pub fn add_vcpu(&mut self, vcpu: Arc<Mutex<dyn ExecutionEngine<B>>>) {
+        self.vcpus.push(vcpu);
     }
     
     /// 获取 MMU 引用
@@ -461,6 +497,89 @@ impl VirtualMachine {
         self.stats = ExecStats::default();
         let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
         mmu.flush_tlb();
+        Ok(())
+    }
+
+    /// 创建快照
+    pub fn create_snapshot(&mut self, name: String, description: String) -> VmResult<String> {
+        let mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
+        let memory_dump = mmu.dump_memory();
+        let id = uuid::Uuid::new_v4().to_string();
+        let memory_dump_path = format!("/tmp/{}.memsnap", id);
+        std::fs::write(&memory_dump_path, memory_dump).map_err(|e| VmError::Io(e.to_string()))?;
+
+        let mut snapshot_manager = self.snapshot_manager.lock().unwrap();
+        let snapshot_id = snapshot_manager.create_snapshot(name, description, memory_dump_path);
+        Ok(snapshot_id)
+    }
+
+    /// 恢复快照
+    pub fn restore_snapshot(&mut self, id: &str) -> VmResult<()> {
+        let mut snapshot_manager = self.snapshot_manager.lock().unwrap();
+        let snapshot = snapshot_manager.snapshots.get(id).ok_or_else(|| VmError::Config("Snapshot not found".to_string()))?.clone();
+        let memory_dump = std::fs::read(&snapshot.memory_dump_path).map_err(|e| VmError::Io(e.to_string()))?;
+
+        let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
+        mmu.restore_memory(&memory_dump).map_err(VmError::Memory)?;
+
+        snapshot_manager.restore_snapshot(id).map_err(VmError::Config)
+    }
+
+    /// 列出所有快照
+    pub fn list_snapshots(&self) -> VmResult<Vec<snapshot::Snapshot>> {
+        let snapshot_manager = self.snapshot_manager.lock().unwrap();
+        Ok(snapshot_manager.get_snapshot_tree().into_iter().cloned().collect())
+    }
+
+    /// 创建模板
+    pub fn create_template(&mut self, name: String, description: String, base_snapshot_id: String) -> VmResult<String> {
+        let mut template_manager = self.template_manager.lock().unwrap();
+        let id = template_manager.create_template(name, description, base_snapshot_id);
+        Ok(id)
+    }
+
+    /// 列出所有模板
+    pub fn list_templates(&self) -> VmResult<Vec<template::VmTemplate>> {
+        let template_manager = self.template_manager.lock().unwrap();
+        Ok(template_manager.list_templates().into_iter().cloned().collect())
+    }
+
+    /// 序列化虚拟机状态以进行迁移
+    pub fn serialize_state(&self) -> VmResult<Vec<u8>> {
+        let mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
+        let memory_dump = mmu.dump_memory();
+
+        let mut vcpu_states = Vec::new();
+        for vcpu in &self.vcpus {
+            let vcpu = vcpu.lock().unwrap();
+            vcpu_states.push(vcpu.get_vcpu_state());
+        }
+
+        let state = migration::MigrationState {
+            config: self.config.clone(),
+            vcpu_states,
+            memory_dump,
+        };
+
+        bincode::serialize(&state).map_err(|e| VmError::Io(e.to_string()))
+    }
+
+    /// 从序列化数据中反序列化并恢复虚拟机状态
+    pub fn deserialize_state(&mut self, data: &[u8]) -> VmResult<()> {
+        let state: migration::MigrationState = bincode::deserialize(data).map_err(|e| VmError::Io(e.to_string()))?;
+
+        self.config = state.config;
+
+        let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
+        mmu.restore_memory(&state.memory_dump).map_err(VmError::Memory)?;
+
+        for (i, vcpu_state) in state.vcpu_states.iter().enumerate() {
+            if let Some(vcpu) = self.vcpus.get_mut(i) {
+                let mut vcpu = vcpu.lock().unwrap();
+                vcpu.set_vcpu_state(vcpu_state);
+            }
+        }
+
         Ok(())
     }
 }

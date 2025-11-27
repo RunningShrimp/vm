@@ -3,6 +3,7 @@
 //! 包含 SoftMMU（软件 MMU）和 RISC-V SV39/SV48 页表遍历
 
 use vm_core::{MMU, MmioDevice, GuestAddr, GuestPhysAddr, AccessType, Fault};
+use crate::mmu::hugepage::{HugePageAllocator, HugePageSize};
 
 /// Host 虚拟地址
 pub type HostAddr = u64;
@@ -155,6 +156,7 @@ struct MmioRegion {
 pub struct SoftMmu {
     /// 物理内存
     mem: Vec<u8>,
+    huge_page_allocator: HugePageAllocator,
     /// 指令 TLB
     itlb: Tlb,
     /// 数据 TLB
@@ -175,13 +177,26 @@ pub struct SoftMmu {
 impl SoftMmu {
     /// 创建默认大小（64KB）的 MMU
     pub fn new_default() -> Self {
-        Self::new(64 * 1024)
+        Self::new(64 * 1024, false)
     }
 
     /// 创建指定大小的 MMU
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: usize, use_hugepages: bool) -> Self {
+        let allocator = HugePageAllocator::new(use_hugepages, HugePageSize::Size2M);
+        let mem = if use_hugepages {
+            match allocator.allocate_linux(size) {
+                Ok(ptr) => unsafe { Vec::from_raw_parts(ptr, size, size) },
+                Err(_) => {
+                    println!("Failed to allocate huge pages, falling back to standard pages.");
+                    vec![0u8; size]
+                }
+            }
+        } else {
+            vec![0u8; size]
+        };
+
         Self {
-            mem: vec![0u8; size],
+            mem,
             itlb: Tlb::new(64),
             dtlb: Tlb::new(128),
             mmio_regions: Vec::new(),
@@ -190,6 +205,7 @@ impl SoftMmu {
             asid: 0,
             tlb_hits: 0,
             tlb_misses: 0,
+            huge_page_allocator: allocator,
         }
     }
 
@@ -546,6 +562,18 @@ impl MMU for SoftMmu {
 
     fn memory_size(&self) -> usize {
         self.mem.len()
+    }
+
+    fn dump_memory(&self) -> Vec<u8> {
+        self.mem.clone()
+    }
+
+    fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
+        if data.len() != self.mem.len() {
+            return Err("Memory size mismatch".to_string());
+        }
+        self.mem.copy_from_slice(data);
+        Ok(())
     }
 }
 

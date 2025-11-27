@@ -58,7 +58,7 @@ impl VirtQueue {
     }
 
     /// 将已使用的描述符放回队列
-    pub fn push_used(&mut self, idx: u16, len: u32) {
+    pub fn push_used(&mut self, _idx: u16, _len: u32) {
         // 简化实现：更新 used_idx
         self.used_idx = (self.used_idx + 1) % self.size;
     }
