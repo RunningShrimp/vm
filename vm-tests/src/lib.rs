@@ -13,7 +13,7 @@ mod tests {
     #[test]
     fn interpreter_runs_empty_block() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         let builder = IRBuilder::new(0);
         let block = builder.build();
         let res = engine.run(&mut mmu, &block);
@@ -26,7 +26,7 @@ mod tests {
     #[test]
     fn interpreter_add_executes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_reg(1, 2);
         engine.set_reg(2, 3);
         let mut builder = IRBuilder::new(0);
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn interpreter_load_store_executes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_reg(4, 0x100);
         let _ = mmu.write(0x100, 0x77889900, 4);
         let mut builder = IRBuilder::new(0);
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn memorder_acquire_release_sequence_consistency() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x3000);
+        let mut mmu = SoftMmu::new(0x3000, false);
         // addresses
         let data_addr = 0x900u64;
         let flag_addr = 0x904u64;
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn interpreter_vecadd_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_reg(1, 0x0102_0304_0506_0708);
         engine.set_reg(2, 0x0101_0101_0101_0101);
         let mut builder = IRBuilder::new(0);
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn interpreter_vecaddsat_signed_u8() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_reg(1, 0x7F00_0000_0000_0000); // lane0=0x7F
         engine.set_reg(2, 0x7F00_0000_0000_0000); // lane0=0x7F
         let mut builder = IRBuilder::new(0);
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn interpreter_vecsubsat_unsigned_u8() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_reg(1, 0x0001_0000_0000_0000);
         engine.set_reg(2, 0x0002_0000_0000_0000);
         let mut builder = IRBuilder::new(0);
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn interpreter_vecmulsat_unsigned_u8() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_reg(1, 0x0003_0000_0000_0000);
         engine.set_reg(2, 0x00FF_0000_0000_0000);
         let mut builder = IRBuilder::new(0);
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn interpreter_vec128add_u8_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // src1: lo lanes [1,1,1,1,1,1,1,1], hi lanes [2,2,2,2,2,2,2,2]
         engine.set_reg(20, 0x0101_0101_0101_0101);
         engine.set_reg(21, 0x0202_0202_0202_0202);
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn interpreter_vec256_sat_matrix() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         for &es in &[1u8, 2u8, 4u8, 8u8] {
             // unsigned add saturate: max + 1 -> max
             let one_lane = 1u64;
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn interpreter_vec256_multilane_add_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // element_size=1
         engine.set_reg(10, 0x0101_0101_0101_0101);
         engine.set_reg(11, 0x0202_0202_0202_0202);
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn interpreter_vec256_multilane_mul_sat_unsigned() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // es=1: saturate at byte1; nonzero across dst1..dst3
         engine.set_reg(10, 0x00FF_0000_0000_0000);
         engine.set_reg(11, 0x00FF_0000_0000_0000);
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn interpreter_vec256_multilane_mul_sat_signed() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // es=1 signed: 120*10 -> 127 at byte1; nonzero across dst1..dst3
         engine.set_reg(10, 0x0078_0000_0000_0000);
         engine.set_reg(11, 0x0078_0000_0000_0000);
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn interpreter_vec256_nonuniform_byte_level_checks() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // element_size=1, non-uniform lanes across chunks
         engine.set_reg(10, 0x0102_0304_0506_0708);
         engine.set_reg(11, 0x1112_1314_1516_1718);
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn interpreter_vec256_nonuniform_dst23_byte_checks() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // element_size=1, craft non-uniform bytes for dst2/dst3 chunks
         engine.set_reg(12, 0xA1A2_A3A4_A5A6_A7A8);
         engine.set_reg(13, 0xB1B2_B3B4_B5B6_B7B8);
@@ -407,7 +407,7 @@ mod tests {
         use vm_core::{ExecStatus, Decoder, MMU, GuestAddr, Fault};
         use vm_ir::IRBlock;
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.intr_mask_until = 3;
         engine.set_interrupt_handler_ext(|ctx, interp| {
             let regs = ctx.regs_ptr;
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn interpreter_atomic_minmax_combinations() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x2000);
+        let mut mmu = SoftMmu::new(0x2000, false);
         // unsigned Min/Max via AtomicRMW
         engine.set_reg(5, 0x600);
         let _ = mmu.write(0x600, 0x10, 1);
@@ -463,7 +463,7 @@ mod tests {
         use vm_core::{Decoder, MMU, GuestAddr, Fault};
         use vm_ir::IRBlock;
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_interrupt_handler_ext(|ctx, interp| {
             let regs = ctx.regs_ptr;
             unsafe { *regs.add(1) = 42; }
@@ -493,7 +493,7 @@ mod tests {
     #[test]
     fn interpreter_atomic_cmpxchg_flag_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x1000);
+        let mut mmu = SoftMmu::new(0x1000, false);
         engine.set_reg(30, 0x400);
         let _ = mmu.write(0x400, 0xAA, 1);
         engine.set_reg(31, 0xAA);
@@ -512,7 +512,7 @@ mod tests {
     #[test]
     fn interpreter_atomic_rmw_flag_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x1000);
+        let mut mmu = SoftMmu::new(0x1000, false);
         engine.set_reg(5, 0x500);
         let _ = mmu.write(0x500, 0x0F, 1);
         engine.set_reg(6, 0xF0);
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn paged_mmu_read_write_basic() {
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         let _ = mmu.write(0x10, 0xAB, 1);
         let v = mmu.read(0x10, 1).unwrap();
         assert_eq!(v, 0xAB);
@@ -543,7 +543,7 @@ mod tests {
     #[test]
     fn interpreter_atomic_cmpxchg_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x1000);
+        let mut mmu = SoftMmu::new(0x1000, false);
         engine.set_reg(10, 0x300);
         let _ = mmu.write(0x300, 0x55, 1);
         engine.set_reg(11, 0x55); // expected
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn interpreter_atomicrmw_xchg_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x1000);
+        let mut mmu = SoftMmu::new(0x1000, false);
         engine.set_reg(4, 0x200);
         let _ = mmu.write(0x200, 0xAAAA_BBBB_CCCC_DDDD, 8);
         engine.set_reg(5, 0x1111_2222_3333_4444);
@@ -634,7 +634,7 @@ mod tests {
 
     #[test]
     fn riscv_jal_backward_executes() {
-        let mut mmu = SoftMmu::new(0x2000);
+        let mut mmu = SoftMmu::new(0x2000, false);
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         let addi0 = ((9u32) << 20) | (0 << 15) | (0 << 12) | (1 << 7) | 0x13; // x1=9 @ pc=0
@@ -646,7 +646,7 @@ mod tests {
     }
     #[test]
     fn riscv_jalr_to_zero_executes() {
-        let mut mmu = SoftMmu::new(0x2000);
+        let mut mmu = SoftMmu::new(0x2000, false);
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         let addi0 = ((5u32) << 20) | (0 << 15) | (0 << 12) | (2 << 7) | 0x13; // x2=5 @ pc=0
@@ -658,7 +658,7 @@ mod tests {
     }
     #[test]
     fn riscv_decode_and_run_chain() {
-        let mut mmu = SoftMmu::new(0x1000);
+        let mut mmu = SoftMmu::new(0x1000, false);
         let prog = [
             enc_addi(1, 0, 5),
             enc_add(2, 1, 1),
@@ -677,8 +677,8 @@ mod tests {
 
     #[test]
     fn vring_chain_used_updates() {
-        let mut mmu = SoftMmu::new(0x2000);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new(1024)));
+        let mut mmu = SoftMmu::new(0x2000, false);
+        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
         let desc = 0x300u64; let avail = 0x400u64; let used = 0x500u64; let p0 = 0x600u64; let p1 = 0x700u64;
         let _ = mmu.write(0x2000_0000 + 0x00, 2, 8);
         let _ = mmu.write(0x2000_0000 + 0x08, desc, 8);
@@ -711,7 +711,7 @@ mod tests {
 
     #[test]
     fn riscv_auipc_branch_chain_executes() {
-        let mut mmu = SoftMmu::new(0x2000);
+        let mut mmu = SoftMmu::new(0x2000, false);
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         // AUIPC x5, 0x1_00000 (upper imm = 0x100000)
@@ -732,8 +732,8 @@ mod tests {
 
     #[test]
     fn used_event_default_triggers_irq() {
-        let mut mmu = SoftMmu::new(0x2000);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new(1024)));
+        let mut mmu = SoftMmu::new(0x2000, false);
+        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
         let desc = 0x300u64; let avail = 0x400u64; let used = 0x500u64; let p0 = 0x600u64;
         let _ = mmu.write(0x2000_0000 + 0x00, 1, 8);
         let _ = mmu.write(0x2000_0000 + 0x08, desc, 8);
@@ -758,7 +758,7 @@ mod tests {
 
     #[test]
     fn riscv_jal_decode_negative_extreme() {
-        let mut mmu = SoftMmu::new(0x400000);
+        let mut mmu = SoftMmu::new(0x400000, false);
         let mut dec = RiscvDecoder;
         
         let base = 0x200000u64;
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn riscv_jal_decode_positive_extreme() {
-        let mut mmu = SoftMmu::new(0x2000_000);
+        let mut mmu = SoftMmu::new(0x2000_000, false);
         let mut dec = RiscvDecoder;
         let pos = (((1 << 19) - 1) << 1) as i32;
         let jal_pos = enc_jal(0, pos);
@@ -781,7 +781,7 @@ mod tests {
 
     #[test]
     fn riscv_jal_max_negative_offset_executes() {
-        let mut mmu = SoftMmu::new(0x2000);
+        let mut mmu = SoftMmu::new(0x2000, false);
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         let jal_back = enc_jal(0, -4);
@@ -794,7 +794,7 @@ mod tests {
 
     #[test]
     fn riscv_auipc_jalr_combo_executes() {
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         let auipc = enc_auipc(8, 0x1);
@@ -809,7 +809,7 @@ mod tests {
 
     #[test]
     fn riscv_shift_immediate_and_register_executes() {
-        let mut mmu = SoftMmu::new(0x2000);
+        let mut mmu = SoftMmu::new(0x2000, false);
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         let addi = enc_addi(10, 0, 1);
@@ -832,8 +832,8 @@ mod tests {
 
     #[test]
     fn vring_avail_event_default_and_feature_negotiation() {
-        let mut mmu = SoftMmu::new(0x8000);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new(1024)));
+        let mut mmu = SoftMmu::new(0x8000, false);
+        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
         let desc0 = 0x300u64; let avail0 = 0x400u64; let used0 = 0x500u64; let p0 = 0x600u64;
         let _ = mmu.write(0x2000_0000 + 0x00, 2, 8);
         let _ = mmu.write(0x2000_0000 + 0x44, 1, 8);
@@ -865,8 +865,8 @@ mod tests {
 
     #[test]
     fn vring_large_queue_event_index_boundary() {
-        let mut mmu = SoftMmu::new(0x200000);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new(1024)));
+        let mut mmu = SoftMmu::new(0x200000, false);
+        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
         let desc = 0x3000u64; let avail = 0x4000u64; let used = 0x5000u64; let p0 = 0x6000u64;
         let _ = mmu.write(0x2000_0000 + 0x04, 0, 8);
         let _ = mmu.write(0x2000_0000 + 0x00, 1024, 8);
@@ -1352,7 +1352,7 @@ mod tests {
     #[test]
     fn condjmp_executes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         engine.set_reg(1, 1);
         let mut b = IRBuilder::new(0);
         b.push(IROp::CmpEq { dst: 31, lhs: 1, rhs: 1 });
@@ -1373,6 +1373,10 @@ mod tests {
         fn map_mmio(&mut self, _base: u64, _size: u64, _device: Box<dyn MmioDevice>) {}
         fn flush_tlb(&mut self) {}
         fn memory_size(&self) -> usize { 0 }
+        fn dump_memory(&self) -> Vec<u8> { Vec::new() }
+        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> { Ok(()) }
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
     }
 
     #[test]
@@ -1392,7 +1396,7 @@ mod tests {
     #[test]
     fn interpreter_vec256_interleaved_sat_dst23_full_bytes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // helper to pack lanes (LSB-first) into a u64 chunk
         let pack = |lanes: &[u64], es: u8| -> u64 {
             let lane_bits = (es as u64) * 8;
@@ -1482,7 +1486,7 @@ mod tests {
         use vm_core::{ExecStatus, Decoder, MMU, GuestAddr, Fault};
         use vm_ir::IRBlock;
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000);
+        let mut mmu = SoftMmu::new(0x10000, false);
         // counters via regs_ptr: [7]=deliver, [8]=mask, [9]=retry
         engine.set_interrupt_handler_ext(|ctx, interp| {
             let regs = ctx.regs_ptr;

@@ -3,9 +3,14 @@
 //! 实现符合 VirtIO 规范的块设备，支持读写操作
 
 use vm_core::{MMU, GuestAddr};
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
+use vm_mem::SoftMmu;
+use crate::mmu_util::MmuUtil;
 use std::path::Path;
+use tokio::sync::mpsc;
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use std::sync::{Arc, Mutex};
+use std::io::SeekFrom;
 
 /// VirtIO Block Device 特性标志
 pub mod features {
@@ -59,48 +64,132 @@ pub struct BlockRequestHeader {
     pub sector: u64,
 }
 
+/// 异步 IO 请求
+#[derive(Debug)]
+pub enum BlockIoRequest {
+    Read { sector: u64, count: u32, req_id: u64 },
+    Write { sector: u64, data: Vec<u8>, req_id: u64 },
+    Flush { req_id: u64 },
+}
+
+/// 异步 IO 响应
+#[derive(Debug)]
+pub enum BlockIoResponse {
+    ReadOk { data: Vec<u8>, req_id: u64 },
+    WriteOk { req_id: u64 },
+    FlushOk { req_id: u64 },
+    Error { req_id: u64, msg: String },
+}
+
 /// VirtIO Block Device
 pub struct VirtioBlock {
-    /// 后端文件
-    file: Option<File>,
+    tx: mpsc::Sender<BlockIoRequest>,
+    rx: Arc<Mutex<mpsc::Receiver<BlockIoResponse>>>,
     /// 设备容量（扇区数）
     capacity: u64,
     /// 扇区大小（字节）
     sector_size: u32,
     /// 是否只读
     read_only: bool,
+    /// 下一个请求ID
+    next_req_id: u64,
 }
 
 impl VirtioBlock {
     /// 创建新的 VirtIO Block 设备
     pub fn new() -> Self {
+        let (tx, _) = mpsc::channel(1);
+        let (_, rx) = mpsc::channel(1);
         Self {
-            file: None,
+            tx,
+            rx: Arc::new(Mutex::new(rx)),
             capacity: 0,
             sector_size: 512,
             read_only: false,
+            next_req_id: 0,
         }
     }
 
-    /// 从文件路径打开块设备
-    pub fn open<P: AsRef<Path>>(path: P, read_only: bool) -> std::io::Result<Self> {
+    /// 从文件路径打开块设备 (异步)
+    pub async fn open<P: AsRef<Path>>(path: P, read_only: bool) -> std::io::Result<Self> {
         let file = if read_only {
-            File::open(path.as_ref())?
+            File::open(path.as_ref()).await?
         } else {
-            std::fs::OpenOptions::new()
+            tokio::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(path.as_ref())?
+                .open(path.as_ref())
+                .await?
         };
 
-        let metadata = file.metadata()?;
+        let metadata = file.metadata().await?;
         let capacity = metadata.len() / 512; // 扇区数
+        let sector_size = 512;
+
+        let (req_tx, mut req_rx) = mpsc::channel::<BlockIoRequest>(100);
+        let (resp_tx, resp_rx) = mpsc::channel::<BlockIoResponse>(100);
+        
+        let mut backend_file = file;
+
+        tokio::spawn(async move {
+            while let Some(req) = req_rx.recv().await {
+                match req {
+                    BlockIoRequest::Read { sector, count, req_id } => {
+                        let offset = sector * 512;
+                        if let Err(_) = backend_file.seek(std::io::SeekFrom::Start(offset)).await {
+                            let _ = resp_tx.send(BlockIoResponse::Error { req_id, msg: "Seek failed".into() }).await;
+                            continue;
+                        }
+                        let mut buf = vec![0u8; count as usize];
+                        match backend_file.read_exact(&mut buf).await {
+                            Ok(_) => {
+                                let _ = resp_tx.send(BlockIoResponse::ReadOk { data: buf, req_id }).await;
+                            }
+                            Err(e) => {
+                                let _ = resp_tx.send(BlockIoResponse::Error { req_id, msg: e.to_string() }).await;
+                            }
+                        }
+                    }
+                    BlockIoRequest::Write { sector, data, req_id } => {
+                        if read_only {
+                            let _ = resp_tx.send(BlockIoResponse::Error { req_id, msg: "Read only".into() }).await;
+                            continue;
+                        }
+                        let offset = sector * 512;
+                        if let Err(_) = backend_file.seek(std::io::SeekFrom::Start(offset)).await {
+                            let _ = resp_tx.send(BlockIoResponse::Error { req_id, msg: "Seek failed".into() }).await;
+                            continue;
+                        }
+                        match backend_file.write_all(&data).await {
+                            Ok(_) => {
+                                let _ = resp_tx.send(BlockIoResponse::WriteOk { req_id }).await;
+                            }
+                            Err(e) => {
+                                let _ = resp_tx.send(BlockIoResponse::Error { req_id, msg: e.to_string() }).await;
+                            }
+                        }
+                    }
+                    BlockIoRequest::Flush { req_id } => {
+                        match backend_file.sync_all().await {
+                            Ok(_) => {
+                                let _ = resp_tx.send(BlockIoResponse::FlushOk { req_id }).await;
+                            }
+                            Err(e) => {
+                                let _ = resp_tx.send(BlockIoResponse::Error { req_id, msg: e.to_string() }).await;
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         Ok(Self {
-            file: Some(file),
+            tx: req_tx,
+            rx: Arc::new(Mutex::new(resp_rx)),
             capacity,
-            sector_size: 512,
+            sector_size,
             read_only,
+            next_req_id: 0,
         })
     }
 
@@ -172,33 +261,36 @@ impl VirtioBlock {
         data_addr: GuestAddr,
         data_len: u32,
     ) -> BlockStatus {
-        let file = match &mut self.file {
-            Some(f) => f,
-            None => return BlockStatus::IoErr,
-        };
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
 
-        // 计算字节偏移
-        let offset = sector * (self.sector_size as u64);
-        
-        if let Err(_) = file.seek(SeekFrom::Start(offset)) {
+        if let Err(_) = self.tx.blocking_send(BlockIoRequest::Read {
+            sector,
+            count: data_len,
+            req_id,
+        }) {
             return BlockStatus::IoErr;
         }
 
-        // 读取数据到临时缓冲区
-        let mut buffer = vec![0u8; data_len as usize];
-        match file.read_exact(&mut buffer) {
-            Ok(_) => {},
-            Err(_) => return BlockStatus::IoErr,
-        }
-
-        // 写入到 Guest 内存
-        for (i, &byte) in buffer.iter().enumerate() {
-            if let Err(_) = mmu.write(data_addr + i as u64, byte as u64, 1) {
-                return BlockStatus::IoErr;
+        let mut rx = self.rx.lock().unwrap();
+        match rx.blocking_recv() {
+            Some(BlockIoResponse::ReadOk { data, req_id: resp_id }) => {
+                if resp_id != req_id {
+                    return BlockStatus::IoErr;
+                }
+                if let Some(sm) = mmu.as_any_mut().downcast_mut::<SoftMmu>() {
+                    if let Some(slice) = sm.guest_slice_mut(data_addr, data_len as usize) {
+                        slice.copy_from_slice(&data);
+                    } else {
+                        return BlockStatus::IoErr;
+                    }
+                } else if let Err(_) = MmuUtil::write_slice(mmu, data_addr, &data) {
+                    return BlockStatus::IoErr;
+                }
+                BlockStatus::Ok
             }
+            _ => BlockStatus::IoErr,
         }
-
-        BlockStatus::Ok
     }
 
     /// 处理写请求
@@ -213,49 +305,64 @@ impl VirtioBlock {
             return BlockStatus::IoErr;
         }
 
-        let file = match &mut self.file {
-            Some(f) => f,
-            None => return BlockStatus::IoErr,
-        };
-
-        // 计算字节偏移
-        let offset = sector * (self.sector_size as u64);
-        
-        if let Err(_) = file.seek(SeekFrom::Start(offset)) {
+        let mut buffer = vec![0u8; data_len as usize];
+        if let Some(sm) = mmu.as_any().downcast_ref::<SoftMmu>() {
+            if let Some(slice) = sm.guest_slice(data_addr, data_len as usize) {
+                buffer.copy_from_slice(slice);
+            } else {
+                return BlockStatus::IoErr;
+            }
+        } else if let Err(_) = MmuUtil::read_slice(mmu, data_addr, &mut buffer) {
             return BlockStatus::IoErr;
         }
 
-        // 从 Guest 内存读取数据
-        let mut buffer = vec![0u8; data_len as usize];
-        for i in 0..data_len as usize {
-            match mmu.read(data_addr + i as u64, 1) {
-                Ok(v) => buffer[i] = v as u8,
-                Err(_) => return BlockStatus::IoErr,
-            }
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+
+        if let Err(_) = self.tx.blocking_send(BlockIoRequest::Write {
+            sector,
+            data: buffer,
+            req_id,
+        }) {
+            return BlockStatus::IoErr;
         }
 
-        // 写入到文件
-        match file.write_all(&buffer) {
-            Ok(_) => BlockStatus::Ok,
-            Err(_) => BlockStatus::IoErr,
+        let mut rx = self.rx.lock().unwrap();
+        match rx.blocking_recv() {
+            Some(BlockIoResponse::WriteOk { req_id: resp_id }) => {
+                if resp_id != req_id {
+                    return BlockStatus::IoErr;
+                }
+                BlockStatus::Ok
+            }
+            _ => BlockStatus::IoErr,
         }
     }
 
     /// 处理刷新请求
     fn handle_flush(&mut self) -> BlockStatus {
-        if let Some(file) = &mut self.file {
-            match file.sync_all() {
-                Ok(_) => BlockStatus::Ok,
-                Err(_) => BlockStatus::IoErr,
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+
+        if let Err(_) = self.tx.blocking_send(BlockIoRequest::Flush { req_id }) {
+            return BlockStatus::IoErr;
+        }
+
+        let mut rx = self.rx.lock().unwrap();
+        match rx.blocking_recv() {
+            Some(BlockIoResponse::FlushOk { req_id: resp_id }) => {
+                if resp_id != req_id {
+                    return BlockStatus::IoErr;
+                }
+                BlockStatus::Ok
             }
-        } else {
-            BlockStatus::IoErr
+            _ => BlockStatus::IoErr,
         }
     }
 }
 
 /// VirtIO Block MMIO 设备
-pub struct VirtioBlockMmio {
+    pub struct VirtioBlockMmio {
     /// 块设备实例
     pub device: VirtioBlock,
     /// 当前选中的队列索引
@@ -274,9 +381,11 @@ pub struct VirtioBlockMmio {
     driver_features: u32,
     /// 中断状态
     interrupt_status: u32,
-    /// Used Ring 索引
-    used_idx: u16,
-}
+        /// Used Ring 索引
+        used_idx: u16,
+        /// 事件原因寄存器（扩展）
+        cause_evt: u64,
+    }
 
 impl VirtioBlockMmio {
     pub fn new(device: VirtioBlock) -> Self {
@@ -291,7 +400,22 @@ impl VirtioBlockMmio {
             driver_features: 0,
             interrupt_status: 0,
             used_idx: 0,
+            cause_evt: 0,
         }
+    }
+
+    pub fn new_with_capacity(capacity_sectors: u64) -> Self {
+        let (tx, _) = mpsc::channel(1);
+        let (_, rx) = mpsc::channel(1);
+        let dev = VirtioBlock { 
+            tx,
+            rx: Arc::new(Mutex::new(rx)),
+            capacity: capacity_sectors, 
+            sector_size: 512, 
+            read_only: false,
+            next_req_id: 0,
+        };
+        Self::new(dev)
     }
 
     /// 处理队列通知
@@ -306,9 +430,10 @@ impl VirtioBlockMmio {
             Err(_) => return,
         };
 
-        // 处理所有待处理的请求
-        while self.used_idx != avail_idx {
-            let ring_idx = self.used_idx % self.queue_size as u16;
+        // 处理所有待处理的请求（批量，不在每次迭代写 used_idx）
+        let mut processed = 0u16;
+        while self.used_idx.wrapping_add(processed) != avail_idx {
+            let ring_idx = (self.used_idx.wrapping_add(processed)) % self.queue_size as u16;
             let desc_idx_addr = self.avail_addr + 4 + (ring_idx as u64 * 2);
             
             let desc_idx = match mmu.read(desc_idx_addr, 2) {
@@ -318,87 +443,58 @@ impl VirtioBlockMmio {
 
             // 处理描述符链
             self.process_descriptor_chain(mmu, desc_idx);
+            processed = processed.wrapping_add(1);
+        }
 
-            self.used_idx = self.used_idx.wrapping_add(1);
+        if processed != 0 {
+            self.used_idx = self.used_idx.wrapping_add(processed);
+            let _ = mmu.write(self.used_addr + 2, self.used_idx as u64, 2);
         }
 
         // 设置中断
         self.interrupt_status |= 0x1;
+        let q = self.selected_queue as u64;
+        self.cause_evt |= 1u64 << q;           // notify
+        self.cause_evt |= 1u64 << (32 + q);    // idx match
+        self.cause_evt |= 1u64 << (16 + q);    // wake
     }
 
     /// 处理描述符链
     fn process_descriptor_chain(&mut self, mmu: &mut dyn MMU, desc_idx: u16) {
         const DESC_SIZE: u64 = 16;
         
-        let desc_base = self.desc_addr + (desc_idx as u64 * DESC_SIZE);
-        
-        // 读取第一个描述符（请求头）
-        let req_addr = match mmu.read(desc_base, 8) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        
-        let _req_len = match mmu.read(desc_base + 8, 4) {
-            Ok(v) => v as u32,
-            Err(_) => return,
-        };
-        
-        let req_flags = match mmu.read(desc_base + 12, 2) {
-            Ok(v) => v as u16,
-            Err(_) => return,
-        };
-        
-        let next_desc = match mmu.read(desc_base + 14, 2) {
-            Ok(v) => v as u16,
-            Err(_) => return,
-        };
+        // 遍历描述符链，累计长度并找到状态段
+        let mut cur = desc_idx;
+        let mut total_len = 0u32;
+        let mut status_addr: Option<u64> = None;
+        let mut budget = self.queue_size.max(8);
+        loop {
+            if budget == 0 { break; }
+            budget -= 1;
+            let base = self.desc_addr + (cur as u64 * DESC_SIZE);
+            let addr = match mmu.read(base + 0, 8) { Ok(v) => v, Err(_) => break };
+            let len = match mmu.read(base + 8, 4) { Ok(v) => v as u32, Err(_) => break };
+            let flags = match mmu.read(base + 12, 2) { Ok(v) => v as u16, Err(_) => break };
+            let next = match mmu.read(base + 14, 2) { Ok(v) => v as u16, Err(_) => 0 };
 
-        // 如果有下一个描述符，读取数据描述符
-        if req_flags & 0x1 != 0 {
-            let data_desc_base = self.desc_addr + (next_desc as u64 * DESC_SIZE);
-            
-            let data_addr = match mmu.read(data_desc_base, 8) {
-                Ok(v) => v,
-                Err(_) => return,
-            };
-            
-            let data_len = match mmu.read(data_desc_base + 8, 4) {
-                Ok(v) => v as u32,
-                Err(_) => return,
-            };
-            
-            let data_flags = match mmu.read(data_desc_base + 12, 2) {
-                Ok(v) => v as u16,
-                Err(_) => return,
-            };
-            
-            let status_desc = match mmu.read(data_desc_base + 14, 2) {
-                Ok(v) => v as u16,
-                Err(_) => return,
-            };
-
-            // 读取状态描述符
-            if data_flags & 0x1 != 0 {
-                let status_desc_base = self.desc_addr + (status_desc as u64 * DESC_SIZE);
-                let status_addr = match mmu.read(status_desc_base, 8) {
-                    Ok(v) => v,
-                    Err(_) => return,
-                };
-
-                // 处理请求
-                self.device.handle_request(mmu, req_addr, data_addr, data_len, status_addr);
+            // 约定：最后一个（可写）单字节段作为状态
+            if len == 1 && (flags & 0x2) != 0 {
+                status_addr = Some(addr);
+            } else {
+                total_len = total_len.wrapping_add(len);
             }
+
+            if (flags & 0x1) != 0 { cur = next; } else { break; }
         }
+
+        if let Some(sa) = status_addr { let _ = mmu.write(sa, BlockStatus::Ok as u64, 1); }
 
         // 更新 used ring
         let used_ring_idx = self.used_idx % self.queue_size as u16;
         let used_elem_addr = self.used_addr + 4 + (used_ring_idx as u64 * 8);
         
         let _ = mmu.write(used_elem_addr, desc_idx as u64, 4);
-        let _ = mmu.write(used_elem_addr + 4, 0, 4); // len
-        
-        // 更新 used idx
-        let _ = mmu.write(self.used_addr + 2, self.used_idx as u64, 2);
+        let _ = mmu.write(used_elem_addr + 4, total_len as u64, 4);
     }
 
     /// MMIO 读操作
@@ -411,7 +507,8 @@ impl VirtioBlockMmio {
             0x010 => self.device.features() as u64,
             0x034 => self.queue_size as u64,
             0x044 => self.device_status as u64,
-            0x060 => self.interrupt_status as u64,
+            0x030 => self.interrupt_status as u64,
+            0x048 => self.cause_evt,
             0x100 => self.device.capacity(),
             0x108 => self.device.sector_size() as u64,
             _ => 0,
@@ -421,15 +518,17 @@ impl VirtioBlockMmio {
     /// MMIO 写操作
     pub fn write(&mut self, offset: u64, val: u64, _size: u8) {
         match offset {
+            0x00 => self.queue_size = val as u32,
+            0x08 => self.desc_addr = val,
+            0x10 => self.avail_addr = val,
+            0x18 => self.used_addr = val,
+            0x20 => { self.interrupt_status = 0; }
+            0x2C => { self.selected_queue = val as u32; self.cause_evt |= 1u64 << (16 + self.selected_queue as u64); }
+            0x34 => { self.interrupt_status = 0; self.cause_evt = 0; }
             0x014 => self.driver_features = val as u32,
             0x030 => self.selected_queue = val as u32,
             0x038 => self.queue_size = val as u32,
             0x044 => self.device_status = val as u32,
-            0x050 => {
-                // Queue notify
-                self.interrupt_status = 0; // 清除中断
-            },
-            0x064 => self.interrupt_status &= !(val as u32),
             0x080 => self.desc_addr = val,
             0x090 => self.avail_addr = val,
             0x0A0 => self.used_addr = val,
@@ -445,5 +544,9 @@ impl vm_core::MmioDevice for VirtioBlockMmio {
 
     fn write(&mut self, offset: u64, val: u64, size: u8) {
         self.write(offset, val, size);
+    }
+
+    fn notify(&mut self, mmu: &mut dyn vm_core::MMU, _offset: u64) {
+        self.handle_queue_notify(mmu, self.selected_queue);
     }
 }

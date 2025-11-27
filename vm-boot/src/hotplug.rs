@@ -178,8 +178,15 @@ impl HotplugManager {
         if info.base_addr == 0 {
             info.base_addr = self.allocate_addr(info.size)?;
         } else {
-            // 检查地址冲突
-            self.check_address_conflict(info.base_addr, info.size)?;
+            for device in devices.values() {
+                let dev_start = device.info.base_addr;
+                let dev_end = dev_start + device.info.size;
+                let new_start = info.base_addr;
+                let new_end = info.base_addr + info.size;
+                if new_start < dev_end && new_end > dev_start {
+                    return Err(HotplugError::AddressConflict(info.base_addr));
+                }
+            }
         }
         
         log::info!(

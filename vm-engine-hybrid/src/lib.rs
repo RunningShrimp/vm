@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn test_hybrid_engine_basic() {
         let mut engine = HybridEngine::new();
-        let mut mmu = SoftMmu::new(1024 * 1024);
+        let mut mmu = SoftMmu::new(1024 * 1024, false);
 
         // 创建一个简单的IR块
         let mut builder = IRBuilder::new(0x1000);
@@ -225,7 +225,8 @@ mod tests {
 
         // 执行多次以触发JIT编译
         for _ in 0..HOT_THRESHOLD + 10 {
-            engine.run(&mut mmu, &block).unwrap();
+            let res = engine.run(&mut mmu, &block);
+            match res.status { ExecStatus::Ok | ExecStatus::Continue => {}, _ => panic!("unexpected status: {:?}", res.status) }
         }
 
         assert_eq!(engine.get_reg(1), 42);

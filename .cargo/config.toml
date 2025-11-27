@@ -1,0 +1,16 @@
+# Cargo configuration for VM workspace
+
+[build]
+# Enable all CPU features for better performance
+# rustflags = ["-C", "target-cpu=native"]
+
+[doc]
+# Documentation build settings
+rustdoc-args = ["--document-private-items"]
+
+[alias]
+# Custom aliases for common operations
+doc-open = "doc --workspace --no-deps --open"
+doc-all = "doc --workspace --all-features"
+test-all = "test --workspace --all-features"
+

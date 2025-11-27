@@ -3,6 +3,7 @@
 //! 支持读取 ISO 镜像文件的目录结构和文件内容
 
 use std::io::{Read, Seek, SeekFrom};
+use thiserror::Error;
 
 /// ISO 9660 主卷描述符
 #[derive(Debug, Clone)]
@@ -51,9 +52,29 @@ pub struct Iso9660<R: Read + Seek> {
     pvd: Option<PrimaryVolumeDescriptor>,
 }
 
+#[derive(Debug, Error)]
+pub enum IsoError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Invalid ISO 9660 identifier")]
+    InvalidIdentifier,
+    #[error("Primary volume descriptor not found")]
+    PvdNotFound,
+    #[error("Directory record too short")]
+    DirRecordShort,
+    #[error("Not a directory")]
+    NotDirectory,
+    #[error("PVD not loaded")]
+    PvdNotLoaded,
+    #[error("{0} is not a directory")]
+    NotDirectoryName(String),
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+}
+
 impl<R: Read + Seek> Iso9660<R> {
     /// 创建新的 ISO 9660 文件系统
-    pub fn new(mut reader: R) -> Result<Self, String> {
+    pub fn new(mut reader: R) -> Result<Self, IsoError> {
         let mut fs = Self {
             reader,
             pvd: None,
@@ -64,25 +85,23 @@ impl<R: Read + Seek> Iso9660<R> {
     }
 
     /// 解析卷描述符
-    fn parse_volume_descriptors(&mut self) -> Result<(), String> {
+    fn parse_volume_descriptors(&mut self) -> Result<(), IsoError> {
         // ISO 9660 卷描述符从扇区 16 开始
         const SECTOR_SIZE: u64 = 2048;
         const VD_START: u64 = 16 * SECTOR_SIZE;
 
-        self.reader.seek(SeekFrom::Start(VD_START))
-            .map_err(|e| format!("Failed to seek: {}", e))?;
+        self.reader.seek(SeekFrom::Start(VD_START))?;
 
         loop {
             let mut header = [0u8; 7];
-            self.reader.read_exact(&mut header)
-                .map_err(|e| format!("Failed to read header: {}", e))?;
+            self.reader.read_exact(&mut header)?;
 
             let vd_type = header[0];
             let identifier = &header[1..6];
 
             // 检查标识符
             if identifier != b"CD001" {
-                return Err("Invalid ISO 9660 identifier".to_string());
+                return Err(IsoError::InvalidIdentifier);
             }
 
             match vd_type {
@@ -96,24 +115,22 @@ impl<R: Read + Seek> Iso9660<R> {
                 }
                 _ => {
                     // 跳过其他类型的卷描述符
-                    self.reader.seek(SeekFrom::Current(2048 - 7))
-                        .map_err(|e| format!("Failed to seek: {}", e))?;
+                    self.reader.seek(SeekFrom::Current(2048 - 7))?;
                 }
             }
         }
 
         if self.pvd.is_none() {
-            return Err("Primary volume descriptor not found".to_string());
+            return Err(IsoError::PvdNotFound);
         }
 
         Ok(())
     }
 
     /// 解析主卷描述符
-    fn parse_primary_volume_descriptor(&mut self) -> Result<PrimaryVolumeDescriptor, String> {
+    fn parse_primary_volume_descriptor(&mut self) -> Result<PrimaryVolumeDescriptor, IsoError> {
         let mut data = [0u8; 2048 - 7];
-        self.reader.read_exact(&mut data)
-            .map_err(|e| format!("Failed to read PVD: {}", e))?;
+        self.reader.read_exact(&mut data)?;
 
         // 解析卷标识符（偏移 40，长度 32）
         let volume_id = String::from_utf8_lossy(&data[33..65])
@@ -146,9 +163,9 @@ impl<R: Read + Seek> Iso9660<R> {
     }
 
     /// 解析目录记录
-    fn parse_directory_record(&self, data: &[u8]) -> Result<DirectoryRecord, String> {
+    fn parse_directory_record(&self, data: &[u8]) -> Result<DirectoryRecord, IsoError> {
         if data.len() < 33 {
-            return Err("Directory record too short".to_string());
+            return Err(IsoError::DirRecordShort);
         }
 
         let length = data[0];
@@ -188,21 +205,19 @@ impl<R: Read + Seek> Iso9660<R> {
     }
 
     /// 读取目录内容
-    pub fn read_directory(&mut self, dir: &DirectoryRecord) -> Result<Vec<DirectoryRecord>, String> {
+    pub fn read_directory(&mut self, dir: &DirectoryRecord) -> Result<Vec<DirectoryRecord>, IsoError> {
         if !dir.is_directory() {
-            return Err("Not a directory".to_string());
+            return Err(IsoError::NotDirectory);
         }
 
-        let pvd = self.pvd.as_ref().ok_or("PVD not loaded")?;
+        let pvd = self.pvd.as_ref().ok_or(IsoError::PvdNotLoaded)?;
         let block_size = pvd.logical_block_size as u64;
         let offset = dir.extent_location as u64 * block_size;
 
-        self.reader.seek(SeekFrom::Start(offset))
-            .map_err(|e| format!("Failed to seek: {}", e))?;
+        self.reader.seek(SeekFrom::Start(offset))?;
 
         let mut data = vec![0u8; dir.data_length as usize];
-        self.reader.read_exact(&mut data)
-            .map_err(|e| format!("Failed to read directory: {}", e))?;
+        self.reader.read_exact(&mut data)?;
 
         let mut entries = Vec::new();
         let mut pos = 0;
@@ -233,28 +248,26 @@ impl<R: Read + Seek> Iso9660<R> {
     }
 
     /// 读取文件内容
-    pub fn read_file(&mut self, file: &DirectoryRecord) -> Result<Vec<u8>, String> {
+    pub fn read_file(&mut self, file: &DirectoryRecord) -> Result<Vec<u8>, IsoError> {
         if file.is_directory() {
-            return Err("Cannot read directory as file".to_string());
+            return Err(IsoError::NotDirectory);
         }
 
-        let pvd = self.pvd.as_ref().ok_or("PVD not loaded")?;
+        let pvd = self.pvd.as_ref().ok_or(IsoError::PvdNotLoaded)?;
         let block_size = pvd.logical_block_size as u64;
         let offset = file.extent_location as u64 * block_size;
 
-        self.reader.seek(SeekFrom::Start(offset))
-            .map_err(|e| format!("Failed to seek: {}", e))?;
+        self.reader.seek(SeekFrom::Start(offset))?;
 
         let mut data = vec![0u8; file.data_length as usize];
-        self.reader.read_exact(&mut data)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        self.reader.read_exact(&mut data)?;
 
         Ok(data)
     }
 
     /// 查找文件
-    pub fn find_file(&mut self, path: &str) -> Result<DirectoryRecord, String> {
-        let pvd = self.pvd.as_ref().ok_or("PVD not loaded")?;
+    pub fn find_file(&mut self, path: &str) -> Result<DirectoryRecord, IsoError> {
+        let pvd = self.pvd.as_ref().ok_or(IsoError::PvdNotLoaded)?;
         let mut current_dir = pvd.root_directory.clone();
 
         let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
@@ -273,11 +286,11 @@ impl<R: Read + Seek> Iso9660<R> {
                     } else if entry.is_directory() {
                         current_dir = entry.clone();
                     } else {
-                        return Err(format!("{} is not a directory", part));
+                        return Err(IsoError::NotDirectoryName((*part).into()));
                     }
                 }
                 None => {
-                    return Err(format!("File not found: {}", part));
+                    return Err(IsoError::FileNotFound((*part).into()));
                 }
             }
         }

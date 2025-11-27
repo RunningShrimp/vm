@@ -7,6 +7,7 @@ use libc;
 
 use vm_core::MmioDevice;
 use std::sync::{Arc, Mutex};
+use thiserror::Error;
 
 /// 网络后端类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,21 +84,21 @@ impl VirtioNet {
 
     /// 使用 TAP 后端
     #[cfg(target_os = "linux")]
-    pub fn with_tap(mut self, tap_name: &str) -> Result<Self, String> {
+    pub fn with_tap(mut self, tap_name: &str) -> Result<Self, NetError> {
         self.backend_type = NetworkBackend::Tap;
         self.tap_backend = Some(TapBackend::new(tap_name)?);
         Ok(self)
     }
 
     /// 发送数据包
-    pub fn send_packet(&mut self, data: &[u8]) -> Result<(), String> {
+    pub fn send_packet(&mut self, data: &[u8]) -> Result<(), NetError> {
         match self.backend_type {
             #[cfg(feature = "smoltcp")]
             NetworkBackend::Nat => {
                 if let Some(backend) = &mut self.smoltcp_backend {
                     backend.send(data)
                 } else {
-                    Err("smoltcp backend not initialized".to_string())
+                    Err(NetError::BackendNotInitialized("smoltcp".into()))
                 }
             }
             #[cfg(target_os = "linux")]
@@ -105,23 +106,23 @@ impl VirtioNet {
                 if let Some(backend) = &mut self.tap_backend {
                     backend.send(data)
                 } else {
-                    Err("TAP backend not initialized".to_string())
+                    Err(NetError::BackendNotInitialized("tap".into()))
                 }
             }
             #[cfg(not(any(feature = "smoltcp", target_os = "linux")))]
-            _ => Err("No network backend available".to_string()),
+            _ => Err(NetError::NotAvailable),
         }
     }
 
     /// 接收数据包
-    pub fn recv_packet(&mut self) -> Result<Vec<u8>, String> {
+    pub fn recv_packet(&mut self) -> Result<Vec<u8>, NetError> {
         match self.backend_type {
             #[cfg(feature = "smoltcp")]
             NetworkBackend::Nat => {
                 if let Some(backend) = &mut self.smoltcp_backend {
                     backend.recv()
                 } else {
-                    Err("smoltcp backend not initialized".to_string())
+                    Err(NetError::BackendNotInitialized("smoltcp".into()))
                 }
             }
             #[cfg(target_os = "linux")]
@@ -129,13 +130,25 @@ impl VirtioNet {
                 if let Some(backend) = &mut self.tap_backend {
                     backend.recv()
                 } else {
-                    Err("TAP backend not initialized".to_string())
+                    Err(NetError::BackendNotInitialized("tap".into()))
                 }
             }
             #[cfg(not(any(feature = "smoltcp", target_os = "linux")))]
-            _ => Err("No network backend available".to_string()),
+            _ => Err(NetError::NotAvailable),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum NetError {
+    #[error("Backend not initialized: {0}")]
+    BackendNotInitialized(String),
+    #[error("No network backend available")]
+    NotAvailable,
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Tap error: {0}")]
+    Tap(String),
 }
 
 impl MmioDevice for VirtioNet {
@@ -203,14 +216,14 @@ impl SmoltcpBackend {
         }
     }
 
-    pub fn send(&mut self, data: &[u8]) -> Result<(), String> {
+    pub fn send(&mut self, data: &[u8]) -> Result<(), NetError> {
         self.tx_buffer.push(data.to_vec());
         log::debug!("smoltcp: Sent {} bytes", data.len());
         Ok(())
     }
 
-    pub fn recv(&mut self) -> Result<Vec<u8>, String> {
-        self.rx_buffer.pop().ok_or_else(|| "No data available".to_string())
+    pub fn recv(&mut self) -> Result<Vec<u8>, NetError> {
+        self.rx_buffer.pop().ok_or(NetError::Tap("No data available".into()))
     }
 
     /// 处理网络栈
@@ -232,7 +245,7 @@ pub struct TapBackend {
 
 #[cfg(target_os = "linux")]
 impl TapBackend {
-    pub fn new(name: &str) -> Result<Self, String> {
+    pub fn new(name: &str) -> Result<Self, NetError> {
         use std::ffi::CString;
         use std::os::unix::io::AsRawFd;
 
@@ -246,7 +259,7 @@ impl TapBackend {
         };
 
         if fd < 0 {
-            return Err("Failed to open /dev/net/tun".to_string());
+            return Err(NetError::Io(std::io::Error::last_os_error()));
         }
 
         // 配置 TAP 设备
@@ -274,7 +287,7 @@ impl TapBackend {
 
         if ret < 0 {
             unsafe { libc::close(fd); }
-            return Err("Failed to configure TAP device".to_string());
+            return Err(NetError::Tap("Failed to configure TAP device".into()));
         }
 
         Ok(Self {
@@ -283,7 +296,7 @@ impl TapBackend {
         })
     }
 
-    pub fn send(&mut self, data: &[u8]) -> Result<(), String> {
+    pub fn send(&mut self, data: &[u8]) -> Result<(), NetError> {
         let ret = unsafe {
             libc::write(
                 self.fd,
@@ -293,14 +306,14 @@ impl TapBackend {
         };
 
         if ret < 0 {
-            Err("Failed to write to TAP device".to_string())
+            Err(NetError::Io(std::io::Error::last_os_error()))
         } else {
             log::debug!("TAP: Sent {} bytes", ret);
             Ok(())
         }
     }
 
-    pub fn recv(&mut self) -> Result<Vec<u8>, String> {
+    pub fn recv(&mut self) -> Result<Vec<u8>, NetError> {
         let mut buffer = vec![0u8; 2048];
         let ret = unsafe {
             libc::read(
@@ -313,9 +326,9 @@ impl TapBackend {
         if ret < 0 {
             let errno = unsafe { *libc::__errno_location() };
             if errno == libc::EAGAIN || errno == libc::EWOULDBLOCK {
-                return Err("No data available".to_string());
+                return Err(NetError::Tap("No data available".into()));
             }
-            return Err(format!("Failed to read from TAP device: errno {}", errno));
+            return Err(NetError::Tap(format!("Failed to read from TAP device: errno {}", errno)));
         }
 
         buffer.truncate(ret as usize);

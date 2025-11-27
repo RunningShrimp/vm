@@ -1,6 +1,41 @@
-//! Windows Hypervisor Platform (WHPX) 加速后端完整实现
+//! # Windows Hypervisor Platform (WHPX) 加速后端
 //!
-//! 支持 Intel 和 AMD 虚拟化扩展
+//! 提供 Windows 平台的硬件虚拟化加速支持。
+//!
+//! ## 平台要求
+//!
+//! - Windows 10 版本 1803 或更高版本
+//! - 启用 Hyper-V 平台功能
+//! - Intel VT-x 或 AMD-V 虚拟化扩展
+//!
+//! ## 启用方式
+//!
+//! 1. 在 Windows 功能中启用 "Windows 虚拟机监控程序平台"
+//! 2. 编译时启用 `whpx` feature
+//!
+//! ```toml
+//! vm-accel = { path = "../vm-accel", features = ["whpx"] }
+//! ```
+//!
+//! ## 主要功能
+//!
+//! - 分区管理 (Partition)
+//! - vCPU 创建和管理
+//! - 物理内存映射 (GPA -> HVA)
+//! - 寄存器读写
+//!
+//! ## 使用示例
+//!
+//! ```rust,ignore
+//! use vm_accel::whpx::AccelWhpx;
+//! use vm_accel::Accel;
+//!
+//! let mut accel = AccelWhpx::new();
+//! accel.init()?;
+//! accel.create_vcpu(0)?;
+//! accel.map_memory(0, hva, size, flags)?;
+//! accel.run_vcpu(0, &mut mmu)?;
+//! ```
 
 use super::{Accel, AccelError};
 use vm_core::{GuestRegs, MMU};
@@ -361,4 +396,9 @@ mod tests {
             assert!(accel.init().is_ok());
         }
     }
+}
+use crate::event::{AccelEventSource, AccelEvent};
+use std::time::{Instant, Duration};
+impl AccelEventSource for AccelWhpx {
+    fn poll_event(&mut self) -> Option<AccelEvent> { None }
 }

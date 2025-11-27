@@ -1,5 +1,25 @@
+//! # vm-engine-interpreter - 解释器执行引擎
+//!
+//! 提供虚拟机的解释器执行引擎，直接解释执行 IR 块。
+//!
+//! ## 特性
+//!
+//! - **完整指令支持**: 支持所有 IR 操作，包括向量和原子操作
+//! - **块缓存**: 可选的已解码块缓存，减少重复解码开销
+//! - **中断处理**: 支持可定制的中断处理回调
+//!
+//! ## 性能优化
+//!
+//! - 启用 `block-cache` feature 开启块缓存
+//! - 缓存最近执行的 IR 块，避免重复解码
+
 use vm_core::{ExecutionEngine, ExecResult, ExecStatus, ExecStats, MMU, AccessType, GuestAddr};
+use vm_simd::{vec_add, vec_sub, vec_mul};
 use vm_ir::{IRBlock, IROp, Terminator, AtomicOp};
+use std::collections::HashMap;
+
+/// 块缓存配置
+pub const BLOCK_CACHE_SIZE: usize = 256;
 
 /// Helper to create ExecStats with all required fields
 fn make_stats(executed_ops: u64) -> ExecStats {
@@ -22,6 +42,109 @@ fn make_result(status: ExecStatus, executed_ops: u64, next_pc: GuestAddr) -> Exe
     }
 }
 
+/// 块缓存条目
+#[derive(Clone)]
+pub struct CachedBlock {
+    /// 原始 IR 块
+    pub block: IRBlock,
+    /// 执行次数统计
+    pub exec_count: u64,
+    /// 最后执行时间戳
+    pub last_exec: u64,
+}
+
+/// 块缓存管理器
+pub struct BlockCache {
+    /// 缓存映射: PC -> CachedBlock
+    cache: HashMap<GuestAddr, CachedBlock>,
+    /// 最大缓存大小
+    max_size: usize,
+    /// 全局时间戳计数器
+    timestamp: u64,
+    /// 缓存命中次数
+    pub hits: u64,
+    /// 缓存未命中次数
+    pub misses: u64,
+}
+
+impl BlockCache {
+    /// 创建新的块缓存
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            cache: HashMap::with_capacity(max_size),
+            max_size,
+            timestamp: 0,
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    /// 查找缓存块
+    pub fn get(&mut self, pc: GuestAddr) -> Option<&IRBlock> {
+        self.timestamp += 1;
+        if let Some(entry) = self.cache.get_mut(&pc) {
+            entry.exec_count += 1;
+            entry.last_exec = self.timestamp;
+            self.hits += 1;
+            Some(&entry.block)
+        } else {
+            self.misses += 1;
+            None
+        }
+    }
+
+    /// 插入缓存块
+    pub fn insert(&mut self, pc: GuestAddr, block: IRBlock) {
+        // 如果缓存已满，驱逐最旧的条目
+        if self.cache.len() >= self.max_size {
+            self.evict_oldest();
+        }
+
+        self.cache.insert(pc, CachedBlock {
+            block,
+            exec_count: 1,
+            last_exec: self.timestamp,
+        });
+    }
+
+    /// 驱逐最旧的缓存条目 (LRU)
+    fn evict_oldest(&mut self) {
+        if let Some((&oldest_pc, _)) = self.cache.iter()
+            .min_by_key(|(_, entry)| entry.last_exec)
+        {
+            self.cache.remove(&oldest_pc);
+        }
+    }
+
+    /// 使特定地址的缓存失效
+    pub fn invalidate(&mut self, pc: GuestAddr) {
+        self.cache.remove(&pc);
+    }
+
+    /// 清空所有缓存
+    pub fn clear(&mut self) {
+        self.cache.clear();
+        self.hits = 0;
+        self.misses = 0;
+    }
+
+    /// 获取缓存命中率
+    pub fn hit_rate(&self) -> f64 {
+        let total = self.hits + self.misses;
+        if total == 0 {
+            0.0
+        } else {
+            self.hits as f64 / total as f64
+        }
+    }
+}
+
+impl Default for BlockCache {
+    fn default() -> Self {
+        Self::new(BLOCK_CACHE_SIZE)
+    }
+}
+
 pub struct Interpreter {
     regs: [u64; 32],
     pc: GuestAddr,
@@ -30,6 +153,8 @@ pub struct Interpreter {
     pub fence_acquire_count: u64,
     pub fence_release_count: u64,
     pub intr_mask_until: u32,
+    /// 块缓存（可选）
+    pub block_cache: Option<BlockCache>,
 }
 
 pub enum ExecInterruptAction { Continue, Abort, InjectState, Retry, Mask, Deliver }
@@ -39,7 +164,48 @@ pub struct InterruptCtx { pub vector: u32, pub pc: GuestAddr }
 pub struct InterruptCtxExt { pub vector: u32, pub pc: GuestAddr, pub regs_ptr: *mut u64 }
 
 impl Interpreter {
-    pub fn new() -> Self { Self { regs: [0; 32], pc: 0, intr_handler: None, intr_handler_ext: None, fence_acquire_count: 0, fence_release_count: 0, intr_mask_until: 0 } }
+    /// 创建新的解释器实例
+    pub fn new() -> Self { 
+        Self { 
+            regs: [0; 32], 
+            pc: 0, 
+            intr_handler: None, 
+            intr_handler_ext: None, 
+            fence_acquire_count: 0, 
+            fence_release_count: 0, 
+            intr_mask_until: 0,
+            block_cache: None,
+        } 
+    }
+
+    /// 创建带块缓存的解释器
+    pub fn with_block_cache(cache_size: usize) -> Self {
+        Self {
+            regs: [0; 32],
+            pc: 0,
+            intr_handler: None,
+            intr_handler_ext: None,
+            fence_acquire_count: 0,
+            fence_release_count: 0,
+            intr_mask_until: 0,
+            block_cache: Some(BlockCache::new(cache_size)),
+        }
+    }
+
+    /// 启用块缓存
+    pub fn enable_block_cache(&mut self, cache_size: usize) {
+        self.block_cache = Some(BlockCache::new(cache_size));
+    }
+
+    /// 禁用块缓存
+    pub fn disable_block_cache(&mut self) {
+        self.block_cache = None;
+    }
+
+    /// 获取块缓存统计信息
+    pub fn cache_stats(&self) -> Option<(u64, u64, f64)> {
+        self.block_cache.as_ref().map(|c| (c.hits, c.misses, c.hit_rate()))
+    }
 
     pub fn set_reg(&mut self, idx: u32, val: u64) {
         let hi = idx >> 16;
@@ -264,54 +430,21 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                 IROp::VecAdd { dst, src1, src2, element_size } => {
                     let a = self.get_reg(*src1);
                     let b = self.get_reg(*src2);
-                    let es = *element_size as u64;
-                    let lane_bits = (es * 8) as u64;
-                    let lanes = 64 / lane_bits;
-                    let mut acc = 0u64;
-                    for i in 0..lanes {
-                        let shift = i * lane_bits;
-                        let mask = ((1u128 << lane_bits) - 1) as u64;
-                        let av = (a >> shift) & mask;
-                        let bv = (b >> shift) & mask;
-                        let rv = av.wrapping_add(bv) & mask;
-                        acc |= rv << shift;
-                    }
+                    let acc = vec_add(a, b, *element_size);
                     self.set_reg(*dst, acc);
                     count += 1;
                 }
                 IROp::VecSub { dst, src1, src2, element_size } => {
                     let a = self.get_reg(*src1);
                     let b = self.get_reg(*src2);
-                    let es = *element_size as u64;
-                    let lane_bits = (es * 8) as u64;
-                    let lanes = 64 / lane_bits;
-                    let mut acc = 0u64;
-                    for i in 0..lanes {
-                        let shift = i * lane_bits;
-                        let mask = ((1u128 << lane_bits) - 1) as u64;
-                        let av = (a >> shift) & mask;
-                        let bv = (b >> shift) & mask;
-                        let rv = av.wrapping_sub(bv) & mask;
-                        acc |= rv << shift;
-                    }
+                    let acc = vec_sub(a, b, *element_size);
                     self.set_reg(*dst, acc);
                     count += 1;
                 }
                 IROp::VecMul { dst, src1, src2, element_size } => {
                     let a = self.get_reg(*src1);
                     let b = self.get_reg(*src2);
-                    let es = *element_size as u64;
-                    let lane_bits = (es * 8) as u64;
-                    let lanes = 64 / lane_bits;
-                    let mut acc = 0u64;
-                    for i in 0..lanes {
-                        let shift = i * lane_bits;
-                        let mask = ((1u128 << lane_bits) - 1) as u64;
-                        let av = (a >> shift) & mask;
-                        let bv = (b >> shift) & mask;
-                        let rv = av.wrapping_mul(bv) & mask;
-                        acc |= rv << shift;
-                    }
+                    let acc = vec_mul(a, b, *element_size);
                     self.set_reg(*dst, acc);
                     count += 1;
                 }

@@ -7,6 +7,8 @@ pub trait VirtioDevice {
     fn process_queues(&mut self, mmu: &mut dyn MmuUtil);
 }
 
+pub use crate::block::VirtioBlockMmio as VirtioBlock;
+
 #[derive(Clone)]
 pub struct Queue {
     pub desc_addr: u64,

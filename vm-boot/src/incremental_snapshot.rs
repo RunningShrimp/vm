@@ -221,7 +221,8 @@ mod tests {
 
     #[test]
     fn test_incremental_snapshot() {
-        let temp_dir = env::temp_dir().join("vm_snapshots_test");
+        let unique = format!("vm_snapshots_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+        let temp_dir = env::temp_dir().join(unique);
         let mut manager = IncrementalSnapshotManager::new(&temp_dir).unwrap();
 
         // 创建初始内存

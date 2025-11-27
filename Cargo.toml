@@ -11,6 +11,7 @@ members = [
  "vm-engine-hybrid",
  "vm-accel",
  "vm-device",
+ "vm-simd",
  "vm-osal",
  "vm-passthrough",
  "vm-boot",
@@ -19,3 +20,17 @@ members = [
 ]
 resolver = "2"
 
+[workspace.metadata.docs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["VM Development Team"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/vm"
+documentation = "https://docs.rs/vm"
+readme = "README.md"
+keywords = ["virtual-machine", "emulator", "risc-v", "arm64", "jit"]
+categories = ["emulators", "virtualization"]

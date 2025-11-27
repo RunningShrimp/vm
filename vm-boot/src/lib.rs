@@ -12,6 +12,7 @@ use std::path::Path;
 
 // 子模块
 pub mod runtime;
+pub mod runtime_service;
 pub mod snapshot;
 pub mod incremental_snapshot;
 pub mod fast_boot;
@@ -186,10 +187,8 @@ impl BootLoader {
 
         // 写入内存
         let load_addr = self.config.kernel_load_addr;
-        for (i, &byte) in kernel_data.iter().enumerate() {
-            memory.write(load_addr + i as u64, byte as u64, 1)
-                .map_err(|e| BootError::KernelLoadFailed(format!("Memory write failed: {:?}", e)))?;
-        }
+        memory.write_bulk(load_addr, &kernel_data)
+            .map_err(|e| BootError::KernelLoadFailed(format!("Memory write failed: {:?}", e)))?;
 
         log::info!("Kernel loaded at 0x{:x}", load_addr);
         Ok(load_addr)

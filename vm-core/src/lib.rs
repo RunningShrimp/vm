@@ -1,6 +1,33 @@
-//! vm-core: 核心类型、错误、配置与抽象接口
-//! 
-//! 支持 no_std 以便在受限环境中使用（通过 feature flag）
+//! # vm-core - 虚拟机核心库
+//!
+//! 提供虚拟机的核心类型定义、Trait抽象和基础设施。
+//!
+//! ## 主要组件
+//!
+//! - **类型定义**: [`GuestAddr`], [`GuestPhysAddr`], [`HostAddr`] 等地址类型
+//! - **架构支持**: [`GuestArch`] 枚举支持 RISC-V64, ARM64, x86_64
+//! - **执行抽象**: [`ExecutionEngine`] trait 定义执行引擎接口
+//! - **内存管理**: [`MMU`] trait 定义内存管理单元接口
+//! - **解码器**: [`Decoder`] trait 定义指令解码器接口
+//! - **调试支持**: [`gdb`] 模块提供 GDB 远程调试协议实现
+//!
+//! ## 特性标志
+//!
+//! - `no_std`: 启用 no_std 支持，用于嵌入式或受限环境
+//!
+//! ## 示例
+//!
+//! ```rust,ignore
+//! use vm_core::{GuestArch, VmConfig, ExecMode};
+//!
+//! let config = VmConfig {
+//!     guest_arch: GuestArch::Riscv64,
+//!     memory_size: 128 * 1024 * 1024, // 128MB
+//!     vcpu_count: 1,
+//!     exec_mode: ExecMode::Interpreter,
+//!     ..Default::default()
+//! };
+//! ```
 
 #![cfg_attr(feature = "no_std", no_std)]
 
@@ -220,11 +247,13 @@ impl Default for VmConfig {
 pub trait MmioDevice: Send {
     fn read(&self, offset: u64, size: u8) -> u64;
     fn write(&mut self, offset: u64, val: u64, size: u8);
+    fn notify(&mut self, _mmu: &mut dyn MMU, _offset: u64) {}
+    fn poll(&mut self, _mmu: &mut dyn MMU) {}
     fn reset(&mut self) {}
 }
 
 /// 内存管理单元 Trait
-pub trait MMU: Send {
+pub trait MMU: Send + 'static {
     /// 地址翻译：GVA -> GPA
     fn translate(&mut self, va: GuestAddr, access: AccessType) -> Result<GuestPhysAddr, Fault>;
     
@@ -236,6 +265,22 @@ pub trait MMU: Send {
     
     /// 写内存
     fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), Fault>;
+
+    /// 批量读内存
+    fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), Fault> {
+        for (i, byte) in buf.iter_mut().enumerate() {
+            *byte = self.read(pa + i as u64, 1)? as u8;
+        }
+        Ok(())
+    }
+
+    /// 批量写内存
+    fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), Fault> {
+        for (i, &byte) in buf.iter().enumerate() {
+            self.write(pa + i as u64, byte as u64, 1)?;
+        }
+        Ok(())
+    }
     
     /// 映射 MMIO 设备
     fn map_mmio(&mut self, base: GuestAddr, size: u64, device: Box<dyn MmioDevice>);
@@ -251,6 +296,8 @@ pub trait MMU: Send {
 
     /// 从转储中恢复物理内存
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String>;
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 // ============================================================================
@@ -451,10 +498,8 @@ impl<B: 'static> VirtualMachine<B> {
     pub fn load_kernel(&mut self, data: &[u8], load_addr: GuestAddr) -> VmResult<()> {
         let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
         
-        for (i, &byte) in data.iter().enumerate() {
-            mmu.write(load_addr + i as u64, byte as u64, 1)
-                .map_err(|f| VmError::Execution(f))?;
-        }
+        mmu.write_bulk(load_addr, data)
+            .map_err(|f| VmError::Execution(f))?;
         
         Ok(())
     }

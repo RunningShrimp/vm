@@ -1,4 +1,41 @@
-//! x86-64 前端解码器
+//! # vm-frontend-x86_64 - x86-64 前端解码器
+//!
+//! 提供 x86-64 架构的指令解码器，将 x86-64 机器码转换为 VM IR。
+//!
+//! ## 支持的指令
+//!
+//! ### 基础指令
+//! - **算术**: ADD, SUB, INC, DEC, NEG
+//! - **逻辑**: AND, OR, XOR, NOT, TEST
+//! - **比较**: CMP
+//! - **数据移动**: MOV, LEA, PUSH, POP
+//!
+//! ### 控制流
+//! - **无条件跳转**: JMP (rel8, rel32, r/m64)
+//! - **条件跳转**: Jcc (所有条件码)
+//! - **调用/返回**: CALL, RET
+//!
+//! ### SIMD (SSE)
+//! - **数据移动**: MOVAPS
+//! - **算术**: ADDPS, SUBPS, MULPS, MAXPS, MINPS
+//!
+//! ### 系统指令
+//! - SYSCALL, CPUID, HLT, INT
+//!
+//! ## 使用示例
+//!
+//! ```rust,ignore
+//! use vm_frontend_x86_64::X86Decoder;
+//! use vm_core::Decoder;
+//!
+//! let mut decoder = X86Decoder;
+//! let block = decoder.decode(&mmu, 0x1000)?;
+//! ```
+//!
+//! ## 编码 API
+//!
+//! [`api`] 模块提供指令编码功能，用于生成 x86-64 机器码。
+
 use vm_core::{Decoder, GuestAddr, GuestRegs, Fault, MMU};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
 mod extended_insns;
@@ -819,7 +856,7 @@ mod tests {
         base: GuestAddr,
     }
 
-    impl MMU for MockMMU {
+impl MMU for MockMMU {
         fn translate(&mut self, va: GuestAddr, _access: vm_core::AccessType) -> Result<GuestAddr, Fault> {
             Ok(va)
         }
@@ -849,6 +886,16 @@ mod tests {
         fn memory_size(&self) -> usize {
             self.data.len()
         }
+        fn dump_memory(&self) -> Vec<u8> {
+            self.data.clone()
+        }
+        fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
+            self.data.clear();
+            self.data.extend_from_slice(data);
+            Ok(())
+        }
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
     }
 
     #[test]

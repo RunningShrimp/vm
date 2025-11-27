@@ -1,11 +1,12 @@
 [package]
 name = "vm-engine-jit"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
+vm-simd = { path = "../vm-simd" }
 cranelift = "0.126"
 cranelift-codegen = "0.126"
 cranelift-frontend = "0.126"
@@ -13,3 +14,11 @@ cranelift-module = "0.126"
 cranelift-jit = "0.126"
 cranelift-native = "0.126"
 target-lexicon = "0.13"
+rayon = "1.10"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "jit_compile"
+harness = false

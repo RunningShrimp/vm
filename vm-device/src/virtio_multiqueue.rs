@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use thiserror::Error;
 
 /// VirtIO 队列
 #[derive(Clone)]
@@ -101,30 +102,30 @@ impl MultiQueueManager {
     }
 
     /// 启用队列
-    pub fn enable_queue(&mut self, index: usize) -> Result<(), String> {
+    pub fn enable_queue(&mut self, index: usize) -> Result<(), MultiQueueError> {
         if index >= self.num_queues {
-            return Err(format!("Queue index {} out of range", index));
+            return Err(MultiQueueError::IndexOutOfRange(index));
         }
 
         if let Ok(mut queue) = self.queues[index].lock() {
             queue.enabled = true;
             Ok(())
         } else {
-            Err("Failed to lock queue".to_string())
+            Err(MultiQueueError::LockFailed)
         }
     }
 
     /// 禁用队列
-    pub fn disable_queue(&mut self, index: usize) -> Result<(), String> {
+    pub fn disable_queue(&mut self, index: usize) -> Result<(), MultiQueueError> {
         if index >= self.num_queues {
-            return Err(format!("Queue index {} out of range", index));
+            return Err(MultiQueueError::IndexOutOfRange(index));
         }
 
         if let Ok(mut queue) = self.queues[index].lock() {
             queue.enabled = false;
             Ok(())
         } else {
-            Err("Failed to lock queue".to_string())
+            Err(MultiQueueError::LockFailed)
         }
     }
 
@@ -141,6 +142,14 @@ impl MultiQueueManager {
             }
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum MultiQueueError {
+    #[error("Queue index out of range: {0}")]
+    IndexOutOfRange(usize),
+    #[error("Failed to lock queue")]
+    LockFailed,
 }
 
 /// VirtIO 网络设备多队列支持

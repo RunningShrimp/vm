@@ -4,6 +4,9 @@
 
 use vm_core::{MMU, MmioDevice, GuestAddr, GuestPhysAddr, AccessType, Fault};
 use crate::mmu::hugepage::{HugePageAllocator, HugePageSize};
+use lru::LruCache;
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 /// Host 虚拟地址
 pub type HostAddr = u64;
@@ -66,7 +69,7 @@ pub enum PagingMode {
 }
 
 // ============================================================================
-// TLB 实现
+// TLB 实现 (优化版: HashMap + LRU)
 // ============================================================================
 
 /// TLB 条目
@@ -78,62 +81,114 @@ struct TlbEntry {
     asid: u16,
 }
 
-/// TLB 缓存
+/// 组合键: (vpn, asid) -> 单个 u64 键
+#[inline]
+fn make_tlb_key(vpn: u64, asid: u16) -> u64 {
+    // vpn 最多 44 位 (SV48), asid 16 位, 组合后不会溢出
+    (vpn << 16) | (asid as u64)
+}
+
+/// 优化的 TLB 缓存 - 使用 HashMap 实现 O(1) 查找 + LRU 替换策略
 struct Tlb {
-    entries: Vec<Option<TlbEntry>>,
-    size: usize,
-    next_victim: usize,
+    /// 主哈希表存储 TLB 条目
+    entries: HashMap<u64, TlbEntry>,
+    /// LRU 缓存用于跟踪访问顺序和驱逐
+    lru: LruCache<u64, ()>,
+    /// 全局页条目 (不受 ASID 影响)
+    global_entries: HashMap<u64, TlbEntry>,
+    /// 最大容量
+    max_size: usize,
 }
 
 impl Tlb {
     fn new(size: usize) -> Self {
+        let capacity = NonZeroUsize::new(size).unwrap_or(NonZeroUsize::new(1).unwrap());
         Self {
-            entries: vec![None; size],
-            size,
-            next_victim: 0,
+            entries: HashMap::with_capacity(size),
+            lru: LruCache::new(capacity),
+            global_entries: HashMap::with_capacity(size / 4),
+            max_size: size,
         }
     }
 
-    fn lookup(&self, vpn: u64, asid: u16) -> Option<(u64, u64)> {
-        for entry in &self.entries {
-            if let Some(e) = entry {
-                if e.vpn == vpn && (e.asid == asid || e.flags & pte_flags::G != 0) {
-                    return Some((e.ppn, e.flags));
-                }
-            }
+    /// O(1) 查找 - 先查全局页，再查普通条目
+    fn lookup(&mut self, vpn: u64, asid: u16) -> Option<(u64, u64)> {
+        // 首先检查全局页 (不受 ASID 影响)
+        if let Some(entry) = self.global_entries.get(&vpn) {
+            return Some((entry.ppn, entry.flags));
         }
+
+        // 检查普通条目
+        let key = make_tlb_key(vpn, asid);
+        if let Some(entry) = self.entries.get(&key) {
+            // 更新 LRU 顺序
+            self.lru.get(&key);
+            return Some((entry.ppn, entry.flags));
+        }
+
         None
     }
 
+    /// O(1) 插入 - 带 LRU 驱逐
     fn insert(&mut self, vpn: u64, ppn: u64, flags: u64, asid: u16) {
         let entry = TlbEntry { vpn, ppn, flags, asid };
-        self.entries[self.next_victim] = Some(entry);
-        self.next_victim = (self.next_victim + 1) % self.size;
+
+        // 全局页单独存储
+        if flags & pte_flags::G != 0 {
+            self.global_entries.insert(vpn, entry);
+            return;
+        }
+
+        let key = make_tlb_key(vpn, asid);
+
+        // LRU 驱逐: 如果已满且是新条目
+        if !self.entries.contains_key(&key) && self.entries.len() >= self.max_size {
+            if let Some((old_key, _)) = self.lru.pop_lru() {
+                self.entries.remove(&old_key);
+            }
+        }
+
+        self.entries.insert(key, entry);
+        self.lru.put(key, ());
     }
 
+    /// 刷新所有 TLB 条目
     fn flush(&mut self) {
-        for entry in &mut self.entries {
-            *entry = None;
+        self.entries.clear();
+        self.lru.clear();
+        self.global_entries.clear();
+    }
+
+    /// 刷新指定 ASID 的非全局条目
+    fn flush_asid(&mut self, target_asid: u16) {
+        // 收集需要删除的键
+        let keys_to_remove: Vec<u64> = self.entries
+            .iter()
+            .filter(|(_, e)| e.asid == target_asid)
+            .map(|(k, _)| *k)
+            .collect();
+
+        for key in keys_to_remove {
+            self.entries.remove(&key);
+            self.lru.pop(&key);
         }
     }
 
-    fn flush_asid(&mut self, asid: u16) {
-        for entry in &mut self.entries {
-            if let Some(e) = entry {
-                if e.asid == asid && e.flags & pte_flags::G == 0 {
-                    *entry = None;
-                }
-            }
-        }
-    }
-
+    /// 刷新指定 VPN 的条目
     fn flush_page(&mut self, vpn: u64) {
-        for entry in &mut self.entries {
-            if let Some(e) = entry {
-                if e.vpn == vpn {
-                    *entry = None;
-                }
-            }
+        // 删除全局页
+        self.global_entries.remove(&vpn);
+
+        // 删除所有 ASID 下该 VPN 的条目
+        let keys_to_remove: Vec<u64> = self.entries
+            .iter()
+            .filter(|(_, e)| e.vpn == vpn)
+            .map(|(k, _)| *k)
+            .collect();
+
+        for key in keys_to_remove {
+            self.entries.remove(&key);
+            self.lru.pop(&key);
         }
     }
 }
@@ -207,6 +262,18 @@ impl SoftMmu {
             tlb_misses: 0,
             huge_page_allocator: allocator,
         }
+    }
+
+    pub fn guest_slice(&self, pa: u64, len: usize) -> Option<&[u8]> {
+        let start = pa as usize;
+        let end = start.checked_add(len)?;
+        if end <= self.mem.len() { Some(&self.mem[start..end]) } else { None }
+    }
+
+    pub fn guest_slice_mut(&mut self, pa: u64, len: usize) -> Option<&mut [u8]> {
+        let start = pa as usize;
+        let end = start.checked_add(len)?;
+        if end <= self.mem.len() { Some(&mut self.mem[start..end]) } else { None }
     }
 
     /// 设置分页模式
@@ -297,9 +364,18 @@ impl SoftMmu {
         let addr = pa as usize;
 
         // 检查 MMIO 区域
-        for region in &mut self.mmio_regions {
-            if pa >= region.base && pa < region.base + region.size {
-                region.device.write(pa - region.base, val, size);
+        for i in 0..self.mmio_regions.len() {
+            let base = self.mmio_regions[i].base;
+            let size_bytes = self.mmio_regions[i].size;
+            if pa >= base && pa < base + size_bytes {
+                let off = pa - base;
+                // First perform register write
+                self.mmio_regions[i].device.write(off, val, size);
+                // If queue notify, invoke device processing
+                if off == 0x20 {
+                    let device_ptr: *mut dyn MmioDevice = &mut *self.mmio_regions[i].device;
+                    unsafe { (*device_ptr).notify(self, off); }
+                }
                 return Ok(());
             }
         }
@@ -496,12 +572,15 @@ impl MMU for SoftMmu {
 
         // 查询 TLB
         let vpn = va >> PAGE_SHIFT;
-        let tlb = match access {
-            AccessType::Exec => &self.itlb,
-            _ => &self.dtlb,
+        let asid = self.asid;
+        
+        // 根据访问类型选择 TLB 并查找
+        let tlb_result = match access {
+            AccessType::Exec => self.itlb.lookup(vpn, asid),
+            _ => self.dtlb.lookup(vpn, asid),
         };
 
-        if let Some((ppn, flags)) = tlb.lookup(vpn, self.asid) {
+        if let Some((ppn, flags)) = tlb_result {
             self.tlb_hits += 1;
 
             // 检查权限
@@ -530,11 +609,10 @@ impl MMU for SoftMmu {
 
         // 插入 TLB
         let ppn = pa >> PAGE_SHIFT;
-        let tlb = match access {
-            AccessType::Exec => &mut self.itlb,
-            _ => &mut self.dtlb,
+        match access {
+            AccessType::Exec => self.itlb.insert(vpn, ppn, flags, asid),
+            _ => self.dtlb.insert(vpn, ppn, flags, asid),
         };
-        tlb.insert(vpn, ppn, flags, self.asid);
 
         Ok(pa)
     }
@@ -549,6 +627,56 @@ impl MMU for SoftMmu {
 
     fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), Fault> {
         self.write_phys(pa, val, size)
+    }
+
+    fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), Fault> {
+        // 检查 MMIO 重叠
+        for region in &self.mmio_regions {
+            let region_end = region.base + region.size;
+            let req_end = pa + buf.len() as u64;
+            if pa < region_end && req_end > region.base {
+                // 重叠，回退到逐字节读取
+                for (i, byte) in buf.iter_mut().enumerate() {
+                    *byte = self.read(pa + i as u64, 1)? as u8;
+                }
+                return Ok(());
+            }
+        }
+
+        // RAM 读取
+        let addr = pa as usize;
+        let len = buf.len();
+        if addr.checked_add(len).map_or(false, |end| end <= self.mem.len()) {
+            buf.copy_from_slice(&self.mem[addr..addr+len]);
+            Ok(())
+        } else {
+            Err(Fault::AccessViolation { addr: pa, access: AccessType::Read })
+        }
+    }
+
+    fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), Fault> {
+        // 检查 MMIO 重叠
+        for region in &self.mmio_regions {
+            let region_end = region.base + region.size;
+            let req_end = pa + buf.len() as u64;
+            if pa < region_end && req_end > region.base {
+                // 重叠，回退到逐字节写入
+                for (i, &byte) in buf.iter().enumerate() {
+                    self.write(pa + i as u64, byte as u64, 1)?;
+                }
+                return Ok(());
+            }
+        }
+
+        // RAM 写入
+        let addr = pa as usize;
+        let len = buf.len();
+        if addr.checked_add(len).map_or(false, |end| end <= self.mem.len()) {
+            self.mem[addr..addr+len].copy_from_slice(buf);
+            Ok(())
+        } else {
+            Err(Fault::AccessViolation { addr: pa, access: AccessType::Write })
+        }
     }
 
     fn map_mmio(&mut self, base: GuestAddr, size: u64, device: Box<dyn MmioDevice>) {
@@ -575,6 +703,14 @@ impl MMU for SoftMmu {
         self.mem.copy_from_slice(data);
         Ok(())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+}
+
+impl SoftMmu {
+    pub fn as_mmu_any(&self) -> &dyn std::any::Any { self }
+    pub fn as_mmu_any_mut(&mut self) -> &mut dyn std::any::Any { self }
 }
 
 // ============================================================================
@@ -661,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_bare_mode() {
-        let mut mmu = SoftMmu::new(1024 * 1024);
+        let mut mmu = SoftMmu::new(1024 * 1024, false);
 
         // Bare 模式恒等映射
         assert_eq!(
@@ -677,7 +813,7 @@ mod tests {
     #[test]
     fn test_sv39_simple() {
         let mem_size = 16 * 1024 * 1024; // 16MB
-        let mut mmu = SoftMmu::new(mem_size);
+        let mut mmu = SoftMmu::new(mem_size, false);
 
         // 设置 SV39 分页
         let root_table = 0x100000; // 根页表在 1MB
@@ -705,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_tlb_hit() {
-        let mut mmu = SoftMmu::new(1024 * 1024);
+        let mut mmu = SoftMmu::new(1024 * 1024, false);
 
         // 第一次访问（TLB miss）
         mmu.translate(0x1000, AccessType::Read).unwrap();

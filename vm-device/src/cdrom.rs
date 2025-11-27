@@ -6,6 +6,7 @@ use vm_core::MmioDevice;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
+use thiserror::Error;
 
 /// CDROM 设备状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,13 +46,11 @@ impl CdromDevice {
     }
 
     /// 挂载 ISO 镜像
-    pub fn mount(&mut self, iso_path: &str) -> Result<(), String> {
-        let file = File::open(iso_path)
-            .map_err(|e| format!("Failed to open ISO: {}", e))?;
+    pub fn mount(&mut self, iso_path: &str) -> Result<(), CdromError> {
+        let file = File::open(iso_path)?;
 
         // 获取文件大小
-        let metadata = file.metadata()
-            .map_err(|e| format!("Failed to get metadata: {}", e))?;
+        let metadata = file.metadata()?;
         
         let file_size = metadata.len();
         self.capacity = (file_size / 2048) as u32;
@@ -72,22 +71,20 @@ impl CdromDevice {
     }
 
     /// 读取扇区
-    pub fn read_sector(&mut self, sector: u32) -> Result<&[u8], String> {
+    pub fn read_sector(&mut self, sector: u32) -> Result<&[u8], CdromError> {
         let image = self.image.as_ref()
-            .ok_or_else(|| "No ISO mounted".to_string())?;
+            .ok_or(CdromError::NotMounted)?;
 
         if sector >= self.capacity {
-            return Err("Sector out of range".to_string());
+            return Err(CdromError::SectorOutOfRange);
         }
 
         let mut file = image.lock().unwrap();
         
         let offset = sector as u64 * 2048;
-        file.seek(SeekFrom::Start(offset))
-            .map_err(|e| format!("Seek failed: {}", e))?;
+        file.seek(SeekFrom::Start(offset))?;
 
-        file.read_exact(&mut self.sector_buffer)
-            .map_err(|e| format!("Read failed: {}", e))?;
+        file.read_exact(&mut self.sector_buffer)?;
 
         self.current_sector = sector;
         self.status = CdromStatus::Idle;
@@ -166,7 +163,7 @@ impl VirtioCdrom {
     }
 
     /// 挂载 ISO 镜像
-    pub fn mount(&mut self, iso_path: &str) -> Result<(), String> {
+    pub fn mount(&mut self, iso_path: &str) -> Result<(), CdromError> {
         self.cdrom.mount(iso_path)
     }
 
@@ -176,7 +173,7 @@ impl VirtioCdrom {
     }
 
     /// 读取扇区
-    pub fn read_sector(&mut self, sector: u32) -> Result<&[u8], String> {
+    pub fn read_sector(&mut self, sector: u32) -> Result<&[u8], CdromError> {
         self.cdrom.read_sector(sector)
     }
 
@@ -184,6 +181,16 @@ impl VirtioCdrom {
     pub fn capacity(&self) -> u32 {
         self.cdrom.capacity()
     }
+
+#[derive(Debug, Error)]
+pub enum CdromError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("No ISO mounted")]
+    NotMounted,
+    #[error("Sector out of range")]
+    SectorOutOfRange,
+}
 }
 
 impl MmioDevice for VirtioCdrom {

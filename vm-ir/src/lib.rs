@@ -1,3 +1,32 @@
+//! # vm-ir - 中间表示层
+//!
+//! 定义虚拟机的中间表示 (IR)，用于在前端解码器和后端执行引擎之间传递指令。
+//!
+//! ## 主要类型
+//!
+//! - [`IROp`]: IR 操作码枚举，包含算术、逻辑、内存、向量等操作
+//! - [`IRBlock`]: IR 基本块，包含操作序列和终结符
+//! - [`Terminator`]: 基本块终结符，如跳转、条件分支、返回等
+//! - [`IRBuilder`]: 用于构建 IR 块的辅助工具
+//!
+//! ## 内存语义
+//!
+//! - [`MemFlags`]: 内存访问标志，支持原子操作和内存序
+//! - [`MemOrder`]: 内存序枚举 (Acquire, Release, AcqRel)
+//! - [`AtomicOp`]: 原子操作类型
+//!
+//! ## 示例
+//!
+//! ```rust,ignore
+//! use vm_ir::{IRBuilder, IROp, Terminator};
+//!
+//! let mut builder = IRBuilder::new(0x1000);
+//! builder.push(IROp::MovImm { dst: 1, imm: 42 });
+//! builder.push(IROp::Add { dst: 2, src1: 1, src2: 1 });
+//! builder.set_term(Terminator::Ret);
+//! let block = builder.build();
+//! ```
+
 use vm_core::GuestAddr;
 
 pub type RegId = u32;
@@ -119,6 +148,7 @@ pub enum Terminator {
     Interrupt { vector: u32 },
 }
 
+#[derive(Clone)]
 pub struct IRBlock {
     pub start_pc: GuestAddr,
     pub ops: Vec<IROp>,

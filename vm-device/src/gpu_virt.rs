@@ -1,4 +1,5 @@
 use wgpu;
+use thiserror::Error;
 use std::sync::{Arc, Mutex};
 
 /// GPU 后端统计信息
@@ -15,7 +16,7 @@ pub struct GpuStats {
 pub trait GpuBackend: Send {
     fn name(&self) -> &str;
     fn is_available(&self) -> bool;
-    fn init(&mut self) -> Result<(), String>;
+    fn init(&mut self) -> Result<(), GpuVirtError>;
     fn get_stats(&self) -> GpuStats;
     fn reset_stats(&mut self);
 }
@@ -30,6 +31,7 @@ pub struct WgpuBackend {
 
 impl WgpuBackend {
     pub fn new() -> Self {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
@@ -69,13 +71,14 @@ impl GpuBackend for WgpuBackend {
         true
     }
 
-    fn init(&mut self) -> Result<(), String> {
+    fn init(&mut self) -> Result<(), GpuVirtError> {
         // 请求适配器，优先选择高性能 GPU
+        let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
         let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
-        })).map_err(|e| e.to_string())?;
+        })).map_err(|e| GpuVirtError::AdapterRequest(e.to_string()))?;
 
         self.adapter = Some(adapter.clone());
         let info = adapter.get_info();
@@ -105,8 +108,9 @@ impl GpuBackend for WgpuBackend {
                 },
                 label: Some("VM GPU Device"),
                 ..Default::default()
+                ..Default::default()
             },
-        )).map_err(|e: wgpu::RequestDeviceError| e.to_string())?;
+        )).map_err(|e: wgpu::RequestDeviceError| GpuVirtError::DeviceRequest(e.to_string()))?;
 
         self.device = Some(Arc::new(device));
         self.queue = Some(Arc::new(queue));
@@ -153,7 +157,7 @@ impl GpuBackend for PassthroughBackend {
         self.available
     }
 
-    fn init(&mut self) -> Result<(), String> {
+    fn init(&mut self) -> Result<(), GpuVirtError> {
         // 直通模式下，不需要初始化虚拟 GPU
         Ok(())
     }
@@ -192,25 +196,25 @@ impl GpuManager {
         }
     }
 
-    pub fn select_backend_by_name(&mut self, name: &str) -> Result<(), String> {
+    pub fn select_backend_by_name(&mut self, name: &str) -> Result<(), GpuVirtError> {
         for (i, backend) in self.backends.iter().enumerate() {
             if backend.name() == name {
                 if backend.is_available() {
                     self.selected_backend = Some(i);
                     return Ok(());
                 } else {
-                    return Err(format!("Backend '{}' is not available on this system.", name));
+                    return Err(GpuVirtError::NotAvailable(name.into()));
                 }
             }
         }
-        Err(format!("Backend '{}' not found.", name))
+        Err(GpuVirtError::NotFound(name.into()))
     }
 
-    pub fn init_selected_backend(&mut self) -> Result<(), String> {
+    pub fn init_selected_backend(&mut self) -> Result<(), GpuVirtError> {
         if let Some(index) = self.selected_backend {
             self.backends[index].init()
         } else {
-            Err("No backend selected.".to_string())
+            Err(GpuVirtError::NoBackendSelected)
         }
     }
 
@@ -223,4 +227,18 @@ impl GpuManager {
             self.backends[index].reset_stats();
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum GpuVirtError {
+    #[error("Backend not available: {0}")]
+    NotAvailable(String),
+    #[error("Backend not found: {0}")]
+    NotFound(String),
+    #[error("No backend selected")]
+    NoBackendSelected,
+    #[error("Adapter request failed: {0}")]
+    AdapterRequest(String),
+    #[error("Device request failed: {0}")]
+    DeviceRequest(String),
 }

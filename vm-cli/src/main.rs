@@ -142,6 +142,7 @@ fn print_usage() {
 
 #[tokio::main]
 async fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("RUST_LOG", "info")).init();
     let args = parse_args();
 
     let mut gpu_manager = GpuManager::new();
@@ -169,12 +170,11 @@ async fn main() {
         return;
     }
 
-    println!("=== RISC-V64 Virtual Machine ===");
-    println!("Host: {} / {}", host_os(), host_arch());
-    println!("Memory: {} MB", args.memory / (1024 * 1024));
-    println!("vCPUs: {}", args.vcpus);
-    println!("Execution Mode: {:?}", args.exec_mode);
-    println!();
+    log::info!("=== RISC-V64 Virtual Machine ===");
+    log::info!("Host: {} / {}", host_os(), host_arch());
+    log::info!("Memory: {} MB", args.memory / (1024 * 1024));
+    log::info!("vCPUs: {}", args.vcpus);
+    log::info!("Execution Mode: {:?}", args.exec_mode);
 
     // 创建 VM 配置
     let mut config = VmConfig {

@@ -11,6 +11,7 @@ pub use passthrough::{GpuPassthrough, GpuInfo, GpuVendor};
 pub use mdev::{GpuMdev, MdevType, MdevConfig};
 pub use wgpu_backend::{WgpuBackend, GpuStats};
 use crate::gpu_virt::GpuBackend as GpuBackendTrait;
+use thiserror::Error;
 
 /// GPU 模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,7 +120,7 @@ impl UnifiedGpuManager {
     }
 
     /// 扫描所有可用的 GPU 后端
-    pub fn scan_backends(&mut self) -> Result<(), String> {
+    pub fn scan_backends(&mut self) -> Result<(), GpuMgrError> {
         self.available_backends.clear();
 
         // 1. 扫描 GPU Passthrough
@@ -160,7 +161,7 @@ impl UnifiedGpuManager {
     }
 
     /// 创建 PCI 设备信息（辅助函数）
-    fn create_pci_device_info(&self, gpu_info: &GpuInfo) -> Result<vm_passthrough::PciDeviceInfo, String> {
+    fn create_pci_device_info(&self, gpu_info: &GpuInfo) -> Result<vm_passthrough::PciDeviceInfo, GpuMgrError> {
         // 从 GpuInfo 创建 PciDeviceInfo
         let vendor_id = match gpu_info.vendor {
             GpuVendor::Nvidia => 0x10DE,
@@ -181,9 +182,9 @@ impl UnifiedGpuManager {
     }
 
     /// 自动选择最佳后端
-    pub fn auto_select(&mut self) -> Result<(), String> {
+    pub fn auto_select(&mut self) -> Result<(), GpuMgrError> {
         if self.available_backends.is_empty() {
-            return Err("No GPU backends available".to_string());
+            return Err(GpuMgrError::Backend("No GPU backends available".into()));
         }
 
         // 如果用户指定了偏好模式，优先选择该模式
@@ -198,7 +199,7 @@ impl UnifiedGpuManager {
 
             // 如果偏好模式不可用且启用了自动降级
             if !self.auto_fallback {
-                return Err(format!("Preferred GPU mode {} not available", preferred.name()));
+                return Err(GpuMgrError::PreferredNotAvailable(preferred.name().into()));
             }
 
             log::warn!("Preferred GPU mode {} not available, falling back", preferred.name());
@@ -224,7 +225,7 @@ impl UnifiedGpuManager {
     }
 
     /// 手动选择后端
-    pub fn select_by_mode(&mut self, mode: GpuMode) -> Result<(), String> {
+    pub fn select_by_mode(&mut self, mode: GpuMode) -> Result<(), GpuMgrError> {
         for (i, backend) in self.available_backends.iter().enumerate() {
             if backend.mode() == mode {
                 self.selected_backend = Some(i);
@@ -233,13 +234,13 @@ impl UnifiedGpuManager {
             }
         }
 
-        Err(format!("GPU mode {} not available", mode.name()))
+        Err(GpuMgrError::ModeNotAvailable(mode.name().into()))
     }
 
     /// 手动选择后端（通过索引）
-    pub fn select_by_index(&mut self, index: usize) -> Result<(), String> {
+    pub fn select_by_index(&mut self, index: usize) -> Result<(), GpuMgrError> {
         if index >= self.available_backends.len() {
-            return Err(format!("Invalid backend index: {}", index));
+            return Err(GpuMgrError::InvalidIndex(index));
         }
 
         self.selected_backend = Some(index);
@@ -265,25 +266,25 @@ impl UnifiedGpuManager {
     }
 
     /// 初始化选中的后端
-    pub fn initialize_selected(&mut self) -> Result<(), String> {
+    pub fn initialize_selected(&mut self) -> Result<(), GpuMgrError> {
         if let Some(backend) = self.get_selected_backend_mut() {
             match backend {
                 GpuBackend::Passthrough(pt) => {
-                    pt.prepare().map_err(|e| e.to_string())?;
+                    pt.prepare().map_err(|e| GpuMgrError::Backend(e.to_string()))?;
                     log::info!("Initialized GPU Passthrough");
                 }
                 GpuBackend::Mdev(mdev) => {
-                    mdev.create().map_err(|e| e.to_string())?;
+                    mdev.create().map_err(|e| GpuMgrError::Backend(e.to_string()))?;
                     log::info!("Initialized mdev GPU");
                 }
                 GpuBackend::Wgpu(wgpu) => {
-                    GpuBackendTrait::init(wgpu).map_err(|e| e.to_string())?;
+                    GpuBackendTrait::init(wgpu).map_err(|e| GpuMgrError::Backend(e.to_string()))?;
                     log::info!("Initialized WGPU backend");
                 }
             }
             Ok(())
         } else {
-            Err("No backend selected".to_string())
+            Err(GpuMgrError::NoBackendSelected)
         }
     }
 
@@ -344,6 +345,20 @@ impl UnifiedGpuManager {
             None
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum GpuMgrError {
+    #[error("Preferred mode not available: {0}")]
+    PreferredNotAvailable(String),
+    #[error("Mode not available: {0}")]
+    ModeNotAvailable(String),
+    #[error("Invalid backend index: {0}")]
+    InvalidIndex(usize),
+    #[error("No backend selected")]
+    NoBackendSelected,
+    #[error("Backend error: {0}")]
+    Backend(String),
 }
 
 impl Default for UnifiedGpuManager {
