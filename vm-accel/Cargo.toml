@@ -5,25 +5,25 @@ edition = "2021"
 
 [dependencies]
 raw-cpuid = { version = "11", optional = true }
-num_cpus = "1.16"
+num_cpus = "1.17"
 log = "0.4"
-thiserror = "1.0"
+thiserror = "2.0"
 vm-core = { path = "../vm-core" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-kvm-ioctls = { version = "0.18", optional = true }
-kvm-bindings = { version = "0.9", optional = true }
+kvm-ioctls = { version = "0.19", optional = true }
+kvm-bindings = { version = "0.10", optional = true }
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = ["Win32_System_Hypervisor"], optional = true }
+windows = { version = "0.62", features = ["Win32_System_Hypervisor"], optional = true }
 
 [features]
 default = []
 cpuid = ["raw-cpuid"]
-kvm = ["kvm-ioctls", "kvm-bindings"]
+# kvm = ["kvm-ioctls", "kvm-bindings"]  # Temporarily disabled due to compatibility issues
 hvf = []
 whpx = ["windows"]

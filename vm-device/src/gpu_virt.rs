@@ -30,7 +30,7 @@ pub struct WgpuBackend {
 
 impl WgpuBackend {
     pub fn new() -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -71,17 +71,13 @@ impl GpuBackend for WgpuBackend {
 
     fn init(&mut self) -> Result<(), String> {
         // 请求适配器，优先选择高性能 GPU
-        self.adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
+        let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
-        }));
+        })).map_err(|e| e.to_string())?;
 
-        if self.adapter.is_none() {
-            return Err("Failed to find a suitable WGPU adapter.".to_string());
-        }
-
-        let adapter = self.adapter.as_ref().unwrap();
+        self.adapter = Some(adapter.clone());
         let info = adapter.get_info();
         println!("Selected GPU: {} ({:?})", info.name, info.backend);
 
@@ -108,9 +104,9 @@ impl GpuBackend for WgpuBackend {
                     ..Default::default()
                 },
                 label: Some("VM GPU Device"),
+                ..Default::default()
             },
-            None,
-        )).map_err(|e| e.to_string())?;
+        )).map_err(|e: wgpu::RequestDeviceError| e.to_string())?;
 
         self.device = Some(Arc::new(device));
         self.queue = Some(Arc::new(queue));

@@ -8,7 +8,7 @@ pub struct HardwareDetector;
 
 impl HardwareDetector {
     pub async fn detect() -> HardwareSummary {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let adapters = instance.enumerate_adapters(wgpu::Backends::all());
         let gpus = adapters.into_iter().map(|a| a.get_info()).collect();
 

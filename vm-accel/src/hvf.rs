@@ -42,17 +42,17 @@ extern "C" {
 #[cfg(target_os = "macos")]
 const HV_SUCCESS: i32 = 0;
 #[cfg(target_os = "macos")]
-const HV_ERROR: i32 = 0xfae94001;
+const HV_ERROR: i32 = 0xfae94001u32 as i32;
 #[cfg(target_os = "macos")]
-const HV_BUSY: i32 = 0xfae94002;
+const HV_BUSY: i32 = 0xfae94002u32 as i32;
 #[cfg(target_os = "macos")]
-const HV_BAD_ARGUMENT: i32 = 0xfae94003;
+const HV_BAD_ARGUMENT: i32 = 0xfae94003u32 as i32;
 #[cfg(target_os = "macos")]
-const HV_NO_RESOURCES: i32 = 0xfae94005;
+const HV_NO_RESOURCES: i32 = 0xfae94005u32 as i32;
 #[cfg(target_os = "macos")]
-const HV_NO_DEVICE: i32 = 0xfae94006;
+const HV_NO_DEVICE: i32 = 0xfae94006u32 as i32;
 #[cfg(target_os = "macos")]
-const HV_UNSUPPORTED: i32 = 0xfae9400f;
+const HV_UNSUPPORTED: i32 = 0xfae9400fu32 as i32;
 
 // 内存权限标志
 #[cfg(target_os = "macos")]

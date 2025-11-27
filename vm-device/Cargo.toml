@@ -7,13 +7,13 @@ edition = "2021"
 vm-core = { path = "../vm-core" }
 vm-osal = { path = "../vm-osal" }
 vm-passthrough = { path = "../vm-passthrough" }
-wgpu = "0.20.0"
-winit = "0.29"
-pollster = "0.3"
+wgpu = "27"
+winit = "0.30"
+pollster = "0.4"
 log = "0.4"
-vfio-ioctls = "0.5.2"
-vfio-bindings = "0.6.1"
-uuid = { version = "1.0", features = ["v4"] }
+# vfio-ioctls = "0.4"  # Temporarily disabled due to dependency conflicts with kvm-ioctls
+vfio-bindings = "0.6"
+uuid = { version = "1", features = ["v4"] }
 
 
 
