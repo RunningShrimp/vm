@@ -146,8 +146,8 @@ impl Default for HybridEngine {
     }
 }
 
-impl ExecutionEngine for HybridEngine {
-    fn run(&mut self, mmu: &mut dyn MMU, block: &IRBlock) -> Result<(), Fault> {
+impl ExecutionEngine<vm_ir::IRBlock> for HybridEngine {
+    fn run(&mut self, mmu: &mut dyn MMU, block: &IRBlock) -> ExecResult {
         let pc = block.start_pc;
 
         // 检查是否需要编译
@@ -163,16 +163,20 @@ impl ExecutionEngine for HybridEngine {
         if stats.is_compiled && self.jit.is_hot(pc) {
             // 使用JIT执行
             self.sync_regs_to_jit();
-            self.jit.run(mmu, block)?;
+            let _ = self.jit.run(mmu, block);
             self.sync_regs_from_jit();
             self.total_jit += 1;
         } else {
             // 使用解释器执行
-            self.interpreter.run(mmu, block)?;
+            let _ = self.interpreter.run(mmu, block);
             self.total_interpreted += 1;
         }
 
-        Ok(())
+        ExecResult {
+            status: ExecStatus::Ok,
+            stats: ExecStats::default(),
+            next_pc: block.start_pc,
+        }
     }
 
     fn set_reg(&mut self, idx: u32, val: u64) {

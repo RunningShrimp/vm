@@ -102,14 +102,19 @@ impl CpuInfo {
     /// 检测 x86_64 CPU 信息
     #[cfg(target_arch = "x86_64")]
     fn detect_x86_64() -> Self {
+        #[cfg(feature = "cpuid")]
         use raw_cpuid::CpuId;
         
+        #[cfg(feature = "cpuid")]
         let cpuid = CpuId::new();
+        #[cfg(not(feature = "cpuid"))]
+        let cpuid = ();
         let mut features = CpuFeatures::default();
         let mut vendor = CpuVendor::Unknown;
         let mut model_name = String::from("Unknown x86_64 CPU");
 
         // 检测厂商
+        #[cfg(feature = "cpuid")]
         if let Some(vendor_info) = cpuid.get_vendor_info() {
             let vendor_str = vendor_info.as_str();
             vendor = match vendor_str {
@@ -120,11 +125,13 @@ impl CpuInfo {
         }
 
         // 获取型号名称
+        #[cfg(feature = "cpuid")]
         if let Some(brand) = cpuid.get_processor_brand_string() {
             model_name = brand.as_str().trim().to_string();
         }
 
         // 检测基础特性
+        #[cfg(feature = "cpuid")]
         if let Some(feature_info) = cpuid.get_feature_info() {
             features.sse = feature_info.has_sse();
             features.sse2 = feature_info.has_sse2();
@@ -139,6 +146,7 @@ impl CpuInfo {
         }
 
         // 检测扩展特性
+        #[cfg(feature = "cpuid")]
         if let Some(ext_features) = cpuid.get_extended_feature_info() {
             features.avx2 = ext_features.has_avx2();
             features.avx512f = ext_features.has_avx512f();

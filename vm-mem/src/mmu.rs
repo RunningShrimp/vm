@@ -173,7 +173,7 @@ impl SoftwareMmu {
         let pml4_flags = PageTableFlags::from_x86_64_entry(pml4e);
         
         if !pml4_flags.present {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // PDPT
@@ -182,7 +182,7 @@ impl SoftwareMmu {
         let pdpt_flags = PageTableFlags::from_x86_64_entry(pdpte);
         
         if !pdpt_flags.present {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // 检查 1GB 大页
@@ -201,7 +201,7 @@ impl SoftwareMmu {
         let pd_flags = PageTableFlags::from_x86_64_entry(pde);
         
         if !pd_flags.present {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // 检查 2MB 大页
@@ -220,7 +220,7 @@ impl SoftwareMmu {
         let pt_flags = PageTableFlags::from_x86_64_entry(pte);
         
         if !pt_flags.present {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // 4KB 页
@@ -246,7 +246,7 @@ impl SoftwareMmu {
         let l0e = self.read_pte(l0_addr)?;
         
         if l0e & 0x1 == 0 {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // L1
@@ -254,7 +254,7 @@ impl SoftwareMmu {
         let l1e = self.read_pte(l1_addr)?;
         
         if l1e & 0x1 == 0 {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // 检查块描述符 (1GB)
@@ -272,7 +272,7 @@ impl SoftwareMmu {
         let l2e = self.read_pte(l2_addr)?;
         
         if l2e & 0x1 == 0 {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // 检查块描述符 (2MB)
@@ -290,7 +290,7 @@ impl SoftwareMmu {
         let l3e = self.read_pte(l3_addr)?;
         
         if l3e & 0x3 != 0x3 {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         let gpa = (l3e & !0xFFF) | offset;
@@ -317,7 +317,7 @@ impl SoftwareMmu {
         let l2e = self.read_pte(l2_addr)?;
         
         if l2e & 0x1 == 0 {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // 检查是否是叶子节点 (1GB 大页)
@@ -337,7 +337,7 @@ impl SoftwareMmu {
         let l1e = self.read_pte(l1_addr)?;
         
         if l1e & 0x1 == 0 {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         // 检查是否是叶子节点 (2MB 大页)
@@ -357,7 +357,7 @@ impl SoftwareMmu {
         let l0e = self.read_pte(l0_addr)?;
         
         if (l0e & 0x1) == 0 || (l0e & 0xE) == 0 {
-            return Err(MemoryError::PageFault(gva));
+            return Err(MemoryError::PageFault);
         }
 
         let ppn = (l0e >> 10) & 0xFFFFFFFFFFF;

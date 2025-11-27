@@ -1,4 +1,5 @@
-pub mod gpu;
+//! vm-device: 设备模型
+pub mod io;
 pub mod virtio;
 pub mod virtio_multiqueue;
 pub mod block;

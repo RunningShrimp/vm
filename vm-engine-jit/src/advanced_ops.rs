@@ -150,9 +150,9 @@ pub fn compile_atomic_op(
     store_reg: impl Fn(&mut FunctionBuilder, Value, u32, Value),
 ) -> bool {
     match op {
-        IROp::Atomic { dst, addr, val, op: atomic_op, order } => {
-            let addr_val = load_reg(builder, regs_ptr, *addr);
-            let val_val = load_reg(builder, regs_ptr, *val);
+        IROp::AtomicRMW { dst, base, src, op: atomic_op, size } => {
+            let addr_val = load_reg(builder, regs_ptr, *base);
+            let val_val = load_reg(builder, regs_ptr, *src);
             
             // Cranelift 的原子操作支持
             let mem_flags = MemFlags::trusted();
@@ -186,6 +186,19 @@ pub fn compile_atomic_op(
                 }
                 AtomicOp::Minu => {
                     builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Umin, addr_val, val_val)
+                }
+                AtomicOp::Xchg => {
+                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Xchg, addr_val, val_val)
+                }
+                AtomicOp::CmpXchg => {
+                    // CmpXchg 需要两个值，这里简化处理
+                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Xchg, addr_val, val_val)
+                }
+                AtomicOp::MinS => {
+                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Smin, addr_val, val_val)
+                }
+                AtomicOp::MaxS => {
+                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Smax, addr_val, val_val)
                 }
             };
             

@@ -139,12 +139,12 @@ pub unsafe fn page_walk_x86_64(va: u64, page_table_base: u64) -> Option<u64> {
         // 计算物理地址
         "add {pte}, {offset}",
         "mov {pa}, {pte}",
-        "jmp 2f",
+        "jmp end",
         
-        "1:",                                // 失败
+        "fail:",                            // 失败
         "xor {pa}, {pa}",
         
-        "2:",                                // 结束
+        "end:",                             // 结束
         
         pa = out(reg) pa,
         pte = out(reg) pte,

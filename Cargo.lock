@@ -1791,6 +1791,7 @@ dependencies = [
 name = "vm-mem"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "memmap2",
  "vm-core",
 ]
