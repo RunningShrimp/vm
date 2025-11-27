@@ -24,7 +24,7 @@ pub struct StandardTlbManager {
 impl StandardTlbManager {
     /// 创建一个新的 TLB 管理器，指定容量
     pub fn new(capacity: usize) -> Self {
-        let lru_capacity = NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1).unwrap());
+        let lru_capacity = NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1).expect("Operation failed"));
         Self {
             entries: HashMap::with_capacity(capacity),
             lru: LruCache::new(lru_capacity),
@@ -129,7 +129,7 @@ mod tests {
         
         let result = tlb.lookup(0x1000, 0, AccessType::Read);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().phys_addr, 0x2000);
+        assert_eq!(result.expect("Operation failed").phys_addr, 0x2000);
         assert_eq!(tlb.stats().0, 1); // 1 hit
     }
 

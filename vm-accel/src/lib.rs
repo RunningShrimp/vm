@@ -434,6 +434,9 @@ impl AccelKind {
 }
 
 pub mod event;
+pub mod accel_fallback;
+
+pub use accel_fallback::{AccelFallbackManager, ExecResult};
 
 pub struct NoAccel;
 impl Accel for NoAccel {

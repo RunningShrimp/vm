@@ -3,6 +3,8 @@ mod tests {
     use vm_core::{ExecutionEngine, MMU, Decoder, MmioDevice};
 use vm_engine_interpreter::Interpreter;
 use vm_engine_jit::Jit;
+use vm_engine_interpreter::Interpreter;
+use vm_engine_jit::Jit;
     use vm_ir::{IRBuilder, IROp, MemFlags};
     use vm_mem::SoftMmu;
     use vm_engine_interpreter::run_chain;
@@ -51,7 +53,7 @@ use vm_engine_jit::Jit;
         let block = builder.build();
         let res = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(5), 0x77889900);
-        let v = mmu.read(0x100, 4).unwrap();
+        let v = mmu.read(0x100, 4).expect("Operation failed");
         assert_eq!(v, 0x01020304);
         assert_eq!(res.stats.executed_ops, 2);
         let (acq, rel) = engine.get_fence_counts();
@@ -416,8 +418,24 @@ use vm_engine_jit::Jit;
             if interp.intr_mask_until > 0 { interp.intr_mask_until -= 1; ExecInterruptAction::Mask } else { ExecInterruptAction::Deliver }
         });
         struct StaticDec;
+        struct MyInsn;
+        impl vm_core::Instruction for MyInsn {
+            fn next_pc(&self) -> GuestAddr { 0 }
+            fn size(&self) -> u8 { 4 }
+            fn operand_count(&self) -> usize { 0 }
+            fn mnemonic(&self) -> &'static str { "nop" }
+            fn is_control_flow(&self) -> bool { false }
+            fn is_memory_access(&self) -> bool { false }
+        }
+        
         impl Decoder for StaticDec {
+            type Instruction = MyInsn;
             type Block = IRBlock;
+            
+            fn decode_insn(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+                Ok(MyInsn)
+            }
+            
             fn decode(&mut self, _mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault> {
                 Ok(IRBlock { start_pc: pc, ops: vec![], term: Terminator::Interrupt { vector: 2 } })
             }
@@ -443,7 +461,7 @@ use vm_engine_jit::Jit;
         let mut b2 = IRBuilder::new(0);
         b2.push(IROp::AtomicRMW { dst: 7, base: 5, src: 6, op: vm_ir::AtomicOp::Max, size: 1 });
         let blk2 = b2.build(); let _ = engine.run(&mut mmu, &blk2);
-        assert_eq!(mmu.read(0x600, 1).unwrap(), 0x20);
+        assert_eq!(mmu.read(0x600, 1).expect("Operation failed"), 0x20);
         // signed MinS/MaxS via AtomicRmwFlag
         engine.set_reg(8, 0x700);
         let _ = mmu.write(0x700, 0x80, 1); // -128 in i8
@@ -453,7 +471,7 @@ use vm_engine_jit::Jit;
         let blf = bf.build(); let _ = engine.run(&mut mmu, &blf);
         assert_eq!(engine.get_reg(10), 0x80);
         assert_eq!(engine.get_reg(11), 1);
-        assert_eq!(mmu.read(0x700, 1).unwrap(), 0x70);
+        assert_eq!(mmu.read(0x700, 1).expect("Operation failed"), 0x70);
     }
 
     #[test]
@@ -479,8 +497,23 @@ use vm_engine_jit::Jit;
         b.set_term(Terminator::Interrupt { vector: 3 });
         let blk = b.build();
         struct StaticDec { blk: IRBlock }
+        struct LocalInsn;
+        impl vm_core::Instruction for LocalInsn {
+            fn next_pc(&self) -> GuestAddr { 0 }
+            fn size(&self) -> u8 { 4 }
+            fn operand_count(&self) -> usize { 0 }
+            fn mnemonic(&self) -> &'static str { "nop" }
+            fn is_control_flow(&self) -> bool { false }
+            fn is_memory_access(&self) -> bool { false }
+        }
         impl Decoder for StaticDec {
+            type Instruction = LocalInsn;
             type Block = IRBlock;
+            
+            fn decode_insn(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+                Ok(LocalInsn)
+            }
+            
             fn decode(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Block, Fault> {
                 Ok(IRBlock { start_pc: self.blk.start_pc, ops: vec![], term: Terminator::Interrupt { vector: 3 } })
             }
@@ -506,7 +539,7 @@ use vm_engine_jit::Jit;
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(27), 0xAA);
         assert_eq!(engine.get_reg(28), 1);
-        let v = mmu.read(0x400, 1).unwrap();
+        let v = mmu.read(0x400, 1).expect("Operation failed");
         assert_eq!(v, 0xBB);
     }
 
@@ -523,7 +556,7 @@ use vm_engine_jit::Jit;
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(7), 0x0F);
         assert_eq!(engine.get_reg(8), 1);
-        let v = mmu.read(0x500, 1).unwrap();
+        let v = mmu.read(0x500, 1).expect("Operation failed");
         assert_eq!(v, 0xFF);
     }
 
@@ -537,7 +570,7 @@ use vm_engine_jit::Jit;
     fn paged_mmu_read_write_basic() {
         let mut mmu = SoftMmu::new(0x10000, false);
         let _ = mmu.write(0x10, 0xAB, 1);
-        let v = mmu.read(0x10, 1).unwrap();
+        let v = mmu.read(0x10, 1).expect("Operation failed");
         assert_eq!(v, 0xAB);
     }
 
@@ -554,7 +587,7 @@ use vm_engine_jit::Jit;
         let blk = b.build();
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(13), 0x55);
-        let v = mmu.read(0x300, 1).unwrap();
+        let v = mmu.read(0x300, 1).expect("Operation failed");
         assert_eq!(v, 0x99);
     }
 
@@ -573,7 +606,7 @@ use vm_engine_jit::Jit;
         let blk = b.build();
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(13), 0x12);
-        let v = mmu.read(0x350, 1).unwrap();
+        let v = mmu.read(0x350, 1).expect("Operation failed");
         assert_eq!(v, 0x34);
         let (acq, rel) = engine.get_fence_counts();
         assert!(acq >= 1 && rel >= 1);
@@ -602,7 +635,7 @@ use vm_engine_jit::Jit;
         jit.compile_many_parallel(&[blk.clone()]);
         jit.set_pc(blk.start_pc);
         let _ = jit.run(&mut mmu, &blk);
-        assert_eq!(mmu.read(0x420, 1).unwrap(), 0xBB);
+        assert_eq!(mmu.read(0x420, 1).expect("Operation failed"), 0xBB);
         assert_eq!(jit.get_reg(13), 0xAA);
     }
 
@@ -634,7 +667,7 @@ use vm_engine_jit::Jit;
         let block = builder.build();
         let _ = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(6), 0xAAAA_BBBB_CCCC_DDDD);
-        let v = mmu.read(0x200, 8).unwrap();
+        let v = mmu.read(0x200, 8).expect("Operation failed");
         assert_eq!(v, 0x1111_2222_3333_4444);
     }
 
@@ -732,7 +765,7 @@ use vm_engine_jit::Jit;
         let insn: u32 = 0x1100_0000 | (5 << 10) | (0 << 5) | 1;
         let _ = mmu.write(0x0, insn as u64, 4);
         let mut dec = Arm64Decoder;
-        let blk = dec.decode(&mmu, 0).unwrap();
+        let blk = dec.decode(&mmu, 0).expect("Operation failed");
         let mut interp = Interpreter::new();
         interp.set_reg(0, 0);
         let _ = interp.run(&mut mmu, &blk);
@@ -747,7 +780,7 @@ use vm_engine_jit::Jit;
         let add_x1_imm: u32 = 0x1100_0000 | (5 << 10) | (0 << 5) | 1;
         let _ = mmu.write(0, add_x1_imm as u64, 4);
         let mut dec = Arm64Decoder;
-        let blk = dec.decode(&mmu, 0).unwrap();
+        let blk = dec.decode(&mmu, 0).expect("Operation failed");
         let mut interp = Interpreter::new();
         let _ = interp.run(&mut mmu, &blk);
         let mut jit = Jit::new();
@@ -767,7 +800,7 @@ use vm_engine_jit::Jit;
         let mut dec = X86Decoder;
         let mut interp = Interpreter::new();
         let mut jit = Jit::new();
-        let blk = dec.decode(&mmu, 0x100).unwrap();
+        let blk = dec.decode(&mmu, 0x100).expect("Operation failed");
         let _ = interp.run(&mut mmu, &blk);
         jit.set_pc(blk.start_pc);
         let _ = jit.run(&mut mmu, &blk);
@@ -872,7 +905,7 @@ use vm_engine_jit::Jit;
         // Interpreter run
         let mut interp = Interpreter::new();
         let res_i = interp.run(&mut mmu, &block);
-        assert_eq!(mmu.read(0x200, 8).unwrap(), 99);
+        assert_eq!(mmu.read(0x200, 8).expect("Operation failed"), 99);
         assert_eq!(interp.get_reg(2), 99);
         assert_eq!(res_i.next_pc, 0x3200);
 
@@ -900,7 +933,7 @@ use vm_engine_jit::Jit;
 
         let mut interp = Interpreter::new();
         let ri = interp.run(&mut mmu, &block);
-        assert_eq!(mmu.read(0x300, 8).unwrap(), 10);
+        assert_eq!(mmu.read(0x300, 8).expect("Operation failed"), 10);
         assert_eq!(interp.get_reg(2), 10);
         assert_eq!(ri.next_pc, 0x3600);
 
@@ -915,7 +948,8 @@ use vm_engine_jit::Jit;
     fn riscv_plic_end_to_end_claim_complete() {
         use vm_frontend_riscv64::RiscvDecoder;
         use vm_device::plic::{Plic, PlicMmio, offsets, context_offsets};
-        use std::sync::{Arc, Mutex};
+        use std::sync::Arc;
+        use parking_lot::Mutex;
 
         let mut mmu = SoftMmu::new(0x400000, false);
         let plic = Arc::new(Mutex::new(Plic::new(64, 2)));
@@ -923,14 +957,14 @@ use vm_engine_jit::Jit;
         mmu.map_mmio(0x0C00_0000, 0x400000, Box::new(plic_mmio));
 
         // Configure priorities and enables for context 0
-        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 5, 3, 4).unwrap();
-        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 10, 5, 4).unwrap();
+        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 5, 3, 4).expect("Operation failed");
+        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 10, 5, 4).expect("Operation failed");
         let enable_word0 = (1u64 << 5) | (1u64 << 10);
-        mmu.write(0x0C00_0000 + offsets::ENABLE_BASE + 0 * 0x80 + 0, enable_word0, 4).unwrap();
-        mmu.write(0x0C00_0000 + offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::THRESHOLD, 0, 4).unwrap();
+        mmu.write(0x0C00_0000 + offsets::ENABLE_BASE + 0 * 0x80 + 0, enable_word0, 4).expect("Operation failed");
+        mmu.write(0x0C00_0000 + offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::THRESHOLD, 0, 4).expect("Operation failed");
 
         {
-            let mut p = plic.lock().unwrap();
+            let mut p = plic.lock();
             p.set_pending(5);
             p.set_pending(10);
         }
@@ -953,28 +987,29 @@ use vm_engine_jit::Jit;
         let lo = (plic_base & 0xFFF) as i32;
         let claim_off = context_offsets::CLAIM as i32; // within context block
         let complete_off = context_offsets::COMPLETE as i32;
-        mmu.write(0x1000, enc_lui(10, hi) as u64, 4).unwrap();
-        mmu.write(0x1004, enc_addi(10, 10, lo) as u64, 4).unwrap();
-        mmu.write(0x1008, enc_lw(5, 10, claim_off) as u64, 4).unwrap();
-        mmu.write(0x100C, enc_sw(10, 5, complete_off) as u64, 4).unwrap();
-        mmu.write(0x1010, enc_lw(5, 10, claim_off) as u64, 4).unwrap();
-        mmu.write(0x1014, enc_sw(10, 5, complete_off) as u64, 4).unwrap();
+        mmu.write(0x1000, enc_lui(10, hi) as u64, 4).expect("Operation failed");
+        mmu.write(0x1004, enc_addi(10, 10, lo) as u64, 4).expect("Operation failed");
+        mmu.write(0x1008, enc_lw(5, 10, claim_off) as u64, 4).expect("Operation failed");
+        mmu.write(0x100C, enc_sw(10, 5, complete_off) as u64, 4).expect("Operation failed");
+        mmu.write(0x1010, enc_lw(5, 10, claim_off) as u64, 4).expect("Operation failed");
+        mmu.write(0x1014, enc_sw(10, 5, complete_off) as u64, 4).expect("Operation failed");
 
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         for pc in [0x1000u64, 0x1004, 0x1008, 0x100C, 0x1010, 0x1014] {
-            let blk = dec.decode(&mmu, pc).unwrap();
+            let blk = dec.decode(&mmu, pc).expect("Operation failed");
             let _ = interp.run(&mut mmu, &blk);
         }
 
-        let claimed_after = mmu.read(0x0C00_0000 + offsets::CONTEXT_BASE + context_offsets::CLAIM, 4).unwrap() as u32;
+        let claimed_after = mmu.read(0x0C00_0000 + offsets::CONTEXT_BASE + context_offsets::CLAIM, 4).expect("Operation failed") as u32;
         assert_eq!(claimed_after, 0);
     }
 
     #[test]
     fn plic_claim_complete_routing() {
         use vm_device::plic::{Plic, PlicMmio, offsets, context_offsets};
-        use std::sync::{Arc, Mutex};
+        use std::sync::Arc;
+        use parking_lot::Mutex;
         let plic = Arc::new(Mutex::new(Plic::new(64, 2)));
         let mut plic_mmio = PlicMmio::new(Arc::clone(&plic));
         // priorities
@@ -987,7 +1022,7 @@ use vm_engine_jit::Jit;
         plic_mmio.write(offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::THRESHOLD, 0, 4);
         // set pending
         {
-            let mut p = plic.lock().unwrap();
+            let mut p = plic.lock();
             p.set_pending(5);
             p.set_pending(10);
         }
@@ -1012,7 +1047,7 @@ use vm_engine_jit::Jit;
         code.extend_from_slice(&0x1122_3344_5566_7788u64.to_le_bytes());
         for (i, b) in code.iter().enumerate() { let _ = mmu.write(0x100 + i as u64, *b as u64, 1); }
         let mut dec = X86Decoder;
-        let blk = dec.decode(&mmu, 0x100).unwrap();
+        let blk = dec.decode(&mmu, 0x100).expect("Operation failed");
         let mut interp = Interpreter::new();
         let _ = interp.run(&mut mmu, &blk);
         assert_eq!(interp.get_reg(3), 0x1122_3344_5566_7788);
@@ -1044,10 +1079,10 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(p1 + 1, '\n' as u64, 1);
         let _ = mmu.write(p1 + 2, 0 as u64, 1);
         let _ = mmu.write(0x2000_0000 + 0x20, 0, 8);
-        let idx = mmu.read(used + 2, 2).unwrap();
+        let idx = mmu.read(used + 2, 2).expect("Operation failed");
         assert_eq!(idx, 1);
-        let id0 = mmu.read(used + 4, 4).unwrap();
-        let len0 = mmu.read(used + 8, 4).unwrap();
+        let id0 = mmu.read(used + 4, 4).expect("Operation failed");
+        let len0 = mmu.read(used + 8, 4).expect("Operation failed");
         assert_eq!(id0, 0);
         assert_eq!(len0, 5);
     }
@@ -1095,7 +1130,7 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(p0 + 1, 'V' as u64, 1);
         let _ = mmu.write(p0 + 2, '\n' as u64, 1);
         let _ = mmu.write(0x2000_0000 + 0x20, 0, 8);
-        let irq = mmu.read(0x2000_0000 + 0x30, 4).unwrap();
+        let irq = mmu.read(0x2000_0000 + 0x30, 4).expect("Operation failed");
         assert_eq!(irq, 1);
     }
 
@@ -1103,7 +1138,7 @@ use vm_engine_jit::Jit;
     fn mmio_unaligned_default_allows() {
         let mut mmu = SoftMmu::new(0x4000, false);
         mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(64)));
-        let v = mmu.read(0x2000_0000 + 2, 4).unwrap();
+        let v = mmu.read(0x2000_0000 + 2, 4).expect("Operation failed");
         let _ = v;
         let w = mmu.write(0x2000_0000 + 6, 2, 2);
         assert!(w.is_ok());
@@ -1128,7 +1163,8 @@ use vm_engine_jit::Jit;
         // Map PLIC and CLINT
         use vm_device::plic::{Plic, PlicMmio};
         use vm_device::clint::{Clint, ClintMmio, offsets as clint_ofs};
-        use std::sync::{Arc, Mutex};
+        use std::sync::Arc;
+        use parking_lot::Mutex;
         mmu.map_mmio(0x0C00_0000, 0x400000, Box::new(PlicMmio::new(Arc::new(Mutex::new(Plic::new(64, 2))))));
         mmu.map_mmio(0x0200_0000, 0x10000, Box::new(ClintMmio::new(Arc::new(Mutex::new(Clint::new(2, 1_000_000))))));
         let mut faults = 0u64;
@@ -1177,7 +1213,7 @@ use vm_engine_jit::Jit;
         let base = 0x200000u64;
         let jal_neg = 0x8000006fu32;
         let _ = mmu.write(base, jal_neg as u64, 4);
-        let block_neg = dec.decode(&mmu, base).unwrap();
+        let block_neg = dec.decode(&mmu, base).expect("Operation failed");
         if let vm_ir::Terminator::Jmp { target } = block_neg.term { assert_eq!(target, 0x100000); } else { panic!(); }
     }
 
@@ -1188,7 +1224,7 @@ use vm_engine_jit::Jit;
         let pos = (((1 << 19) - 1) << 1) as i32;
         let jal_pos = enc_jal(0, pos);
         let _ = mmu.write(0, jal_pos as u64, 4);
-        let block_pos = dec.decode(&mmu, 0).unwrap();
+        let block_pos = dec.decode(&mmu, 0).expect("Operation failed");
         if let vm_ir::Terminator::Jmp { target } = block_pos.term { assert_eq!(target, pos as u64); } else { panic!(); }
     }
 
@@ -1264,11 +1300,11 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(p0 + 0, 'A' as u64, 1);
         let _ = mmu.write(p0 + 1, '\n' as u64, 1);
         let _ = mmu.write(0x2000_0000 + 0x20, 0, 8);
-        let cause_evt = mmu.read(0x2000_0000 + 0x48, 8).unwrap();
+        let cause_evt = mmu.read(0x2000_0000 + 0x48, 8).expect("Operation failed");
         assert_ne!(cause_evt & (1u64 << 0), 0); // notify bit for q0
         assert_ne!(cause_evt & (1u64 << 32), 0); // idx match bit for q0
         let _ = mmu.write(0x2000_0000 + 0x2C, 1, 8);
-        let cause_evt2 = mmu.read(0x2000_0000 + 0x48, 8).unwrap();
+        let cause_evt2 = mmu.read(0x2000_0000 + 0x48, 8).expect("Operation failed");
         assert_ne!(cause_evt2 & (1u64 << 17), 0); // wake bit for q1
         let _ = mmu.write(0x2000_0000 + 0x34, 0, 8);
         let _ = mmu.write(0x2000_0000 + 0x44, 0, 8);
@@ -1295,7 +1331,7 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(used + 4 + 8 * 1024, 1, 2);
         let _ = mmu.write(p0, 'C' as u64, 1);
         let _ = mmu.write(0x2000_0000 + 0x20, 0, 8);
-        let idx = mmu.read(used + 2, 2).unwrap();
+        let idx = mmu.read(used + 2, 2).expect("Operation failed");
         assert_eq!(idx, 1);
     }
 
@@ -1922,8 +1958,25 @@ use vm_engine_jit::Jit;
         });
         // decoder that yields a fixed interrupt sequence to create overlapping windows
         struct SeqDec { seq: Vec<u32>, idx: usize }
+        
+        struct DummyInsn;
+        impl vm_core::Instruction for DummyInsn {
+            fn next_pc(&self) -> GuestAddr { 0 }
+            fn size(&self) -> u8 { 4 }
+            fn operand_count(&self) -> usize { 0 }
+            fn mnemonic(&self) -> &'static str { "nop" }
+            fn is_control_flow(&self) -> bool { false }
+            fn is_memory_access(&self) -> bool { false }
+        }
+        
         impl Decoder for SeqDec {
+            type Instruction = DummyInsn;
             type Block = IRBlock;
+            
+            fn decode_insn(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+                Ok(DummyInsn)
+            }
+            
             fn decode(&mut self, _mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault> {
                 let v = if self.idx < self.seq.len() { self.seq[self.idx] } else { 0 };
                 self.idx += 1;

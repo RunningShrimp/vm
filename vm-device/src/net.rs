@@ -250,7 +250,7 @@ impl TapBackend {
         use std::os::unix::io::AsRawFd;
 
         // 打开 /dev/net/tun
-        let path = CString::new("/dev/net/tun").unwrap();
+        let path = CString::new("/dev/net/tun").expect("Failed to create device path");
         let fd = unsafe {
             libc::open(
                 path.as_ptr(),
@@ -365,7 +365,7 @@ mod tests {
         let mut backend = SmoltcpBackend::new([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
         
         let data = b"Hello, network!";
-        backend.send(data).unwrap();
+        backend.send(data).expect("Failed to send network data");
         
         assert_eq!(backend.tx_buffer.len(), 1);
     }

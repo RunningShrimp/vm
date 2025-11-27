@@ -1,12 +1,80 @@
-use vm_core::{Decoder, MMU, GuestAddr, Fault};
+use vm_core::{Decoder, Instruction, MMU, GuestAddr, Fault};
 use vm_ir::{IRBlock, IROp, Terminator, MemFlags};
+
+/// RISC-V 指令表示
+#[derive(Debug, Clone)]
+pub struct RiscvInstruction {
+    pub mnemonic: &'static str,
+    pub next_pc: GuestAddr,
+    pub has_memory_op: bool,
+    pub is_branch: bool,
+}
+
+impl Instruction for RiscvInstruction {
+    fn next_pc(&self) -> GuestAddr {
+        self.next_pc
+    }
+    
+    fn size(&self) -> u8 {
+        4  // RISC-V RV64I 指令固定 4 字节
+    }
+    
+    fn operand_count(&self) -> usize {
+        1  // 简化实现
+    }
+    
+    fn mnemonic(&self) -> &str {
+        self.mnemonic
+    }
+    
+    fn is_control_flow(&self) -> bool {
+        self.is_branch
+    }
+    
+    fn is_memory_access(&self) -> bool {
+        self.has_memory_op
+    }
+}
 
 pub struct RiscvDecoder;
 
 fn sext21(x: u32) -> i64 { if ((x >> 20) & 1) != 0 { (x as i64) | (!0i64 << 21) } else { x as i64 } }
 
 impl Decoder for RiscvDecoder {
+    type Instruction = RiscvInstruction;
     type Block = IRBlock;
+    
+    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+        let insn = mmu.fetch_insn(pc)? as u32;
+        let opcode = insn & 0x7f;
+        
+        // Determine mnemonic based on opcode
+        let mnemonic = match opcode {
+            0x37 => "lui",
+            0x17 => "auipc",
+            0x6f => "jal",
+            0x67 => "jalr",
+            0x63 => "branch",
+            0x03 => "load",
+            0x23 => "store",
+            0x13 => "addi",
+            0x33 => "arith",
+            0x0f => "fence",
+            0x73 => "system",
+            _ => "unknown",
+        };
+        
+        let is_branch = matches!(opcode, 0x63 | 0x6f | 0x67);
+        let has_memory_op = matches!(opcode, 0x03 | 0x23);
+        
+        Ok(RiscvInstruction {
+            mnemonic,
+            next_pc: pc + 4,
+            has_memory_op,
+            is_branch,
+        })
+    }
+    
     fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault> {
         let insn = mmu.fetch_insn(pc)? as u32;
         let mut reg_file = vm_ir::RegisterFile::new(32, vm_ir::RegisterMode::SSA);

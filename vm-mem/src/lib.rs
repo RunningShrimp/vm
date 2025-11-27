@@ -11,6 +11,9 @@ use std::num::NonZeroUsize;
 pub mod tlb_manager;
 pub mod page_table_walker;
 
+pub mod tlb_manager;
+pub mod page_table_walker;
+
 /// Host 虚拟地址
 pub type HostAddr = u64;
 
@@ -74,11 +77,13 @@ pub enum PagingMode {
 // ============================================================================
 // TLB 实现 (优化版: HashMap + LRU)
 // TLB 实现 (优化版: HashMap + LRU)
+// TLB 实现 (优化版: HashMap + LRU)
 // ============================================================================
 
 /// TLB 条目
 #[derive(Clone, Copy)]
 struct TlbEntry {
+    #[allow(dead_code)]
     #[allow(dead_code)]
     vpn: u64,
     ppn: u64,
@@ -93,15 +98,6 @@ fn make_tlb_key(vpn: u64, asid: u16) -> u64 {
     (vpn << 16) | (asid as u64)
 }
 
-/// 优化的 TLB 缓存 - 使用 HashMap 实现 O(1) 查找 + LRU 替换策略
-/// 组合键: (vpn, asid) -> 单个 u64 键
-#[inline]
-fn make_tlb_key(vpn: u64, asid: u16) -> u64 {
-    // vpn 最多 44 位 (SV48), asid 16 位, 组合后不会溢出
-    (vpn << 16) | (asid as u64)
-}
-
-/// 优化的 TLB 缓存 - 使用 HashMap 实现 O(1) 查找 + LRU 替换策略
 struct Tlb {
     /// 主哈希表存储 TLB 条目
     entries: HashMap<u64, TlbEntry>,
@@ -123,8 +119,7 @@ struct Tlb {
 
 impl Tlb {
     fn new(size: usize) -> Self {
-        let capacity = NonZeroUsize::new(size).unwrap_or(NonZeroUsize::new(1).unwrap());
-        let capacity = NonZeroUsize::new(size).unwrap_or(NonZeroUsize::new(1).unwrap());
+        let capacity = NonZeroUsize::new(size).unwrap_or(NonZeroUsize::new(1).expect("Operation failed"));
         Self {
             entries: HashMap::with_capacity(size),
             lru: LruCache::new(capacity),
@@ -217,6 +212,7 @@ impl Tlb {
     }
 
     /// 刷新指定 VPN 的条目
+    #[allow(dead_code)]
     #[allow(dead_code)]
     fn flush_page(&mut self, vpn: u64) {
         // 删除全局页
@@ -353,6 +349,103 @@ impl PhysicalMemory {
         
         Ok(true)
     }
+    device: Arc<RwLock<Box<dyn MmioDevice>>>,
+}
+
+use parking_lot::RwLock;
+use std::sync::Arc;
+
+// ... (keep imports)
+
+// ============================================================================
+// Physical Memory Backend
+// ============================================================================
+
+/// 物理内存后端（共享）
+pub struct PhysicalMemory {
+    /// 物理内存 (RAM)
+    mem: RwLock<Vec<u8>>,
+    /// MMIO 设备区域
+    mmio_regions: RwLock<Vec<MmioRegion>>,
+    /// 全局保留地址集合 (用于 LR/SC): (addr, owner_id, size)
+    reservations: RwLock<Vec<(GuestPhysAddr, u64, u8)>>,
+    /// 大页分配器
+    #[allow(dead_code)]
+    huge_page_allocator: HugePageAllocator,
+}
+
+impl PhysicalMemory {
+    pub fn new(size: usize, use_hugepages: bool) -> Self {
+        let allocator = HugePageAllocator::new(use_hugepages, HugePageSize::Size2M);
+        let mem_vec = if use_hugepages {
+            match allocator.allocate_linux(size) {
+                Ok(ptr) => unsafe { Vec::from_raw_parts(ptr, size, size) },
+                Err(_) => {
+                    println!("Failed to allocate huge pages, falling back to standard pages.");
+                    vec![0u8; size]
+                }
+            }
+        } else {
+            vec![0u8; size]
+        };
+
+        Self {
+            mem: RwLock::new(mem_vec),
+            mmio_regions: RwLock::new(Vec::new()),
+            reservations: RwLock::new(Vec::new()),
+            huge_page_allocator: allocator,
+        }
+    }
+
+    pub fn reserve(&self, pa: GuestPhysAddr, owner: u64, size: u8) {
+        let mut reservations = self.reservations.write();
+        // Remove old reservation for this owner
+        reservations.retain(|&(_, o, _)| o != owner);
+        reservations.push((pa, owner, size));
+    }
+
+    pub fn invalidate(&self, pa: GuestPhysAddr, _size: u8) {
+        let mut reservations = self.reservations.write();
+        // Invalidate any reservation overlapping with the write
+        // Simple cache line model (64 bytes) or exact overlap?
+        // User said: "any write to the same address or same cache line"
+        let line_mask = !63u64;
+        let target_line = pa & line_mask;
+        reservations.retain(|&(r_pa, _, _)| (r_pa & line_mask) != target_line);
+    }
+
+    pub fn store_conditional_ram(&self, pa: GuestPhysAddr, val: u64, size: u8, owner: u64) -> Result<bool, Fault> {
+        let mut reservations = self.reservations.write();
+        
+        // Check if valid reservation exists for this owner
+        // And matches address and size
+        if !reservations.iter().any(|&(r_pa, r_owner, r_size)| r_pa == pa && r_owner == owner && r_size == size) {
+            return Ok(false);
+        }
+
+        // Perform write
+        {
+             let mut mem = self.mem.write();
+             let addr = pa as usize;
+             if addr + (size as usize) > mem.len() {
+                 return Err(Fault::AccessViolation { addr: pa, access: AccessType::Write });
+             }
+             match size {
+                 1 => mem[addr] = val as u8,
+                 2 => { let b = (val as u16).to_le_bytes(); mem[addr..addr+2].copy_from_slice(&b); }
+                 4 => { let b = (val as u32).to_le_bytes(); mem[addr..addr+4].copy_from_slice(&b); }
+                 8 => { let b = val.to_le_bytes(); mem[addr..addr+8].copy_from_slice(&b); }
+                 _ => return Err(Fault::AlignmentFault { addr: pa, size }),
+             }
+        }
+
+        // Invalidate ALL reservations on this line (including this one)
+        let line_mask = !63u64;
+        let target_line = pa & line_mask;
+        reservations.retain(|&(r_pa, _, _)| (r_pa & line_mask) != target_line);
+        
+        Ok(true)
+    }
 }
 
 // ============================================================================
@@ -364,7 +457,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_MMU_ID: AtomicU64 = AtomicU64::new(1);
 
 /// 软件 MMU 实现 (Per-vCPU)
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_MMU_ID: AtomicU64 = AtomicU64::new(1);
+
+/// 软件 MMU 实现 (Per-vCPU)
 pub struct SoftMmu {
+    /// 唯一 ID (用于 LR/SC owner 标识)
+    id: u64,
+    /// 共享物理内存后端
+    phys_mem: Arc<PhysicalMemory>,
     /// 唯一 ID (用于 LR/SC owner 标识)
     id: u64,
     /// 共享物理内存后端
@@ -401,6 +503,25 @@ impl Clone for SoftMmu {
             strict_align: self.strict_align,
         }
     }
+    /// 严格地址对齐检查
+    strict_align: bool,
+}
+
+impl Clone for SoftMmu {
+    fn clone(&self) -> Self {
+        Self {
+            id: NEXT_MMU_ID.fetch_add(1, Ordering::Relaxed),
+            phys_mem: self.phys_mem.clone(),
+            itlb: Tlb::new(64),
+            dtlb: Tlb::new(128),
+            paging_mode: self.paging_mode,
+            page_table_base: self.page_table_base,
+            asid: self.asid,
+            tlb_hits: 0,
+            tlb_misses: 0,
+            strict_align: self.strict_align,
+        }
+    }
 }
 
 impl SoftMmu {
@@ -411,6 +532,9 @@ impl SoftMmu {
 
     /// 创建指定大小的 MMU
     pub fn new(size: usize, use_hugepages: bool) -> Self {
+        let mut mmu = Self {
+            id: NEXT_MMU_ID.fetch_add(1, Ordering::Relaxed),
+            phys_mem: Arc::new(PhysicalMemory::new(size, use_hugepages)),
         let mut mmu = Self {
             id: NEXT_MMU_ID.fetch_add(1, Ordering::Relaxed),
             phys_mem: Arc::new(PhysicalMemory::new(size, use_hugepages)),
@@ -430,14 +554,28 @@ impl SoftMmu {
             }
         }
         mmu
+            strict_align: false,
+        };
+        #[cfg(not(feature = "no_std"))]
+        {
+            if std::env::var("VM_STRICT_ALIGN").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+                mmu.strict_align = true;
+            }
+        }
+        mmu
     }
 
+    pub fn guest_slice(&self, pa: u64, len: usize) -> Option<Vec<u8>> {
+        let mem = self.phys_mem.mem.read();
     pub fn guest_slice(&self, pa: u64, len: usize) -> Option<Vec<u8>> {
         let mem = self.phys_mem.mem.read();
         let start = pa as usize;
         let end = start.checked_add(len)?;
         if end <= mem.len() { Some(mem[start..end].to_vec()) } else { None }
+        if end <= mem.len() { Some(mem[start..end].to_vec()) } else { None }
     }
+    
+    // guest_slice_mut removed as it's unsafe with RwLock
     
     // guest_slice_mut removed as it's unsafe with RwLock
 
@@ -448,6 +586,10 @@ impl SoftMmu {
             self.itlb.flush();
             self.dtlb.flush();
         }
+    }
+
+    pub fn set_strict_align(&mut self, enable: bool) {
+        self.strict_align = enable;
     }
 
     pub fn set_strict_align(&mut self, enable: bool) {
@@ -495,8 +637,30 @@ impl SoftMmu {
         } else if !matches!(size, 1|2|4|8) {
             return Err(Fault::AlignmentFault { addr: pa, size });
         }
+        if self.strict_align {
+            match size {
+                1 => {}
+                2 => if pa % 2 != 0 { return Err(Fault::AlignmentFault { addr: pa, size }); },
+                4 => if pa % 4 != 0 { return Err(Fault::AlignmentFault { addr: pa, size }); },
+                8 => if pa % 8 != 0 { return Err(Fault::AlignmentFault { addr: pa, size }); },
+                _ => return Err(Fault::AlignmentFault { addr: pa, size }),
+            }
+        } else if !matches!(size, 1|2|4|8) {
+            return Err(Fault::AlignmentFault { addr: pa, size });
+        }
 
         // 检查 MMIO 区域
+        let mmio_op = {
+            let mmio_regions = self.phys_mem.mmio_regions.read();
+            let mut op = None;
+            for region in mmio_regions.iter() {
+                if pa >= region.base && pa < region.base + region.size {
+                    op = Some((region.device.clone(), pa - region.base));
+                    break;
+                }
+            }
+            op
+        };
         let mmio_op = {
             let mmio_regions = self.phys_mem.mmio_regions.read();
             let mut op = None;
@@ -514,7 +678,13 @@ impl SoftMmu {
         }
 
         let mem = self.phys_mem.mem.read();
+        if let Some((device, offset)) = mmio_op {
+            return Ok(device.read().read(offset, size));
+        }
+
+        let mem = self.phys_mem.mem.read();
         // 边界检查
+        if addr + (size as usize) > mem.len() {
         if addr + (size as usize) > mem.len() {
             return Err(Fault::AccessViolation {
                 addr: pa,
@@ -526,13 +696,27 @@ impl SoftMmu {
         let val = match size {
             1 => mem[addr] as u64,
             2 => u16::from_le_bytes([mem[addr], mem[addr + 1]]) as u64,
+            1 => mem[addr] as u64,
+            2 => u16::from_le_bytes([mem[addr], mem[addr + 1]]) as u64,
             4 => u32::from_le_bytes([
+                mem[addr],
+                mem[addr + 1],
+                mem[addr + 2],
+                mem[addr + 3],
                 mem[addr],
                 mem[addr + 1],
                 mem[addr + 2],
                 mem[addr + 3],
             ]) as u64,
             8 => u64::from_le_bytes([
+                mem[addr],
+                mem[addr + 1],
+                mem[addr + 2],
+                mem[addr + 3],
+                mem[addr + 4],
+                mem[addr + 5],
+                mem[addr + 6],
+                mem[addr + 7],
                 mem[addr],
                 mem[addr + 1],
                 mem[addr + 2],
@@ -553,6 +737,17 @@ impl SoftMmu {
     /// 写入物理内存（内部使用）
     fn write_phys(&mut self, pa: GuestPhysAddr, val: u64, size: u8) -> Result<(), Fault> {
         let addr = pa as usize;
+        if self.strict_align {
+            match size {
+                1 => {}
+                2 => if pa % 2 != 0 { return Err(Fault::AlignmentFault { addr: pa, size }); },
+                4 => if pa % 4 != 0 { return Err(Fault::AlignmentFault { addr: pa, size }); },
+                8 => if pa % 8 != 0 { return Err(Fault::AlignmentFault { addr: pa, size }); },
+                _ => return Err(Fault::AlignmentFault { addr: pa, size }),
+            }
+        } else if !matches!(size, 1|2|4|8) {
+            return Err(Fault::AlignmentFault { addr: pa, size });
+        }
         if self.strict_align {
             match size {
                 1 => {}
@@ -587,10 +782,33 @@ impl SoftMmu {
                 dev.notify(self, offset);
             }
             return Ok(());
+        let mmio_op = {
+            let mmio_regions = self.phys_mem.mmio_regions.read();
+            let mut op = None;
+            for region in mmio_regions.iter() {
+                if pa >= region.base && pa < region.base + region.size {
+                    op = Some((region.device.clone(), pa - region.base));
+                    break;
+                }
+            }
+            op
+        };
+
+        if let Some((device, offset)) = mmio_op {
+            let mut dev = device.write();
+            // First perform register write
+            dev.write(offset, val, size);
+            // If queue notify, invoke device processing
+            if offset == 0x20 {
+                dev.notify(self, offset);
+            }
+            return Ok(());
         }
 
         let mut mem = self.phys_mem.mem.write();
+        let mut mem = self.phys_mem.mem.write();
         // 边界检查
+        if addr + (size as usize) > mem.len() {
         if addr + (size as usize) > mem.len() {
             return Err(Fault::AccessViolation {
                 addr: pa,
@@ -601,8 +819,11 @@ impl SoftMmu {
         // 写入内存
         match size {
             1 => mem[addr] = val as u8,
+            1 => mem[addr] = val as u8,
             2 => {
                 let bytes = (val as u16).to_le_bytes();
+                mem[addr] = bytes[0];
+                mem[addr + 1] = bytes[1];
                 mem[addr] = bytes[0];
                 mem[addr + 1] = bytes[1];
             }
@@ -612,10 +833,15 @@ impl SoftMmu {
                 mem[addr + 1] = bytes[1];
                 mem[addr + 2] = bytes[2];
                 mem[addr + 3] = bytes[3];
+                mem[addr] = bytes[0];
+                mem[addr + 1] = bytes[1];
+                mem[addr + 2] = bytes[2];
+                mem[addr + 3] = bytes[3];
             }
             8 => {
                 let bytes = val.to_le_bytes();
                 for i in 0..8 {
+                    mem[addr + i] = bytes[i];
                     mem[addr + i] = bytes[i];
                 }
             }
@@ -626,8 +852,11 @@ impl SoftMmu {
 
         self.phys_mem.invalidate(pa, size);
 
+        self.phys_mem.invalidate(pa, size);
+
         Ok(())
     }
+
 
 
     /// RISC-V SV39 页表遍历
@@ -855,8 +1084,27 @@ impl MMU for SoftMmu {
         self.read_phys(phys_addr, size)
     }
 
+    fn load_reserved(&mut self, pa: GuestAddr, size: u8) -> Result<u64, Fault> {
+        let phys_addr = self.translate(pa, AccessType::Read)?;
+        self.phys_mem.reserve(phys_addr, self.id, size);
+        self.read_phys(phys_addr, size)
+    }
+
     fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), Fault> {
         self.write_phys(pa, val, size)
+    }
+
+    fn store_conditional(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<bool, Fault> {
+        let phys_addr = self.translate(pa, AccessType::Write)?;
+        self.phys_mem.store_conditional_ram(phys_addr, val, size, self.id)
+    }
+
+    fn invalidate_reservation(&mut self, pa: GuestAddr, size: u8) {
+        // Best effort translation - if it fails, we can't invalidate specific PA
+        // But if it fails, likely no valid reservation exists for that VA anyway.
+        if let Ok(phys_addr) = self.translate(pa, AccessType::Write) {
+            self.phys_mem.invalidate(phys_addr, size);
+        }
     }
 
     fn store_conditional(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<bool, Fault> {
@@ -887,13 +1135,29 @@ impl MMU for SoftMmu {
                     }
                     return Ok(());
                 }
+        {
+            let mmio_regions = self.phys_mem.mmio_regions.read();
+            for region in mmio_regions.iter() {
+                let region_end = region.base + region.size;
+                let req_end = pa + buf.len() as u64;
+                if pa < region_end && req_end > region.base {
+                    drop(mmio_regions);
+                    // 重叠，回退到逐字节读取
+                    for (i, byte) in buf.iter_mut().enumerate() {
+                        *byte = self.read(pa + i as u64, 1)? as u8;
+                    }
+                    return Ok(());
+                }
             }
         }
 
         // RAM 读取
         let mem = self.phys_mem.mem.read();
+        let mem = self.phys_mem.mem.read();
         let addr = pa as usize;
         let len = buf.len();
+        if addr.checked_add(len).map_or(false, |end| end <= mem.len()) {
+            buf.copy_from_slice(&mem[addr..addr+len]);
         if addr.checked_add(len).map_or(false, |end| end <= mem.len()) {
             buf.copy_from_slice(&mem[addr..addr+len]);
             Ok(())
@@ -917,13 +1181,29 @@ impl MMU for SoftMmu {
                     }
                     return Ok(());
                 }
+        {
+            let mmio_regions = self.phys_mem.mmio_regions.read();
+            for region in mmio_regions.iter() {
+                let region_end = region.base + region.size;
+                let req_end = pa + buf.len() as u64;
+                if pa < region_end && req_end > region.base {
+                    drop(mmio_regions);
+                    // 重叠，回退到逐字节写入
+                    for (i, &byte) in buf.iter().enumerate() {
+                        self.write(pa + i as u64, byte as u64, 1)?;
+                    }
+                    return Ok(());
+                }
             }
         }
 
         // RAM 写入
         let mut mem = self.phys_mem.mem.write();
+        let mut mem = self.phys_mem.mem.write();
         let addr = pa as usize;
         let len = buf.len();
+        if addr.checked_add(len).map_or(false, |end| end <= mem.len()) {
+            mem[addr..addr+len].copy_from_slice(buf);
         if addr.checked_add(len).map_or(false, |end| end <= mem.len()) {
             mem[addr..addr+len].copy_from_slice(buf);
             Ok(())
@@ -939,6 +1219,12 @@ impl MMU for SoftMmu {
             size, 
             device: Arc::new(RwLock::new(device)) 
         });
+        let mut mmio_regions = self.phys_mem.mmio_regions.write();
+        mmio_regions.push(MmioRegion { 
+            base, 
+            size, 
+            device: Arc::new(RwLock::new(device)) 
+        });
     }
 
     fn flush_tlb(&mut self) {
@@ -948,19 +1234,35 @@ impl MMU for SoftMmu {
 
     fn memory_size(&self) -> usize {
         self.phys_mem.mem.read().len()
+        self.phys_mem.mem.read().len()
     }
 
     fn dump_memory(&self) -> Vec<u8> {
+        self.phys_mem.mem.read().clone()
         self.phys_mem.mem.read().clone()
     }
 
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
         let mut mem = self.phys_mem.mem.write();
         if data.len() != mem.len() {
+        let mut mem = self.phys_mem.mem.write();
+        if data.len() != mem.len() {
             return Err("Memory size mismatch".to_string());
         }
         mem.copy_from_slice(data);
+        mem.copy_from_slice(data);
         Ok(())
+    }
+
+    fn poll_devices(&mut self) {
+        let devices: Vec<Arc<RwLock<Box<dyn MmioDevice>>>> = {
+            let mmio_regions = self.phys_mem.mmio_regions.read();
+            mmio_regions.iter().map(|r| r.device.clone()).collect()
+        };
+        for dev_lock in devices {
+            let mut dev = dev_lock.write();
+            dev.poll(self);
+        }
     }
 
     fn poll_devices(&mut self) {
@@ -981,6 +1283,17 @@ impl MMU for SoftMmu {
 impl SoftMmu {
     pub fn as_mmu_any(&self) -> &dyn std::any::Any { self }
     pub fn as_mmu_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+
+    pub fn resize_tlbs(&mut self, itlb_size: usize, dtlb_size: usize) {
+        self.itlb = Tlb::new(itlb_size.max(1));
+        self.dtlb = Tlb::new(dtlb_size.max(1));
+        self.tlb_hits = 0;
+        self.tlb_misses = 0;
+    }
+
+    pub fn tlb_capacity(&self) -> (usize, usize) {
+        (self.itlb.max_size, self.dtlb.max_size)
+    }
 
     pub fn resize_tlbs(&mut self, itlb_size: usize, dtlb_size: usize) {
         self.itlb = Tlb::new(itlb_size.max(1));
@@ -1083,13 +1396,13 @@ mod tests {
 
         // Bare 模式恒等映射
         assert_eq!(
-            mmu.translate(0x1000, AccessType::Read).unwrap(),
+            mmu.translate(0x1000, AccessType::Read).expect("Operation failed"),
             0x1000
         );
 
         // 写入和读取
-        mmu.write(0x100, 0xDEADBEEF, 4).unwrap();
-        assert_eq!(mmu.read(0x100, 4).unwrap(), 0xDEADBEEF);
+        mmu.write(0x100, 0xDEADBEEF, 4).expect("Operation failed");
+        assert_eq!(mmu.read(0x100, 4).expect("Operation failed"), 0xDEADBEEF);
     }
 
     #[test]
@@ -1104,21 +1417,21 @@ mod tests {
 
         // 初始化根页表
         for i in 0..PTES_PER_PAGE {
-            mmu.write_phys(root_table + i * PTE_SIZE, 0, 8).unwrap();
+            mmu.write_phys(root_table + i * PTE_SIZE, 0, 8).expect("Operation failed");
         }
 
         // 映射虚拟地址 0x1000 -> 物理地址 0x2000
         let va = 0x1000u64;
         let pa = 0x200000u64; // 2MB
         let flags = pte_flags::R | pte_flags::W | pte_flags::X | pte_flags::A | pte_flags::D;
-        builder.map_page_sv39(&mut mmu, va, pa, flags, root_table).unwrap();
+        builder.map_page_sv39(&mut mmu, va, pa, flags, root_table).expect("Operation failed");
 
         // 设置 satp
         let satp = (8u64 << 60) | (root_table >> PAGE_SHIFT); // MODE=Sv39, PPN
         mmu.set_satp(satp);
 
         // 测试地址翻译
-        let translated = mmu.translate(va + 0x100, AccessType::Read).unwrap();
+        let translated = mmu.translate(va + 0x100, AccessType::Read).expect("Operation failed");
         assert_eq!(translated, pa + 0x100);
     }
 
@@ -1128,11 +1441,11 @@ mod tests {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
 
         // 第一次访问（TLB miss）
-        mmu.translate(0x1000, AccessType::Read).unwrap();
+        mmu.translate(0x1000, AccessType::Read).expect("Operation failed");
         let (hits1, _misses1) = mmu.tlb_stats();
 
         // 第二次访问（应该 TLB hit，但 Bare 模式不使用 TLB）
-        mmu.translate(0x1000, AccessType::Read).unwrap();
+        mmu.translate(0x1000, AccessType::Read).expect("Operation failed");
         let (hits2, _misses2) = mmu.tlb_stats();
 
         // Bare 模式不使用 TLB，统计应该不变
@@ -1143,7 +1456,7 @@ mod tests {
     fn test_alignment_checks() {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
         mmu.set_strict_align(true);
-        mmu.write(0x100, 0xAA, 1).unwrap();
+        mmu.write(0x100, 0xAA, 1).expect("Operation failed");
         assert!(mmu.read(0x100, 1).is_ok());
         assert!(matches!(mmu.read(0x101, 2), Err(Fault::AlignmentFault { .. })));
         assert!(matches!(mmu.read(0x102, 4), Err(Fault::AlignmentFault { .. })));
@@ -1158,14 +1471,14 @@ mod tests {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
         // Initialize memory at addr
         let addr = 0x2000u64;
-        mmu.write(addr, 0x11, 1).unwrap();
+        mmu.write(addr, 0x11, 1).expect("Operation failed");
         // Load-reserved
-        let v = mmu.load_reserved(addr, 1).unwrap();
+        let v = mmu.load_reserved(addr, 1).expect("Operation failed");
         assert_eq!(v, 0x11);
         // Store-conditional should succeed and write new value
-        let ok = mmu.store_conditional(addr, 0x22, 1).unwrap();
+        let ok = mmu.store_conditional(addr, 0x22, 1).expect("Operation failed");
         assert!(ok);
-        assert_eq!(mmu.read(addr, 1).unwrap(), 0x22);
+        assert_eq!(mmu.read(addr, 1).expect("Operation failed"), 0x22);
     }
 
     #[test]
@@ -1178,20 +1491,20 @@ mod tests {
         let addr2 = base + 8; // same cache line
 
         // Initialize
-        mmu1.write(addr1, 0x33, 1).unwrap();
-        mmu2.write(addr2, 0x44, 1).unwrap();
+        mmu1.write(addr1, 0x33, 1).expect("Operation failed");
+        mmu2.write(addr2, 0x44, 1).expect("Operation failed");
 
         // mmu1 reserves addr1
-        let _ = mmu1.load_reserved(addr1, 1).unwrap();
+        let _ = mmu1.load_reserved(addr1, 1).expect("Operation failed");
 
         // mmu2 writes to same cache line -> should invalidate mmu1's reservation
-        mmu2.write(addr2, 0x55, 1).unwrap();
+        mmu2.write(addr2, 0x55, 1).expect("Operation failed");
 
         // mmu1 store_conditional should fail
-        let ok = mmu1.store_conditional(addr1, 0x66, 1).unwrap();
+        let ok = mmu1.store_conditional(addr1, 0x66, 1).expect("Operation failed");
         assert!(!ok);
         // Memory remains unchanged at addr1
-        assert_eq!(mmu1.read(addr1, 1).unwrap(), 0x33);
+        assert_eq!(mmu1.read(addr1, 1).expect("Operation failed"), 0x33);
     }
 }
 

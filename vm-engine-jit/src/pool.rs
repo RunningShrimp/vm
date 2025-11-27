@@ -1,4 +1,6 @@
-use std::sync::{Arc, Mutex, mpsc::{self, Sender}};
+use std::sync::Arc;
+use parking_lot::Mutex;
+use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::collections::HashMap;
 use crate::{Jit, CodePtr};
@@ -23,7 +25,7 @@ impl JitPool {
                 let mut jit = Jit::new().with_pool_cache(shared.clone());
                 loop {
                     let res = {
-                        let guard = rx.lock().unwrap();
+                        let guard = rx.lock();
                         guard.recv()
                     };
                     match res {

@@ -8,6 +8,7 @@
 //! - [`IRBlock`]: IR 基本块，包含操作序列和终结符
 //! - [`Terminator`]: 基本块终结符，如跳转、条件分支、返回等
 //! - [`IRBuilder`]: 用于构建 IR 块的辅助工具
+//! - [`DecodeCache`]: 预解码缓存，用于缓存已解码的指令
 //!
 //! ## 内存语义
 //!
@@ -18,16 +19,24 @@
 //! ## 示例
 //!
 //! ```rust,ignore
-//! use vm_ir::{IRBuilder, IROp, Terminator};
+//! use vm_ir::{IRBuilder, IROp, Terminator, DecodeCache};
 //!
 //! let mut builder = IRBuilder::new(0x1000);
 //! builder.push(IROp::MovImm { dst: 1, imm: 42 });
 //! builder.push(IROp::Add { dst: 2, src1: 1, src2: 1 });
 //! builder.set_term(Terminator::Ret);
 //! let block = builder.build();
+//!
+//! // 预解码缓存示例
+//! let mut cache = DecodeCache::new(256);
+//! cache.insert(0x1000, 8, vec![IROp::MovImm { dst: 0, imm: 42 }]);
+//! let result = cache.get(0x1000, 8);
 //! ```
 
+mod decode_cache;
+
 use vm_core::GuestAddr;
+pub use decode_cache::DecodeCache;
 
 pub type RegId = u32;
 

@@ -399,7 +399,7 @@ mod tests {
         // 尝试选择 WGPU（总是可用）
         manager.select_by_mode(GpuMode::Wgpu).expect("Failed to select WGPU");
         
-        assert_eq!(manager.get_selected_backend().unwrap().mode(), GpuMode::Wgpu);
+        assert_eq!(manager.get_selected_backend().expect("Operation failed").mode(), GpuMode::Wgpu);
     }
 
     #[test]

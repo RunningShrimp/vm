@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_pci_address_parsing() {
-        let addr = PciAddress::from_str("0000:01:00.0").unwrap();
+        let addr = PciAddress::from_str("0000:01:00.0").expect("Failed to parse PCI address");
         assert_eq!(addr.domain, 0);
         assert_eq!(addr.bus, 1);
         assert_eq!(addr.device, 0);

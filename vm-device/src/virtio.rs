@@ -30,23 +30,24 @@ impl Queue {
     }
 
     pub fn pop(&mut self, mmu: &dyn MmuUtil) -> Option<DescChain> {
-        let avail_idx = mmu.read_u16(self.avail_addr + 2).unwrap();
+        let avail_idx = mmu.read_u16(self.avail_addr + 2).ok()?;
         if self.last_avail_idx == avail_idx {
             return None;
         }
 
-        let desc_index = mmu.read_u16(self.avail_addr + 4 + (self.last_avail_idx % self.size) as u64 * 2).unwrap();
+        let desc_index = mmu.read_u16(self.avail_addr + 4 + (self.last_avail_idx % self.size) as u64 * 2).ok()?;
         self.last_avail_idx = self.last_avail_idx.wrapping_add(1);
 
         Some(DescChain::new(mmu, self.desc_addr, desc_index))
     }
 
     pub fn add_used(&mut self, mmu: &mut dyn MmuUtil, head_index: u16, len: u32) {
-        let used_idx = mmu.read_u16(self.used_addr + 2).unwrap();
-        let used_elem_addr = self.used_addr + 4 + (used_idx % self.size) as u64 * 8;
-        mmu.write_u32(used_elem_addr, head_index as u32).unwrap();
-        mmu.write_u32(used_elem_addr + 4, len).unwrap();
-        mmu.write_u16(self.used_addr + 2, used_idx.wrapping_add(1)).unwrap();
+        if let Ok(used_idx) = mmu.read_u16(self.used_addr + 2) {
+            let used_elem_addr = self.used_addr + 4 + (used_idx % self.size) as u64 * 8;
+            let _ = mmu.write_u32(used_elem_addr, head_index as u32);
+            let _ = mmu.write_u32(used_elem_addr + 4, len);
+            let _ = mmu.write_u16(self.used_addr + 2, used_idx.wrapping_add(1));
+        }
     }
 
     pub fn signal_used(&self, _mmu: &mut dyn MmuUtil) {
@@ -85,11 +86,11 @@ pub struct Desc {
 impl Desc {
     pub fn from_memory(mmu: &dyn MmuUtil, desc_table: u64, index: u16) -> Self {
         let base = desc_table + index as u64 * 16;
-        let addr = mmu.read_u64(base).unwrap();
-        let len = mmu.read_u32(base + 8).unwrap();
-        let flags = mmu.read_u16(base + 12).unwrap();
+        let addr = mmu.read_u64(base).unwrap_or(0);
+        let len = mmu.read_u32(base + 8).unwrap_or(0);
+        let flags = mmu.read_u16(base + 12).unwrap_or(0);
         let next = if (flags & 1) != 0 {
-            Some(mmu.read_u16(base + 14).unwrap())
+            mmu.read_u16(base + 14).ok()
         } else {
             None
         };

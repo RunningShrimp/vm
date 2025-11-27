@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn test_memory_allocation() {
-        let mem = MappedMemory::allocate(4096, MemoryProtection::READ_WRITE).unwrap();
+        let mem = MappedMemory::allocate(4096, MemoryProtection::READ_WRITE).expect("Failed to allocate memory");
         assert_eq!(mem.size(), 4096);
         
         unsafe {
@@ -533,13 +533,13 @@ mod tests {
 
     #[test]
     fn test_jit_memory() {
-        let mut jit = JitMemory::allocate(4096).unwrap();
+        let mut jit = JitMemory::allocate(4096).expect("Failed to allocate JIT memory");
         
         // 写入一些"代码"
-        jit.write(0, &[0x90, 0x90, 0x90, 0xC3]).unwrap(); // NOP NOP NOP RET
+        jit.write(0, &[0x90, 0x90, 0x90, 0xC3]).expect("Failed to write JIT code"); // NOP NOP NOP RET
         
         // 切换到可执行
-        jit.make_executable().unwrap();
+        jit.make_executable().expect("Failed to make memory executable");
     }
 
     #[test]

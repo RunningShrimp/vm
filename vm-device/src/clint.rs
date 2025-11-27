@@ -3,7 +3,8 @@
 //! 实现 RISC-V CLINT，提供时钟中断和软件中断功能
 
 use vm_core::MmioDevice;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::time::Instant;
 
 /// CLINT 寄存器偏移
@@ -151,17 +152,17 @@ impl ClintMmio {
 
 impl MmioDevice for ClintMmio {
     fn read(&self, offset: u64, size: u8) -> u64 {
-        let mut clint = self.clint.lock().unwrap();
+        let mut clint = self.clint.lock();
         clint.read(offset, size)
     }
 
     fn write(&mut self, offset: u64, val: u64, size: u8) {
-        let mut clint = self.clint.lock().unwrap();
+        let mut clint = self.clint.lock();
         clint.write(offset, val, size);
     }
 
     fn poll(&mut self, _mmu: &mut dyn vm_core::MMU) {
-        let mut clint = self.clint.lock().unwrap();
+        let mut clint = self.clint.lock();
         clint.update_time();
     }
 }

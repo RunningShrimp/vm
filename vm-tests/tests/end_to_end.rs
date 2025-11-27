@@ -14,7 +14,7 @@ fn smoke_mmio_notify_block_device() {
     mmu.map_mmio(0x1000, 0x1000, Box::new(mmio));
 
     // Write to offset 0x20 to trigger notify; should not panic
-    mmu.write(0x1020, 0x1, 4).unwrap();
+    mmu.write(0x1020, 0x1, 4).expect("Failed to write to MMIO");
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn test_riscv64_simple_execution() {
     
     // Run for a few steps
     for _ in 0..10 {
-        let mut mmu = mmu_arc.lock().unwrap();
+        let mut mmu = mmu_arc.lock().expect("Failed to acquire MMU lock");
         let block = decoder.decode(mmu.as_ref(), pc).expect("Decode failed");
         
         // Execute
@@ -78,7 +78,7 @@ fn test_riscv64_simple_execution() {
     }
 
     // 4. Verify Result
-    let mmu = mmu_arc.lock().unwrap();
+    let mmu = mmu_arc.lock().expect("Failed to acquire MMU lock");
     let val = mmu.read(0x100, 8).expect("Read failed");
     assert_eq!(val, 42, "Memory at 0x100 should be 42");
 }

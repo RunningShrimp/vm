@@ -24,15 +24,5 @@ tokio-uring = { version = "0.4", optional = true }
 # vfio-ioctls = "0.4"  # Temporarily disabled due to dependency conflicts with kvm-ioctls
 vfio-bindings = "0.6"
 uuid = { version = "1", features = ["v4"] }
-
-
-
-
-
-
-[dependencies.libc]
-version = "0.2"
-optional = true
-
-[target.'cfg(unix)'.dependencies]
 libc = "0.2"
+parking_lot = "0.12.5"

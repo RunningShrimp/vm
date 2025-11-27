@@ -19,3 +19,4 @@ anyhow = "1.0"
 thiserror = "1"
 uuid = { version = "1.10", features = ["v4"] }
 tracing = "0.1"
+parking_lot = "0.12.5"

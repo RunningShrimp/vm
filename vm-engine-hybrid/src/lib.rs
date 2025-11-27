@@ -159,7 +159,7 @@ impl ExecutionEngine<vm_ir::IRBlock> for HybridEngine {
         }
 
         // 检查是否已经有编译好的代码
-        let stats = self.stats.get(&pc).unwrap();
+        let stats = self.stats.get(&pc).expect("Failed to get JIT compilation stats");
         if stats.is_compiled && self.jit.is_hot(pc) {
             // 使用JIT执行
             self.sync_regs_to_jit();

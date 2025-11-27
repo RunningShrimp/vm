@@ -3,7 +3,8 @@
 //! 实现 RISC-V PLIC，管理外部中断的优先级和路由
 
 use vm_core::MmioDevice;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -49,6 +50,10 @@ pub struct Plic {
     tick_interval_ms: u64,
     virtio_queue_source_base: usize,
     source_map: HashMap<String, (usize, usize)>,
+    last_tick: Instant,
+    tick_interval_ms: u64,
+    virtio_queue_source_base: usize,
+    source_map: HashMap<String, (usize, usize)>,
 }
 
 impl Plic {
@@ -62,6 +67,10 @@ impl Plic {
             enables: vec![vec![false; num_sources + 1]; num_contexts],
             thresholds: vec![0; num_contexts],
             claimed: vec![None; num_contexts],
+            last_tick: Instant::now(),
+            tick_interval_ms: 100,
+            virtio_queue_source_base: 16,
+            source_map: HashMap::new(),
             last_tick: Instant::now(),
             tick_interval_ms: 100,
             virtio_queue_source_base: 16,
@@ -295,16 +304,16 @@ impl PlicMmio {
     }
 
     pub fn set_virtio_queue_source_base(&self, base: usize) {
-        let mut p = self.plic.lock().unwrap();
+        let mut p = self.plic.lock();
         p.virtio_queue_source_base = base;
     }
 
     pub fn register_source_range(&self, name: &str, base: usize, len: usize) {
-        let mut p = self.plic.lock().unwrap();
+        let mut p = self.plic.lock();
         p.source_map.insert(name.to_string(), (base, len));
     }
     pub fn unregister_source(&self, name: &str) {
-        let mut p = self.plic.lock().unwrap();
+        let mut p = self.plic.lock();
         p.source_map.remove(name);
     }
 }
@@ -317,22 +326,22 @@ impl MmioDevice for PlicMmio {
             let reg_offset = (offset - offsets::CONTEXT_BASE) % 0x1000;
             
             if reg_offset == context_offsets::CLAIM {
-                let mut plic = self.plic.lock().unwrap();
+                let mut plic = self.plic.lock();
                 return plic.claim_mut(context) as u64;
             }
         }
 
-        let plic = self.plic.lock().unwrap();
+        let plic = self.plic.lock();
         plic.read(offset, size)
     }
 
     fn write(&mut self, offset: u64, val: u64, size: u8) {
-        let mut plic = self.plic.lock().unwrap();
+        let mut plic = self.plic.lock();
         plic.write(offset, val, size);
     }
 
     fn poll(&mut self, _mmu: &mut dyn vm_core::MMU) {
-        let mut plic = self.plic.lock().unwrap();
+        let mut plic = self.plic.lock();
         let elapsed = plic.last_tick.elapsed();
         if elapsed.as_millis() as u64 >= plic.tick_interval_ms {
             plic.set_pending(1);

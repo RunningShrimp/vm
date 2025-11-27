@@ -37,9 +37,19 @@
 //! [`api`] 模块提供指令编码功能，用于生成 x86-64 机器码。
 
 use vm_core::{Decoder, GuestAddr, Fault, MMU};
+use vm_core::{Decoder, GuestAddr, Fault, MMU};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
 
+
 mod extended_insns;
+mod prefix_decode;
+mod opcode_decode;
+mod operand_decode;
+
+// Re-export key decoding stages for modular architecture
+pub use prefix_decode::{PrefixInfo, RexPrefix, decode_prefixes};
+pub use opcode_decode::{OpcodeInfo, OperandKind, decode_opcode};
+pub use operand_decode::{Operand, OperandDecoder, ModRM, SIB};
 mod prefix_decode;
 mod opcode_decode;
 mod operand_decode;
@@ -94,6 +104,80 @@ pub struct X86Instruction {
     pub repne: bool,
     pub next_pc: GuestAddr,
     pub jcc_cc: Option<u8>,
+}
+
+impl vm_core::Instruction for X86Instruction {
+    fn next_pc(&self) -> GuestAddr {
+        self.next_pc
+    }
+    
+    fn size(&self) -> u8 {
+        (self.next_pc.saturating_sub(0) % 16) as u8
+    }
+    
+    fn operand_count(&self) -> usize {
+        let mut count = 0;
+        if matches!(self.op1, X86Operand::None) == false { count += 1; }
+        if matches!(self.op2, X86Operand::None) == false { count += 1; }
+        if matches!(self.op3, X86Operand::None) == false { count += 1; }
+        count
+    }
+    
+    fn mnemonic(&self) -> &str {
+        match self.mnemonic {
+            X86Mnemonic::Nop => "nop",
+            X86Mnemonic::Add => "add",
+            X86Mnemonic::Sub => "sub",
+            X86Mnemonic::And => "and",
+            X86Mnemonic::Or => "or",
+            X86Mnemonic::Xor => "xor",
+            X86Mnemonic::Mov => "mov",
+            X86Mnemonic::Push => "push",
+            X86Mnemonic::Pop => "pop",
+            X86Mnemonic::Lea => "lea",
+            X86Mnemonic::Jmp => "jmp",
+            X86Mnemonic::Call => "call",
+            X86Mnemonic::Ret => "ret",
+            X86Mnemonic::Cmp => "cmp",
+            X86Mnemonic::Test => "test",
+            X86Mnemonic::Inc => "inc",
+            X86Mnemonic::Dec => "dec",
+            X86Mnemonic::Not => "not",
+            X86Mnemonic::Neg => "neg",
+            X86Mnemonic::Jcc => "jcc",
+            X86Mnemonic::Movaps => "movaps",
+            X86Mnemonic::Addps => "addps",
+            X86Mnemonic::Subps => "subps",
+            X86Mnemonic::Mulps => "mulps",
+            X86Mnemonic::Maxps => "maxps",
+            X86Mnemonic::Minps => "minps",
+            X86Mnemonic::Mul => "mul",
+            X86Mnemonic::Imul => "imul",
+            X86Mnemonic::Div => "div",
+            X86Mnemonic::Idiv => "idiv",
+            X86Mnemonic::Xchg => "xchg",
+            X86Mnemonic::Cmpxchg => "cmpxchg",
+            X86Mnemonic::Xadd => "xadd",
+            X86Mnemonic::Lock => "lock",
+            X86Mnemonic::Syscall => "syscall",
+            X86Mnemonic::Cpuid => "cpuid",
+            X86Mnemonic::Hlt => "hlt",
+            X86Mnemonic::Int => "int",
+        }
+    }
+    
+    fn is_control_flow(&self) -> bool {
+        matches!(self.mnemonic, 
+            X86Mnemonic::Jmp | X86Mnemonic::Call | X86Mnemonic::Ret | 
+            X86Mnemonic::Jcc | X86Mnemonic::Int | X86Mnemonic::Syscall)
+    }
+    
+    fn is_memory_access(&self) -> bool {
+        matches!(self.op1, X86Operand::Mem { .. }) || 
+        matches!(self.op2, X86Operand::Mem { .. }) ||
+        matches!(self.op3, X86Operand::Mem { .. }) ||
+        matches!(self.mnemonic, X86Mnemonic::Push | X86Mnemonic::Pop)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -153,7 +237,34 @@ struct Prefix {
 }
 
 impl Decoder for X86Decoder {
+    type Instruction = X86Instruction;
     type Block = IRBlock;
+    
+    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+        let mut stream = InsnStream::new(mmu, pc);
+        let mut prefix = Prefix::default();
+        
+        // Parse prefixes
+        let opcode = loop {
+            let b = stream.read_u8()?;
+            match b {
+                0xF0 => prefix.lock = true,
+                0xF2 => prefix.repne = true,
+                0xF3 => prefix.rep = true,
+                0x2E | 0x36 | 0x3E | 0x26 | 0x64 | 0x65 => prefix.seg = Some(b),
+                0x66 => prefix.op_size = true,
+                0x67 => prefix.addr_size = true,
+                0x40..=0x4F => {
+                    prefix.rex = Some(b);
+                    break stream.read_u8()?;
+                }
+                _ => break b,
+            }
+        };
+        
+        decode_insn_impl(&mut stream, pc, prefix, opcode)
+    }
+    
     fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault> {
         let mut builder = IRBuilder::new(pc);
         let mut stream = InsnStream::new(mmu, pc);
@@ -184,7 +295,7 @@ impl Decoder for X86Decoder {
                 }
             };
 
-            let insn = decode_insn(&mut stream, prefix, opcode)?;
+            let insn = decode_insn_impl(&mut stream, _start_pc, prefix, opcode)?;
             translate_insn(&mut builder, insn)?;
             
             // For now, single instruction blocks to avoid builder consumption issues
@@ -195,7 +306,7 @@ impl Decoder for X86Decoder {
     }
 }
 
-fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X86Instruction, Fault> {
+fn decode_insn_impl(stream: &mut InsnStream, pc: GuestAddr, prefix: Prefix, opcode: u8) -> Result<X86Instruction, Fault> {
     let rex = prefix.rex.unwrap_or(0);
     let rex_w = (rex & 0x08) != 0;
     let rex_r = (rex & 0x04) != 0;
@@ -214,7 +325,17 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
 
     // Table lookup
     let (mnemonic, k1, k2, k3, cc_opt) = if is_two_byte {
+    let (mnemonic, k1, k2, k3, cc_opt) = if is_two_byte {
         match opcode {
+            0x05 => (X86Mnemonic::Syscall, OpKind::None, OpKind::None, OpKind::None, None),
+            0xA2 => (X86Mnemonic::Cpuid, OpKind::None, OpKind::None, OpKind::None, None),
+            0x28 => (X86Mnemonic::Movaps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x58 => (X86Mnemonic::Addps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x59 => (X86Mnemonic::Mulps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x5C => (X86Mnemonic::Subps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x5F => (X86Mnemonic::Maxps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x5D => (X86Mnemonic::Minps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
+            0x80..=0x8F => (X86Mnemonic::Jcc, OpKind::Rel, OpKind::None, OpKind::None, Some(opcode - 0x80)),
             0x05 => (X86Mnemonic::Syscall, OpKind::None, OpKind::None, OpKind::None, None),
             0xA2 => (X86Mnemonic::Cpuid, OpKind::None, OpKind::None, OpKind::None, None),
             0x28 => (X86Mnemonic::Movaps, OpKind::XmmReg, OpKind::XmmRm, OpKind::None, None),
@@ -250,6 +371,28 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
             0xF4 => (X86Mnemonic::Hlt, OpKind::None, OpKind::None, OpKind::None, None),
             0xCC => (X86Mnemonic::Int, OpKind::None, OpKind::None, OpKind::None, None),
             0xCD => (X86Mnemonic::Int, OpKind::Imm8, OpKind::None, OpKind::None, None),
+            0x90 => (X86Mnemonic::Nop, OpKind::None, OpKind::None, OpKind::None, None),
+            0x01 => (X86Mnemonic::Add, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x29 => (X86Mnemonic::Sub, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x21 => (X86Mnemonic::And, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x09 => (X86Mnemonic::Or, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x31 => (X86Mnemonic::Xor, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x39 => (X86Mnemonic::Cmp, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x85 => (X86Mnemonic::Test, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x89 => (X86Mnemonic::Mov, OpKind::Rm, OpKind::Reg, OpKind::None, None),
+            0x8B => (X86Mnemonic::Mov, OpKind::Reg, OpKind::Rm, OpKind::None, None),
+            0x8D => (X86Mnemonic::Lea, OpKind::Reg, OpKind::Rm, OpKind::None, None),
+            0xB8..=0xBF => (X86Mnemonic::Mov, OpKind::OpReg, OpKind::Imm, OpKind::None, None),
+            0x50..=0x57 => (X86Mnemonic::Push, OpKind::OpReg, OpKind::None, OpKind::None, None),
+            0x58..=0x5F => (X86Mnemonic::Pop, OpKind::OpReg, OpKind::None, OpKind::None, None),
+            0xEB => (X86Mnemonic::Jmp, OpKind::Rel, OpKind::None, OpKind::None, None),
+            0xE9 => (X86Mnemonic::Jmp, OpKind::Rel, OpKind::None, OpKind::None, None),
+            0xE8 => (X86Mnemonic::Call, OpKind::Rel, OpKind::None, OpKind::None, None),
+            0xC3 => (X86Mnemonic::Ret, OpKind::None, OpKind::None, OpKind::None, None),
+            0x70..=0x7F => (X86Mnemonic::Jcc, OpKind::Rel, OpKind::None, OpKind::None, Some(opcode - 0x70)),
+            0xF4 => (X86Mnemonic::Hlt, OpKind::None, OpKind::None, OpKind::None, None),
+            0xCC => (X86Mnemonic::Int, OpKind::None, OpKind::None, OpKind::None, None),
+            0xCD => (X86Mnemonic::Int, OpKind::Imm8, OpKind::None, OpKind::None, None),
             0xFF => {
                 // Group 5: Inc/Dec/Call/Jmp/Push
                 // We need to check reg field of ModR/M, but we don't have it yet.
@@ -261,6 +404,13 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
                 let b = stream.mmu.read(stream.pc, 1)? as u8; // Peek next byte
                 let reg = (b >> 3) & 7;
                 match reg {
+                    0 => (X86Mnemonic::Inc, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    1 => (X86Mnemonic::Dec, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    2 => (X86Mnemonic::Call, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    3 => (X86Mnemonic::Call, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    4 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    5 => (X86Mnemonic::Jmp, OpKind::Rm, OpKind::None, OpKind::None, None),
+                    6 => (X86Mnemonic::Push, OpKind::Rm, OpKind::None, OpKind::None, None),
                     0 => (X86Mnemonic::Inc, OpKind::Rm, OpKind::None, OpKind::None, None),
                     1 => (X86Mnemonic::Dec, OpKind::Rm, OpKind::None, OpKind::None, None),
                     2 => (X86Mnemonic::Call, OpKind::Rm, OpKind::None, OpKind::None, None),
@@ -313,7 +463,7 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
                     };
                     
                     let disp = match mod_ {
-                        0 => if rm == 5 || (has_sib && (base.unwrap() & 7) == 5) { stream.read_u32()? as i32 as i64 } else { 0 },
+                        0 => if rm == 5 || (has_sib && (base.expect("Operation failed") & 7) == 5) { stream.read_u32()? as i32 as i64 } else { 0 },
                         1 => stream.read_u8()? as i8 as i64,
                         2 => stream.read_u32()? as i32 as i64,
                         _ => 0,
@@ -329,7 +479,7 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
                     // Let's use None base to imply absolute/RIP-rel for now, or handle it in translation.
                     // For now, let's stick to the previous logic:
                     // if mod_ == 0 && rm == 5 && !has_sib { target = pc + disp }
-                    else if mod_ == 0 && has_sib && (base.unwrap() & 7) == 5 { None }
+                    else if mod_ == 0 && has_sib && (base.expect("Operation failed") & 7) == 5 { None }
                     else { base };
 
                     Ok(X86Operand::Mem { base: final_base, index, scale, disp })
@@ -382,14 +532,14 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
                     };
                     
                     let disp = match mod_ {
-                        0 => if rm == 5 || (has_sib && (base.unwrap() & 7) == 5) { stream.read_u32()? as i32 as i64 } else { 0 },
+                        0 => if rm == 5 || (has_sib && (base.expect("Operation failed") & 7) == 5) { stream.read_u32()? as i32 as i64 } else { 0 },
                         1 => stream.read_u8()? as i8 as i64,
                         2 => stream.read_u32()? as i32 as i64,
                         _ => 0,
                     };
 
                     let final_base = if mod_ == 0 && rm == 5 && !has_sib { None }
-                    else if mod_ == 0 && has_sib && (base.unwrap() & 7) == 5 { None }
+                    else if mod_ == 0 && has_sib && (base.expect("Operation failed") & 7) == 5 { None }
                     else { base };
 
                     Ok(X86Operand::Mem { base: final_base, index, scale, disp })
@@ -412,6 +562,7 @@ fn decode_insn(stream: &mut InsnStream, prefix: Prefix, opcode: u8) -> Result<X8
         rep: prefix.rep,
         repne: prefix.repne,
         next_pc: stream.pc,
+        jcc_cc: cc_opt,
         jcc_cc: cc_opt,
     })
 }
@@ -516,10 +667,14 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
             if let X86Operand::Rel(target) = insn.op1 {
                 let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
                 builder.set_term(Terminator::Jmp { target: abs });
+                let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
+                builder.set_term(Terminator::Jmp { target: abs });
             }
         },
         X86Mnemonic::Call => {
             if let X86Operand::Rel(target) = insn.op1 {
+                let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
+                builder.set_term(Terminator::Call { target: abs, ret_pc: insn.next_pc });
                 let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
                 builder.set_term(Terminator::Call { target: abs, ret_pc: insn.next_pc });
             }
@@ -586,6 +741,10 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
             let b = 201;
             builder.push(IROp::AddImm { dst: a, src: src1, imm: 0 });
             builder.push(IROp::AddImm { dst: b, src: src2, imm: 0 });
+            let a = 200;
+            let b = 201;
+            builder.push(IROp::AddImm { dst: a, src: src1, imm: 0 });
+            builder.push(IROp::AddImm { dst: b, src: src2, imm: 0 });
         },
         X86Mnemonic::Test => {
             let src1 = load_operand(builder, &insn.op1, op_bytes)?;
@@ -611,7 +770,35 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), F
                 let cc = insn.jcc_cc.unwrap_or(4);
                 let lhs = 200;
                 let rhs = 201;
+                let cc = insn.jcc_cc.unwrap_or(4);
+                let lhs = 200;
+                let rhs = 201;
                 let cond = 106;
+                match cc {
+                    0x4 => builder.push(IROp::CmpEq { dst: cond, lhs, rhs }),
+                    0x5 => builder.push(IROp::CmpNe { dst: cond, lhs, rhs }),
+                    0x2 => builder.push(IROp::CmpLtU { dst: cond, lhs, rhs }),
+                    0x3 => builder.push(IROp::CmpGeU { dst: cond, lhs, rhs }),
+                    0x6 => {
+                        let t1 = 107; let t2 = 108;
+                        builder.push(IROp::CmpLtU { dst: t1, lhs, rhs });
+                        builder.push(IROp::CmpEq { dst: t2, lhs, rhs });
+                        builder.push(IROp::Or { dst: cond, src1: t1, src2: t2 });
+                    },
+                    0x7 => builder.push(IROp::CmpLtU { dst: cond, lhs: rhs, rhs: lhs }),
+                    0xC => builder.push(IROp::CmpLt { dst: cond, lhs, rhs }),
+                    0xD => builder.push(IROp::CmpGe { dst: cond, lhs, rhs }),
+                    0xE => {
+                        let t1 = 107; let t2 = 108;
+                        builder.push(IROp::CmpLt { dst: t1, lhs, rhs });
+                        builder.push(IROp::CmpEq { dst: t2, lhs, rhs });
+                        builder.push(IROp::Or { dst: cond, src1: t1, src2: t2 });
+                    },
+                    0xF => builder.push(IROp::CmpLt { dst: cond, lhs: rhs, rhs: lhs }),
+                    _ => builder.push(IROp::CmpEq { dst: cond, lhs, rhs }),
+                }
+                let abs = (insn.next_pc as i64).wrapping_add(target) as u64;
+                builder.set_term(Terminator::CondJmp { cond, target_true: abs, target_false: insn.next_pc });
                 match cc {
                     0x4 => builder.push(IROp::CmpEq { dst: cond, lhs, rhs }),
                     0x5 => builder.push(IROp::CmpNe { dst: cond, lhs, rhs }),
@@ -923,19 +1110,7 @@ impl MMU for MockMMU {
         fn memory_size(&self) -> usize {
             self.data.len()
         }
-        fn dump_memory(&self) -> Vec<u8> {
-            self.data.clone()
-        }
-        fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
-            self.data.clear();
-            self.data.extend_from_slice(data);
-            Ok(())
-        }
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
-        fn dump_memory(&self) -> Vec<u8> {
-            self.data.clone()
-        }
+        fn dump_memory(&self) -> Vec<u8> { self.data.clone() }
         fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
             self.data.clear();
             self.data.extend_from_slice(data);
@@ -950,7 +1125,7 @@ impl MMU for MockMMU {
         let code = api::encode_addps(1, 2);
         let mmu = MockMMU { data: code, base: 0x1000 };
         let mut decoder = X86Decoder;
-        let block = decoder.decode(&mmu, 0x1000).unwrap();
+        let block = decoder.decode(&mmu, 0x1000).expect("Operation failed");
         
         // Expected ops:
         // 1. VecAdd dst=105, src1=17, src2=18
@@ -971,7 +1146,7 @@ impl MMU for MockMMU {
         let code = api::encode_syscall();
         let mmu = MockMMU { data: code, base: 0x1000 };
         let mut decoder = X86Decoder;
-        let block = decoder.decode(&mmu, 0x1000).unwrap();
+        let block = decoder.decode(&mmu, 0x1000).expect("Operation failed");
         
         if let IROp::SysCall = block.ops[0] {
             // OK
@@ -993,7 +1168,7 @@ impl MMU for MockMMU {
         let code = vec![0x01, 0xC8];
         let mmu = MockMMU { data: code, base: 0x1000 };
         let mut decoder = X86Decoder;
-        let block = decoder.decode(&mmu, 0x1000).unwrap();
+        let block = decoder.decode(&mmu, 0x1000).expect("Operation failed");
         
         if let IROp::Add { dst: _, src1: _, src2: _ } = block.ops[0] {
             // OK
@@ -1007,7 +1182,7 @@ impl MMU for MockMMU {
         let code = vec![0xCC];
         let mmu = MockMMU { data: code, base: 0x1000 };
         let mut decoder = X86Decoder;
-        let block = decoder.decode(&mmu, 0x1000).unwrap();
+        let block = decoder.decode(&mmu, 0x1000).expect("Operation failed");
         
         if let Terminator::Interrupt { vector } = block.term {
             assert_eq!(vector, 3);

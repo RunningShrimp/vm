@@ -329,7 +329,7 @@ mod tests {
         keyboard.handle_key(keycodes::KEY_A, true);
         assert_eq!(keyboard.pending_events(), 1);
         
-        let event = keyboard.pop_event().unwrap();
+        let event = keyboard.pop_event().expect("Failed to pop keyboard event");
         assert_eq!(event.event_type, EventType::Key as u16);
         assert_eq!(event.code, keycodes::KEY_A);
         assert_eq!(event.value, 1);
@@ -342,10 +342,10 @@ mod tests {
         mouse.handle_mouse_move(10, -5);
         assert_eq!(mouse.pending_events(), 2);
         
-        let event1 = mouse.pop_event().unwrap();
+        let event1 = mouse.pop_event().expect("Failed to pop first mouse event");
         assert_eq!(event1.value, 10);
         
-        let event2 = mouse.pop_event().unwrap();
+        let event2 = mouse.pop_event().expect("Failed to pop second mouse event");
         assert_eq!(event2.value, -5);
     }
 

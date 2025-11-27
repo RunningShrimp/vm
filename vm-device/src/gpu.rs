@@ -29,12 +29,12 @@ impl GpuDevice {
     }
 
     pub async fn init(&mut self, window: Arc<Window>) {
-        let surface = self.instance.create_surface(window.clone()).unwrap();
+        let surface = self.instance.create_surface(window.clone()).expect("Failed to create GPU surface");
         let adapter = self.instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
-        }).await.unwrap();
+        }).await.expect("Failed to request GPU adapter");
 
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -43,7 +43,7 @@ impl GpuDevice {
                 required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
             },
             None,
-        ).await.unwrap();
+        ).await.expect("Failed to request GPU device");
 
         self.surface = Some(surface);
         self.adapter = Some(adapter);

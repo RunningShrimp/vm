@@ -83,6 +83,7 @@ pub struct ElTorito<R: Read + Seek> {
 impl<R: Read + Seek> ElTorito<R> {
     /// 创建新的 El Torito 解析器
     pub fn new(reader: R) -> Result<Self, EltoritoError> {
+    pub fn new(reader: R) -> Result<Self, EltoritoError> {
         let mut parser = Self {
             reader,
             catalog: None,
@@ -109,10 +110,7 @@ impl<R: Read + Seek> ElTorito<R> {
             let vd_type = header[0];
             let identifier = &header[1..6];
 
-            if identifier != b"CD001" {
-                return Err(EltoritoError::InvalidIdentifier);
-                return Err(EltoritoError::InvalidIdentifier);
-            }
+            if identifier != b"CD001" { return Err(EltoritoError::InvalidIdentifier); }
 
             if vd_type == 0 {
                 // 引导记录
@@ -180,10 +178,7 @@ impl<R: Read + Seek> ElTorito<R> {
     fn parse_validation_entry(&self, data: &[u8; 32]) -> Result<ValidationEntry, EltoritoError> {
     fn parse_validation_entry(&self, data: &[u8; 32]) -> Result<ValidationEntry, EltoritoError> {
         // 头部 ID（偏移 0）
-        if data[0] != 0x01 {
-            return Err(EltoritoError::InvalidValidationHeader);
-            return Err(EltoritoError::InvalidValidationHeader);
-        }
+        if data[0] != 0x01 { return Err(EltoritoError::InvalidValidationHeader); }
 
         // 平台 ID（偏移 1）
         let platform_id = data[1];
@@ -198,10 +193,7 @@ impl<R: Read + Seek> ElTorito<R> {
 
         // 密钥字节（偏移 30，2 字节）应该是 0x55AA
         let key = u16::from_le_bytes([data[30], data[31]]);
-        if key != 0x55AA {
-            return Err(EltoritoError::InvalidValidationKey);
-            return Err(EltoritoError::InvalidValidationKey);
-        }
+        if key != 0x55AA { return Err(EltoritoError::InvalidValidationKey); }
 
         Ok(ValidationEntry {
             platform_id,

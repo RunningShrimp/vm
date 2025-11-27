@@ -22,7 +22,7 @@ impl MacAddress {
         use std::time::{SystemTime, UNIX_EPOCH};
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("Operation failed")
             .as_nanos() as u64;
         
         let mut bytes = [0u8; 6];
@@ -315,7 +315,7 @@ impl TapTunNetwork {
         use std::ffi::CString;
         use std::os::unix::io::RawFd;
 
-        let dev_path = CString::new("/dev/net/tun").unwrap();
+        let dev_path = CString::new("/dev/net/tun").expect("Failed to create TUN device path");
         let fd = unsafe { libc::open(dev_path.as_ptr(), libc::O_RDWR) };
         
         if fd < 0 {

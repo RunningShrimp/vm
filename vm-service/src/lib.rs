@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -21,7 +22,8 @@ use vm_device::gpu_virt::GpuManager;
 
 pub struct VmService {
     pub vm: VirtualMachine<IRBlock>,
-    decoder: Box<dyn Decoder<Block = IRBlock>>,
+    // 注意：decoder 现在不再使用，因为具体的 decoder 与执行引擎配对
+    // 具体的 decoder 在各个引擎内部实现 (Interpreter, Jit, Hybrid)
     interpreter: Interpreter,
     // We keep the interpreter here for now, matching the original cli structure.
     // In the future, this should be managed via vm.vcpus
@@ -148,13 +150,12 @@ impl VmService {
 
         // Initialize Decoder and Interpreter
         // Currently hardcoded for RISC-V 64
-        let decoder = Box::new(RiscvDecoder);
+        // Decoder is now integrated within each execution engine
         let mut interpreter = Interpreter::new();
         interpreter.set_reg(0, 0); // x0 = 0
 
         Ok(Self {
             vm,
-            decoder,
             interpreter,
             run_flag: Arc::new(AtomicBool::new(false)),
             pause_flag: Arc::new(AtomicBool::new(false)),

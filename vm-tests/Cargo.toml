@@ -13,6 +13,7 @@ vm-frontend-arm64 = { path = "../vm-frontend-arm64" }
 vm-frontend-x86_64 = { path = "../vm-frontend-x86_64" }
 vm-device = { path = "../vm-device" }
 vm-accel = { path = "../vm-accel" }
+parking_lot = "0.12.5"
 
 [dev-dependencies]
 vm-engine-jit = { path = "../vm-engine-jit" }

@@ -32,7 +32,6 @@ pub struct WgpuBackend {
 impl WgpuBackend {
     pub fn new() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -74,7 +73,6 @@ impl GpuBackend for WgpuBackend {
     fn init(&mut self) -> Result<(), GpuVirtError> {
         // 请求适配器，优先选择高性能 GPU
         let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
-        let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
@@ -108,7 +106,6 @@ impl GpuBackend for WgpuBackend {
                 },
                 label: Some("VM GPU Device"),
                 ..Default::default()
-                ..Default::default()
             },
         )).map_err(|e: wgpu::RequestDeviceError| GpuVirtError::DeviceRequest(e.to_string()))?;
 
@@ -119,11 +116,11 @@ impl GpuBackend for WgpuBackend {
     }
 
     fn get_stats(&self) -> GpuStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().expect("Failed to lock receiver").clone()
     }
 
     fn reset_stats(&mut self) {
-        *self.stats.lock().unwrap() = GpuStats::default();
+        *self.stats.lock().expect("Failed to lock receiver") = GpuStats::default();
     }
 }
 

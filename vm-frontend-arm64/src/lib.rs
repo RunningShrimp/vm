@@ -1,13 +1,75 @@
-use vm_core::{Decoder, MMU, GuestAddr, Fault};
+use vm_core::{Decoder, Instruction, MMU, GuestAddr, Fault};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
 
 mod extended_insns;
 pub enum Cond { EQ=0, NE=1, CS=2, CC=3, MI=4, PL=5, VS=6, VC=7, HI=8, LS=9, GE=10, LT=11, GT=12, LE=13 }
 
+/// ARM64 指令表示
+#[derive(Debug, Clone)]
+pub struct Arm64Instruction {
+    pub mnemonic: &'static str,
+    pub next_pc: GuestAddr,
+    pub has_memory_op: bool,
+    pub is_branch: bool,
+}
+
+impl Instruction for Arm64Instruction {
+    fn next_pc(&self) -> GuestAddr {
+        self.next_pc
+    }
+    
+    fn size(&self) -> u8 {
+        4  // ARM64 指令固定 4 字节
+    }
+    
+    fn operand_count(&self) -> usize {
+        1  // 简化实现
+    }
+    
+    fn mnemonic(&self) -> &str {
+        self.mnemonic
+    }
+    
+    fn is_control_flow(&self) -> bool {
+        self.is_branch
+    }
+    
+    fn is_memory_access(&self) -> bool {
+        self.has_memory_op
+    }
+}
+
 pub struct Arm64Decoder;
 
 impl Decoder for Arm64Decoder {
+    type Instruction = Arm64Instruction;
     type Block = IRBlock;
+    
+    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+        let insn = mmu.fetch_insn(pc)? as u32;
+        
+        // Determine mnemonic based on instruction pattern
+        let mnemonic = if (insn & 0x1F000000) == 0x11000000 {
+            if (insn & 0x40000000) != 0 { "sub" } else { "add" }
+        } else if (insn & 0x7F800000) == 0x12800000 {
+            "movn"
+        } else if (insn & 0x7F800000) == 0x12000000 {
+            "movz"
+        } else {
+            "unknown"
+        };
+        
+        let is_branch = matches!(mnemonic, "b" | "bl" | "br" | "blr");
+        let has_memory_op = matches!(mnemonic, "ldr" | "str" | "ldp" | "stp");
+        
+        Ok(Arm64Instruction {
+            mnemonic,
+            next_pc: pc + 4,
+            has_memory_op,
+            is_branch,
+        })
+    }
+    
     fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault> {
         let mut builder = IRBuilder::new(pc);
         let mut current_pc = pc;

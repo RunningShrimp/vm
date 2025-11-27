@@ -9,7 +9,7 @@ fn bench_translate_bare(c: &mut Criterion) {
     c.bench_function("translate_bare", |b| {
         b.iter(|| {
             let va = black_box(0x1000_0000);
-            let _ = mmu.translate(va, AccessType::Read).unwrap();
+            let _ = mmu.translate(va, AccessType::Read).expect("Translate failed");
         })
     });
 }
@@ -29,7 +29,7 @@ fn bench_memory_read(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             b.iter(|| {
                 let addr = black_box(0x1000);
-                mmu.read(addr, size).unwrap()
+                mmu.read(addr, size).expect("Memory read failed")
             })
         });
     }
@@ -47,7 +47,7 @@ fn bench_memory_write(c: &mut Criterion) {
             b.iter(|| {
                 let addr = black_box(0x1000);
                 let val = black_box(0xDEADBEEF_u64);
-                mmu.write(addr, val, size).unwrap()
+                mmu.write(addr, val, size).expect("Memory write failed")
             })
         });
     }

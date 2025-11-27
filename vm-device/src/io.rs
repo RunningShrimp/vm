@@ -292,7 +292,7 @@ pub mod ringbuf {
                 let result = match req.opcode {
                     IoOpcode::Read => {
                         // 从接收环形缓冲区读取
-                        let mut rx = self.rx_ring.lock().unwrap();
+                        let mut rx = self.rx_ring.lock().expect("Failed to lock receiver");
                         let mut buf = vec![0u8; req.length];
                         let read = rx.read(&mut buf);
                         // 写入到 Guest 内存（零拷贝）
@@ -307,7 +307,16 @@ pub mod ringbuf {
                     }
                     IoOpcode::Write => {
                         // 写入发送环形缓冲区
-                        let mut tx = self.tx_ring.lock().unwrap();
+                        let mut tx = self.tx_ring.lock().expect("Failed to lock receiver");
+                        // 从 Guest 内存读取数据（零拷贝）
+                        let written = if let Some(mmu) = self.mmu.as_mut() {
+                            let mut tmp = vec![0u8; req.length];
+                            let _ = MmuUtil::read_slice(mmu.as_mut(), req.buffer, &mut tmp);
+                            tx.write(&tmp)
+                        } else {
+                            // 后备：写入零数据
+                            tx.write(&vec![0u8; req.length])
+                        };
                         // 从 Guest 内存读取数据（零拷贝）
                         let written = if let Some(mmu) = self.mmu.as_mut() {
                             let mut tmp = vec![0u8; req.length];
@@ -519,7 +528,7 @@ mod tests {
             user_data: 42,
         };
         
-        backend.submit(req).unwrap();
+        backend.submit(req).expect("Failed to submit I/O request");
         let completions = backend.poll_completions();
         
         assert_eq!(completions.len(), 1);

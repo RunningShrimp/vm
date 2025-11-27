@@ -88,19 +88,28 @@ use cranelift_module::{Linkage, Module, FuncId};
 use cranelift_module::{Linkage, Module, FuncId};
 use cranelift_native;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 mod advanced_ops;
 mod simd;
 pub mod pool;
 mod jit_helpers;
+pub mod loop_opt;
 
 pub use jit_helpers::{RegisterHelper, FloatRegHelper, MemoryHelper};
+pub use loop_opt::{LoopOptimizer, LoopOptConfig, LoopInfo};
 
 /// 默认热点阈值
 pub const HOT_THRESHOLD: u64 = 100;
 
+impl Default for AdaptiveThreshold {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
 /// 自适应阈值配置
 #[derive(Clone, Debug)]
 pub struct AdaptiveThresholdConfig {
@@ -126,6 +135,17 @@ impl Default for AdaptiveThresholdConfig {
             exec_benefit_weight: 0.7,
         }
     }
+}
+
+/// 自适应阈值统计信息
+#[derive(Clone, Debug, Default)]
+pub struct AdaptiveThresholdStats {
+    pub current_threshold: u64,
+    pub total_compiles: u64,
+    pub compiled_hits: u64,
+    pub interpreted_runs: u64,
+    pub avg_compile_time_ns: u64,
+    pub avg_benefit_ns: i64,
 }
 
 /// 自适应热点阈值管理器
@@ -290,228 +310,7 @@ impl AdaptiveThreshold {
     }
 }
 
-impl Default for AdaptiveThreshold {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
-/// 自适应阈值统计信息
-#[derive(Debug, Clone)]
-pub struct AdaptiveThresholdStats {
-    pub current_threshold: u64,
-    pub total_compiles: u64,
-    pub compiled_hits: u64,
-    pub interpreted_runs: u64,
-    pub avg_compile_time_ns: u64,
-    pub avg_benefit_ns: i64,
-}
-
-/// 自适应阈值配置
-#[derive(Clone, Debug)]
-pub struct AdaptiveThresholdConfig {
-    /// 最小阈值
-    pub min_threshold: u64,
-    /// 最大阈值
-    pub max_threshold: u64,
-    /// 采样窗口大小
-    pub sample_window: usize,
-    /// 编译时间权重
-    pub compile_time_weight: f64,
-    /// 执行收益权重
-    pub exec_benefit_weight: f64,
-}
-
-impl Default for AdaptiveThresholdConfig {
-    fn default() -> Self {
-        Self {
-            min_threshold: 10,
-            max_threshold: 1000,
-            sample_window: 100,
-            compile_time_weight: 0.3,
-            exec_benefit_weight: 0.7,
-        }
-    }
-}
-
-/// 自适应热点阈值管理器
-#[derive(Clone)]
-pub struct AdaptiveThreshold {
-    /// 当前阈值
-    current_threshold: u64,
-    /// 配置
-    config: AdaptiveThresholdConfig,
-    /// 编译时间样本 (纳秒)
-    compile_time_samples: Vec<u64>,
-    /// 执行时间节省样本 (纳秒)
-    exec_benefit_samples: Vec<i64>,
-    /// 总编译次数
-    total_compiles: u64,
-    /// 命中编译代码的执行次数
-    compiled_hits: u64,
-    /// 解释器执行次数
-    interpreted_runs: u64,
-    /// 上次调整时的总执行数
-    last_adjustment_total: u64,
-}
-
-impl AdaptiveThreshold {
-    pub fn new() -> Self {
-        Self::with_config(AdaptiveThresholdConfig::default())
-    }
-
-    pub fn with_config(config: AdaptiveThresholdConfig) -> Self {
-        Self {
-            current_threshold: HOT_THRESHOLD,
-            config,
-            compile_time_samples: Vec::with_capacity(100),
-            exec_benefit_samples: Vec::with_capacity(100),
-            total_compiles: 0,
-            compiled_hits: 0,
-            interpreted_runs: 0,
-            last_adjustment_total: 0,
-        }
-    }
-
-    /// 获取当前阈值
-    pub fn threshold(&self) -> u64 {
-        self.current_threshold
-    }
-
-    /// 记录编译事件
-    pub fn record_compile(&mut self, compile_time_ns: u64) {
-        self.total_compiles += 1;
-        self.compile_time_samples.push(compile_time_ns);
-        
-        // 保持样本窗口大小
-        if self.compile_time_samples.len() > self.config.sample_window {
-            self.compile_time_samples.remove(0);
-        }
-    }
-
-    /// 记录编译代码执行
-    pub fn record_compiled_hit(&mut self, exec_time_ns: u64, estimated_interp_time_ns: u64) {
-        self.compiled_hits += 1;
-        let benefit = estimated_interp_time_ns as i64 - exec_time_ns as i64;
-        self.exec_benefit_samples.push(benefit);
-        
-        if self.exec_benefit_samples.len() > self.config.sample_window {
-            self.exec_benefit_samples.remove(0);
-        }
-    }
-
-    /// 记录解释器执行
-    pub fn record_interpreted(&mut self) {
-        self.interpreted_runs += 1;
-    }
-
-    /// 调整阈值 (基于运行时性能数据)
-    pub fn adjust(&mut self) {
-        let total_runs = self.compiled_hits + self.interpreted_runs;
-        
-        // 每 1000 次执行调整一次
-        if total_runs - self.last_adjustment_total < 1000 {
-            return;
-        }
-        self.last_adjustment_total = total_runs;
-
-        // 计算平均编译时间
-        let avg_compile_time = if self.compile_time_samples.is_empty() {
-            1000_u64 // 默认 1μs
-        } else {
-            self.compile_time_samples.iter().sum::<u64>() / self.compile_time_samples.len() as u64
-        };
-
-        // 计算平均执行收益
-        let avg_benefit = if self.exec_benefit_samples.is_empty() {
-            0_i64
-        } else {
-            self.exec_benefit_samples.iter().sum::<i64>() / self.exec_benefit_samples.len() as i64
-        };
-
-        // 计算编译命中率
-        let hit_rate = if total_runs > 0 {
-            self.compiled_hits as f64 / total_runs as f64
-        } else {
-            0.0
-        };
-
-        // 调整策略:
-        // - 高编译时间 + 低收益 -> 提高阈值 (减少编译)
-        // - 低编译时间 + 高收益 -> 降低阈值 (更积极编译)
-        // - 低命中率 -> 提高阈值 (编译的代码没被充分利用)
-        
-        let compile_factor = if avg_compile_time > 10_000_000 { // > 10ms
-            1.2 // 编译太慢，提高阈值
-        } else if avg_compile_time < 100_000 { // < 100μs
-            0.9 // 编译很快，可以降低阈值
-        } else {
-            1.0
-        };
-
-        let benefit_factor = if avg_benefit > 1_000_000 { // 每次执行节省 > 1ms
-            0.8 // 收益高，降低阈值
-        } else if avg_benefit < 0 { // 负收益 (JIT 更慢)
-            1.3 // 提高阈值
-        } else {
-            1.0
-        };
-
-        let hit_factor = if hit_rate < 0.1 {
-            1.2 // 命中率太低
-        } else if hit_rate > 0.8 {
-            0.95 // 命中率高，可以更积极
-        } else {
-            1.0
-        };
-
-        // 综合调整
-        let adjustment = compile_factor * benefit_factor * hit_factor;
-        let new_threshold = (self.current_threshold as f64 * adjustment) as u64;
-        
-        // 限制在范围内
-        self.current_threshold = new_threshold
-            .max(self.config.min_threshold)
-            .min(self.config.max_threshold);
-    }
-
-    /// 获取统计信息
-    pub fn stats(&self) -> AdaptiveThresholdStats {
-        AdaptiveThresholdStats {
-            current_threshold: self.current_threshold,
-            total_compiles: self.total_compiles,
-            compiled_hits: self.compiled_hits,
-            interpreted_runs: self.interpreted_runs,
-            avg_compile_time_ns: if self.compile_time_samples.is_empty() {
-                0
-            } else {
-                self.compile_time_samples.iter().sum::<u64>() / self.compile_time_samples.len() as u64
-            },
-            avg_benefit_ns: if self.exec_benefit_samples.is_empty() {
-                0
-            } else {
-                (self.exec_benefit_samples.iter().sum::<i64>() / self.exec_benefit_samples.len() as i64) as i64
-            },
-        }
-    }
-}
-
-impl Default for AdaptiveThreshold {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// 自适应阈值统计信息
-#[derive(Debug, Clone)]
-pub struct AdaptiveThresholdStats {
-    pub current_threshold: u64,
-    pub total_compiles: u64,
-    pub compiled_hits: u64,
-    pub interpreted_runs: u64,
-    pub avg_compile_time_ns: u64,
-    pub avg_benefit_ns: i64,
-}
 
 fn make_stats(executed_ops: u64) -> ExecStats {
     ExecStats {
@@ -557,10 +356,57 @@ extern "C" fn jit_read(ctx: *mut JitContext, vaddr: u64, size: u8) -> u64 {
         };
         (*ctx).mmu.read(pa, size).unwrap_or(0)
     }
+extern "C" fn jit_read(ctx: *mut JitContext, vaddr: u64, size: u8) -> u64 {
+    unsafe {
+        let pa = match (*ctx).mmu.translate(vaddr, vm_core::AccessType::Read) {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
+        (*ctx).mmu.read(pa, size).unwrap_or(0)
+    }
 }
 
 extern "C" fn jit_write(ctx: *mut JitContext, vaddr: u64, val: u64, size: u8) {
+extern "C" fn jit_write(ctx: *mut JitContext, vaddr: u64, val: u64, size: u8) {
     unsafe {
+        if let Ok(pa) = (*ctx).mmu.translate(vaddr, vm_core::AccessType::Write) {
+            let _ = (*ctx).mmu.write(pa, val, size);
+        }
+    }
+}
+
+extern "C" fn jit_lr(ctx: *mut JitContext, vaddr: u64, size: u8) -> u64 {
+    unsafe { (*ctx).mmu.load_reserved(vaddr, size).unwrap_or(0) }
+}
+
+extern "C" fn jit_sc(ctx: *mut JitContext, vaddr: u64, val: u64, size: u8) -> u64 {
+    unsafe {
+        match (*ctx).mmu.store_conditional(vaddr, val, size) {
+            Ok(true) => 1,
+            Ok(false) => 0,
+            Err(_) => 0,
+        }
+    }
+}
+
+extern "C" fn jit_cas(ctx: *mut JitContext, vaddr: u64, expected: u64, new: u64, size: u8) -> u64 {
+    unsafe {
+        std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+        let pa_r = match (*ctx).mmu.translate(vaddr, vm_core::AccessType::Read) { Ok(p) => p, Err(_) => return 0 };
+        let old = (*ctx).mmu.read(pa_r, size).unwrap_or(0);
+        if old == expected {
+            if let Ok(pa_w) = (*ctx).mmu.translate(vaddr, vm_core::AccessType::Write) {
+                let _ = (*ctx).mmu.write(pa_w, new, size);
+            }
+        }
+        std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+        old
+    }
+}
+
+extern "C" fn barrier_acquire() { std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire); }
+extern "C" fn barrier_release() { std::sync::atomic::fence(std::sync::atomic::Ordering::Release); }
+extern "C" fn barrier_full() { std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst); }
         if let Ok(pa) = (*ctx).mmu.translate(vaddr, vm_core::AccessType::Write) {
             let _ = (*ctx).mmu.write(pa, val, size);
         }
@@ -625,11 +471,15 @@ pub struct Jit {
     pub total_interpreted: u64,
     /// 自适应热点阈值管理器
     pub adaptive_threshold: AdaptiveThreshold,
+    /// 循环优化器
+    loop_optimizer: LoopOptimizer,
     simd_vec_add_func: Option<FuncId>,
     simd_vec_sub_func: Option<FuncId>,
     simd_vec_mul_func: Option<FuncId>,
     /// 自适应热点阈值管理器
     pub adaptive_threshold: AdaptiveThreshold,
+    /// 循环优化器
+    loop_optimizer: LoopOptimizer,
     simd_vec_add_func: Option<FuncId>,
     simd_vec_sub_func: Option<FuncId>,
     simd_vec_mul_func: Option<FuncId>,
@@ -638,19 +488,25 @@ pub struct Jit {
 impl Jit {
     pub fn new() -> Self {
         let mut flag_builder = settings::builder();
-        flag_builder.set("use_colocated_libcalls", "false").unwrap();
-        flag_builder.set("is_pic", "false").unwrap();
-        flag_builder.set("opt_level", "speed").unwrap();
+        flag_builder.set("use_colocated_libcalls", "false").expect("Operation failed");
+        flag_builder.set("is_pic", "false").expect("Operation failed");
+        flag_builder.set("opt_level", "speed").expect("Operation failed");
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
             panic!("host machine is not supported: {}", msg);
         });
 
-        let isa = isa_builder.finish(settings::Flags::new(flag_builder)).unwrap();
+        let isa = isa_builder.finish(settings::Flags::new(flag_builder)).expect("Operation failed");
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         
         builder.symbol("jit_read", jit_read as *const u8);
         builder.symbol("jit_write", jit_write as *const u8);
+        builder.symbol("jit_cas", jit_cas as *const u8);
+        builder.symbol("jit_lr", jit_lr as *const u8);
+        builder.symbol("jit_sc", jit_sc as *const u8);
+        builder.symbol("barrier_acquire", barrier_acquire as *const u8);
+        builder.symbol("barrier_release", barrier_release as *const u8);
+        builder.symbol("barrier_full", barrier_full as *const u8);
         builder.symbol("jit_cas", jit_cas as *const u8);
         builder.symbol("jit_lr", jit_lr as *const u8);
         builder.symbol("jit_sc", jit_sc as *const u8);
@@ -678,10 +534,12 @@ impl Jit {
             total_compiled: 0,
             total_interpreted: 0,
             adaptive_threshold: AdaptiveThreshold::new(),
+            loop_optimizer: LoopOptimizer::default(),
             simd_vec_add_func: None,
             simd_vec_sub_func: None,
             simd_vec_mul_func: None,
             adaptive_threshold: AdaptiveThreshold::new(),
+            loop_optimizer: LoopOptimizer::default(),
             simd_vec_add_func: None,
             simd_vec_sub_func: None,
             simd_vec_mul_func: None,
@@ -696,15 +554,35 @@ impl Jit {
     }
 
     /// 加载浮点寄存器值 (F64)
+    /// 加载浮点寄存器值 (F64)
     fn load_freg(builder: &mut FunctionBuilder, fregs_ptr: Value, idx: u32) -> Value {
         let offset = (idx as i32) * 8;
         builder.ins().load(types::F64, MemFlags::trusted(), fregs_ptr, offset)
     }
 
     /// 存储浮点寄存器值 (F64)
+    /// 存储浮点寄存器值 (F64)
     fn store_freg(builder: &mut FunctionBuilder, fregs_ptr: Value, idx: u32, val: Value) {
         let offset = (idx as i32) * 8;
         builder.ins().store(MemFlags::trusted(), val, fregs_ptr, offset);
+    }
+
+    /// 加载单精度浮点寄存器值 (F32)
+    /// 注意：内部存储为 F64，这里加载低 32 位并转换为 F32
+    fn load_freg_f32(builder: &mut FunctionBuilder, fregs_ptr: Value, idx: u32) -> Value {
+        let offset = (idx as i32) * 8;
+        // 加载 F64 然后降级为 F32
+        let f64_val = builder.ins().load(types::F64, MemFlags::trusted(), fregs_ptr, offset);
+        builder.ins().fdemote(types::F32, f64_val)
+    }
+
+    /// 存储单精度浮点寄存器值 (F32)
+    /// 注意：将 F32 提升为 F64 后存储
+    fn store_freg_f32(builder: &mut FunctionBuilder, fregs_ptr: Value, idx: u32, val: Value) {
+        let offset = (idx as i32) * 8;
+        // 将 F32 提升为 F64 然后存储
+        let f64_val = builder.ins().fpromote(types::F64, val);
+        builder.ins().store(MemFlags::trusted(), f64_val, fregs_ptr, offset);
     }
 
     /// 加载单精度浮点寄存器值 (F32)
@@ -740,7 +618,7 @@ impl Jit {
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
             sig.returns.push(AbiParam::new(types::I64));
-            let func_id = self.module.declare_function(name, Linkage::Import, &sig).unwrap();
+            let func_id = self.module.declare_function(name, Linkage::Import, &sig).expect("Operation failed");
             *slot = Some(func_id);
             func_id
         }
@@ -787,9 +665,6 @@ impl Jit {
         let threshold = self.adaptive_threshold.threshold();
         let stats = self.hot_counts.entry(pc).or_default();
         stats.exec_count += 1;
-        
-        if stats.exec_count >= threshold && !stats.is_compiled {
-        
         if stats.exec_count >= threshold && !stats.is_compiled {
             stats.is_compiled = true;
             true
@@ -797,48 +672,21 @@ impl Jit {
             false
         }
     }
-    
-    /// 记录编译完成并更新自适应阈值
-    pub fn record_compile_done(&mut self, compile_time_ns: u64) {
+
+    fn record_compile_done(&mut self, compile_time_ns: u64) {
         self.adaptive_threshold.record_compile(compile_time_ns);
-        self.adaptive_threshold.adjust();
     }
 
-    /// 记录编译代码执行并更新统计
-    pub fn record_compiled_execution(&mut self, exec_time_ns: u64, block_ops: usize) {
-        // 估计解释器执行时间 (假设每条操作约 50ns)
-        let estimated_interp_time = (block_ops as u64) * 50;
-        self.adaptive_threshold.record_compiled_hit(exec_time_ns, estimated_interp_time);
+    fn record_compiled_execution(&mut self, exec_time_ns: u64, block_ops_count: usize) {
+        let estimated_interp_time_ns = exec_time_ns + (block_ops_count as u64) * 500;
+        self.adaptive_threshold
+            .record_compiled_hit(exec_time_ns, estimated_interp_time_ns);
     }
 
-    /// 记录解释器执行
-    pub fn record_interpreted_execution(&mut self) {
+    fn record_interpreted_execution(&mut self) {
         self.adaptive_threshold.record_interpreted();
     }
-
-    /// 获取自适应阈值统计信息
-    pub fn adaptive_stats(&self) -> AdaptiveThresholdStats {
-        self.adaptive_threshold.stats()
-    }
     
-    /// 记录编译完成并更新自适应阈值
-    pub fn record_compile_done(&mut self, compile_time_ns: u64) {
-        self.adaptive_threshold.record_compile(compile_time_ns);
-        self.adaptive_threshold.adjust();
-    }
-
-    /// 记录编译代码执行并更新统计
-    pub fn record_compiled_execution(&mut self, exec_time_ns: u64, block_ops: usize) {
-        // 估计解释器执行时间 (假设每条操作约 50ns)
-        let estimated_interp_time = (block_ops as u64) * 50;
-        self.adaptive_threshold.record_compiled_hit(exec_time_ns, estimated_interp_time);
-    }
-
-    /// 记录解释器执行
-    pub fn record_interpreted_execution(&mut self) {
-        self.adaptive_threshold.record_interpreted();
-    }
-
     /// 获取自适应阈值统计信息
     pub fn adaptive_stats(&self) -> AdaptiveThresholdStats {
         self.adaptive_threshold.stats()
@@ -869,13 +717,10 @@ impl Jit {
             return ptr.0;
         }
 
-        let mut ctx = std::mem::replace(&mut self.ctx, cranelift_codegen::Context::new());
-        ctx.func.signature.params.clear();
-        ctx.func.signature.returns.clear();
-        ctx.func.signature.params.push(AbiParam::new(types::I64));
-        ctx.func.signature.params.push(AbiParam::new(types::I64));
-        ctx.func.signature.params.push(AbiParam::new(types::I64));
-        ctx.func.signature.returns.push(AbiParam::new(types::I64));
+        // 应用循环优化
+        let mut optimized_block = block.clone();
+        self.loop_optimizer.optimize(&mut optimized_block);
+
         let mut ctx = std::mem::replace(&mut self.ctx, cranelift_codegen::Context::new());
         ctx.func.signature.params.clear();
         ctx.func.signature.returns.clear();
@@ -895,10 +740,14 @@ impl Jit {
 
         let regs_ptr = builder.block_params(entry_block)[0];
         let ctx_ptr = builder.block_params(entry_block)[1];
+        let ctx_ptr = builder.block_params(entry_block)[1];
         let fregs_ptr = builder.block_params(entry_block)[2];
 
-        for op in &block.ops {
+        for op in &optimized_block.ops {
             match op {
+                // ============================================================
+                // 算术运算 (Arithmetic Operations)
+                // ============================================================
                 // ============================================================
                 // 算术运算 (Arithmetic Operations)
                 // ============================================================
@@ -1075,12 +924,13 @@ impl Jit {
                 // 内存访问 (Memory Access)
                 // ============================================================
                 IROp::Load { dst, base, offset, size, flags } => {
+                IROp::Load { dst, base, offset, size, flags } => {
                     let base_val = Self::load_reg(&mut builder, regs_ptr, *base);
                     let offset_val = builder.ins().iconst(types::I64, *offset);
                     let vaddr = builder.ins().iadd(base_val, offset_val);
                     if matches!(flags.order, vm_ir::MemOrder::Acquire | vm_ir::MemOrder::AcqRel) {
                         let sig = self.module.make_signature();
-                        let func_id = self.module.declare_function("barrier_acquire", Linkage::Import, &sig).unwrap();
+                        let func_id = self.module.declare_function("barrier_acquire", Linkage::Import, &sig).expect("Operation failed");
                         let funcref = self.module.declare_func_in_func(func_id, builder.func);
                         let _ = builder.ins().call(funcref, &[]);
                     }
@@ -1089,7 +939,7 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64)); // vaddr
                     sig.params.push(AbiParam::new(types::I8));  // size
                     sig.returns.push(AbiParam::new(types::I64));
-                    let func_id = self.module.declare_function("jit_read", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_read", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let call = builder.ins().call(funcref, &[ctx_ptr, vaddr, size_val]);
@@ -1097,8 +947,10 @@ impl Jit {
                     Self::store_reg(&mut builder, regs_ptr, *dst, res64);
                 }
                 IROp::Store { src, base, offset, size, flags } => {
+                IROp::Store { src, base, offset, size, flags } => {
                     let base_val = Self::load_reg(&mut builder, regs_ptr, *base);
                     let offset_val = builder.ins().iconst(types::I64, *offset);
+                    let vaddr = builder.ins().iadd(base_val, offset_val);
                     let vaddr = builder.ins().iadd(base_val, offset_val);
                     let val = Self::load_reg(&mut builder, regs_ptr, *src);
                     let mut sig = self.module.make_signature();
@@ -1106,13 +958,13 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64)); // vaddr
                     sig.params.push(AbiParam::new(types::I64)); // value
                     sig.params.push(AbiParam::new(types::I8));  // size
-                    let func_id = self.module.declare_function("jit_write", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_write", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let _ = builder.ins().call(funcref, &[ctx_ptr, vaddr, val, size_val]);
                     if matches!(flags.order, vm_ir::MemOrder::Release | vm_ir::MemOrder::AcqRel) {
                         let sig2 = self.module.make_signature();
-                        let func_id2 = self.module.declare_function("barrier_release", Linkage::Import, &sig2).unwrap();
+                        let func_id2 = self.module.declare_function("barrier_release", Linkage::Import, &sig2).expect("Operation failed");
                         let funcref2 = self.module.declare_func_in_func(func_id2, builder.func);
                         let _ = builder.ins().call(funcref2, &[]);
                     }
@@ -1127,7 +979,7 @@ impl Jit {
                     let vaddr = builder.ins().iadd(base_val, offset_val);
                     if matches!(flags.order, vm_ir::MemOrder::Acquire | vm_ir::MemOrder::AcqRel) || flags.fence_before {
                         let sigb = self.module.make_signature();
-                        let fidb = self.module.declare_function("barrier_acquire", Linkage::Import, &sigb).unwrap();
+                        let fidb = self.module.declare_function("barrier_acquire", Linkage::Import, &sigb).expect("Operation failed");
                         let frb = self.module.declare_func_in_func(fidb, builder.func);
                         let _ = builder.ins().call(frb, &[]);
                     }
@@ -1136,7 +988,7 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64)); // vaddr
                     sig.params.push(AbiParam::new(types::I8));  // size
                     sig.returns.push(AbiParam::new(types::I64));
-                    let func_id = self.module.declare_function("jit_lr", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_lr", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let call = builder.ins().call(funcref, &[ctx_ptr, vaddr, size_val]);
@@ -1150,7 +1002,7 @@ impl Jit {
                     let val = Self::load_reg(&mut builder, regs_ptr, *src);
                     if matches!(flags.order, vm_ir::MemOrder::SeqCst) {
                         let sigf = self.module.make_signature();
-                        let fidf = self.module.declare_function("barrier_full", Linkage::Import, &sigf).unwrap();
+                        let fidf = self.module.declare_function("barrier_full", Linkage::Import, &sigf).expect("Operation failed");
                         let frf = self.module.declare_func_in_func(fidf, builder.func);
                         let _ = builder.ins().call(frf, &[]);
                     }
@@ -1160,7 +1012,7 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64)); // value
                     sig.params.push(AbiParam::new(types::I8));  // size
                     sig.returns.push(AbiParam::new(types::I64));
-                    let func_id = self.module.declare_function("jit_sc", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_sc", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let call = builder.ins().call(funcref, &[ctx_ptr, vaddr, val, size_val]);
@@ -1169,7 +1021,7 @@ impl Jit {
                     Self::store_reg(&mut builder, regs_ptr, *dst_flag, ok64);
                     if matches!(flags.order, vm_ir::MemOrder::Release | vm_ir::MemOrder::AcqRel) || flags.fence_after {
                         let siga = self.module.make_signature();
-                        let fida = self.module.declare_function("barrier_release", Linkage::Import, &siga).unwrap();
+                        let fida = self.module.declare_function("barrier_release", Linkage::Import, &siga).expect("Operation failed");
                         let fra = self.module.declare_func_in_func(fida, builder.func);
                         let _ = builder.ins().call(fra, &[]);
                     }
@@ -1278,11 +1130,12 @@ impl Jit {
                     Self::store_reg(&mut builder, regs_ptr, *dst, old_val_ext);
                 }
                 IROp::AtomicRMWOrder { dst, base, src, op, size, flags } => {
+                IROp::AtomicRMWOrder { dst, base, src, op, size, flags } => {
                     let addr = Self::load_reg(&mut builder, regs_ptr, *base);
                     let val = Self::load_reg(&mut builder, regs_ptr, *src);
                     if matches!(flags.order, vm_ir::MemOrder::Acquire | vm_ir::MemOrder::AcqRel) || flags.fence_before {
                         let sigb = self.module.make_signature();
-                        let fidb = self.module.declare_function("barrier_acquire", Linkage::Import, &sigb).unwrap();
+                        let fidb = self.module.declare_function("barrier_acquire", Linkage::Import, &sigb).expect("Operation failed");
                         let frb = self.module.declare_func_in_func(fidb, builder.func);
                         let _ = builder.ins().call(frb, &[]);
                     }
@@ -1311,7 +1164,7 @@ impl Jit {
                     Self::store_reg(&mut builder, regs_ptr, *dst, old_ext);
                     if matches!(flags.order, vm_ir::MemOrder::Release | vm_ir::MemOrder::AcqRel) || flags.fence_after {
                         let siga = self.module.make_signature();
-                        let fida = self.module.declare_function("barrier_release", Linkage::Import, &siga).unwrap();
+                        let fida = self.module.declare_function("barrier_release", Linkage::Import, &siga).expect("Operation failed");
                         let fra = self.module.declare_func_in_func(fida, builder.func);
                         let _ = builder.ins().call(fra, &[]);
                     }
@@ -1327,7 +1180,7 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64)); // new
                     sig.params.push(AbiParam::new(types::I8));  // size
                     sig.returns.push(AbiParam::new(types::I64));
-                    let func_id = self.module.declare_function("jit_cas", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_cas", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let call = builder.ins().call(funcref, &[ctx_ptr, base_val, exp, new_val, size_val]);
@@ -1340,13 +1193,13 @@ impl Jit {
                     let new_val = Self::load_reg(&mut builder, regs_ptr, *new);
                     if matches!(flags.order, vm_ir::MemOrder::Acquire) || flags.fence_before {
                         let sigb = self.module.make_signature();
-                        let fidb = self.module.declare_function("barrier_acquire", Linkage::Import, &sigb).unwrap();
+                        let fidb = self.module.declare_function("barrier_acquire", Linkage::Import, &sigb).expect("Operation failed");
                         let frb = self.module.declare_func_in_func(fidb, builder.func);
                         let _ = builder.ins().call(frb, &[]);
                     }
                     if matches!(flags.order, vm_ir::MemOrder::SeqCst) {
                         let sigf = self.module.make_signature();
-                        let fidf = self.module.declare_function("barrier_full", Linkage::Import, &sigf).unwrap();
+                        let fidf = self.module.declare_function("barrier_full", Linkage::Import, &sigf).expect("Operation failed");
                         let frf = self.module.declare_func_in_func(fidf, builder.func);
                         let _ = builder.ins().call(frf, &[]);
                     }
@@ -1357,7 +1210,7 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64));
                     sig.params.push(AbiParam::new(types::I8));
                     sig.returns.push(AbiParam::new(types::I64));
-                    let func_id = self.module.declare_function("jit_cas", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_cas", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let call = builder.ins().call(funcref, &[ctx_ptr, base_val, exp, new_val, size_val]);
@@ -1365,13 +1218,13 @@ impl Jit {
                     Self::store_reg(&mut builder, regs_ptr, *dst, old_val);
                     if matches!(flags.order, vm_ir::MemOrder::Release) || matches!(flags.order, vm_ir::MemOrder::AcqRel) || flags.fence_after {
                         let siga = self.module.make_signature();
-                        let fida = self.module.declare_function("barrier_release", Linkage::Import, &siga).unwrap();
+                        let fida = self.module.declare_function("barrier_release", Linkage::Import, &siga).expect("Operation failed");
                         let fra = self.module.declare_func_in_func(fida, builder.func);
                         let _ = builder.ins().call(fra, &[]);
                     }
                     if matches!(flags.order, vm_ir::MemOrder::SeqCst) {
                         let sigf2 = self.module.make_signature();
-                        let fidf2 = self.module.declare_function("barrier_full", Linkage::Import, &sigf2).unwrap();
+                        let fidf2 = self.module.declare_function("barrier_full", Linkage::Import, &sigf2).expect("Operation failed");
                         let frf2 = self.module.declare_func_in_func(fidf2, builder.func);
                         let _ = builder.ins().call(frf2, &[]);
                     }
@@ -1797,7 +1650,7 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64));
                     sig.params.push(AbiParam::new(types::I8));
                     sig.returns.push(AbiParam::new(types::I64));
-                    let func_id = self.module.declare_function("jit_read", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_read", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let call = builder.ins().call(funcref, &[ctx_ptr, vaddr, size_val]);
@@ -1828,7 +1681,7 @@ impl Jit {
                     sig.params.push(AbiParam::new(types::I64));
                     sig.params.push(AbiParam::new(types::I64));
                     sig.params.push(AbiParam::new(types::I8));
-                    let func_id = self.module.declare_function("jit_write", Linkage::Import, &sig).unwrap();
+                    let func_id = self.module.declare_function("jit_write", Linkage::Import, &sig).expect("Operation failed");
                     let funcref = self.module.declare_func_in_func(func_id, builder.func);
                     let size_val = builder.ins().iconst(types::I8, *size as i64);
                     let _ = builder.ins().call(funcref, &[ctx_ptr, vaddr, iv, size_val]);
@@ -1861,7 +1714,7 @@ impl Jit {
             }
         }
 
-        match &block.term {
+        match &optimized_block.term {
             // 无条件跳转
             // 无条件跳转
             Terminator::Jmp { target } => {
@@ -1870,12 +1723,16 @@ impl Jit {
             }
             // 条件分支
             // 条件分支
+            // 条件分支
             Terminator::CondJmp { cond, target_true, target_false } => {
                 let v = Self::load_reg(&mut builder, regs_ptr, *cond);
                 let zero = builder.ins().iconst(types::I64, 0);
                 let cond_b = builder.ins().icmp(IntCC::NotEqual, v, zero);
+                let zero = builder.ins().iconst(types::I64, 0);
+                let cond_b = builder.ins().icmp(IntCC::NotEqual, v, zero);
                 let true_block = builder.create_block();
                 let false_block = builder.create_block();
+                builder.ins().brif(cond_b, true_block, &[], false_block, &[]);
                 builder.ins().brif(cond_b, true_block, &[], false_block, &[]);
 
                 builder.switch_to_block(true_block);
@@ -1897,7 +1754,7 @@ impl Jit {
             }
             // 返回指令 (使用 x30/ra 寄存器作为返回地址)
             Terminator::Ret => {
-                let ra = Self::load_reg(&mut builder, regs_ptr, 30); // x30 = ra
+                let ra = Self::load_reg(&mut builder, regs_ptr, 30);
                 builder.ins().return_(&[ra]);
             }
             // 中断/异常 - 返回当前PC以便外部处理
@@ -1924,7 +1781,7 @@ impl Jit {
             }
             // 返回指令 (使用 x30/ra 寄存器作为返回地址)
             Terminator::Ret => {
-                let ra = Self::load_reg(&mut builder, regs_ptr, 30); // x30 = ra
+                let ra = Self::load_reg(&mut builder, regs_ptr, 30);
                 builder.ins().return_(&[ra]);
             }
             // 中断/异常 - 返回当前PC以便外部处理
@@ -1946,13 +1803,10 @@ impl Jit {
 
         builder.finalize();
 
-        let id = self.module.declare_function(&format!("func_{}", block.start_pc), Linkage::Export, &ctx.func.signature).unwrap();
-        self.module.define_function(id, &mut ctx).unwrap();
+        let id = self.module.declare_function(&format!("func_{}", block.start_pc), Linkage::Export, &ctx.func.signature).expect("Operation failed");
+        self.module.define_function(id, &mut ctx).expect("Operation failed");
         self.module.clear_context(&mut ctx);
-        let id = self.module.declare_function(&format!("func_{}", block.start_pc), Linkage::Export, &ctx.func.signature).unwrap();
-        self.module.define_function(id, &mut ctx).unwrap();
-        self.module.clear_context(&mut ctx);
-        self.module.finalize_definitions().unwrap();
+        self.module.finalize_definitions().expect("Operation failed");
 
         let code = self.module.get_finalized_function(id);
         self.cache.insert(block.start_pc, CodePtr(code));
@@ -1965,18 +1819,6 @@ impl Jit {
         code
     }
 
-    pub fn compile_many_parallel(&mut self, blocks: &[IRBlock]) {
-        let shared = self.pool_cache.get_or_insert_with(|| Arc::new(Mutex::new(HashMap::new()))).clone();
-        use rayon::prelude::*;
-        blocks.par_iter().for_each(|b| {
-            let mut worker = Jit::new();
-            let ptr = worker.compile(b);
-            if let Ok(mut map) = shared.lock() {
-                map.insert(b.start_pc, CodePtr(ptr));
-            }
-            std::mem::forget(worker);
-        });
-    }
 
     pub fn compile_many_parallel(&mut self, blocks: &[IRBlock]) {
         let shared = self.pool_cache.get_or_insert_with(|| Arc::new(Mutex::new(HashMap::new()))).clone();
@@ -1984,9 +1826,8 @@ impl Jit {
         blocks.par_iter().for_each(|b| {
             let mut worker = Jit::new();
             let ptr = worker.compile(b);
-            if let Ok(mut map) = shared.lock() {
-                map.insert(b.start_pc, CodePtr(ptr));
-            }
+            let mut map = shared.lock();
+            map.insert(b.start_pc, CodePtr(ptr));
             std::mem::forget(worker);
         });
     }
@@ -1997,10 +1838,14 @@ impl ExecutionEngine<IRBlock> for Jit {
         let mut executed_ops = 0;
         let block_ops_count = block.ops.len();
         let sample_interval = 100u64;
+        let sample_interval = 100u64;
         
         // 基本块键值使用 start_pc 而非当前 pc
         let pc_key = block.start_pc;
+        // 基本块键值使用 start_pc 而非当前 pc
+        let pc_key = block.start_pc;
         // 检查是否需要编译并记录编译时间
+        if self.record_execution(pc_key) {
         if self.record_execution(pc_key) {
             let compile_start = std::time::Instant::now();
             self.compile(block);
@@ -2009,10 +1854,12 @@ impl ExecutionEngine<IRBlock> for Jit {
         }
 
         let pooled: Option<CodePtr> = self.pool_cache.as_ref()
-            .and_then(|c| c.lock().ok().and_then(|h| h.get(&pc_key).copied()));
+            .and_then(|c| c.lock().get(&pc_key).copied());
         let local: Option<CodePtr> = self.cache.get(&pc_key).copied();
         
         if let Some(code_ptr) = local.or(pooled) {
+            let stats = self.adaptive_stats();
+            tracing::debug!(pc = self.pc, block_start = block.start_pc, hot = self.get_stats(self.pc).map(|s| s.exec_count).unwrap_or(0), compiled_total = self.total_compiled, interpreted_total = self.total_interpreted, threshold = stats.current_threshold, hit_compiled = stats.compiled_hits, hit_interpreted = stats.interpreted_runs, "jit: execute compiled block");
             let stats = self.adaptive_stats();
             tracing::debug!(pc = self.pc, block_start = block.start_pc, hot = self.get_stats(self.pc).map(|s| s.exec_count).unwrap_or(0), compiled_total = self.total_compiled, interpreted_total = self.total_interpreted, threshold = stats.current_threshold, hit_compiled = stats.compiled_hits, hit_interpreted = stats.interpreted_runs, "jit: execute compiled block");
             // 执行编译后的代码并记录执行时间
@@ -2036,7 +1883,24 @@ impl ExecutionEngine<IRBlock> for Jit {
             let stats = self.adaptive_stats();
             tracing::debug!(pc = self.pc, block_start = block.start_pc, hot = self.get_stats(self.pc).map(|s| s.exec_count).unwrap_or(0), compiled_total = self.total_compiled, interpreted_total = self.total_interpreted, threshold = stats.current_threshold, hit_compiled = stats.compiled_hits, hit_interpreted = stats.interpreted_runs, "jit: fallback terminator evaluation");
             // Fallback: 未编译路径根据终结符计算 next_pc
+            let stats = self.adaptive_stats();
+            tracing::debug!(pc = self.pc, block_start = block.start_pc, hot = self.get_stats(self.pc).map(|s| s.exec_count).unwrap_or(0), compiled_total = self.total_compiled, interpreted_total = self.total_interpreted, threshold = stats.current_threshold, hit_compiled = stats.compiled_hits, hit_interpreted = stats.interpreted_runs, "jit: fallback terminator evaluation");
+            // Fallback: 未编译路径根据终结符计算 next_pc
             self.record_interpreted_execution();
+            match &block.term {
+                Terminator::Jmp { target } => { self.pc = *target; }
+                Terminator::CondJmp { cond, target_true, target_false } => {
+                    let cond_val = self.regs[*cond as usize];
+                    self.pc = if cond_val != 0 { *target_true } else { *target_false };
+                }
+                Terminator::JmpReg { base, offset } => {
+                    let base_val = self.regs[*base as usize] as i64;
+                    self.pc = (base_val + *offset) as u64;
+                }
+                Terminator::Ret => { /* 保持当前 pc 以便上层处理 */ }
+                Terminator::Interrupt { .. } | Terminator::Fault { .. } => { /* 保持当前 pc */ }
+                Terminator::Call { target, .. } => { self.pc = *target; }
+            }
             match &block.term {
                 Terminator::Jmp { target } => { self.pc = *target; }
                 Terminator::CondJmp { cond, target_true, target_false } => {
@@ -2056,6 +1920,11 @@ impl ExecutionEngine<IRBlock> for Jit {
         
         // 定期调整自适应阈值
         self.adaptive_threshold.adjust();
+        let stats = self.adaptive_stats();
+        let total_runs = stats.compiled_hits + stats.interpreted_runs;
+        if total_runs % sample_interval == 0 {
+            tracing::debug!(threshold = stats.current_threshold, total_compiles = stats.total_compiles, compiled_hits = stats.compiled_hits, interpreted_runs = stats.interpreted_runs, avg_compile_time_ns = stats.avg_compile_time_ns, avg_benefit_ns = stats.avg_benefit_ns, "jit: periodic-sample");
+        }
         let stats = self.adaptive_stats();
         let total_runs = stats.compiled_hits + stats.interpreted_runs;
         if total_runs % sample_interval == 0 {
@@ -2101,27 +1970,27 @@ impl ExecutionEngine<IRBlock> for Jit {
 mod tests {
     use super::*;
     use vm_mem::SoftMmu;
-    use vm_ir::{MemFlags, IRBlock, IROp, Terminator};
+    use vm_ir::{IRBlock, IROp, Terminator};
 
     #[test]
     fn test_jit_load_store_with_mmu() {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
-        mmu.write(0x200, 0xDEAD_BEEF_DEAD_BEEFu64, 8).unwrap();
+        mmu.write(0x200, 0xDEAD_BEEF_DEAD_BEEFu64, 8).expect("Operation failed");
         let mut ctx = JitContext { mmu: &mut mmu };
-        let val = unsafe { jit_read(&mut ctx, 0x200, 8) };
+        let val = jit_read(&mut ctx, 0x200, 8);
         assert_eq!(val, 0xDEAD_BEEF_DEAD_BEEF);
-        unsafe { jit_write(&mut ctx, 0x208, 0xABCDu64, 2) };
-        assert_eq!(mmu.read(0x208, 2).unwrap(), 0xABCD);
+        jit_write(&mut ctx, 0x208, 0xABCDu64, 2);
+        assert_eq!(mmu.read(0x208, 2).expect("Operation failed"), 0xABCD);
     }
 
     #[test]
     fn test_jit_atomic_cas() {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
-        mmu.write(0x300, 0x1234_5678u64, 8).unwrap();
+        mmu.write(0x300, 0x1234_5678u64, 8).expect("Operation failed");
         let mut ctx = JitContext { mmu: &mut mmu };
-        let old = unsafe { jit_cas(&mut ctx, 0x300, 0x1234_5678, 0xAAAA_BBBB, 8) };
+        let old = jit_cas(&mut ctx, 0x300, 0x1234_5678, 0xAAAA_BBBB, 8);
         assert_eq!(old, 0x1234_5678);
-        assert_eq!(mmu.read(0x300, 8).unwrap(), 0xAAAA_BBBB);
+        assert_eq!(mmu.read(0x300, 8).expect("Operation failed"), 0xAAAA_BBBB);
     }
 
     #[test]

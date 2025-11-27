@@ -79,7 +79,7 @@ impl CdromDevice {
             return Err(CdromError::SectorOutOfRange);
         }
 
-        let mut file = image.lock().unwrap();
+        let mut file = image.lock().expect("Failed to lock CDROM image file");
         
         let offset = sector as u64 * 2048;
         file.seek(SeekFrom::Start(offset))?;
