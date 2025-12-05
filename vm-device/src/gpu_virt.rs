@@ -1,6 +1,6 @@
-use wgpu;
-use thiserror::Error;
 use std::sync::{Arc, Mutex};
+use thiserror::Error;
+use wgpu;
 
 /// GPU 后端统计信息
 #[derive(Debug, Clone, Default)]
@@ -72,42 +72,43 @@ impl GpuBackend for WgpuBackend {
 
     fn init(&mut self) -> Result<(), GpuVirtError> {
         // 请求适配器，优先选择高性能 GPU
-        let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        })).map_err(|e| GpuVirtError::AdapterRequest(e.to_string()))?;
+        let adapter =
+            pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            }))
+            .map_err(|e| GpuVirtError::AdapterRequest(e.to_string()))?;
 
         self.adapter = Some(adapter.clone());
         let info = adapter.get_info();
         println!("Selected GPU: {} ({:?})", info.name, info.backend);
 
         // 请求设备和队列，启用所有可用的 WebGPU 功能
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::all_webgpu_mask(),
-                required_limits: wgpu::Limits {
-                    max_texture_dimension_1d: 8192,
-                    max_texture_dimension_2d: 8192,
-                    max_texture_dimension_3d: 2048,
-                    max_bind_groups: 8,
-                    max_dynamic_uniform_buffers_per_pipeline_layout: 8,
-                    max_dynamic_storage_buffers_per_pipeline_layout: 4,
-                    max_sampled_textures_per_shader_stage: 16,
-                    max_samplers_per_shader_stage: 16,
-                    max_storage_buffers_per_shader_stage: 8,
-                    max_storage_textures_per_shader_stage: 4,
-                    max_uniform_buffers_per_shader_stage: 12,
-                    max_uniform_buffer_binding_size: 65536,
-                    max_storage_buffer_binding_size: 134217728,
-                    max_buffer_size: 268435456,
-                    max_push_constant_size: 0,
-                    ..Default::default()
-                },
-                label: Some("VM GPU Device"),
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_features: wgpu::Features::all_webgpu_mask(),
+            required_limits: wgpu::Limits {
+                max_texture_dimension_1d: 8192,
+                max_texture_dimension_2d: 8192,
+                max_texture_dimension_3d: 2048,
+                max_bind_groups: 8,
+                max_dynamic_uniform_buffers_per_pipeline_layout: 8,
+                max_dynamic_storage_buffers_per_pipeline_layout: 4,
+                max_sampled_textures_per_shader_stage: 16,
+                max_samplers_per_shader_stage: 16,
+                max_storage_buffers_per_shader_stage: 8,
+                max_storage_textures_per_shader_stage: 4,
+                max_uniform_buffers_per_shader_stage: 12,
+                max_uniform_buffer_binding_size: 65536,
+                max_storage_buffer_binding_size: 134217728,
+                max_buffer_size: 268435456,
+                max_push_constant_size: 0,
                 ..Default::default()
             },
-        )).map_err(|e: wgpu::RequestDeviceError| GpuVirtError::DeviceRequest(e.to_string()))?;
+            label: Some("VM GPU Device"),
+            ..Default::default()
+        }))
+        .map_err(|e: wgpu::RequestDeviceError| GpuVirtError::DeviceRequest(e.to_string()))?;
 
         self.device = Some(Arc::new(device));
         self.queue = Some(Arc::new(queue));
@@ -180,7 +181,10 @@ impl GpuManager {
             Box::new(PassthroughBackend::new()),
         ];
 
-        Self { backends, selected_backend: None }
+        Self {
+            backends,
+            selected_backend: None,
+        }
     }
 
     pub fn auto_select_backend(&mut self) {

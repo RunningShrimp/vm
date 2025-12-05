@@ -1,0 +1,501 @@
+//! 领域事件总线
+//!
+//! 提供统一的事件发布订阅机制，支持领域事件的异步处理和过滤。
+
+use crate::VmError;
+use crate::domain_events::DomainEvent;
+use std::collections::HashMap;
+use std::sync::{
+    Arc, Mutex, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
+use std::time::SystemTime;
+
+/// 事件订阅ID
+pub type EventSubscriptionId = u64;
+
+/// 事件过滤器
+pub trait EventFilter: Send + Sync {
+    /// 检查事件是否应该被处理
+    fn matches(&self, event: &dyn DomainEvent) -> bool;
+}
+
+/// 事件处理器
+pub trait EventHandler: Send + Sync {
+    /// 处理事件
+    fn handle(&self, event: &dyn DomainEvent) -> Result<(), VmError>;
+
+    /// 获取处理器优先级（数字越小优先级越高）
+    fn priority(&self) -> u32 {
+        100
+    }
+}
+
+/// 事件订阅
+struct EventSubscription {
+    id: EventSubscriptionId,
+    filter: Option<Box<dyn EventFilter>>,
+    handler: Box<dyn EventHandler>,
+    priority: u32,
+}
+
+/// 领域事件总线
+pub struct DomainEventBus {
+    subscriptions: Arc<RwLock<HashMap<String, Vec<EventSubscription>>>>,
+    next_id: AtomicU64,
+    /// 是否启用异步处理
+    async_enabled: bool,
+}
+
+impl DomainEventBus {
+    /// 创建新的事件总线
+    pub fn new() -> Self {
+        Self {
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            next_id: AtomicU64::new(1),
+            async_enabled: false,
+        }
+    }
+
+    /// 创建启用异步处理的事件总线
+    pub fn with_async() -> Self {
+        Self {
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            next_id: AtomicU64::new(1),
+            async_enabled: true,
+        }
+    }
+
+    /// 发布事件
+    pub fn publish<E: DomainEvent>(&self, event: E) -> Result<(), VmError> {
+        let event_type = event.event_type();
+        let subscriptions = self.subscriptions.read().map_err(|_| {
+            VmError::Core(crate::CoreError::Concurrency {
+                message: "Failed to acquire subscriptions lock".to_string(),
+                operation: "publish".to_string(),
+            })
+        })?;
+
+        // 获取该事件类型的所有订阅
+        let mut handlers: Vec<&EventSubscription> = subscriptions
+            .get(event_type)
+            .map(|subs| subs.iter().collect())
+            .unwrap_or_default();
+
+        // 按优先级排序
+        handlers.sort_by_key(|sub| sub.priority);
+
+        // 应用过滤器并执行处理器
+        for subscription in handlers {
+            // 检查过滤器
+            if let Some(filter) = &subscription.filter {
+                if !filter.matches(&event) {
+                    continue;
+                }
+            }
+
+            // 执行处理器
+            if let Err(e) = subscription.handler.handle(&event) {
+                // 记录错误但继续处理其他订阅者
+                eprintln!("Event handler error: {:?}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 订阅事件
+    pub fn subscribe(
+        &self,
+        event_type: &str,
+        handler: Box<dyn EventHandler>,
+        filter: Option<Box<dyn EventFilter>>,
+    ) -> Result<EventSubscriptionId, VmError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let priority = handler.priority();
+
+        let subscription = EventSubscription {
+            id,
+            filter,
+            handler,
+            priority,
+        };
+
+        let mut subscriptions = self.subscriptions.write().map_err(|_| {
+            VmError::Core(crate::CoreError::Concurrency {
+                message: "Failed to acquire subscriptions lock".to_string(),
+                operation: "subscribe".to_string(),
+            })
+        })?;
+
+        subscriptions
+            .entry(event_type.to_string())
+            .or_insert_with(Vec::new)
+            .push(subscription);
+
+        Ok(id)
+    }
+
+    /// 取消订阅
+    pub fn unsubscribe(&self, event_type: &str, id: EventSubscriptionId) -> Result<(), VmError> {
+        let mut subscriptions = self.subscriptions.write().map_err(|_| {
+            VmError::Core(crate::CoreError::Concurrency {
+                message: "Failed to acquire subscriptions lock".to_string(),
+                operation: "unsubscribe".to_string(),
+            })
+        })?;
+
+        if let Some(subs) = subscriptions.get_mut(event_type) {
+            subs.retain(|sub| sub.id != id);
+            if subs.is_empty() {
+                subscriptions.remove(event_type);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 取消订阅（通过订阅ID，自动查找事件类型）
+    pub fn unsubscribe_by_id(&self, id: EventSubscriptionId) -> Result<(), VmError> {
+        let mut subscriptions = self.subscriptions.write().map_err(|_| {
+            VmError::Core(crate::CoreError::Concurrency {
+                message: "Failed to acquire subscriptions lock".to_string(),
+                operation: "unsubscribe_by_id".to_string(),
+            })
+        })?;
+
+        // 遍历所有事件类型，查找匹配的订阅
+        let mut event_type_to_remove: Option<String> = None;
+        for (event_type, subs) in subscriptions.iter_mut() {
+            if subs.iter().any(|sub| sub.id == id) {
+                subs.retain(|sub| sub.id != id);
+                if subs.is_empty() {
+                    event_type_to_remove = Some(event_type.clone());
+                }
+                break;
+            }
+        }
+
+        if let Some(event_type) = event_type_to_remove {
+            subscriptions.remove(&event_type);
+        }
+
+        Ok(())
+    }
+
+    /// 获取订阅统计
+    pub fn stats(&self) -> EventBusStats {
+        let subscriptions = self.subscriptions.read().ok();
+        let total_subscriptions = subscriptions
+            .as_ref()
+            .map(|s| s.values().map(|v| v.len()).sum())
+            .unwrap_or(0);
+        let event_types = subscriptions.as_ref().map(|s| s.len()).unwrap_or(0);
+
+        EventBusStats {
+            total_subscriptions,
+            event_types,
+        }
+    }
+}
+
+impl Default for DomainEventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 事件总线统计
+#[derive(Debug, Clone)]
+pub struct EventBusStats {
+    pub total_subscriptions: usize,
+    pub event_types: usize,
+}
+
+/// 简单的事件过滤器实现
+pub struct TypeEventFilter {
+    event_type: String,
+}
+
+impl TypeEventFilter {
+    pub fn new(event_type: &str) -> Self {
+        Self {
+            event_type: event_type.to_string(),
+        }
+    }
+}
+
+impl EventFilter for TypeEventFilter {
+    fn matches(&self, event: &dyn DomainEvent) -> bool {
+        event.event_type() == self.event_type
+    }
+}
+
+/// 简单的事件处理器实现
+pub struct SimpleEventHandler<F>
+where
+    F: Fn(&dyn DomainEvent) -> Result<(), VmError> + Send + Sync,
+{
+    handler: F,
+    priority: u32,
+}
+
+impl<F> SimpleEventHandler<F>
+where
+    F: Fn(&dyn DomainEvent) -> Result<(), VmError> + Send + Sync,
+{
+    pub fn new(handler: F) -> Self {
+        Self {
+            handler,
+            priority: 100,
+        }
+    }
+
+    pub fn with_priority(handler: F, priority: u32) -> Self {
+        Self { handler, priority }
+    }
+}
+
+impl<F> EventHandler for SimpleEventHandler<F>
+where
+    F: Fn(&dyn DomainEvent) -> Result<(), VmError> + Send + Sync,
+{
+    fn handle(&self, event: &dyn DomainEvent) -> Result<(), VmError> {
+        (self.handler)(event)
+    }
+
+    fn priority(&self) -> u32 {
+        self.priority
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain_events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_event_bus_publish_subscribe() {
+        let bus = DomainEventBus::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let counter_clone = counter.clone();
+        let handler = SimpleEventHandler::new(move |_| {
+            counter_clone.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+
+        bus.subscribe("vm.started", Box::new(handler), None)
+            .unwrap();
+
+        let event = VmLifecycleEvent::VmStarted {
+            vm_id: "test".to_string(),
+            occurred_at: SystemTime::now(),
+        };
+
+        bus.publish(event).unwrap();
+
+        // 等待处理完成
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_event_bus_multiple_subscribers() {
+        let bus = DomainEventBus::new();
+        let counter1 = Arc::new(AtomicUsize::new(0));
+        let counter2 = Arc::new(AtomicUsize::new(0));
+
+        let counter1_clone = counter1.clone();
+        let handler1 = SimpleEventHandler::new(move |_| {
+            counter1_clone.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+
+        let counter2_clone = counter2.clone();
+        let handler2 = SimpleEventHandler::new(move |_| {
+            counter2_clone.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+
+        bus.subscribe("vm.started", Box::new(handler1), None).unwrap();
+        bus.subscribe("vm.started", Box::new(handler2), None).unwrap();
+
+        let event = VmLifecycleEvent::VmStarted {
+            vm_id: "test".to_string(),
+            occurred_at: SystemTime::now(),
+        };
+
+        bus.publish(event).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(counter1.load(Ordering::Relaxed), 1);
+        assert_eq!(counter2.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_event_bus_filter() {
+        let bus = DomainEventBus::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        struct VmIdFilter {
+            vm_id: String,
+        }
+
+        impl EventFilter for VmIdFilter {
+            fn matches(&self, event: &dyn DomainEvent) -> bool {
+                // 简化实现：检查事件类型
+                event.event_type().contains(&self.vm_id)
+            }
+        }
+
+        let counter_clone = counter.clone();
+        let handler = SimpleEventHandler::new(move |_| {
+            counter_clone.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+
+        let filter = Box::new(VmIdFilter {
+            vm_id: "test-vm".to_string(),
+        });
+
+        bus.subscribe("vm.started", Box::new(handler), Some(filter)).unwrap();
+
+        // 匹配的事件
+        let event1 = VmLifecycleEvent::VmStarted {
+            vm_id: "test-vm".to_string(),
+            occurred_at: SystemTime::now(),
+        };
+        bus.publish(event1).unwrap();
+
+        // 不匹配的事件（应该被过滤）
+        let event2 = VmLifecycleEvent::VmStarted {
+            vm_id: "other-vm".to_string(),
+            occurred_at: SystemTime::now(),
+        };
+        bus.publish(event2).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        // 只有匹配的事件应该被处理
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_event_bus_unsubscribe() {
+        let bus = DomainEventBus::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let counter_clone = counter.clone();
+        let handler = SimpleEventHandler::new(move |_| {
+            counter_clone.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+
+        let sub_id = bus.subscribe("vm.started", Box::new(handler), None).unwrap();
+
+        let event = VmLifecycleEvent::VmStarted {
+            vm_id: "test".to_string(),
+            occurred_at: SystemTime::now(),
+        };
+
+        bus.publish(event.clone()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+
+        // 取消订阅
+        bus.unsubscribe(sub_id).unwrap();
+
+        // 再次发布，不应该被处理
+        bus.publish(event).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(counter.load(Ordering::Relaxed), 1); // 仍然是1
+    }
+
+    #[test]
+    fn test_event_bus_priority() {
+        let bus = DomainEventBus::new();
+        let order = Arc::new(Mutex::new(Vec::new()));
+
+        struct PriorityHandler {
+            priority: u32,
+            order: Arc<Mutex<Vec<u32>>>,
+        }
+
+        impl EventHandler for PriorityHandler {
+            fn handle(&self, _event: &dyn DomainEvent) -> Result<(), VmError> {
+                self.order.lock().unwrap().push(self.priority);
+                Ok(())
+            }
+
+            fn priority(&self) -> u32 {
+                self.priority
+            }
+        }
+
+        // 添加不同优先级的处理器
+        let order_clone = order.clone();
+        let handler1 = Box::new(PriorityHandler {
+            priority: 100,
+            order: order_clone.clone(),
+        });
+        bus.subscribe("vm.started", handler1, None).unwrap();
+
+        let order_clone = order.clone();
+        let handler2 = Box::new(PriorityHandler {
+            priority: 10,
+            order: order_clone.clone(),
+        });
+        bus.subscribe("vm.started", handler2, None).unwrap();
+
+        let order_clone = order.clone();
+        let handler3 = Box::new(PriorityHandler {
+            priority: 50,
+            order: order_clone,
+        });
+        bus.subscribe("vm.started", handler3, None).unwrap();
+
+        let event = VmLifecycleEvent::VmStarted {
+            vm_id: "test".to_string(),
+            occurred_at: SystemTime::now(),
+        };
+
+        bus.publish(event).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // 应该按优先级顺序执行：10, 50, 100
+        let executed_order = order.lock().unwrap();
+        assert_eq!(executed_order.len(), 3);
+        assert_eq!(executed_order[0], 10);
+        assert_eq!(executed_order[1], 50);
+        assert_eq!(executed_order[2], 100);
+    }
+
+    #[test]
+    fn test_event_bus_handler_error() {
+        let bus = DomainEventBus::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let counter_clone = counter.clone();
+        let handler = SimpleEventHandler::new(move |_| {
+            counter_clone.fetch_add(1, Ordering::Relaxed);
+            Err(VmError::Core(crate::CoreError::Internal {
+                message: "Test error".to_string(),
+                module: "test".to_string(),
+            }))
+        });
+
+        bus.subscribe("vm.started", Box::new(handler), None).unwrap();
+
+        let event = VmLifecycleEvent::VmStarted {
+            vm_id: "test".to_string(),
+            occurred_at: SystemTime::now(),
+        };
+
+        // 即使处理器返回错误，发布也应该成功
+        assert!(bus.publish(event).is_ok());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        // 处理器应该被调用
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+    }
+}

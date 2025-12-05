@@ -4,9 +4,12 @@
 
 use std::collections::HashMap;
 
-pub mod pcie;
 pub mod gpu;
 pub mod npu;
+pub mod pcie;
+pub mod sriov;
+
+pub use sriov::{QosConfig, SriovVfManager, VfConfig, VfId, VfMacConfig, VfState, VlanConfig};
 
 /// PCIe 设备地址
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,7 +22,12 @@ pub struct PciAddress {
 
 impl PciAddress {
     pub fn new(domain: u16, bus: u8, device: u8, function: u8) -> Self {
-        Self { domain, bus, device, function }
+        Self {
+            domain,
+            bus,
+            device,
+            function,
+        }
     }
 
     /// 从字符串解析 PCI 地址 (例如: "0000:01:00.0")
@@ -33,7 +41,7 @@ impl PciAddress {
             .map_err(|_| PassthroughError::InvalidAddress(s.to_string()))?;
         let bus = u8::from_str_radix(parts[1], 16)
             .map_err(|_| PassthroughError::InvalidAddress(s.to_string()))?;
-        
+
         let dev_func: Vec<&str> = parts[2].split('.').collect();
         if dev_func.len() != 2 {
             return Err(PassthroughError::InvalidAddress(s.to_string()));
@@ -44,12 +52,20 @@ impl PciAddress {
         let function = u8::from_str_radix(dev_func[1], 16)
             .map_err(|_| PassthroughError::InvalidAddress(s.to_string()))?;
 
-        Ok(Self { domain, bus, device, function })
+        Ok(Self {
+            domain,
+            bus,
+            device,
+            function,
+        })
     }
 
     /// 转换为字符串表示
     pub fn to_string(&self) -> String {
-        format!("{:04x}:{:02x}:{:02x}.{}", self.domain, self.bus, self.device, self.function)
+        format!(
+            "{:04x}:{:02x}:{:02x}.{}",
+            self.domain, self.bus, self.device, self.function
+        )
     }
 }
 
@@ -72,7 +88,7 @@ pub enum DeviceType {
     GpuNvidia,
     GpuAmd,
     GpuIntel,
-    GpuMobile,  // 移动端集成 GPU
+    GpuMobile, // 移动端集成 GPU
     Npu,
     NetworkCard,
     StorageController,
@@ -141,7 +157,7 @@ impl PassthroughManager {
         for entry in fs::read_dir(pci_path)? {
             let entry = entry?;
             let addr_str = entry.file_name().to_string_lossy().to_string();
-            
+
             if let Ok(address) = PciAddress::from_str(&addr_str) {
                 if let Ok(info) = self.read_device_info_linux(&entry.path(), address) {
                     self.devices.insert(address, info);
@@ -154,7 +170,11 @@ impl PassthroughManager {
 
     /// 读取 Linux 下的设备信息
     #[cfg(target_os = "linux")]
-    fn read_device_info_linux(&self, path: &std::path::Path, address: PciAddress) -> Result<PciDeviceInfo, PassthroughError> {
+    fn read_device_info_linux(
+        &self,
+        path: &std::path::Path,
+        address: PciAddress,
+    ) -> Result<PciDeviceInfo, PassthroughError> {
         use std::fs;
 
         let read_hex = |file: &str| -> Result<u32, PassthroughError> {
@@ -204,7 +224,8 @@ impl PassthroughManager {
 
     /// 根据类型筛选设备
     pub fn filter_by_type(&self, device_type: DeviceType) -> Vec<&PciDeviceInfo> {
-        self.devices.values()
+        self.devices
+            .values()
             .filter(|info| self.classify_device(info) == device_type)
             .collect()
     }
@@ -214,9 +235,9 @@ impl PassthroughManager {
         // PCI 类代码: 0x03xxxx 表示显示控制器
         if (info.class_code >> 16) == 0x03 {
             match info.vendor_id {
-                0x10DE => DeviceType::GpuNvidia,  // NVIDIA
-                0x1002 => DeviceType::GpuAmd,     // AMD
-                0x8086 => DeviceType::GpuIntel,   // Intel
+                0x10DE => DeviceType::GpuNvidia, // NVIDIA
+                0x1002 => DeviceType::GpuAmd,    // AMD
+                0x8086 => DeviceType::GpuIntel,  // Intel
                 _ => DeviceType::GpuMobile,
             }
         } else if (info.class_code >> 16) == 0x12 {
@@ -232,7 +253,11 @@ impl PassthroughManager {
     }
 
     /// 附加设备到虚拟机
-    pub fn attach_device(&mut self, address: PciAddress, device: Box<dyn PassthroughDevice>) -> Result<(), PassthroughError> {
+    pub fn attach_device(
+        &mut self,
+        address: PciAddress,
+        device: Box<dyn PassthroughDevice>,
+    ) -> Result<(), PassthroughError> {
         if self.attached_devices.contains_key(&address) {
             return Err(PassthroughError::DeviceInUse);
         }
@@ -257,9 +282,10 @@ impl PassthroughManager {
         println!("\n=== PCIe Devices ===");
         for (addr, info) in &self.devices {
             let dev_type = self.classify_device(info);
-            println!("{} - {:04x}:{:04x} - {:?} - {}", 
-                addr.to_string(), 
-                info.vendor_id, 
+            println!(
+                "{} - {:04x}:{:04x} - {:?} - {}",
+                addr.to_string(),
+                info.vendor_id,
                 info.device_id,
                 dev_type,
                 info.name
@@ -278,10 +304,10 @@ impl Default for PassthroughManager {
 pub trait PassthroughDevice: Send + Sync {
     /// 准备设备直通
     fn prepare_passthrough(&self) -> Result<(), PassthroughError>;
-    
+
     /// 清理直通配置
     fn cleanup_passthrough(&self) -> Result<(), PassthroughError>;
-    
+
     /// 获取设备信息
     fn get_info(&self) -> &PciDeviceInfo;
 }

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 num_cpus = "1.17"
+vm-core = { path = "../vm-core" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

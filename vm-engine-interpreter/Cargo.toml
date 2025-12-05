@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tokio = { version = "1", features = ["full"] }
+parking_lot = "0.12"
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-osal = { path = "../vm-osal" }
 vm-simd = { path = "../vm-simd" }
+vm-mem = { path = "../vm-mem" }
+
+[dev-dependencies]
+tokio-test = "0.4"

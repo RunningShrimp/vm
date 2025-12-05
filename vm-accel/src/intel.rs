@@ -43,7 +43,7 @@ impl IntelOptimizer {
     pub fn new() -> Self {
         let cpu_info = CpuInfo::get();
         let is_available = cpu_info.vendor == CpuVendor::Intel && cpu_info.features.vmx;
-        
+
         Self {
             config: IntelVtxConfig::default(),
             is_available,
@@ -73,22 +73,22 @@ impl IntelOptimizer {
         }
 
         log::info!("Applying Intel VT-x optimizations:");
-        
+
         if self.config.enable_ept {
             log::info!("  - EPT (Extended Page Tables): enabled");
             // EPT 优化：减少 VM exit，提升内存访问性能
         }
-        
+
         if self.config.enable_vpid {
             log::info!("  - VPID (Virtual Processor ID): enabled");
             // VPID 优化：避免 TLB flush，提升上下文切换性能
         }
-        
+
         if self.config.enable_apicv {
             log::info!("  - APICv: enabled");
             // APICv 优化：硬件虚拟化中断控制器，减少中断开销
         }
-        
+
         if self.config.enable_unrestricted_guest {
             log::info!("  - Unrestricted Guest: enabled");
             // 允许 Guest 运行在实模式和保护模式
@@ -98,7 +98,7 @@ impl IntelOptimizer {
     /// 获取推荐的 SIMD 指令集
     pub fn get_recommended_simd(&self) -> &'static str {
         let cpu_info = CpuInfo::get();
-        
+
         if cpu_info.features.avx512f {
             "AVX-512"
         } else if cpu_info.features.avx2 {
@@ -115,10 +115,10 @@ impl IntelOptimizer {
     /// 优化内存访问模式
     pub fn optimize_memory_access(&self) -> MemoryAccessHint {
         let cpu_info = CpuInfo::get();
-        
+
         MemoryAccessHint {
             use_huge_pages: true,
-            cache_line_size: 64,  // Intel 通常是 64 字节
+            cache_line_size: 64, // Intel 通常是 64 字节
             prefetch_distance: if cpu_info.features.avx512f { 512 } else { 256 },
             numa_aware: cpu_info.core_count > 8,
         }
@@ -127,14 +127,18 @@ impl IntelOptimizer {
     /// 获取 JIT 编译器优化建议
     pub fn get_jit_hints(&self) -> JitOptimizationHints {
         let cpu_info = CpuInfo::get();
-        
+
         JitOptimizationHints {
             inline_threshold: 100,
             loop_unroll_factor: 4,
             use_simd: cpu_info.features.avx2,
-            simd_width: if cpu_info.features.avx512f { 512 } 
-                       else if cpu_info.features.avx2 { 256 }
-                       else { 128 },
+            simd_width: if cpu_info.features.avx512f {
+                512
+            } else if cpu_info.features.avx2 {
+                256
+            } else {
+                128
+            },
             enable_branch_prediction_hints: true,
             enable_cache_prefetch: true,
         }
@@ -189,7 +193,7 @@ impl IntelTsx {
         if !self.available {
             return false;
         }
-        
+
         log::info!("Using Intel TSX for lock elision");
         true
     }
@@ -209,7 +213,7 @@ mod tests {
     fn test_intel_optimizer() {
         let optimizer = IntelOptimizer::new();
         println!("Intel optimizer available: {}", optimizer.is_available());
-        
+
         if optimizer.is_available() {
             optimizer.apply_optimizations();
             println!("Recommended SIMD: {}", optimizer.get_recommended_simd());

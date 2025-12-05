@@ -1,6 +1,8 @@
 [workspace]
 members = [
+ "vm-codegen",
  "vm-core",
+ "vm-interface",
  "vm-ir",
  "vm-mem",
  "vm-frontend-arm64",
@@ -8,7 +10,7 @@ members = [
  "vm-frontend-riscv64",
  "vm-engine-interpreter",
  "vm-engine-jit",
- "vm-engine-hybrid",
+ "vm-engine-hybrid",  
  "vm-accel",
  "vm-device",
  "vm-simd",
@@ -16,8 +18,17 @@ members = [
  "vm-passthrough",
  "vm-boot",
  "vm-cli",
-    "vm-tests",
-    "vm-service",
+ "vm-tests",
+ "vm-service",
+ "vm-monitor",
+ "vm-adaptive",       
+ "vm-gpu",         
+ "vm-debug",
+ "vm-runtime",
+ "vm-plugin",
+ "aot-builder",
+ "vm-ir-lift",
+ "vm-cross-arch",
 ]
 resolver = "2"
 

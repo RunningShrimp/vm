@@ -4,15 +4,12 @@
 
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
-use vm_core::MMU;
-use crate::mmu_util::MmuUtil;
-use thiserror::Error;
-use vm_core::MMU;
+use vm_core::{MMU, VmError, PlatformError};
 use crate::mmu_util::MmuUtil;
 use thiserror::Error;
 
 /// I/O 请求类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IoOpcode {
     /// 读取
     Read,
@@ -23,7 +20,7 @@ pub enum IoOpcode {
 }
 
 /// I/O 请求
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IoRequest {
     /// 操作码
     pub opcode: IoOpcode,
@@ -50,16 +47,11 @@ pub struct IoCompletion {
 pub trait ZeroCopyIo: Send {
     /// 提交 I/O 请求
     fn submit(&mut self, req: IoRequest) -> Result<(), IoError>;
-    fn submit(&mut self, req: IoRequest) -> Result<(), IoError>;
-    
+
     /// 获取完成的 I/O
     fn poll_completions(&mut self) -> Vec<IoCompletion>;
-    
-    /// 刷新所有待处理的 I/O
-    fn flush(&mut self) -> Result<(), IoError>;
 
-    /// 关联 MMU（用于按 buffer 地址进行零拷贝）
-    fn attach_mmu(&mut self, mmu: Box<dyn MMU>);
+    /// 刷新所有待处理的 I/O
     fn flush(&mut self) -> Result<(), IoError>;
 
     /// 关联 MMU（用于按 buffer 地址进行零拷贝）
@@ -83,20 +75,16 @@ pub mod uring {
         fd: i32,
         /// MMU（用于零拷贝）
         mmu: Option<Box<dyn MMU>>,
-        /// MMU（用于零拷贝）
-        mmu: Option<Box<dyn MMU>>,
     }
 
     impl IoUringBackend {
         /// 创建新的 io_uring 后端
-        pub fn new(fd: i32, depth: u32) -> Result<Self, IoError> {
         pub fn new(fd: i32, depth: u32) -> Result<Self, IoError> {
             Ok(Self {
                 depth,
                 pending: VecDeque::new(),
                 completed: VecDeque::new(),
                 fd,
-                mmu: None,
                 mmu: None,
             })
         }
@@ -124,12 +112,10 @@ pub mod uring {
 
     impl ZeroCopyIo for IoUringBackend {
         fn submit(&mut self, req: IoRequest) -> Result<(), IoError> {
-        fn submit(&mut self, req: IoRequest) -> Result<(), IoError> {
             if self.pending.len() >= self.depth as usize {
                 return Err(IoError::QueueFull);
-                return Err(IoError::QueueFull);
             }
-            
+
             self.pending.push_back(req);
             Ok(())
         }
@@ -149,14 +135,9 @@ pub mod uring {
         }
 
         fn flush(&mut self) -> Result<(), IoError> {
-        fn flush(&mut self) -> Result<(), IoError> {
             // 确保所有请求都已提交
             self.poll_completions();
             Ok(())
-        }
-
-        fn attach_mmu(&mut self, mmu: Box<dyn MMU>) {
-            self.mmu = Some(mmu);
         }
 
         fn attach_mmu(&mut self, mmu: Box<dyn MMU>) {
@@ -251,8 +232,6 @@ pub mod ringbuf {
         completed: VecDeque<IoCompletion>,
         /// MMU（用于零拷贝）
         mmu: Option<Box<dyn MMU>>,
-        /// MMU（用于零拷贝）
-        mmu: Option<Box<dyn MMU>>,
     }
 
     impl SharedMemoryBackend {
@@ -263,7 +242,6 @@ pub mod ringbuf {
                 rx_ring: Arc::new(Mutex::new(RingBuffer::new(capacity))),
                 pending: VecDeque::new(),
                 completed: VecDeque::new(),
-                mmu: None,
                 mmu: None,
             }
         }
@@ -280,7 +258,6 @@ pub mod ringbuf {
     }
 
     impl ZeroCopyIo for SharedMemoryBackend {
-        fn submit(&mut self, req: IoRequest) -> Result<(), IoError> {
         fn submit(&mut self, req: IoRequest) -> Result<(), IoError> {
             self.pending.push_back(req);
             Ok(())
@@ -299,33 +276,11 @@ pub mod ringbuf {
                         if let Some(mmu) = self.mmu.as_mut() {
                             let _ = MmuUtil::write_slice(mmu.as_mut(), req.buffer, &buf[..read]);
                         }
-                        // 写入到 Guest 内存（零拷贝）
-                        if let Some(mmu) = self.mmu.as_mut() {
-                            let _ = MmuUtil::write_slice(mmu.as_mut(), req.buffer, &buf[..read]);
-                        }
                         read as i32
                     }
                     IoOpcode::Write => {
                         // 写入发送环形缓冲区
                         let mut tx = self.tx_ring.lock().expect("Failed to lock receiver");
-                        // 从 Guest 内存读取数据（零拷贝）
-                        let written = if let Some(mmu) = self.mmu.as_mut() {
-                            let mut tmp = vec![0u8; req.length];
-                            let _ = MmuUtil::read_slice(mmu.as_mut(), req.buffer, &mut tmp);
-                            tx.write(&tmp)
-                        } else {
-                            // 后备：写入零数据
-                            tx.write(&vec![0u8; req.length])
-                        };
-                        // 从 Guest 内存读取数据（零拷贝）
-                        let written = if let Some(mmu) = self.mmu.as_mut() {
-                            let mut tmp = vec![0u8; req.length];
-                            let _ = MmuUtil::read_slice(mmu.as_mut(), req.buffer, &mut tmp);
-                            tx.write(&tmp)
-                        } else {
-                            // 后备：写入零数据
-                            tx.write(&vec![0u8; req.length])
-                        };
                         // 从 Guest 内存读取数据（零拷贝）
                         let written = if let Some(mmu) = self.mmu.as_mut() {
                             let mut tmp = vec![0u8; req.length];
@@ -349,7 +304,6 @@ pub mod ringbuf {
             self.completed.drain(..).collect()
         }
 
-        fn flush(&mut self) -> Result<(), IoError> {
         fn flush(&mut self) -> Result<(), IoError> {
             self.poll_completions();
             Ok(())
@@ -433,7 +387,6 @@ impl IoScheduler {
 
     /// 提交 I/O 请求
     pub fn submit(&mut self, req: IoRequest) -> Result<(), IoError> {
-    pub fn submit(&mut self, req: IoRequest) -> Result<(), IoError> {
         self.stats.total_requests += 1;
         self.backend.submit(req)
     }
@@ -459,13 +412,7 @@ impl IoScheduler {
 
     /// 刷新
     pub fn flush(&mut self) -> Result<(), IoError> {
-    pub fn flush(&mut self) -> Result<(), IoError> {
         self.backend.flush()
-    }
-
-    /// 关联 MMU 到后端
-    pub fn attach_mmu(&mut self, mmu: Box<dyn MMU>) {
-        self.backend.attach_mmu(mmu);
     }
 
     /// 关联 MMU 到后端
@@ -490,6 +437,24 @@ pub enum IoError {
     QueueFull,
     #[error("Backend error: {0}")]
     Backend(String),
+}
+
+/// 从传统错误转换为统一错误
+impl From<IoError> for VmError {
+    fn from(err: IoError) -> Self {
+        match err {
+            IoError::QueueFull => {
+                VmError::Core(vm_core::CoreError::ResourceExhausted {
+                    resource: "io_queue".to_string(),
+                    current: 0,
+                    limit: 0,
+                })
+            }
+            IoError::Backend(msg) => {
+                VmError::Platform(PlatformError::InitializationFailed(msg))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

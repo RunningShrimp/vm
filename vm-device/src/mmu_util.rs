@@ -1,27 +1,27 @@
-use vm_core::{MMU, Fault};
+use vm_core::{MMU, VmError};
 
 pub trait MmuUtil: MMU {
-    fn read_u16(&self, addr: u64) -> Result<u16, Fault> {
+    fn read_u16(&self, addr: u64) -> Result<u16, VmError> {
         self.read(addr, 2).map(|v| v as u16)
     }
 
-    fn read_u32(&self, addr: u64) -> Result<u32, Fault> {
+    fn read_u32(&self, addr: u64) -> Result<u32, VmError> {
         self.read(addr, 4).map(|v| v as u32)
     }
 
-    fn read_u64(&self, addr: u64) -> Result<u64, Fault> {
+    fn read_u64(&self, addr: u64) -> Result<u64, VmError> {
         self.read(addr, 8)
     }
 
-    fn write_u16(&mut self, addr: u64, val: u16) -> Result<(), Fault> {
+    fn write_u16(&mut self, addr: u64, val: u16) -> Result<(), VmError> {
         self.write(addr, val as u64, 2)
     }
 
-    fn write_u32(&mut self, addr: u64, val: u32) -> Result<(), Fault> {
+    fn write_u32(&mut self, addr: u64, val: u32) -> Result<(), VmError> {
         self.write(addr, val as u64, 4)
     }
 
-    fn read_slice(&self, addr: u64, buf: &mut [u8]) -> Result<(), Fault> {
+    fn read_slice(&self, addr: u64, buf: &mut [u8]) -> Result<(), VmError> {
         let mut offset = 0u64;
         // 先对齐到 8 字节
         while (addr + offset) % 8 != 0 && (offset as usize) < buf.len() {
@@ -49,7 +49,7 @@ pub trait MmuUtil: MMU {
         Ok(())
     }
 
-    fn write_slice(&mut self, addr: u64, data: &[u8]) -> Result<(), Fault> {
+    fn write_slice(&mut self, addr: u64, data: &[u8]) -> Result<(), VmError> {
         let mut offset = 0u64;
         // 先对齐到 8 字节
         while (addr + offset) % 8 != 0 && (offset as usize) < data.len() {

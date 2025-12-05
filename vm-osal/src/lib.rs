@@ -2,15 +2,21 @@
 //!
 //! 提供跨平台的内存映射、线程亲和性、信号处理等抽象
 
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{Ordering, fence};
 
 // ============================================================================
 // 内存屏障
 // ============================================================================
 
-pub fn barrier_acquire() { fence(Ordering::Acquire); }
-pub fn barrier_release() { fence(Ordering::Release); }
-pub fn barrier_full() { fence(Ordering::SeqCst); }
+pub fn barrier_acquire() {
+    fence(Ordering::Acquire);
+}
+pub fn barrier_release() {
+    fence(Ordering::Release);
+}
+pub fn barrier_full() {
+    fence(Ordering::SeqCst);
+}
 
 // ============================================================================
 // 平台检测
@@ -18,15 +24,25 @@ pub fn barrier_full() { fence(Ordering::SeqCst); }
 
 pub fn host_os() -> &'static str {
     #[cfg(target_os = "linux")]
-    { return "linux"; }
+    {
+        return "linux";
+    }
     #[cfg(target_os = "macos")]
-    { return "macos"; }
+    {
+        return "macos";
+    }
     #[cfg(target_os = "windows")]
-    { return "windows"; }
+    {
+        return "windows";
+    }
     #[cfg(target_os = "android")]
-    { return "android"; }
+    {
+        return "android";
+    }
     #[cfg(target_os = "ios")]
-    { return "ios"; }
+    {
+        return "ios";
+    }
     // HarmonyOS 基于 Linux 内核，可通过系统属性检测
     #[cfg(target_os = "linux")]
     {
@@ -44,8 +60,8 @@ fn is_harmonyos() -> bool {
     use std::fs;
     // 检查 /etc/os-release 或系统属性
     if let Ok(content) = fs::read_to_string("/etc/os-release") {
-        return content.to_lowercase().contains("harmonyos") || 
-               content.to_lowercase().contains("openharmony");
+        return content.to_lowercase().contains("harmonyos")
+            || content.to_lowercase().contains("openharmony");
     }
     false
 }
@@ -57,11 +73,17 @@ fn is_harmonyos() -> bool {
 
 pub fn host_arch() -> &'static str {
     #[cfg(target_arch = "x86_64")]
-    { return "x86_64"; }
+    {
+        return "x86_64";
+    }
     #[cfg(target_arch = "aarch64")]
-    { return "aarch64"; }
+    {
+        return "aarch64";
+    }
     #[cfg(target_arch = "riscv64")]
-    { return "riscv64"; }
+    {
+        return "riscv64";
+    }
     #[allow(unreachable_code)]
     "unknown"
 }
@@ -79,11 +101,31 @@ pub struct MemoryProtection {
 }
 
 impl MemoryProtection {
-    pub const NONE: Self = Self { read: false, write: false, exec: false };
-    pub const READ: Self = Self { read: true, write: false, exec: false };
-    pub const READ_WRITE: Self = Self { read: true, write: true, exec: false };
-    pub const READ_EXEC: Self = Self { read: true, write: false, exec: true };
-    pub const READ_WRITE_EXEC: Self = Self { read: true, write: true, exec: true };
+    pub const NONE: Self = Self {
+        read: false,
+        write: false,
+        exec: false,
+    };
+    pub const READ: Self = Self {
+        read: true,
+        write: false,
+        exec: false,
+    };
+    pub const READ_WRITE: Self = Self {
+        read: true,
+        write: true,
+        exec: false,
+    };
+    pub const READ_EXEC: Self = Self {
+        read: true,
+        write: false,
+        exec: true,
+    };
+    pub const READ_WRITE_EXEC: Self = Self {
+        read: true,
+        write: true,
+        exec: true,
+    };
 }
 
 // ============================================================================
@@ -142,12 +184,18 @@ impl MappedMemory {
     #[cfg(unix)]
     fn allocate_unix(size: usize, prot: MemoryProtection) -> MemoryResult<Self> {
         use std::ptr;
-        
+
         let mut flags = libc::PROT_NONE;
-        if prot.read { flags |= libc::PROT_READ; }
-        if prot.write { flags |= libc::PROT_WRITE; }
-        if prot.exec { flags |= libc::PROT_EXEC; }
-        
+        if prot.read {
+            flags |= libc::PROT_READ;
+        }
+        if prot.write {
+            flags |= libc::PROT_WRITE;
+        }
+        if prot.exec {
+            flags |= libc::PROT_EXEC;
+        }
+
         let ptr = unsafe {
             libc::mmap(
                 ptr::null_mut(),
@@ -158,11 +206,11 @@ impl MappedMemory {
                 0,
             )
         };
-        
+
         if ptr == libc::MAP_FAILED {
             return Err(MemoryError::AllocationFailed);
         }
-        
+
         Ok(Self {
             ptr: ptr as *mut u8,
             size,
@@ -172,16 +220,16 @@ impl MappedMemory {
     #[cfg(windows)]
     fn allocate_windows(size: usize, prot: MemoryProtection) -> MemoryResult<Self> {
         use std::ptr;
-        
+
         let protect = match (prot.read, prot.write, prot.exec) {
             (false, false, false) => 0x01, // PAGE_NOACCESS
             (true, false, false) => 0x02,  // PAGE_READONLY
             (true, true, false) => 0x04,   // PAGE_READWRITE
             (true, false, true) => 0x20,   // PAGE_EXECUTE_READ
             (true, true, true) => 0x40,    // PAGE_EXECUTE_READWRITE
-            _ => 0x04, // Default to PAGE_READWRITE
+            _ => 0x04,                     // Default to PAGE_READWRITE
         };
-        
+
         extern "system" {
             fn VirtualAlloc(
                 lpAddress: *mut std::ffi::c_void,
@@ -190,7 +238,7 @@ impl MappedMemory {
                 flProtect: u32,
             ) -> *mut std::ffi::c_void;
         }
-        
+
         let ptr = unsafe {
             VirtualAlloc(
                 ptr::null_mut(),
@@ -199,11 +247,11 @@ impl MappedMemory {
                 protect,
             )
         };
-        
+
         if ptr.is_null() {
             return Err(MemoryError::AllocationFailed);
         }
-        
+
         Ok(Self {
             ptr: ptr as *mut u8,
             size,
@@ -225,10 +273,16 @@ impl MappedMemory {
     #[cfg(unix)]
     fn protect_unix(&self, prot: MemoryProtection) -> MemoryResult<()> {
         let mut flags = libc::PROT_NONE;
-        if prot.read { flags |= libc::PROT_READ; }
-        if prot.write { flags |= libc::PROT_WRITE; }
-        if prot.exec { flags |= libc::PROT_EXEC; }
-        
+        if prot.read {
+            flags |= libc::PROT_READ;
+        }
+        if prot.write {
+            flags |= libc::PROT_WRITE;
+        }
+        if prot.exec {
+            flags |= libc::PROT_EXEC;
+        }
+
         let ret = unsafe { libc::mprotect(self.ptr as *mut _, self.size, flags) };
         if ret != 0 {
             return Err(MemoryError::ProtectionFailed);
@@ -246,7 +300,7 @@ impl MappedMemory {
             (true, true, true) => 0x40,
             _ => 0x04,
         };
-        
+
         extern "system" {
             fn VirtualProtect(
                 lpAddress: *mut std::ffi::c_void,
@@ -255,17 +309,11 @@ impl MappedMemory {
                 lpflOldProtect: *mut u32,
             ) -> i32;
         }
-        
+
         let mut old_protect: u32 = 0;
-        let ret = unsafe {
-            VirtualProtect(
-                self.ptr as *mut _,
-                self.size,
-                protect,
-                &mut old_protect,
-            )
-        };
-        
+        let ret =
+            unsafe { VirtualProtect(self.ptr as *mut _, self.size, protect, &mut old_protect) };
+
         if ret == 0 {
             return Err(MemoryError::ProtectionFailed);
         }
@@ -304,7 +352,7 @@ impl Drop for MappedMemory {
         unsafe {
             libc::munmap(self.ptr as *mut _, self.size);
         }
-        
+
         #[cfg(windows)]
         unsafe {
             extern "system" {
@@ -361,16 +409,16 @@ impl JitMemory {
     /// 写入代码
     pub fn write(&mut self, offset: usize, data: &[u8]) -> MemoryResult<()> {
         self.make_writable()?;
-        
+
         if offset + data.len() > self.mem.size() {
             return Err(MemoryError::InvalidSize);
         }
-        
+
         unsafe {
             let dst = self.mem.as_mut_ptr().add(offset);
             std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
         }
-        
+
         Ok(())
     }
 
@@ -486,7 +534,7 @@ pub fn register_sigsegv_handler(handler: SignalHandler) -> bool {
         let mut action: libc::sigaction = std::mem::zeroed();
         action.sa_sigaction = handler as usize;
         action.sa_flags = libc::SA_SIGINFO;
-        
+
         libc::sigaction(libc::SIGSEGV, &action, std::ptr::null_mut()) == 0
     }
 }
@@ -521,9 +569,10 @@ mod tests {
 
     #[test]
     fn test_memory_allocation() {
-        let mem = MappedMemory::allocate(4096, MemoryProtection::READ_WRITE).expect("Failed to allocate memory");
+        let mem = MappedMemory::allocate(4096, MemoryProtection::READ_WRITE)
+            .expect("Failed to allocate memory");
         assert_eq!(mem.size(), 4096);
-        
+
         unsafe {
             let slice = std::slice::from_raw_parts_mut(mem.ptr, 4096);
             slice[0] = 42;
@@ -534,12 +583,14 @@ mod tests {
     #[test]
     fn test_jit_memory() {
         let mut jit = JitMemory::allocate(4096).expect("Failed to allocate JIT memory");
-        
+
         // 写入一些"代码"
-        jit.write(0, &[0x90, 0x90, 0x90, 0xC3]).expect("Failed to write JIT code"); // NOP NOP NOP RET
-        
+        jit.write(0, &[0x90, 0x90, 0x90, 0xC3])
+            .expect("Failed to write JIT code"); // NOP NOP NOP RET
+
         // 切换到可执行
-        jit.make_executable().expect("Failed to make memory executable");
+        jit.make_executable()
+            .expect("Failed to make memory executable");
     }
 
     #[test]

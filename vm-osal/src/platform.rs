@@ -33,7 +33,8 @@ impl PlatformInfo {
         if let Ok(content) = fs::read_to_string("/etc/os-release") {
             for line in content.lines() {
                 if line.starts_with("PRETTY_NAME=") {
-                    return line.trim_start_matches("PRETTY_NAME=")
+                    return line
+                        .trim_start_matches("PRETTY_NAME=")
                         .trim_matches('"')
                         .to_string();
                 }
@@ -61,7 +62,10 @@ impl PlatformInfo {
     #[cfg(target_os = "android")]
     fn get_os_version() -> String {
         use std::process::Command;
-        if let Ok(output) = Command::new("getprop").arg("ro.build.version.release").output() {
+        if let Ok(output) = Command::new("getprop")
+            .arg("ro.build.version.release")
+            .output()
+        {
             if let Ok(version) = String::from_utf8(output.stdout) {
                 return format!("Android {}", version.trim());
             }
@@ -139,7 +143,10 @@ impl PlatformInfo {
         println!("  Version: {}", self.os_version);
         println!("  Architecture: {}", self.arch);
         println!("  CPU Cores: {}", self.cpu_count);
-        println!("  Total Memory: {} GB", self.total_memory / (1024 * 1024 * 1024));
+        println!(
+            "  Total Memory: {} GB",
+            self.total_memory / (1024 * 1024 * 1024)
+        );
     }
 }
 
@@ -330,8 +337,17 @@ mod tests {
 
     #[test]
     fn test_platform_features() {
-        println!("Hardware virtualization: {}", PlatformFeatures::supports_hardware_virtualization());
-        println!("GPU acceleration: {}", PlatformFeatures::supports_gpu_acceleration());
-        println!("Network passthrough: {}", PlatformFeatures::supports_network_passthrough());
+        println!(
+            "Hardware virtualization: {}",
+            PlatformFeatures::supports_hardware_virtualization()
+        );
+        println!(
+            "GPU acceleration: {}",
+            PlatformFeatures::supports_gpu_acceleration()
+        );
+        println!(
+            "Network passthrough: {}",
+            PlatformFeatures::supports_network_passthrough()
+        );
     }
 }

@@ -14,7 +14,7 @@
 //!   - 中断使能控制
 
 // 精确重导避免名称冲突
-pub use crate::clint::{Clint, ClintMmio};
-pub use crate::plic::{Plic, PlicMmio};
 pub use crate::clint::offsets as clint_offsets;
+pub use crate::clint::{Clint, ClintMmio};
 pub use crate::plic::offsets as plic_offsets;
+pub use crate::plic::{Plic, PlicMmio};

@@ -2,12 +2,10 @@
 //!
 //! 支持 smoltcp (NAT) 和 TAP/TUN (桥接) 两种后端
 
-#[cfg(unix)]
-use libc;
-
-use vm_core::MmioDevice;
-use std::sync::{Arc, Mutex};
+use crate::mmu_util::MmuUtil;
+use crate::virtio::Queue;
 use thiserror::Error;
+use vm_core::{MMU, MmioDevice, PlatformError, VmError};
 
 /// 网络后端类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,11 +55,27 @@ pub struct VirtioNet {
     status: u32,
     /// 队列选择器
     queue_sel: u32,
+    /// 队列列表 (0: RX, 1: TX)
+    queues: Vec<Queue>,
+    /// 中断状态
+    interrupt_status: u32,
+    /// 驱动特性
+    driver_features: u32,
+    /// 驱动特性选择
+    driver_features_sel: u32,
+    /// 设备特性选择
+    device_features_sel: u32,
 }
 
 impl VirtioNet {
     /// 创建新的网络设备
     pub fn new() -> Self {
+        let mut queues = Vec::new();
+        // 默认 2 个队列: RX (0), TX (1)
+        for _ in 0..2 {
+            queues.push(Queue::new(256));
+        }
+
         Self {
             config: VirtioNetConfig::default(),
             backend_type: NetworkBackend::Nat,
@@ -71,6 +85,11 @@ impl VirtioNet {
             tap_backend: None,
             status: 0,
             queue_sel: 0,
+            queues,
+            interrupt_status: 0,
+            driver_features: 0,
+            driver_features_sel: 0,
+            device_features_sel: 0,
         }
     }
 
@@ -84,63 +103,164 @@ impl VirtioNet {
 
     /// 使用 TAP 后端
     #[cfg(target_os = "linux")]
-    pub fn with_tap(mut self, tap_name: &str) -> Result<Self, NetError> {
+    pub fn with_tap(mut self, tap_name: &str) -> Result<Self, VmError> {
         self.backend_type = NetworkBackend::Tap;
         self.tap_backend = Some(TapBackend::new(tap_name)?);
         Ok(self)
     }
 
     /// 发送数据包
-    pub fn send_packet(&mut self, data: &[u8]) -> Result<(), NetError> {
+    pub fn send_packet(&mut self, data: &[u8]) -> Result<(), VmError> {
         match self.backend_type {
             #[cfg(feature = "smoltcp")]
             NetworkBackend::Nat => {
                 if let Some(backend) = &mut self.smoltcp_backend {
                     backend.send(data)
                 } else {
-                    Err(NetError::BackendNotInitialized("smoltcp".into()))
+                    Err(VmError::Platform(PlatformError::InitializationFailed(
+                        "smoltcp backend not initialized".into(),
+                    )))
                 }
             }
+            #[cfg(not(feature = "smoltcp"))]
+            NetworkBackend::Nat => Err(VmError::Platform(PlatformError::HardwareUnavailable(
+                "smoltcp backend not available".to_string(),
+            ))),
+
             #[cfg(target_os = "linux")]
             NetworkBackend::Tap => {
                 if let Some(backend) = &mut self.tap_backend {
                     backend.send(data)
                 } else {
-                    Err(NetError::BackendNotInitialized("tap".into()))
+                    Err(VmError::Platform(PlatformError::InitializationFailed(
+                        "tap backend not initialized".into(),
+                    )))
                 }
             }
-            #[cfg(not(any(feature = "smoltcp", target_os = "linux")))]
-            _ => Err(NetError::NotAvailable),
+            #[cfg(not(target_os = "linux"))]
+            NetworkBackend::Tap => Err(VmError::Platform(PlatformError::HardwareUnavailable(
+                "tap backend not available".to_string(),
+            ))),
         }
     }
 
     /// 接收数据包
-    pub fn recv_packet(&mut self) -> Result<Vec<u8>, NetError> {
+    pub fn recv_packet(&mut self) -> Result<Vec<u8>, VmError> {
         match self.backend_type {
             #[cfg(feature = "smoltcp")]
             NetworkBackend::Nat => {
                 if let Some(backend) = &mut self.smoltcp_backend {
                     backend.recv()
                 } else {
-                    Err(NetError::BackendNotInitialized("smoltcp".into()))
+                    Err(VmError::Platform(PlatformError::InitializationFailed(
+                        "smoltcp backend not initialized".into(),
+                    )))
                 }
             }
+            #[cfg(not(feature = "smoltcp"))]
+            NetworkBackend::Nat => Err(VmError::Platform(PlatformError::HardwareUnavailable(
+                "smoltcp backend not available".to_string(),
+            ))),
+
             #[cfg(target_os = "linux")]
             NetworkBackend::Tap => {
                 if let Some(backend) = &mut self.tap_backend {
                     backend.recv()
                 } else {
-                    Err(NetError::BackendNotInitialized("tap".into()))
+                    Err(VmError::Platform(PlatformError::InitializationFailed(
+                        "tap backend not initialized".into(),
+                    )))
                 }
             }
-            #[cfg(not(any(feature = "smoltcp", target_os = "linux")))]
-            _ => Err(NetError::NotAvailable),
+            #[cfg(not(target_os = "linux"))]
+            NetworkBackend::Tap => Err(VmError::Platform(PlatformError::HardwareUnavailable(
+                "tap backend not available".to_string(),
+            ))),
+        }
+    }
+
+    /// 处理 TX 队列 (Queue 1)
+    fn process_tx_queue(&mut self, mmu: &mut dyn MMU) {
+        if self.queues.len() <= 1 {
+            return;
+        }
+
+        // 借用检查 workaround: 先获取需要的信息，再处理
+        // 因为 pop 需要 &mut self.queues[1] 和 &dyn MmuUtil
+        // 而 send_packet 需要 &mut self
+
+        let mut packets = Vec::new();
+
+        {
+            let queue = &mut self.queues[1];
+            while let Some(chain) = queue.pop(mmu) {
+                // 解析描述符链
+                // VirtIO Net TX Header (12 bytes) + Packet Data
+                // 简化：假设 Header 和 Data 在同一个或连续的描述符中
+
+                let mut packet_data = Vec::new();
+                for desc in chain.descs {
+                    if (desc.flags & 2) != 0 {
+                        continue;
+                    } // Skip write-only descriptors (shouldn't be in TX)
+
+                    let mut buf = vec![0u8; desc.len as usize];
+                    if let Ok(_) = MmuUtil::read_slice(mmu, desc.addr, &mut buf) {
+                        packet_data.extend_from_slice(&buf);
+                    }
+                }
+
+                // 去掉 VirtIO Net Header (12 bytes if VIRTIO_NET_F_MRG_RXBUF is not negotiated, or 10 bytes legacy)
+                // 现代 VirtIO 通常是 12 字节 (num_buffers at offset 10)
+                let header_len = 12;
+                if packet_data.len() > header_len {
+                    packets.push((chain.head_index, packet_data[header_len..].to_vec()));
+                } else {
+                    // Empty packet? Just return descriptor
+                    packets.push((chain.head_index, Vec::new()));
+                }
+            }
+        }
+
+        // 发送数据包并更新 Used Ring
+        for (head_index, data) in packets {
+            if !data.is_empty() {
+                let _ = self.send_packet(&data);
+            }
+            // TX 完成，写入 Used Ring
+            // len = 0 for TX
+            self.queues[1].add_used(mmu, head_index, 0);
+        }
+
+        // 触发中断
+        self.interrupt_status |= 1;
+    }
+}
+
+/// 网络设备错误类型别名
+pub type NetError = VmError;
+
+/// 从传统错误转换为统一错误
+impl From<NetLegacyError> for VmError {
+    fn from(err: NetLegacyError) -> Self {
+        match err {
+            NetLegacyError::BackendNotInitialized(msg) => {
+                VmError::Platform(PlatformError::InitializationFailed(msg))
+            }
+            NetLegacyError::NotAvailable => VmError::Platform(PlatformError::HardwareUnavailable(
+                "No network backend available".to_string(),
+            )),
+            NetLegacyError::Io(e) => VmError::Platform(PlatformError::IoError(e.to_string())),
+            NetLegacyError::Tap(msg) => VmError::Platform(PlatformError::IoError(
+                std::io::Error::new(std::io::ErrorKind::Other, msg).to_string(),
+            )),
         }
     }
 }
 
+/// 传统的网络错误类型（保留用于向后兼容）
 #[derive(Debug, Error)]
-pub enum NetError {
+pub enum NetLegacyError {
     #[error("Backend not initialized: {0}")]
     BackendNotInitialized(String),
     #[error("No network backend available")]
@@ -160,6 +280,16 @@ impl MmioDevice for VirtioNet {
             0x0C => 0x554D4551, // Vendor ID
             0x10 => 0x00000021, // Device features (low): VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS
             0x14 => 0x00000001, // Device features (high): VIRTIO_F_VERSION_1
+            0x34 => {
+                // QueueNumMax
+                if (self.queue_sel as usize) < self.queues.len() {
+                    self.queues[self.queue_sel as usize].size as u64
+                } else {
+                    0
+                }
+            }
+            0x44 => 1, // QueueReady (Always ready for now)
+            0x60 => self.interrupt_status as u64,
             0x70 => self.status as u64, // Status
             // 配置空间 (0x100+)
             0x100 => u32::from_le_bytes([
@@ -168,10 +298,7 @@ impl MmioDevice for VirtioNet {
                 self.config.mac[2],
                 self.config.mac[3],
             ]) as u64,
-            0x104 => u16::from_le_bytes([
-                self.config.mac[4],
-                self.config.mac[5],
-            ]) as u64,
+            0x104 => u16::from_le_bytes([self.config.mac[4], self.config.mac[5]]) as u64,
             0x106 => self.config.status as u64,
             0x108 => self.config.max_virtqueue_pairs as u64,
             0x10A => self.config.mtu as u64,
@@ -181,17 +308,56 @@ impl MmioDevice for VirtioNet {
 
     fn write(&mut self, offset: u64, val: u64, _size: u8) {
         match offset {
+            0x14 => self.device_features_sel = val as u32,
+            0x20 => self.driver_features = val as u32,
+            0x24 => self.driver_features_sel = val as u32,
             0x30 => self.queue_sel = val as u32, // Queue select
+            0x38 => {
+                // QueueNum
+                if (self.queue_sel as usize) < self.queues.len() {
+                    self.queues[self.queue_sel as usize].size = val as u16;
+                }
+            }
             0x50 => {
                 // Queue notify
-                log::debug!("VirtioNet: Queue {} notified", val);
-                // 这里应该处理队列请求
+                let queue_idx = val as usize;
+                log::debug!("VirtioNet: Queue {} notified", queue_idx);
+                // 这里我们不能直接调用 process_tx_queue，因为没有 mmu
+                // 需要在 notify 回调中处理
+            }
+            0x64 => {
+                // InterruptACK
+                self.interrupt_status &= !(val as u32);
             }
             0x70 => self.status = val as u32, // Status
+            0x80 => {
+                // QueueDescLow
+                if (self.queue_sel as usize) < self.queues.len() {
+                    self.queues[self.queue_sel as usize].desc_addr = val;
+                }
+            }
+            0x90 => {
+                // QueueDriverLow (Avail)
+                if (self.queue_sel as usize) < self.queues.len() {
+                    self.queues[self.queue_sel as usize].avail_addr = val;
+                }
+            }
+            0xA0 => {
+                // QueueDeviceLow (Used)
+                if (self.queue_sel as usize) < self.queues.len() {
+                    self.queues[self.queue_sel as usize].used_addr = val;
+                }
+            }
             _ => {
                 log::trace!("VirtioNet write: offset={:#x} val={:#x}", offset, val);
             }
         }
+    }
+
+    fn notify(&mut self, mmu: &mut dyn MMU, _offset: u64) {
+        // 假设 notify 被调用时，意味着有队列更新
+        // 检查 TX 队列 (Queue 1)
+        self.process_tx_queue(mmu);
     }
 }
 
@@ -216,14 +382,19 @@ impl SmoltcpBackend {
         }
     }
 
-    pub fn send(&mut self, data: &[u8]) -> Result<(), NetError> {
+    pub fn send(&mut self, data: &[u8]) -> Result<(), VmError> {
         self.tx_buffer.push(data.to_vec());
         log::debug!("smoltcp: Sent {} bytes", data.len());
         Ok(())
     }
 
-    pub fn recv(&mut self) -> Result<Vec<u8>, NetError> {
-        self.rx_buffer.pop().ok_or(NetError::Tap("No data available".into()))
+    pub fn recv(&mut self) -> Result<Vec<u8>, VmError> {
+        self.rx_buffer.pop().ok_or_else(|| {
+            VmError::Platform(PlatformError::IoError(
+                std::io::Error::new(std::io::ErrorKind::WouldBlock, "No data available")
+                    .to_string(),
+            ))
+        })
     }
 
     /// 处理网络栈
@@ -245,21 +416,18 @@ pub struct TapBackend {
 
 #[cfg(target_os = "linux")]
 impl TapBackend {
-    pub fn new(name: &str) -> Result<Self, NetError> {
+    pub fn new(name: &str) -> Result<Self, VmError> {
         use std::ffi::CString;
         use std::os::unix::io::AsRawFd;
 
         // 打开 /dev/net/tun
         let path = CString::new("/dev/net/tun").expect("Failed to create device path");
-        let fd = unsafe {
-            libc::open(
-                path.as_ptr(),
-                libc::O_RDWR | libc::O_NONBLOCK,
-            )
-        };
+        let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR | libc::O_NONBLOCK) };
 
         if fd < 0 {
-            return Err(NetError::Io(std::io::Error::last_os_error()));
+            return Err(VmError::Platform(PlatformError::IoError(
+                std::io::Error::last_os_error(),
+            )));
         }
 
         // 配置 TAP 设备
@@ -281,13 +449,16 @@ impl TapBackend {
         ifr.ifr_name[..len].copy_from_slice(&name_bytes[..len]);
 
         const TUNSETIFF: u64 = 0x400454ca;
-        let ret = unsafe {
-            libc::ioctl(fd, TUNSETIFF as _, &ifr as *const _ as *const libc::c_void)
-        };
+        let ret =
+            unsafe { libc::ioctl(fd, TUNSETIFF as _, &ifr as *const _ as *const libc::c_void) };
 
         if ret < 0 {
-            unsafe { libc::close(fd); }
-            return Err(NetError::Tap("Failed to configure TAP device".into()));
+            unsafe {
+                libc::close(fd);
+            }
+            return Err(VmError::Platform(PlatformError::IoError(
+                std::io::Error::new(std::io::ErrorKind::Other, "Failed to configure TAP device"),
+            )));
         }
 
         Ok(Self {
@@ -296,24 +467,20 @@ impl TapBackend {
         })
     }
 
-    pub fn send(&mut self, data: &[u8]) -> Result<(), NetError> {
-        let ret = unsafe {
-            libc::write(
-                self.fd,
-                data.as_ptr() as *const libc::c_void,
-                data.len(),
-            )
-        };
+    pub fn send(&mut self, data: &[u8]) -> Result<(), VmError> {
+        let ret = unsafe { libc::write(self.fd, data.as_ptr() as *const libc::c_void, data.len()) };
 
         if ret < 0 {
-            Err(NetError::Io(std::io::Error::last_os_error()))
+            Err(VmError::Platform(PlatformError::IoError(
+                std::io::Error::last_os_error(),
+            )))
         } else {
             log::debug!("TAP: Sent {} bytes", ret);
             Ok(())
         }
     }
 
-    pub fn recv(&mut self) -> Result<Vec<u8>, NetError> {
+    pub fn recv(&mut self) -> Result<Vec<u8>, VmError> {
         let mut buffer = vec![0u8; 2048];
         let ret = unsafe {
             libc::read(
@@ -326,9 +493,16 @@ impl TapBackend {
         if ret < 0 {
             let errno = unsafe { *libc::__errno_location() };
             if errno == libc::EAGAIN || errno == libc::EWOULDBLOCK {
-                return Err(NetError::Tap("No data available".into()));
+                return Err(VmError::Platform(PlatformError::IoError(
+                    std::io::Error::new(std::io::ErrorKind::WouldBlock, "No data available"),
+                )));
             }
-            return Err(NetError::Tap(format!("Failed to read from TAP device: errno {}", errno)));
+            return Err(VmError::Platform(PlatformError::IoError(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to read from TAP device: errno {}", errno),
+                ),
+            )));
         }
 
         buffer.truncate(ret as usize);
@@ -353,7 +527,7 @@ mod tests {
     #[test]
     fn test_virtio_net_creation() {
         let net = VirtioNet::new();
-        
+
         assert_eq!(net.read(0x00, 4), 0x74726976); // Magic
         assert_eq!(net.read(0x08, 4), 1); // Device ID
         assert_eq!(net.config.mac, [0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
@@ -363,10 +537,10 @@ mod tests {
     #[test]
     fn test_smoltcp_backend() {
         let mut backend = SmoltcpBackend::new([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
-        
+
         let data = b"Hello, network!";
         backend.send(data).expect("Failed to send network data");
-        
+
         assert_eq!(backend.tx_buffer.len(), 1);
     }
 }

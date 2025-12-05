@@ -1,5 +1,5 @@
-use vm_passthrough::{PciAddress, PciDeviceInfo, PassthroughError, PassthroughDevice};
 use vm_passthrough::pcie::VfioDevice;
+use vm_passthrough::{PassthroughDevice, PassthroughError, PciAddress, PciDeviceInfo};
 
 /// GPU 直通模式
 pub struct GpuPassthrough {
@@ -55,8 +55,8 @@ impl GpuPassthrough {
         let vram_size = Self::read_vram_size(&info.address).unwrap_or(0);
 
         // 检测当前驱动
-        let driver = Self::read_current_driver(&info.address)
-            .unwrap_or_else(|_| "unknown".to_string());
+        let driver =
+            Self::read_current_driver(&info.address).unwrap_or_else(|_| "unknown".to_string());
 
         Ok(GpuInfo {
             vendor,
@@ -71,7 +71,7 @@ impl GpuPassthrough {
     #[cfg(target_os = "linux")]
     fn read_gpu_model(address: &PciAddress) -> Result<String, PassthroughError> {
         let device_path = format!("/sys/bus/pci/devices/{}", address.to_string());
-        
+
         // 尝试从多个位置读取设备名称
         let label_path = PathBuf::from(&device_path).join("label");
         if label_path.exists() {
@@ -88,19 +88,23 @@ impl GpuPassthrough {
             }
         }
 
-        Err(PassthroughError::DeviceNotFound("GPU model not found".to_string()))
+        Err(PassthroughError::DeviceNotFound(
+            "GPU model not found".to_string(),
+        ))
     }
 
     #[cfg(not(target_os = "linux"))]
     fn read_gpu_model(_address: &PciAddress) -> Result<String, PassthroughError> {
-        Err(PassthroughError::DeviceNotFound("Not supported on this platform".to_string()))
+        Err(PassthroughError::DeviceNotFound(
+            "Not supported on this platform".to_string(),
+        ))
     }
 
     /// 读取显存大小
     #[cfg(target_os = "linux")]
     fn read_vram_size(address: &PciAddress) -> Result<u64, PassthroughError> {
         let device_path = format!("/sys/bus/pci/devices/{}", address.to_string());
-        
+
         // 尝试读取 BAR0 的大小（通常是显存）
         let resource_path = PathBuf::from(&device_path).join("resource");
         if let Ok(content) = fs::read_to_string(&resource_path) {
@@ -108,7 +112,8 @@ impl GpuPassthrough {
                 let parts: Vec<&str> = first_line.split_whitespace().collect();
                 if parts.len() >= 3 {
                     if let Ok(start) = u64::from_str_radix(parts[0].trim_start_matches("0x"), 16) {
-                        if let Ok(end) = u64::from_str_radix(parts[1].trim_start_matches("0x"), 16) {
+                        if let Ok(end) = u64::from_str_radix(parts[1].trim_start_matches("0x"), 16)
+                        {
                             return Ok(end - start);
                         }
                     }
@@ -138,12 +143,16 @@ impl GpuPassthrough {
             }
         }
 
-        Err(PassthroughError::DeviceNotFound("No driver bound".to_string()))
+        Err(PassthroughError::DeviceNotFound(
+            "No driver bound".to_string(),
+        ))
     }
 
     #[cfg(not(target_os = "linux"))]
     fn read_current_driver(_address: &PciAddress) -> Result<String, PassthroughError> {
-        Err(PassthroughError::DeviceNotFound("Not supported on this platform".to_string()))
+        Err(PassthroughError::DeviceNotFound(
+            "Not supported on this platform".to_string(),
+        ))
     }
 
     /// 检查是否可用于直通
@@ -186,12 +195,18 @@ impl GpuPassthrough {
 
 impl PassthroughDevice for GpuPassthrough {
     fn prepare_passthrough(&self) -> Result<(), PassthroughError> {
-        log::info!("Preparing GPU passthrough for {:?}", self.gpu_info.pci_address);
+        log::info!(
+            "Preparing GPU passthrough for {:?}",
+            self.gpu_info.pci_address
+        );
         Ok(())
     }
 
     fn cleanup_passthrough(&self) -> Result<(), PassthroughError> {
-        log::info!("Cleaning up GPU passthrough for {:?}", self.gpu_info.pci_address);
+        log::info!(
+            "Cleaning up GPU passthrough for {:?}",
+            self.gpu_info.pci_address
+        );
         Ok(())
     }
 
@@ -214,15 +229,14 @@ pub fn scan_available_gpus() -> Vec<GpuInfo> {
         if let Ok(entries) = fs::read_dir(pci_path) {
             for entry in entries.flatten() {
                 let addr_str = entry.file_name().to_string_lossy().to_string();
-                
+
                 if let Ok(address) = PciAddress::from_str(&addr_str) {
                     // 读取设备类别
                     let class_path = entry.path().join("class");
                     if let Ok(class_str) = fs::read_to_string(&class_path) {
-                        let class_code = u32::from_str_radix(
-                            class_str.trim().trim_start_matches("0x"),
-                            16
-                        ).unwrap_or(0);
+                        let class_code =
+                            u32::from_str_radix(class_str.trim().trim_start_matches("0x"), 16)
+                                .unwrap_or(0);
 
                         // 检查是否是显示控制器 (0x03xxxx)
                         if (class_code >> 16) == 0x03 {
@@ -232,17 +246,19 @@ pub fn scan_available_gpus() -> Vec<GpuInfo> {
 
                             if let (Ok(vendor_str), Ok(device_str)) = (
                                 fs::read_to_string(&vendor_path),
-                                fs::read_to_string(&device_path)
+                                fs::read_to_string(&device_path),
                             ) {
                                 let vendor_id = u16::from_str_radix(
                                     vendor_str.trim().trim_start_matches("0x"),
-                                    16
-                                ).unwrap_or(0);
+                                    16,
+                                )
+                                .unwrap_or(0);
 
                                 let device_id = u16::from_str_radix(
                                     device_str.trim().trim_start_matches("0x"),
-                                    16
-                                ).unwrap_or(0);
+                                    16,
+                                )
+                                .unwrap_or(0);
 
                                 let info = PciDeviceInfo {
                                     address,
@@ -277,7 +293,12 @@ mod tests {
         let gpus = scan_available_gpus();
         println!("Found {} GPU(s):", gpus.len());
         for gpu in gpus {
-            println!("  - {:?} {} at {}", gpu.vendor, gpu.model, gpu.pci_address.to_string());
+            println!(
+                "  - {:?} {} at {}",
+                gpu.vendor,
+                gpu.model,
+                gpu.pci_address.to_string()
+            );
             println!("    VRAM: {} MB", gpu.vram_size / 1024 / 1024);
             println!("    Driver: {}", gpu.driver);
         }

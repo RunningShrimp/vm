@@ -4,7 +4,6 @@
 
 use std::io::{Read, Seek, SeekFrom};
 use thiserror::Error;
-use thiserror::Error;
 
 /// El Torito 引导目录
 #[derive(Debug, Clone)]
@@ -83,46 +82,46 @@ pub struct ElTorito<R: Read + Seek> {
 impl<R: Read + Seek> ElTorito<R> {
     /// 创建新的 El Torito 解析器
     pub fn new(reader: R) -> Result<Self, EltoritoError> {
-    pub fn new(reader: R) -> Result<Self, EltoritoError> {
         let mut parser = Self {
             reader,
             catalog: None,
         };
-        
+
         parser.parse_boot_catalog()?;
         Ok(parser)
     }
 
     /// 查找引导卷描述符
     fn find_boot_volume_descriptor(&mut self) -> Result<u32, EltoritoError> {
-    fn find_boot_volume_descriptor(&mut self) -> Result<u32, EltoritoError> {
         const SECTOR_SIZE: u64 = 2048;
         const VD_START: u64 = 16 * SECTOR_SIZE;
 
-        self.reader.seek(SeekFrom::Start(VD_START))?;
         self.reader.seek(SeekFrom::Start(VD_START))?;
 
         loop {
             let mut header = [0u8; 7];
             self.reader.read_exact(&mut header)?;
-            self.reader.read_exact(&mut header)?;
 
             let vd_type = header[0];
             let identifier = &header[1..6];
 
-            if identifier != b"CD001" { return Err(EltoritoError::InvalidIdentifier); }
+            if identifier != b"CD001" {
+                return Err(EltoritoError::InvalidIdentifier);
+            }
 
             if vd_type == 0 {
                 // 引导记录
                 let mut boot_data = [0u8; 2048 - 7];
-                self.reader.read_exact(&mut boot_data)?;
                 self.reader.read_exact(&mut boot_data)?;
 
                 // 检查 El Torito 标识符（偏移 0，32 字节）
                 if &boot_data[0..23] == b"EL TORITO SPECIFICATION" {
                     // 引导目录位置（偏移 71，4 字节，little-endian）
                     let catalog_sector = u32::from_le_bytes([
-                        boot_data[64], boot_data[65], boot_data[66], boot_data[67]
+                        boot_data[64],
+                        boot_data[65],
+                        boot_data[66],
+                        boot_data[67],
                     ]);
                     return Ok(catalog_sector);
                 }
@@ -132,16 +131,13 @@ impl<R: Read + Seek> ElTorito<R> {
             } else {
                 // 跳过其他类型的卷描述符
                 self.reader.seek(SeekFrom::Current(2048 - 7))?;
-                self.reader.seek(SeekFrom::Current(2048 - 7))?;
             }
         }
 
         Err(EltoritoError::BootDescriptorNotFound)
-        Err(EltoritoError::BootDescriptorNotFound)
     }
 
     /// 解析引导目录
-    fn parse_boot_catalog(&mut self) -> Result<(), EltoritoError> {
     fn parse_boot_catalog(&mut self) -> Result<(), EltoritoError> {
         let catalog_sector = self.find_boot_volume_descriptor()?;
 
@@ -149,18 +145,15 @@ impl<R: Read + Seek> ElTorito<R> {
         let offset = catalog_sector as u64 * SECTOR_SIZE;
 
         self.reader.seek(SeekFrom::Start(offset))?;
-        self.reader.seek(SeekFrom::Start(offset))?;
 
         // 读取验证条目
         let mut validation_data = [0u8; 32];
-        self.reader.read_exact(&mut validation_data)?;
         self.reader.read_exact(&mut validation_data)?;
 
         let validation_entry = self.parse_validation_entry(&validation_data)?;
 
         // 读取初始/默认条目
         let mut initial_data = [0u8; 32];
-        self.reader.read_exact(&mut initial_data)?;
         self.reader.read_exact(&mut initial_data)?;
 
         let initial_entry = self.parse_boot_entry(&initial_data)?;
@@ -176,24 +169,25 @@ impl<R: Read + Seek> ElTorito<R> {
 
     /// 解析验证条目
     fn parse_validation_entry(&self, data: &[u8; 32]) -> Result<ValidationEntry, EltoritoError> {
-    fn parse_validation_entry(&self, data: &[u8; 32]) -> Result<ValidationEntry, EltoritoError> {
         // 头部 ID（偏移 0）
-        if data[0] != 0x01 { return Err(EltoritoError::InvalidValidationHeader); }
+        if data[0] != 0x01 {
+            return Err(EltoritoError::InvalidValidationHeader);
+        }
 
         // 平台 ID（偏移 1）
         let platform_id = data[1];
 
         // 制造商字符串（偏移 4，24 字节）
-        let manufacturer = String::from_utf8_lossy(&data[4..28])
-            .trim()
-            .to_string();
+        let manufacturer = String::from_utf8_lossy(&data[4..28]).trim().to_string();
 
         // 校验和（偏移 28，2 字节）
         let checksum = u16::from_le_bytes([data[28], data[29]]);
 
         // 密钥字节（偏移 30，2 字节）应该是 0x55AA
         let key = u16::from_le_bytes([data[30], data[31]]);
-        if key != 0x55AA { return Err(EltoritoError::InvalidValidationKey); }
+        if key != 0x55AA {
+            return Err(EltoritoError::InvalidValidationKey);
+        }
 
         Ok(ValidationEntry {
             platform_id,
@@ -203,7 +197,6 @@ impl<R: Read + Seek> ElTorito<R> {
     }
 
     /// 解析引导条目
-    fn parse_boot_entry(&self, data: &[u8; 32]) -> Result<BootEntry, EltoritoError> {
     fn parse_boot_entry(&self, data: &[u8; 32]) -> Result<BootEntry, EltoritoError> {
         // 引导指示器（偏移 0）
         let boot_indicator = data[0];
@@ -240,11 +233,9 @@ impl<R: Read + Seek> ElTorito<R> {
 
     /// 读取引导镜像
     pub fn read_boot_image(&mut self, entry: &BootEntry) -> Result<Vec<u8>, EltoritoError> {
-    pub fn read_boot_image(&mut self, entry: &BootEntry) -> Result<Vec<u8>, EltoritoError> {
         const SECTOR_SIZE: u64 = 2048;
         let offset = entry.load_rba as u64 * SECTOR_SIZE;
 
-        self.reader.seek(SeekFrom::Start(offset))?;
         self.reader.seek(SeekFrom::Start(offset))?;
 
         // 计算要读取的大小
@@ -272,24 +263,9 @@ impl<R: Read + Seek> ElTorito<R> {
 
         let mut data = vec![0u8; size];
         self.reader.read_exact(&mut data)?;
-        self.reader.read_exact(&mut data)?;
 
         Ok(data)
     }
-}
-
-#[derive(Debug, Error)]
-pub enum EltoritoError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Invalid ISO 9660 identifier")]
-    InvalidIdentifier,
-    #[error("Boot volume descriptor not found")]
-    BootDescriptorNotFound,
-    #[error("Invalid validation entry header")]
-    InvalidValidationHeader,
-    #[error("Invalid validation entry key")]
-    InvalidValidationKey,
 }
 
 #[derive(Debug, Error)]

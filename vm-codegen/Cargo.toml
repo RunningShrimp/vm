@@ -1,0 +1,23 @@
+[package]
+name = "vm-codegen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+
+[[example]]
+name = "arm64_instructions"
+path = "examples/arm64_instructions.rs"
+
+[[example]]
+name = "riscv_instructions"
+path = "examples/riscv_instructions.rs"

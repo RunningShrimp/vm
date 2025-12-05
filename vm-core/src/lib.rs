@@ -28,66 +28,6 @@
 //!     ..Default::default()
 //! };
 //! ```
-//! # vm-core - 虚拟机核心库
-//!
-//! 提供虚拟机的核心类型定义、Trait抽象和基础设施。
-//!
-//! ## 主要组件
-//!
-//! - **类型定义**: [`GuestAddr`], [`GuestPhysAddr`], [`HostAddr`] 等地址类型
-//! - **架构支持**: [`GuestArch`] 枚举支持 RISC-V64, ARM64, x86_64
-//! - **执行抽象**: [`ExecutionEngine`] trait 定义执行引擎接口
-//! - **内存管理**: [`MMU`] trait 定义内存管理单元接口
-//! - **解码器**: [`Decoder`] trait 定义指令解码器接口
-//! - **调试支持**: [`gdb`] 模块提供 GDB 远程调试协议实现
-//!
-//! ## 特性标志
-//!
-//! - `no_std`: 启用 no_std 支持，用于嵌入式或受限环境
-//!
-//! ## 示例
-//!
-//! ```rust,ignore
-//! use vm_core::{GuestArch, VmConfig, ExecMode};
-//!
-//! let config = VmConfig {
-//!     guest_arch: GuestArch::Riscv64,
-//!     memory_size: 128 * 1024 * 1024, // 128MB
-//!     vcpu_count: 1,
-//!     exec_mode: ExecMode::Interpreter,
-//!     ..Default::default()
-//! };
-//! ```
-//! # vm-core - 虚拟机核心库
-//!
-//! 提供虚拟机的核心类型定义、Trait抽象和基础设施。
-//!
-//! ## 主要组件
-//!
-//! - **类型定义**: [`GuestAddr`], [`GuestPhysAddr`], [`HostAddr`] 等地址类型
-//! - **架构支持**: [`GuestArch`] 枚举支持 RISC-V64, ARM64, x86_64
-//! - **执行抽象**: [`ExecutionEngine`] trait 定义执行引擎接口
-//! - **内存管理**: [`MMU`] trait 定义内存管理单元接口
-//! - **解码器**: [`Decoder`] trait 定义指令解码器接口
-//! - **调试支持**: [`gdb`] 模块提供 GDB 远程调试协议实现
-//!
-//! ## 特性标志
-//!
-//! - `no_std`: 启用 no_std 支持，用于嵌入式或受限环境
-//!
-//! ## 示例
-//!
-//! ```rust,ignore
-//! use vm_core::{GuestArch, VmConfig, ExecMode};
-//!
-//! let config = VmConfig {
-//!     guest_arch: GuestArch::Riscv64,
-//!     memory_size: 128 * 1024 * 1024, // 128MB
-//!     vcpu_count: 1,
-//!     exec_mode: ExecMode::Interpreter,
-//!     ..Default::default()
-//! };
-//! ```
 
 #![cfg_attr(feature = "no_std", no_std)]
 
@@ -95,22 +35,47 @@
 extern crate alloc;
 
 #[cfg(feature = "no_std")]
-use alloc::{boxed::Box, vec::Vec, string::String, sync::Arc};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 #[cfg(not(feature = "no_std"))]
 use std::sync::{Arc, Mutex};
 
 // 模块定义
-mod regs;
+pub mod aggregate_root;
+pub mod async_event_bus;
+pub mod async_execution_engine;
+pub mod async_mmu;
 pub mod domain;
-pub mod domain;
-pub mod syscall;
-pub mod snapshot;
-pub mod template;
-pub mod migration;
+pub mod domain_event_bus;
+pub mod domain_events;
+pub mod event_store;
 pub mod gdb;
+pub mod lockfree;
+pub mod migration;
+pub mod mmu_traits;
+#[cfg(test)]
+pub mod parallel_execution; // 仅用于测试和基准测试
+pub mod parallel;
+mod regs;
+pub mod repository;
+pub use repository::{
+    AggregateRepository, EventRepository, SnapshotRepository,
+    RepositoryFactory, RepositorySuite,
+    InMemoryAggregateRepository, InMemoryEventRepository, InMemorySnapshotRepository,
+};
+pub mod snapshot;
+pub mod syscall;
+pub mod template;
+pub mod tlb_async;
+pub mod value_objects;
+pub mod vm_state;
+#[cfg(feature = "async")]
+pub use async_execution_engine::{AsyncExecutionEngine, ExecutionEngineAdapter};
+pub use async_mmu::{AsyncMMU, AsyncTLB, TLBEntry, TLBStats};
+pub use domain::{ExecutionManager, PageTableWalker, TlbEntry, TlbManager};
+pub use lockfree::{LockFreeCounter, LockFreeQueue, LockFreeStack};
+pub use parallel::{LoadBalancePolicy, MultiVcpuExecutor, ParallelExecutorConfig, VcpuLoadBalancer};
 pub use regs::GuestRegs;
-pub use domain::{TlbManager, TlbEntry, PageTableWalker, ExecutionManager};
-pub use domain::{TlbManager, TlbEntry, PageTableWalker, ExecutionManager};
+pub use tlb_async::{AsyncTLBCache, AsyncTlbAdapter, ConcurrentTLBManager, TLBCacheStats};
 
 // ============================================================================
 // 基础类型定义
@@ -178,9 +143,10 @@ impl GuestArch {
 /// - `Jit`: 仅 JIT 编译执行，需要编译开销但执行快速
 /// - `Accelerated`: 使用硬件虚拟化（KVM/HVF/WHPX），性能最好
 /// - `Hybrid`: 混合模式，热点代码 JIT 编译，冷代码解释执行
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ExecMode {
     /// 纯解释执行模式
+    #[default]
     Interpreter,
     /// JIT 编译执行模式
     Jit,
@@ -226,81 +192,50 @@ pub enum AccessType {
 /// - `TrapRiscv`: RISC-V 陷阱
 #[derive(Debug, Clone)]
 pub enum Fault {
-    PageFault { addr: GuestAddr, access: AccessType },
-    AccessViolation { addr: GuestAddr, access: AccessType },
-    InvalidOpcode { pc: GuestAddr, opcode: u32 },
-    AlignmentFault { addr: GuestAddr, size: u8 },
-    DeviceError { msg: String },
+    PageFault {
+        addr: GuestAddr,
+        access: AccessType,
+    },
+    AccessViolation {
+        addr: GuestAddr,
+        access: AccessType,
+    },
+    InvalidOpcode {
+        pc: GuestAddr,
+        opcode: u32,
+    },
+    AlignmentFault {
+        addr: GuestAddr,
+        size: u8,
+    },
+    DeviceError {
+        msg: String,
+    },
     Halt,
     Shutdown,
-    TrapRiscv { cause: RiscvTrapCause, pc: GuestAddr },
-    TrapRiscv { cause: RiscvTrapCause, pc: GuestAddr },
+    TrapRiscv {
+        cause: RiscvTrapCause,
+        pc: GuestAddr,
+    },
 }
 
-/// 虚拟机运行时错误
-///
-/// 表示虚拟机在初始化或运行过程中可能遇到的各种错误。
-#[derive(Debug)]
-pub enum VmError {
-    /// 配置错误
-    Config(String),
-    /// 内存映射错误
-    Memory(String),
-    /// 设备初始化错误
-    Device(String),
-    /// 执行错误
-    Execution(Fault),
-    /// 加速器不可用
-    AcceleratorUnavailable,
-    /// IO 错误
-    Io(String),
-}
-
-#[cfg(not(feature = "no_std"))]
-impl std::fmt::Display for VmError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VmError::Config(s) => write!(f, "Configuration error: {}", s),
-            VmError::Memory(s) => write!(f, "Memory error: {}", s),
-            VmError::Device(s) => write!(f, "Device error: {}", s),
-            VmError::Execution(fault) => write!(f, "Execution fault: {:?}", fault),
-            VmError::AcceleratorUnavailable => write!(f, "Hardware accelerator unavailable"),
-            VmError::Io(s) => write!(f, "IO error: {}", s),
-        }
-    }
-}
-
-#[cfg(not(feature = "no_std"))]
-impl std::error::Error for VmError {}
+pub mod error;
+pub use aggregate_root::{AggregateRoot, VirtualMachineAggregate};
+#[cfg(feature = "async")]
+pub use async_event_bus::{AsyncEventBus, AsyncEventBusStats};
+pub use domain_event_bus::{DomainEventBus, EventFilter, EventHandler, EventSubscriptionId};
+pub use event_store::{EventStore, InMemoryEventStore, StoredEvent};
+pub use domain_events::{
+    DeviceEvent, DomainEvent, DomainEventEnum, ExecutionEvent, MemoryEvent, SnapshotEvent,
+    VmLifecycleEvent,
+};
+pub use error::{
+    CoreError, DeviceError, ErrorContext, ExecutionError, MemoryError, PlatformError, VmError,
+};
+pub use repository::{InMemoryVmStateRepository, VmStateRepository, VmStateSnapshot};
+pub use value_objects::{DeviceId, MemorySize, PortNumber, VcpuCount, VmId};
 
 pub type VmResult<T> = Result<T, VmError>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RiscvTrapCause {
-    InstructionAddressMisaligned,
-    InstructionAccessFault,
-    IllegalInstruction,
-    Breakpoint,
-    LoadAddressMisaligned,
-    LoadAccessFault,
-    StoreAddressMisaligned,
-    StoreAccessFault,
-    EnvironmentCallFromU,
-    EnvironmentCallFromS,
-    EnvironmentCallFromM,
-    InstructionPageFault,
-    LoadPageFault,
-    StorePageFault,
-    UserSoftwareInterrupt,
-    SupervisorSoftwareInterrupt,
-    MachineSoftwareInterrupt,
-    UserTimerInterrupt,
-    SupervisorTimerInterrupt,
-    MachineTimerInterrupt,
-    UserExternalInterrupt,
-    SupervisorExternalInterrupt,
-    MachineExternalInterrupt,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiscvTrapCause {
@@ -366,6 +301,54 @@ pub enum NetMode {
     Tap(String),
 }
 
+/// AOT 编译配置
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AotConfig {
+    /// 是否启用 AOT 编译
+    pub enable_aot: bool,
+    /// AOT 镜像文件路径（如果提供，将在启动时加载）
+    pub aot_image_path: Option<String>,
+    /// 是否启用 AOT 优先策略（优先使用 AOT 代码）
+    pub aot_priority: bool,
+    /// AOT 代码块最小热度阈值（超过此阈值才考虑 AOT 编译）
+    pub aot_hotspot_threshold: u32,
+}
+
+impl Default for AotConfig {
+    fn default() -> Self {
+        Self {
+            enable_aot: false,
+            aot_image_path: None,
+            aot_priority: true,
+            aot_hotspot_threshold: 1000,
+        }
+    }
+}
+
+/// 异步执行引擎配置
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AsyncExecutorConfig {
+    /// 是否启用异步执行引擎
+    pub enable_async_executor: bool,
+    /// Yield 间隔（每 N 条指令进行一次 yield，0 表示禁用 yield）
+    pub yield_interval: u64,
+    /// 是否启用异步 I/O（使用 tokio::fs 等）
+    pub enable_async_io: bool,
+    /// 异步执行的最大并发任务数
+    pub max_concurrent_tasks: usize,
+}
+
+impl Default for AsyncExecutorConfig {
+    fn default() -> Self {
+        Self {
+            enable_async_executor: false,
+            yield_interval: 1000,
+            enable_async_io: true,
+            max_concurrent_tasks: 4,
+        }
+    }
+}
+
 /// 虚拟机配置结构
 ///
 /// 包含虚拟机的所有初始化配置参数，如架构、内存大小、执行模式等。
@@ -382,6 +365,8 @@ pub enum NetMode {
 /// - `virtio`: VirtIO 设备配置
 /// - `debug_trace`: 是否启用调试跟踪
 /// - `jit_threshold`: JIT 编译的热点执行次数阈值
+/// - `aot`: AOT 编译配置
+/// - `async_executor`: 异步执行引擎配置
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VmConfig {
     /// Guest 架构
@@ -406,6 +391,10 @@ pub struct VmConfig {
     pub debug_trace: bool,
     /// JIT 热点阈值
     pub jit_threshold: u32,
+    /// AOT 编译配置
+    pub aot: AotConfig,
+    /// 异步执行引擎配置
+    pub async_executor: AsyncExecutorConfig,
 }
 
 impl Default for VmConfig {
@@ -422,6 +411,8 @@ impl Default for VmConfig {
             virtio: VirtioConfig::default(),
             debug_trace: false,
             jit_threshold: 100,
+            aot: AotConfig::default(),
+            async_executor: AsyncExecutorConfig::default(),
         }
     }
 }
@@ -435,26 +426,26 @@ impl Default for VmConfig {
 /// 所有内存映射设备都应实现此 trait，以支持虚拟机对其进行读写操作。
 pub trait MmioDevice: Send + Sync {
     /// 从设备读取数据
-    /// 
+    ///
     /// # 参数
     /// - `offset`: 设备内部偏移地址
     /// - `size`: 读取大小（1/2/4/8 字节）
     fn read(&self, offset: u64, size: u8) -> u64;
-    
+
     /// 向设备写入数据
-    /// 
+    ///
     /// # 参数
     /// - `offset`: 设备内部偏移地址
     /// - `val`: 要写入的值
     /// - `size`: 写入大小（1/2/4/8 字节）
     fn write(&mut self, offset: u64, val: u64, size: u8);
-    
+
     /// 设备通知（可选）
     fn notify(&mut self, _mmu: &mut dyn MMU, _offset: u64) {}
-    
+
     /// 轮询操作（可选）
     fn poll(&mut self, _mmu: &mut dyn MMU) {}
-    
+
     /// 重置设备
     fn reset(&mut self) {}
 }
@@ -465,55 +456,55 @@ pub trait MmioDevice: Send + Sync {
 /// 每种架构可有不同的 MMU 实现（如带 TLB 的 SoftMmu）。
 pub trait MMU: Send + 'static {
     /// 虚拟地址翻译
-    /// 
+    ///
     /// 将虚拟地址（GVA）翻译到物理地址（GPA）。
     /// 这通常涉及 TLB 查找或页表遍历。
-    fn translate(&mut self, va: GuestAddr, access: AccessType) -> Result<GuestPhysAddr, Fault>;
-    
+    fn translate(&mut self, va: GuestAddr, access: AccessType) -> Result<GuestPhysAddr, VmError>;
+
     /// 从给定 PC 取出指令
-    /// 
+    ///
     /// 自动处理地址翻译和访问控制。
-    fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, Fault>;
-    
+    fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, VmError>;
+
     /// 从给定物理地址读取内存
-    /// 
+    ///
     /// # 参数
     /// - `pa`: 物理地址
     /// - `size`: 读取大小（1/2/4/8 字节）
-    fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, Fault>;
+    fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError>;
 
     /// 原子性的读取与保留（LR 指令）
-    /// 
+    ///
     /// 用于原子操作的实现，通常配合 store_conditional 使用。
-    fn load_reserved(&mut self, pa: GuestAddr, size: u8) -> Result<u64, Fault> {
+    fn load_reserved(&mut self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
         self.read(pa, size)
     }
-    
+
     /// 向给定物理地址写入内存
-    /// 
+    ///
     /// # 参数
     /// - `pa`: 物理地址
     /// - `val`: 要写入的值
     /// - `size`: 写入大小（1/2/4/8 字节）
-    fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), Fault>;
+    fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), VmError>;
 
     /// 条件存储（SC 指令）
-    /// 
+    ///
     /// 用于原子操作，仅在之前 load_reserved 的地址未被修改时写入。
     /// 返回 true 表示成功，false 表示失败。
-    fn store_conditional(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<bool, Fault> {
+    fn store_conditional(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<bool, VmError> {
         // 默认实现总是失败（保守行为）
         let _ = (pa, val, size);
         Ok(false)
     }
 
     /// 清除保留位
-    /// 
+    ///
     /// 当 LR 地址被其他 CPU 修改或其他情况下调用，用于清除保留状态。
     fn invalidate_reservation(&mut self, _pa: GuestAddr, _size: u8) {}
 
     /// 批量读内存
-    fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), Fault> {
+    fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
         for (i, byte) in buf.iter_mut().enumerate() {
             *byte = self.read(pa + i as u64, 1)? as u8;
         }
@@ -521,19 +512,19 @@ pub trait MMU: Send + 'static {
     }
 
     /// 批量写内存
-    fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), Fault> {
+    fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
         for (i, &byte) in buf.iter().enumerate() {
             self.write(pa + i as u64, byte as u64, 1)?;
         }
         Ok(())
     }
-    
+
     /// 映射 MMIO 设备
     fn map_mmio(&mut self, base: GuestAddr, size: u64, device: Box<dyn MmioDevice>);
-    
+
     /// TLB 刷新
     fn flush_tlb(&mut self);
-    
+
     /// 获取物理内存大小
     fn memory_size(&self) -> usize;
 
@@ -544,9 +535,6 @@ pub trait MMU: Send + 'static {
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String>;
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
-
-    /// 设备轮询（用于异步 I/O 驱动）
-    fn poll_devices(&mut self) {}
 
     /// 设备轮询（用于异步 I/O 驱动）
     fn poll_devices(&mut self) {}
@@ -581,7 +569,7 @@ pub enum ExecStatus {
     /// 执行完成
     Ok,
     /// 发生故障
-    Fault(Fault),
+    Fault(VmError),
     /// 需要 I/O
     IoRequest,
     /// 中断待处理
@@ -620,21 +608,21 @@ pub struct VcpuStateContainer {
 /// - `B`: 基本块类型（通常是 IRBlock）
 pub trait ExecutionEngine<B>: Send {
     /// 执行单个基本块
-    /// 
+    ///
     /// # 参数
     /// - `mmu`: 内存管理单元
     /// - `block`: 要执行的基本块
     fn run(&mut self, mmu: &mut dyn MMU, block: &B) -> ExecResult;
-    
+
     /// 获取指定编号的寄存器值
     fn get_reg(&self, idx: usize) -> u64;
-    
+
     /// 设置指定编号的寄存器值
     fn set_reg(&mut self, idx: usize, val: u64);
-    
+
     /// 获取程序计数器（PC）
     fn get_pc(&self) -> GuestAddr;
-    
+
     /// 设置程序计数器（PC）
     fn set_pc(&mut self, pc: GuestAddr);
 
@@ -651,32 +639,32 @@ pub trait ExecutionEngine<B>: Send {
 /// 此 trait 提供了统一的接口来访问解码后的指令信息。
 pub trait Instruction: Send + Sync {
     /// 获取指令执行后的下一个地址
-    /// 
+    ///
     /// 等于 PC + instruction_size，用于顺序执行时的下一条指令地址。
     fn next_pc(&self) -> GuestAddr;
-    
+
     /// 获取指令长度（字节数）
-    /// 
+    ///
     /// - x86_64: 1-15 字节（变长编码）
     /// - ARM64: 4 字节（固定）
     /// - RISC-V: 2 或 4 字节
     fn size(&self) -> u8;
-    
+
     /// 获取操作数数量
     fn operand_count(&self) -> usize;
-    
+
     /// 获取操作码/助记符的字符串表示
-    /// 
+    ///
     /// 例如："mov", "add", "jmp" 等
     fn mnemonic(&self) -> &str;
-    
+
     /// 是否是控制流指令（分支/跳转/调用）
-    /// 
+    ///
     /// 用于 JIT 的热点追踪和基本块切割
     fn is_control_flow(&self) -> bool;
-    
+
     /// 是否是内存访问指令
-    /// 
+    ///
     /// 用于优化和内存访问追踪
     fn is_memory_access(&self) -> bool;
 }
@@ -690,17 +678,17 @@ pub trait Instruction: Send + Sync {
 /// - `RiscvDecoder`: RISC-V 64-bit 架构
 pub trait Decoder: Send {
     /// 关联的指令类型
-    /// 
+    ///
     /// 每个解码器产生的指令类型，需实现 Instruction trait
     type Instruction: Instruction;
-    
+
     /// 关联的基本块类型
-    /// 
+    ///
     /// 通常是 `IRBlock`（中间表示的基本块）
     type Block;
-    
+
     /// 解码单个指令
-    /// 
+    ///
     /// 从给定的 PC 地址处解码单个指令，返回解码后的指令对象。
     ///
     /// # 参数
@@ -709,11 +697,11 @@ pub trait Decoder: Send {
     ///
     /// # 返回
     /// - `Ok(Instruction)`: 成功解码的指令
-    /// - `Err(Fault)`: 解码过程中发生的故障（如非法指令）
-    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, Fault>;
-    
+    /// - `Err(VmError)`: 解码过程中发生的故障（如非法指令）
+    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, VmError>;
+
     /// 解码基本块
-    /// 
+    ///
     /// 从给定的 PC 地址处开始解码一个完整的基本块，通常返回 IR 中间表示。
     /// 基本块在以下情况结束：
     /// - 遇到无条件跳转/分支
@@ -726,8 +714,8 @@ pub trait Decoder: Send {
     ///
     /// # 返回
     /// - `Ok(Block)`: 成功解码的基本块
-    /// - `Err(Fault)`: 解码过程中发生的故障
-    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault>;
+    /// - `Err(VmError)`: 解码过程中发生的故障
+    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, VmError>;
 }
 
 // ============================================================================
@@ -755,9 +743,19 @@ pub enum VcpuExit {
     /// Halt 指令
     Halt,
     /// MMIO 访问
-    Mmio { addr: GuestAddr, is_write: bool, size: u8, data: u64 },
+    Mmio {
+        addr: GuestAddr,
+        is_write: bool,
+        size: u8,
+        data: u64,
+    },
     /// I/O 端口访问（x86）
-    Io { port: u16, is_write: bool, size: u8, data: u32 },
+    Io {
+        port: u16,
+        is_write: bool,
+        size: u8,
+        data: u32,
+    },
     /// 中断窗口打开
     IrqWindowOpen,
     /// 关机请求
@@ -771,7 +769,7 @@ pub enum VcpuExit {
 // ============================================================================
 
 /// 虚拟机状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum VmState {
     Created,
     Running,
@@ -816,41 +814,41 @@ impl<B: 'static> VirtualMachine<B> {
     pub fn add_vcpu(&mut self, vcpu: Arc<Mutex<dyn ExecutionEngine<B>>>) {
         self.vcpus.push(vcpu);
     }
-    
+
     /// 获取 MMU 引用
     pub fn mmu(&self) -> Arc<Mutex<Box<dyn MMU>>> {
         Arc::clone(&self.mmu)
     }
-    
+
     /// 获取配置
     pub fn config(&self) -> &VmConfig {
         &self.config
     }
-    
+
     /// 获取 VM 状态
     pub fn state(&self) -> VmState {
         self.state
     }
-    
+
     /// 获取执行统计
     pub fn stats(&self) -> &ExecStats {
         &self.stats
     }
-    
+
     /// 加载内核镜像到内存
     pub fn load_kernel(&mut self, data: &[u8], load_addr: GuestAddr) -> VmResult<()> {
-        let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
-        
+        let mut mmu = self.mmu.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire MMU lock".to_string(),
+            })
+        })?;
+
         mmu.write_bulk(load_addr, data)
-            .map_err(|f| VmError::Execution(f))?;
-        mmu.write_bulk(load_addr, data)
-            .map_err(|f| VmError::Execution(f))?;
-        mmu.write_bulk(load_addr, data)
-            .map_err(|f| VmError::Execution(f))?;
-        
+            .map_err(|f| VmError::from(f))?;
+
         Ok(())
     }
-    
+
     /// 从文件加载内核
     #[cfg(not(feature = "no_std"))]
     pub fn load_kernel_file(&mut self, path: &str, load_addr: GuestAddr) -> VmResult<()> {
@@ -858,110 +856,178 @@ impl<B: 'static> VirtualMachine<B> {
         let data = fs::read(path).map_err(|e| VmError::Io(e.to_string()))?;
         self.load_kernel(&data, load_addr)
     }
-    
+
     /// 启动 VM
     pub fn start(&mut self) -> VmResult<()> {
         if self.state != VmState::Created && self.state != VmState::Paused {
-            return Err(VmError::Config("VM not in startable state".into()));
+            return Err(VmError::Core(CoreError::Config {
+                message: "VM not in startable state".to_string(),
+                path: None,
+            }));
         }
         self.state = VmState::Running;
         Ok(())
     }
-    
+
     /// 暂停 VM
     pub fn pause(&mut self) -> VmResult<()> {
         if self.state != VmState::Running {
-            return Err(VmError::Config("VM not running".into()));
+            return Err(VmError::Core(CoreError::Config {
+                message: "VM not running".to_string(),
+                path: None,
+            }));
         }
         self.state = VmState::Paused;
         Ok(())
     }
-    
+
     /// 停止 VM
     pub fn stop(&mut self) -> VmResult<()> {
         self.state = VmState::Stopped;
         Ok(())
     }
-    
+
     /// 重置 VM
     pub fn reset(&mut self) -> VmResult<()> {
         self.state = VmState::Created;
         self.stats = ExecStats::default();
-        let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
+        let mut mmu = self.mmu.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire MMU lock".to_string(),
+            })
+        })?;
         mmu.flush_tlb();
         Ok(())
     }
 
     /// 创建快照
     pub fn create_snapshot(&mut self, name: String, description: String) -> VmResult<String> {
-        let mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
+        let mmu = self.mmu.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire MMU lock".to_string(),
+            })
+        })?;
         let memory_dump = mmu.dump_memory();
         let id = uuid::Uuid::new_v4().to_string();
         let memory_dump_path = format!("/tmp/{}.memsnap", id);
         std::fs::write(&memory_dump_path, memory_dump).map_err(|e| VmError::Io(e.to_string()))?;
 
-        let mut snapshot_manager = self.snapshot_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock snapshot manager".into()))?;
-        let mut snapshot_manager = self.snapshot_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock snapshot manager".into()))?;
+        let mut snapshot_manager = self.snapshot_manager.lock().map_err(|_| {
+            VmError::Core(CoreError::Internal {
+                message: "Failed to lock snapshot manager".to_string(),
+                module: "VirtualMachine".to_string(),
+            })
+        })?;
         let snapshot_id = snapshot_manager.create_snapshot(name, description, memory_dump_path);
         Ok(snapshot_id)
     }
 
     /// 恢复快照
     pub fn restore_snapshot(&mut self, id: &str) -> VmResult<()> {
-        let mut snapshot_manager = self.snapshot_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock snapshot manager".into()))?;
-        let mut snapshot_manager = self.snapshot_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock snapshot manager".into()))?;
-        let snapshot = snapshot_manager.snapshots.get(id).ok_or_else(|| VmError::Config("Snapshot not found".to_string()))?.clone();
-        let memory_dump = std::fs::read(&snapshot.memory_dump_path).map_err(|e| VmError::Io(e.to_string()))?;
+        let mut snapshot_manager = self.snapshot_manager.lock().map_err(|_| {
+            VmError::Core(CoreError::Internal {
+                message: "Failed to lock snapshot manager".to_string(),
+                module: "VirtualMachine".to_string(),
+            })
+        })?;
+        let snapshot = snapshot_manager
+            .snapshots
+            .get(id)
+            .ok_or_else(|| {
+                VmError::Core(CoreError::Config {
+                    message: "Snapshot not found".to_string(),
+                    path: None,
+                })
+            })?
+            .clone();
+        let memory_dump =
+            std::fs::read(&snapshot.memory_dump_path).map_err(|e| VmError::Io(e.to_string()))?;
 
-        let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
-        mmu.restore_memory(&memory_dump).map_err(VmError::Memory)?;
+        let mut mmu = self.mmu.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire MMU lock".to_string(),
+            })
+        })?;
+        mmu.restore_memory(&memory_dump).map_err(|s| {
+            VmError::Memory(MemoryError::MappingFailed {
+                message: s,
+                src: None,
+                dst: None,
+            })
+        })?;
 
-        snapshot_manager.restore_snapshot(id).map_err(VmError::Config)
+        snapshot_manager.restore_snapshot(id).map_err(|s| {
+            VmError::Core(CoreError::Config {
+                message: s,
+                path: None,
+            })
+        })
     }
 
     /// 列出所有快照
     pub fn list_snapshots(&self) -> VmResult<Vec<snapshot::Snapshot>> {
-        let snapshot_manager = self.snapshot_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock snapshot manager".into()))?;
-        let snapshot_manager = self.snapshot_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock snapshot manager".into()))?;
-        Ok(snapshot_manager.get_snapshot_tree().into_iter().cloned().collect())
+        let snapshot_manager = self.snapshot_manager.lock().map_err(|_| {
+            VmError::Core(CoreError::Internal {
+                message: "Failed to lock snapshot manager".to_string(),
+                module: "VirtualMachine".to_string(),
+            })
+        })?;
+        Ok(snapshot_manager
+            .get_snapshot_tree()
+            .into_iter()
+            .cloned()
+            .collect())
     }
 
     /// 创建模板
-    pub fn create_template(&mut self, name: String, description: String, base_snapshot_id: String) -> VmResult<String> {
-        let mut template_manager = self.template_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock template manager".into()))?;
-        let mut template_manager = self.template_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock template manager".into()))?;
+    pub fn create_template(
+        &mut self,
+        name: String,
+        description: String,
+        base_snapshot_id: String,
+    ) -> VmResult<String> {
+        let mut template_manager = self.template_manager.lock().map_err(|_| {
+            VmError::Core(CoreError::Internal {
+                message: "Failed to lock template manager".to_string(),
+                module: "VirtualMachine".to_string(),
+            })
+        })?;
         let id = template_manager.create_template(name, description, base_snapshot_id);
         Ok(id)
     }
 
     /// 列出所有模板
     pub fn list_templates(&self) -> VmResult<Vec<template::VmTemplate>> {
-        let template_manager = self.template_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock template manager".into()))?;
-        let template_manager = self.template_manager.lock()
-            .map_err(|_| VmError::Config("Failed to lock template manager".into()))?;
-        Ok(template_manager.list_templates().into_iter().cloned().collect())
+        let template_manager = self.template_manager.lock().map_err(|_| {
+            VmError::Core(CoreError::Internal {
+                message: "Failed to lock template manager".to_string(),
+                module: "VirtualMachine".to_string(),
+            })
+        })?;
+        Ok(template_manager
+            .list_templates()
+            .into_iter()
+            .cloned()
+            .collect())
     }
 
     /// 序列化虚拟机状态以进行迁移
     pub fn serialize_state(&self) -> VmResult<Vec<u8>> {
-        let mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
+        let mmu = self.mmu.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire MMU lock".to_string(),
+            })
+        })?;
         let memory_dump = mmu.dump_memory();
 
         let mut vcpu_states = Vec::new();
         for vcpu in &self.vcpus {
-            let vcpu = vcpu.lock()
-                .map_err(|_| VmError::Memory("Failed to lock vCPU".into()))?;
-            let vcpu = vcpu.lock()
-                .map_err(|_| VmError::Memory("Failed to lock vCPU".into()))?;
+            let vcpu = vcpu.lock().map_err(|_| {
+                VmError::Core(CoreError::Internal {
+                    message: "Failed to lock vCPU".to_string(),
+                    module: "VirtualMachine".to_string(),
+                })
+            })?;
             vcpu_states.push(vcpu.get_vcpu_state());
         }
 
@@ -971,24 +1037,46 @@ impl<B: 'static> VirtualMachine<B> {
             memory_dump,
         };
 
-        bincode::serialize(&state).map_err(|e| VmError::Io(e.to_string()))
+        // bincode 2.x removed the convenience `serialize`/`deserialize` helpers.
+        // Use the serde helpers and an explicit configuration instead.
+        bincode::serde::encode_to_vec(&state, bincode::config::standard()).map_err(|e| {
+            VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()).to_string())
+        })
     }
 
     /// 从序列化数据中反序列化并恢复虚拟机状态
     pub fn deserialize_state(&mut self, data: &[u8]) -> VmResult<()> {
-        let state: migration::MigrationState = bincode::deserialize(data).map_err(|e| VmError::Io(e.to_string()))?;
+        // decode_from_slice returns (T, usize) where usize is the number of bytes consumed.
+        let (state, _): (migration::MigrationState, usize) =
+            bincode::serde::decode_from_slice(data, bincode::config::standard()).map_err(|e| {
+                VmError::Io(
+                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()).to_string(),
+                )
+            })?;
 
         self.config = state.config;
 
-        let mut mmu = self.mmu.lock().map_err(|_| VmError::Memory("MMU lock poisoned".into()))?;
-        mmu.restore_memory(&state.memory_dump).map_err(VmError::Memory)?;
+        let mut mmu = self.mmu.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire MMU lock".to_string(),
+            })
+        })?;
+        mmu.restore_memory(&state.memory_dump).map_err(|s| {
+            VmError::Memory(MemoryError::MappingFailed {
+                message: s,
+                src: None,
+                dst: None,
+            })
+        })?;
 
         for (i, vcpu_state) in state.vcpu_states.iter().enumerate() {
             if let Some(vcpu) = self.vcpus.get_mut(i) {
-                let mut vcpu = vcpu.lock()
-                    .map_err(|_| VmError::Memory("Failed to lock vCPU during restore".into()))?;
-                let mut vcpu = vcpu.lock()
-                    .map_err(|_| VmError::Memory("Failed to lock vCPU during restore".into()))?;
+                let mut vcpu = vcpu.lock().map_err(|_| {
+                    VmError::Core(CoreError::Internal {
+                        message: "Failed to lock vCPU during restore".to_string(),
+                        module: "VirtualMachine".to_string(),
+                    })
+                })?;
                 vcpu.set_vcpu_state(vcpu_state);
             }
         }

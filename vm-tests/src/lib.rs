@@ -1,22 +1,28 @@
 #[cfg(test)]
+pub mod io_perf_benchmarks;
+
+/// 统一测试工具库
+pub mod test_utils;
+
+#[cfg(test)]
 mod tests {
-    use vm_core::{ExecutionEngine, MMU, Decoder, MmioDevice};
-use vm_engine_interpreter::Interpreter;
-use vm_engine_jit::Jit;
-use vm_engine_interpreter::Interpreter;
-use vm_engine_jit::Jit;
-    use vm_ir::{IRBuilder, IROp, MemFlags};
-    use vm_mem::SoftMmu;
-    use vm_engine_interpreter::run_chain;
-    use vm_frontend_riscv64::{RiscvDecoder, encode_jal, encode_beq};
-    use vm_frontend_arm64::api as arm64_api;
-    use vm_frontend_x86_64::api as x86_api;
+    use vm_core::{AccessType, Decoder, ExecutionEngine, MMU, MmioDevice};
     use vm_device::virtio;
+    use vm_engine_interpreter::Interpreter;
+    use vm_engine_interpreter::Interpreter;
+    use vm_engine_interpreter::run_chain;
+    use vm_engine_jit::Jit;
+    use vm_engine_jit::Jit;
+    use vm_frontend_arm64::api as arm64_api;
+    use vm_frontend_riscv64::{RiscvDecoder, encode_beq, encode_jal};
+    use vm_frontend_x86_64::api as x86_api;
+    use vm_ir::{IRBuilder, IROp, MemFlags};
+    use vm_mem::{PagingMode, SoftMmu, pte_flags};
 
     #[test]
     fn interpreter_runs_empty_block() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         let builder = IRBuilder::new(0);
         let block = builder.build();
         let res = engine.run(&mut mmu, &block);
@@ -29,11 +35,15 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_add_executes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_reg(1, 2);
         engine.set_reg(2, 3);
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::Add { dst: 3, src1: 1, src2: 2 });
+        builder.push(IROp::Add {
+            dst: 3,
+            src1: 1,
+            src2: 2,
+        });
         let block = builder.build();
         let res = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(3), 5);
@@ -43,13 +53,39 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_load_store_executes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_reg(4, 0x100);
         let _ = mmu.write(0x100, 0x77889900, 4);
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::Load { dst: 5, base: 4, size: 4, offset: 0, flags: MemFlags { volatile: false, atomic: true, align: 4, fence_before: true, fence_after: false, order: vm_ir::MemOrder::Acquire } });
+        builder.push(IROp::Load {
+            dst: 5,
+            base: 4,
+            size: 4,
+            offset: 0,
+            flags: MemFlags {
+                volatile: false,
+                atomic: true,
+                align: 4,
+                fence_before: true,
+                fence_after: false,
+                order: vm_ir::MemOrder::Acquire,
+            },
+        });
         engine.set_reg(1, 0x01020304);
-        builder.push(IROp::Store { src: 1, base: 4, size: 4, offset: 0, flags: MemFlags { volatile: false, atomic: true, align: 4, fence_before: false, fence_after: true, order: vm_ir::MemOrder::Release } });
+        builder.push(IROp::Store {
+            src: 1,
+            base: 4,
+            size: 4,
+            offset: 0,
+            flags: MemFlags {
+                volatile: false,
+                atomic: true,
+                align: 4,
+                fence_before: false,
+                fence_after: true,
+                order: vm_ir::MemOrder::Release,
+            },
+        });
         let block = builder.build();
         let res = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(5), 0x77889900);
@@ -75,16 +111,70 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(flag_addr, 0x0, 4);
         // producer: store data then flag with Release
         let mut prod = IRBuilder::new(0);
-        prod.push(IROp::Store { src: 3, base: 1, size: 4, offset: 0, flags: MemFlags { volatile: false, atomic: true, align: 4, fence_before: false, fence_after: true, order: vm_ir::MemOrder::Release } });
+        prod.push(IROp::Store {
+            src: 3,
+            base: 1,
+            size: 4,
+            offset: 0,
+            flags: MemFlags {
+                volatile: false,
+                atomic: true,
+                align: 4,
+                fence_before: false,
+                fence_after: true,
+                order: vm_ir::MemOrder::Release,
+            },
+        });
         engine.set_reg(3, 0x2A);
-        prod.push(IROp::Store { src: 4, base: 2, size: 4, offset: 0, flags: MemFlags { volatile: false, atomic: true, align: 4, fence_before: false, fence_after: true, order: vm_ir::MemOrder::Release } });
+        prod.push(IROp::Store {
+            src: 4,
+            base: 2,
+            size: 4,
+            offset: 0,
+            flags: MemFlags {
+                volatile: false,
+                atomic: true,
+                align: 4,
+                fence_before: false,
+                fence_after: true,
+                order: vm_ir::MemOrder::Release,
+            },
+        });
         engine.set_reg(4, 1);
-        let blk_prod = prod.build(); let _ = engine.run(&mut mmu, &blk_prod);
+        let blk_prod = prod.build();
+        let _ = engine.run(&mut mmu, &blk_prod);
         // consumer: acquire flag then acquire data
         let mut cons = IRBuilder::new(0);
-        cons.push(IROp::Load { dst: 5, base: 2, size: 4, offset: 0, flags: MemFlags { volatile: false, atomic: true, align: 4, fence_before: true, fence_after: false, order: vm_ir::MemOrder::Acquire } });
-        cons.push(IROp::Load { dst: 6, base: 1, size: 4, offset: 0, flags: MemFlags { volatile: false, atomic: true, align: 4, fence_before: true, fence_after: false, order: vm_ir::MemOrder::Acquire } });
-        let blk_cons = cons.build(); let _ = engine.run(&mut mmu, &blk_cons);
+        cons.push(IROp::Load {
+            dst: 5,
+            base: 2,
+            size: 4,
+            offset: 0,
+            flags: MemFlags {
+                volatile: false,
+                atomic: true,
+                align: 4,
+                fence_before: true,
+                fence_after: false,
+                order: vm_ir::MemOrder::Acquire,
+            },
+        });
+        cons.push(IROp::Load {
+            dst: 6,
+            base: 1,
+            size: 4,
+            offset: 0,
+            flags: MemFlags {
+                volatile: false,
+                atomic: true,
+                align: 4,
+                fence_before: true,
+                fence_after: false,
+                order: vm_ir::MemOrder::Acquire,
+            },
+        });
+        let blk_cons = cons.build();
+        let _ = engine.run(&mut mmu, &blk_cons);
         // checks
         assert_eq!(engine.get_reg(5), 1);
         assert_eq!(engine.get_reg(6), 0x2A);
@@ -96,11 +186,16 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vecadd_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_reg(1, 0x0102_0304_0506_0708);
         engine.set_reg(2, 0x0101_0101_0101_0101);
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::VecAdd { dst: 3, src1: 1, src2: 2, element_size: 1 });
+        builder.push(IROp::VecAdd {
+            dst: 3,
+            src1: 1,
+            src2: 2,
+            element_size: 1,
+        });
         let block = builder.build();
         let _ = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(3), 0x0203_0405_0607_0809);
@@ -109,11 +204,17 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vecaddsat_signed_u8() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_reg(1, 0x7F00_0000_0000_0000); // lane0=0x7F
         engine.set_reg(2, 0x7F00_0000_0000_0000); // lane0=0x7F
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::VecAddSat { dst: 3, src1: 1, src2: 2, element_size: 1, signed: true });
+        builder.push(IROp::VecAddSat {
+            dst: 3,
+            src1: 1,
+            src2: 2,
+            element_size: 1,
+            signed: true,
+        });
         let block = builder.build();
         let _ = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(3) >> 56, 0x7F);
@@ -122,11 +223,17 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vecsubsat_unsigned_u8() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_reg(1, 0x0001_0000_0000_0000);
         engine.set_reg(2, 0x0002_0000_0000_0000);
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::VecSubSat { dst: 4, src1: 1, src2: 2, element_size: 1, signed: false });
+        builder.push(IROp::VecSubSat {
+            dst: 4,
+            src1: 1,
+            src2: 2,
+            element_size: 1,
+            signed: false,
+        });
         let block = builder.build();
         let _ = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(4) >> 48, 0x00);
@@ -135,11 +242,17 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vecmulsat_unsigned_u8() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_reg(1, 0x0003_0000_0000_0000);
         engine.set_reg(2, 0x00FF_0000_0000_0000);
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::VecMulSat { dst: 3, src1: 1, src2: 2, element_size: 1, signed: false });
+        builder.push(IROp::VecMulSat {
+            dst: 3,
+            src1: 1,
+            src2: 2,
+            element_size: 1,
+            signed: false,
+        });
         let block = builder.build();
         let _ = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(3) >> 48, 0xFF);
@@ -148,7 +261,7 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vec128add_u8_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // src1: lo lanes [1,1,1,1,1,1,1,1], hi lanes [2,2,2,2,2,2,2,2]
         engine.set_reg(20, 0x0101_0101_0101_0101);
         engine.set_reg(21, 0x0202_0202_0202_0202);
@@ -156,7 +269,16 @@ use vm_engine_jit::Jit;
         engine.set_reg(22, 0x0303_0303_0303_0303);
         engine.set_reg(23, 0x0404_0404_0404_0404);
         let mut b = IRBuilder::new(0);
-        b.push(IROp::Vec128Add { dst_lo: 24, dst_hi: 25, src1_lo: 20, src1_hi: 21, src2_lo: 22, src2_hi: 23, element_size: 1, signed: false });
+        b.push(IROp::Vec128Add {
+            dst_lo: 24,
+            dst_hi: 25,
+            src1_lo: 20,
+            src1_hi: 21,
+            src2_lo: 22,
+            src2_hi: 23,
+            element_size: 1,
+            signed: false,
+        });
         let blk = b.build();
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(24), 0x0404_0404_0404_0404);
@@ -166,45 +288,165 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vec256_sat_matrix() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         for &es in &[1u8, 2u8, 4u8, 8u8] {
             // unsigned add saturate: max + 1 -> max
             let one_lane = 1u64;
-            let max_lane_u = match es { 1 => 0xFFu64, 2 => 0xFFFFu64, 4 => 0xFFFF_FFFFu64, 8 => u64::MAX, _ => u64::MAX };
-            engine.set_reg(10, max_lane_u); engine.set_reg(11, 0); engine.set_reg(12, 0); engine.set_reg(13, 0);
-            engine.set_reg(14, one_lane); engine.set_reg(15, 0); engine.set_reg(16, 0); engine.set_reg(17, 0);
+            let max_lane_u = match es {
+                1 => 0xFFu64,
+                2 => 0xFFFFu64,
+                4 => 0xFFFF_FFFFu64,
+                8 => u64::MAX,
+                _ => u64::MAX,
+            };
+            engine.set_reg(10, max_lane_u);
+            engine.set_reg(11, 0);
+            engine.set_reg(12, 0);
+            engine.set_reg(13, 0);
+            engine.set_reg(14, one_lane);
+            engine.set_reg(15, 0);
+            engine.set_reg(16, 0);
+            engine.set_reg(17, 0);
             let mut b1 = IRBuilder::new(0);
-            b1.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: es, signed: false });
+            b1.push(IROp::Vec256Add {
+                dst0: 18,
+                dst1: 19,
+                dst2: 20,
+                dst3: 21,
+                src10: 10,
+                src11: 11,
+                src12: 12,
+                src13: 13,
+                src20: 14,
+                src21: 15,
+                src22: 16,
+                src23: 17,
+                element_size: es,
+                signed: false,
+            });
             let blk1 = b1.build();
             let _ = engine.run(&mut mmu, &blk1);
-            assert_eq!(engine.get_reg(18) & (((1u128 << (es as u64 * 8)) - 1) as u64), max_lane_u & (((1u128 << (es as u64 * 8)) - 1) as u64));
+            assert_eq!(
+                engine.get_reg(18) & (((1u128 << (es as u64 * 8)) - 1) as u64),
+                max_lane_u & (((1u128 << (es as u64 * 8)) - 1) as u64)
+            );
 
             // signed add saturate: max + max -> max for lane
-            let max_lane_s = match es { 1 => 0x7F, 2 => 0x7FFF, 4 => 0x7FFF_FFFF, 8 => i64::MAX as u64, _ => 0 };
+            let max_lane_s = match es {
+                1 => 0x7F,
+                2 => 0x7FFF,
+                4 => 0x7FFF_FFFF,
+                8 => i64::MAX as u64,
+                _ => 0,
+            };
             let pack = max_lane_s;
-            engine.set_reg(10, pack); engine.set_reg(11, 0); engine.set_reg(12, 0); engine.set_reg(13, 0);
-            engine.set_reg(14, pack); engine.set_reg(15, 0); engine.set_reg(16, 0); engine.set_reg(17, 0);
+            engine.set_reg(10, pack);
+            engine.set_reg(11, 0);
+            engine.set_reg(12, 0);
+            engine.set_reg(13, 0);
+            engine.set_reg(14, pack);
+            engine.set_reg(15, 0);
+            engine.set_reg(16, 0);
+            engine.set_reg(17, 0);
             let mut b2 = IRBuilder::new(0);
-            b2.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: es, signed: true });
+            b2.push(IROp::Vec256Add {
+                dst0: 18,
+                dst1: 19,
+                dst2: 20,
+                dst3: 21,
+                src10: 10,
+                src11: 11,
+                src12: 12,
+                src13: 13,
+                src20: 14,
+                src21: 15,
+                src22: 16,
+                src23: 17,
+                element_size: es,
+                signed: true,
+            });
             let blk2 = b2.build();
             let _ = engine.run(&mut mmu, &blk2);
-            if es == 8 { assert_eq!(engine.get_reg(18) & (((1u128 << 64) - 1) as u64), i64::MAX as u64); } else { assert_eq!(engine.get_reg(18) & (((1u128 << (es as u64 * 8)) - 1) as u64), max_lane_s); }
+            if es == 8 {
+                assert_eq!(
+                    engine.get_reg(18) & (((1u128 << 64) - 1) as u64),
+                    i64::MAX as u64
+                );
+            } else {
+                assert_eq!(
+                    engine.get_reg(18) & (((1u128 << (es as u64 * 8)) - 1) as u64),
+                    max_lane_s
+                );
+            }
 
             // unsigned sub saturate: 0 - 1 -> 0
-            engine.set_reg(10, 0); engine.set_reg(11, 0); engine.set_reg(12, 0); engine.set_reg(13, 0);
-            engine.set_reg(14, 1); engine.set_reg(15, 0); engine.set_reg(16, 0); engine.set_reg(17, 0);
+            engine.set_reg(10, 0);
+            engine.set_reg(11, 0);
+            engine.set_reg(12, 0);
+            engine.set_reg(13, 0);
+            engine.set_reg(14, 1);
+            engine.set_reg(15, 0);
+            engine.set_reg(16, 0);
+            engine.set_reg(17, 0);
             let mut b3 = IRBuilder::new(0);
-            b3.push(IROp::Vec256Sub { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: es, signed: false });
-            let blk3 = b3.build(); let _ = engine.run(&mut mmu, &blk3);
-            assert_eq!(engine.get_reg(18) & (((1u128 << (es as u64 * 8)) - 1) as u64), 0);
+            b3.push(IROp::Vec256Sub {
+                dst0: 18,
+                dst1: 19,
+                dst2: 20,
+                dst3: 21,
+                src10: 10,
+                src11: 11,
+                src12: 12,
+                src13: 13,
+                src20: 14,
+                src21: 15,
+                src22: 16,
+                src23: 17,
+                element_size: es,
+                signed: false,
+            });
+            let blk3 = b3.build();
+            let _ = engine.run(&mut mmu, &blk3);
+            assert_eq!(
+                engine.get_reg(18) & (((1u128 << (es as u64 * 8)) - 1) as u64),
+                0
+            );
 
             // unsigned mul saturate: max * 2 -> max
-            let max_u = match es { 1 => 0xFFu64, 2 => 0xFFFFu64, 4 => 0xFFFF_FFFFu64, 8 => u64::MAX, _ => 0 };
-            engine.set_reg(10, max_u); engine.set_reg(11, 0); engine.set_reg(12, 0); engine.set_reg(13, 0);
-            engine.set_reg(14, 2); engine.set_reg(15, 0); engine.set_reg(16, 0); engine.set_reg(17, 0);
+            let max_u = match es {
+                1 => 0xFFu64,
+                2 => 0xFFFFu64,
+                4 => 0xFFFF_FFFFu64,
+                8 => u64::MAX,
+                _ => 0,
+            };
+            engine.set_reg(10, max_u);
+            engine.set_reg(11, 0);
+            engine.set_reg(12, 0);
+            engine.set_reg(13, 0);
+            engine.set_reg(14, 2);
+            engine.set_reg(15, 0);
+            engine.set_reg(16, 0);
+            engine.set_reg(17, 0);
             let mut b4 = IRBuilder::new(0);
-            b4.push(IROp::Vec256Mul { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: es, signed: false });
-            let blk4 = b4.build(); let _ = engine.run(&mut mmu, &blk4);
+            b4.push(IROp::Vec256Mul {
+                dst0: 18,
+                dst1: 19,
+                dst2: 20,
+                dst3: 21,
+                src10: 10,
+                src11: 11,
+                src12: 12,
+                src13: 13,
+                src20: 14,
+                src21: 15,
+                src22: 16,
+                src23: 17,
+                element_size: es,
+                signed: false,
+            });
+            let blk4 = b4.build();
+            let _ = engine.run(&mut mmu, &blk4);
             let mask = (((1u128 << (es as u64 * 8)) - 1) as u64);
             assert_eq!(engine.get_reg(18) & mask, max_u & mask);
             assert_eq!(engine.get_reg(19) & mask, 0);
@@ -216,7 +458,7 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vec256_multilane_add_basic() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // element_size=1
         engine.set_reg(10, 0x0101_0101_0101_0101);
         engine.set_reg(11, 0x0202_0202_0202_0202);
@@ -227,8 +469,24 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x0101_0101_0101_0101);
         engine.set_reg(17, 0x0101_0101_0101_0101);
         let mut b1 = IRBuilder::new(0);
-        b1.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 1, signed: false });
-        let blk1 = b1.build(); let _ = engine.run(&mut mmu, &blk1);
+        b1.push(IROp::Vec256Add {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 1,
+            signed: false,
+        });
+        let blk1 = b1.build();
+        let _ = engine.run(&mut mmu, &blk1);
         assert_eq!(engine.get_reg(18), 0x0202_0202_0202_0202);
         assert_eq!(engine.get_reg(19), 0x0303_0303_0303_0303);
         assert_eq!(engine.get_reg(20), 0x0404_0404_0404_0404);
@@ -243,8 +501,24 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x0001_0001_0001_0001);
         engine.set_reg(17, 0x0001_0001_0001_0001);
         let mut b2 = IRBuilder::new(0);
-        b2.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 2, signed: false });
-        let blk2 = b2.build(); let _ = engine.run(&mut mmu, &blk2);
+        b2.push(IROp::Vec256Add {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 2,
+            signed: false,
+        });
+        let blk2 = b2.build();
+        let _ = engine.run(&mut mmu, &blk2);
         assert_eq!(engine.get_reg(18), 0x0002_0002_0002_0002);
         assert_eq!(engine.get_reg(19), 0x0003_0003_0003_0003);
         assert_eq!(engine.get_reg(20), 0x0004_0004_0004_0004);
@@ -259,8 +533,24 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x0000_0001_0000_0001);
         engine.set_reg(17, 0x0000_0001_0000_0001);
         let mut b3 = IRBuilder::new(0);
-        b3.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 4, signed: false });
-        let blk3 = b3.build(); let _ = engine.run(&mut mmu, &blk3);
+        b3.push(IROp::Vec256Add {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 4,
+            signed: false,
+        });
+        let blk3 = b3.build();
+        let _ = engine.run(&mut mmu, &blk3);
         assert_eq!(engine.get_reg(18), 0x0000_0002_0000_0002);
         assert_eq!(engine.get_reg(19), 0x0000_0003_0000_0003);
         assert_eq!(engine.get_reg(20), 0x0000_0004_0000_0004);
@@ -270,7 +560,7 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vec256_multilane_mul_sat_unsigned() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // es=1: saturate at byte1; nonzero across dst1..dst3
         engine.set_reg(10, 0x00FF_0000_0000_0000);
         engine.set_reg(11, 0x00FF_0000_0000_0000);
@@ -281,12 +571,40 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x0002_0000_0000_0000);
         engine.set_reg(17, 0x0002_0000_0000_0000);
         let mut b1 = IRBuilder::new(0);
-        b1.push(IROp::Vec256Mul { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 1, signed: false });
-        let blk1 = b1.build(); let _ = engine.run(&mut mmu, &blk1);
-        assert_eq!(engine.get_reg(18) & 0x00FF_0000_0000_0000, 0x00FF_0000_0000_0000);
-        assert_eq!(engine.get_reg(19) & 0x00FF_0000_0000_0000, 0x00FF_0000_0000_0000);
-        assert_eq!(engine.get_reg(20) & 0x0006_0000_0000_0000, 0x0006_0000_0000_0000);
-        assert_eq!(engine.get_reg(21) & 0x0008_0000_0000_0000, 0x0008_0000_0000_0000);
+        b1.push(IROp::Vec256Mul {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 1,
+            signed: false,
+        });
+        let blk1 = b1.build();
+        let _ = engine.run(&mut mmu, &blk1);
+        assert_eq!(
+            engine.get_reg(18) & 0x00FF_0000_0000_0000,
+            0x00FF_0000_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(19) & 0x00FF_0000_0000_0000,
+            0x00FF_0000_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(20) & 0x0006_0000_0000_0000,
+            0x0006_0000_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(21) & 0x0008_0000_0000_0000,
+            0x0008_0000_0000_0000
+        );
 
         // es=2: saturate 0xFFFF * 2 at lane1
         engine.set_reg(10, 0x0000_FFFF_0000_0000);
@@ -298,12 +616,40 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x0000_0002_0000_0000);
         engine.set_reg(17, 0x0000_0002_0000_0000);
         let mut b2 = IRBuilder::new(0);
-        b2.push(IROp::Vec256Mul { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 2, signed: false });
-        let blk2 = b2.build(); let _ = engine.run(&mut mmu, &blk2);
-        assert_eq!(engine.get_reg(18) & 0x0000_FFFF_0000_0000, 0x0000_FFFF_0000_0000);
-        assert_eq!(engine.get_reg(19) & 0x0000_FFFF_0000_0000, 0x0000_FFFF_0000_0000);
-        assert_eq!(engine.get_reg(20) & 0x0000_0006_0000_0000, 0x0000_0006_0000_0000);
-        assert_eq!(engine.get_reg(21) & 0x0000_0008_0000_0000, 0x0000_0008_0000_0000);
+        b2.push(IROp::Vec256Mul {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 2,
+            signed: false,
+        });
+        let blk2 = b2.build();
+        let _ = engine.run(&mut mmu, &blk2);
+        assert_eq!(
+            engine.get_reg(18) & 0x0000_FFFF_0000_0000,
+            0x0000_FFFF_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(19) & 0x0000_FFFF_0000_0000,
+            0x0000_FFFF_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(20) & 0x0000_0006_0000_0000,
+            0x0000_0006_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(21) & 0x0000_0008_0000_0000,
+            0x0000_0008_0000_0000
+        );
 
         // es=4: saturate 0xFFFF_FFFF * 2 at lane1
         engine.set_reg(10, 0x0000_0000_FFFF_FFFF);
@@ -315,18 +661,46 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x0000_0000_0000_0002);
         engine.set_reg(17, 0x0000_0000_0000_0002);
         let mut b3 = IRBuilder::new(0);
-        b3.push(IROp::Vec256Mul { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 4, signed: false });
-        let blk3 = b3.build(); let _ = engine.run(&mut mmu, &blk3);
-        assert_eq!(engine.get_reg(18) & 0x0000_0000_FFFF_FFFF, 0x0000_0000_FFFF_FFFF);
-        assert_eq!(engine.get_reg(19) & 0x0000_0000_FFFF_FFFF, 0x0000_0000_FFFF_FFFF);
-        assert_eq!(engine.get_reg(20) & 0x0000_0000_0000_0006, 0x0000_0000_0000_0006);
-        assert_eq!(engine.get_reg(21) & 0x0000_0000_0000_0008, 0x0000_0000_0000_0008);
+        b3.push(IROp::Vec256Mul {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 4,
+            signed: false,
+        });
+        let blk3 = b3.build();
+        let _ = engine.run(&mut mmu, &blk3);
+        assert_eq!(
+            engine.get_reg(18) & 0x0000_0000_FFFF_FFFF,
+            0x0000_0000_FFFF_FFFF
+        );
+        assert_eq!(
+            engine.get_reg(19) & 0x0000_0000_FFFF_FFFF,
+            0x0000_0000_FFFF_FFFF
+        );
+        assert_eq!(
+            engine.get_reg(20) & 0x0000_0000_0000_0006,
+            0x0000_0000_0000_0006
+        );
+        assert_eq!(
+            engine.get_reg(21) & 0x0000_0000_0000_0008,
+            0x0000_0000_0000_0008
+        );
     }
 
     #[test]
     fn interpreter_vec256_multilane_mul_sat_signed() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // es=1 signed: 120*10 -> 127 at byte1; nonzero across dst1..dst3
         engine.set_reg(10, 0x0078_0000_0000_0000);
         engine.set_reg(11, 0x0078_0000_0000_0000);
@@ -337,18 +711,46 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x0002_0000_0000_0000);
         engine.set_reg(17, 0x0002_0000_0000_0000);
         let mut b1 = IRBuilder::new(0);
-        b1.push(IROp::Vec256Mul { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 1, signed: true });
-        let blk1 = b1.build(); let _ = engine.run(&mut mmu, &blk1);
-        assert_eq!(engine.get_reg(18) & 0x007F_0000_0000_0000, 0x007F_0000_0000_0000);
-        assert_eq!(engine.get_reg(19) & 0x007F_0000_0000_0000, 0x007F_0000_0000_0000);
-        assert_eq!(engine.get_reg(20) & 0x0006_0000_0000_0000, 0x0006_0000_0000_0000);
-        assert_eq!(engine.get_reg(21) & 0x0008_0000_0000_0000, 0x0008_0000_0000_0000);
+        b1.push(IROp::Vec256Mul {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 1,
+            signed: true,
+        });
+        let blk1 = b1.build();
+        let _ = engine.run(&mut mmu, &blk1);
+        assert_eq!(
+            engine.get_reg(18) & 0x007F_0000_0000_0000,
+            0x007F_0000_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(19) & 0x007F_0000_0000_0000,
+            0x007F_0000_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(20) & 0x0006_0000_0000_0000,
+            0x0006_0000_0000_0000
+        );
+        assert_eq!(
+            engine.get_reg(21) & 0x0008_0000_0000_0000,
+            0x0008_0000_0000_0000
+        );
     }
 
     #[test]
     fn interpreter_vec256_nonuniform_byte_level_checks() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // element_size=1, non-uniform lanes across chunks
         engine.set_reg(10, 0x0102_0304_0506_0708);
         engine.set_reg(11, 0x1112_1314_1516_1718);
@@ -359,8 +761,24 @@ use vm_engine_jit::Jit;
         engine.set_reg(16, 0x2827_2625_2423_2221);
         engine.set_reg(17, 0x3837_3635_3433_3231);
         let mut b = IRBuilder::new(0);
-        b.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 1, signed: false });
-        let blk = b.build(); let _ = engine.run(&mut mmu, &blk);
+        b.push(IROp::Vec256Add {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 1,
+            signed: false,
+        });
+        let blk = b.build();
+        let _ = engine.run(&mut mmu, &blk);
         // byte-level lane checks in dst0
         let d0 = engine.get_reg(18);
         assert_eq!(d0 & 0xFF, 0x08 + 0x01);
@@ -377,18 +795,36 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vec256_nonuniform_dst23_byte_checks() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // element_size=1, craft non-uniform bytes for dst2/dst3 chunks
         engine.set_reg(12, 0xA1A2_A3A4_A5A6_A7A8);
         engine.set_reg(13, 0xB1B2_B3B4_B5B6_B7B8);
         engine.set_reg(16, 0x0102_0304_0506_0708);
         engine.set_reg(17, 0x0908_0706_0504_0302);
         // fill other chunks with zeros
-        engine.set_reg(10, 0); engine.set_reg(11, 0);
-        engine.set_reg(14, 0); engine.set_reg(15, 0);
+        engine.set_reg(10, 0);
+        engine.set_reg(11, 0);
+        engine.set_reg(14, 0);
+        engine.set_reg(15, 0);
         let mut b = IRBuilder::new(0);
-        b.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 16, src23: 17, element_size: 1, signed: false });
-        let blk = b.build(); let _ = engine.run(&mut mmu, &blk);
+        b.push(IROp::Vec256Add {
+            dst0: 18,
+            dst1: 19,
+            dst2: 20,
+            dst3: 21,
+            src10: 10,
+            src11: 11,
+            src12: 12,
+            src13: 13,
+            src20: 14,
+            src21: 15,
+            src22: 16,
+            src23: 17,
+            element_size: 1,
+            signed: false,
+        });
+        let blk = b.build();
+        let _ = engine.run(&mut mmu, &blk);
         let _d2 = engine.get_reg(20);
         // assert_eq!((d2 >> 24) & 0xFF, 0xA5 + 0x05);
         // assert_eq!((d2 >> 16) & 0xFF, 0xA4 + 0x04);
@@ -397,47 +833,80 @@ use vm_engine_jit::Jit;
         let d3 = engine.get_reg(21);
         let s13 = engine.get_reg(13);
         let s23 = engine.get_reg(17);
-        assert_eq!((d3 >> 24) & 0xFF, ((s13 >> 24) & 0xFF) + ((s23 >> 24) & 0xFF));
-        assert_eq!((d3 >> 16) & 0xFF, ((s13 >> 16) & 0xFF) + ((s23 >> 16) & 0xFF));
+        assert_eq!(
+            (d3 >> 24) & 0xFF,
+            ((s13 >> 24) & 0xFF) + ((s23 >> 24) & 0xFF)
+        );
+        assert_eq!(
+            (d3 >> 16) & 0xFF,
+            ((s13 >> 16) & 0xFF) + ((s23 >> 16) & 0xFF)
+        );
         assert_eq!((d3 >> 8) & 0xFF, ((s13 >> 8) & 0xFF) + ((s23 >> 8) & 0xFF));
         assert_eq!(d3 & 0xFF, (s13 & 0xFF) + (s23 & 0xFF));
     }
 
     #[test]
     fn interrupt_mask_window_persistent_retry_chain() {
-        use vm_engine_interpreter::{run_chain, ExecInterruptAction};
-        use vm_ir::Terminator;
-        use vm_core::{ExecStatus, Decoder, MMU, GuestAddr, Fault};
+        use vm_core::{Decoder, ExecStatus, Fault, GuestAddr, MMU};
+        use vm_engine_interpreter::{ExecInterruptAction, run_chain};
         use vm_ir::IRBlock;
+        use vm_ir::Terminator;
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.intr_mask_until = 3;
         engine.set_interrupt_handler_ext(|ctx, interp| {
             let regs = ctx.regs_ptr;
-            unsafe { *regs.add(2) = (*regs.add(2)).wrapping_add(1); }
-            if interp.intr_mask_until > 0 { interp.intr_mask_until -= 1; ExecInterruptAction::Mask } else { ExecInterruptAction::Deliver }
+            unsafe {
+                *regs.add(2) = (*regs.add(2)).wrapping_add(1);
+            }
+            if interp.intr_mask_until > 0 {
+                interp.intr_mask_until -= 1;
+                ExecInterruptAction::Mask
+            } else {
+                ExecInterruptAction::Deliver
+            }
         });
         struct StaticDec;
         struct MyInsn;
         impl vm_core::Instruction for MyInsn {
-            fn next_pc(&self) -> GuestAddr { 0 }
-            fn size(&self) -> u8 { 4 }
-            fn operand_count(&self) -> usize { 0 }
-            fn mnemonic(&self) -> &'static str { "nop" }
-            fn is_control_flow(&self) -> bool { false }
-            fn is_memory_access(&self) -> bool { false }
+            fn next_pc(&self) -> GuestAddr {
+                0
+            }
+            fn size(&self) -> u8 {
+                4
+            }
+            fn operand_count(&self) -> usize {
+                0
+            }
+            fn mnemonic(&self) -> &'static str {
+                "nop"
+            }
+            fn is_control_flow(&self) -> bool {
+                false
+            }
+            fn is_memory_access(&self) -> bool {
+                false
+            }
         }
-        
+
         impl Decoder for StaticDec {
             type Instruction = MyInsn;
             type Block = IRBlock;
-            
-            fn decode_insn(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+
+            fn decode_insn(
+                &mut self,
+                _mmu: &dyn MMU,
+                _pc: GuestAddr,
+            ) -> Result<Self::Instruction, Fault> {
                 Ok(MyInsn)
             }
-            
+
             fn decode(&mut self, _mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault> {
-                Ok(IRBlock { start_pc: pc, ops: vec![], term: Terminator::Interrupt { vector: 2 } })
+                Ok(IRBlock {
+                    start_pc: pc,
+                    ops: vec![],
+                    term: Terminator::Interrupt { vector: 2 },
+                })
             }
         }
         let mut dec = StaticDec;
@@ -455,20 +924,42 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(0x600, 0x10, 1);
         engine.set_reg(6, 0x20);
         let mut b1 = IRBuilder::new(0);
-        b1.push(IROp::AtomicRMW { dst: 7, base: 5, src: 6, op: vm_ir::AtomicOp::Min, size: 1 });
-        let blk1 = b1.build(); let _ = engine.run(&mut mmu, &blk1);
+        b1.push(IROp::AtomicRMW {
+            dst: 7,
+            base: 5,
+            src: 6,
+            op: vm_ir::AtomicOp::Min,
+            size: 1,
+        });
+        let blk1 = b1.build();
+        let _ = engine.run(&mut mmu, &blk1);
         assert_eq!(engine.get_reg(7), 0x10);
         let mut b2 = IRBuilder::new(0);
-        b2.push(IROp::AtomicRMW { dst: 7, base: 5, src: 6, op: vm_ir::AtomicOp::Max, size: 1 });
-        let blk2 = b2.build(); let _ = engine.run(&mut mmu, &blk2);
+        b2.push(IROp::AtomicRMW {
+            dst: 7,
+            base: 5,
+            src: 6,
+            op: vm_ir::AtomicOp::Max,
+            size: 1,
+        });
+        let blk2 = b2.build();
+        let _ = engine.run(&mut mmu, &blk2);
         assert_eq!(mmu.read(0x600, 1).expect("Operation failed"), 0x20);
         // signed MinS/MaxS via AtomicRmwFlag
         engine.set_reg(8, 0x700);
         let _ = mmu.write(0x700, 0x80, 1); // -128 in i8
         engine.set_reg(9, 0x70);
         let mut bf = IRBuilder::new(0);
-        bf.push(IROp::AtomicRmwFlag { dst_old: 10, dst_flag: 11, base: 8, src: 9, op: vm_ir::AtomicOp::MaxS, size: 1 });
-        let blf = bf.build(); let _ = engine.run(&mut mmu, &blf);
+        bf.push(IROp::AtomicRmwFlag {
+            dst_old: 10,
+            dst_flag: 11,
+            base: 8,
+            src: 9,
+            op: vm_ir::AtomicOp::MaxS,
+            size: 1,
+        });
+        let blf = bf.build();
+        let _ = engine.run(&mut mmu, &blf);
         assert_eq!(engine.get_reg(10), 0x80);
         assert_eq!(engine.get_reg(11), 1);
         assert_eq!(mmu.read(0x700, 1).expect("Operation failed"), 0x70);
@@ -476,46 +967,79 @@ use vm_engine_jit::Jit;
 
     #[test]
     fn run_chain_interrupt_ext_actions() {
-        use vm_engine_interpreter::{run_chain, ExecInterruptAction};
-        use vm_ir::Terminator;
         use vm_core::ExecStatus;
-        use vm_core::{Decoder, MMU, GuestAddr, Fault};
+        use vm_core::{Decoder, Fault, GuestAddr, MMU};
+        use vm_engine_interpreter::{ExecInterruptAction, run_chain};
         use vm_ir::IRBlock;
+        use vm_ir::Terminator;
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_interrupt_handler_ext(|ctx, interp| {
             let regs = ctx.regs_ptr;
-            unsafe { *regs.add(1) = 42; }
+            unsafe {
+                *regs.add(1) = 42;
+            }
             if ctx.vector == 2 {
-                if interp.intr_mask_until == 0 { interp.intr_mask_until = 2; }
-                if interp.intr_mask_until > 0 { interp.intr_mask_until -= 1; return ExecInterruptAction::Mask; }
+                if interp.intr_mask_until == 0 {
+                    interp.intr_mask_until = 2;
+                }
+                if interp.intr_mask_until > 0 {
+                    interp.intr_mask_until -= 1;
+                    return ExecInterruptAction::Mask;
+                }
                 return ExecInterruptAction::Deliver;
             }
-            if ctx.vector == 1 { ExecInterruptAction::Retry } else { ExecInterruptAction::Deliver }
+            if ctx.vector == 1 {
+                ExecInterruptAction::Retry
+            } else {
+                ExecInterruptAction::Deliver
+            }
         });
         let mut b = IRBuilder::new(0);
         b.set_term(Terminator::Interrupt { vector: 3 });
         let blk = b.build();
-        struct StaticDec { blk: IRBlock }
+        struct StaticDec {
+            blk: IRBlock,
+        }
         struct LocalInsn;
         impl vm_core::Instruction for LocalInsn {
-            fn next_pc(&self) -> GuestAddr { 0 }
-            fn size(&self) -> u8 { 4 }
-            fn operand_count(&self) -> usize { 0 }
-            fn mnemonic(&self) -> &'static str { "nop" }
-            fn is_control_flow(&self) -> bool { false }
-            fn is_memory_access(&self) -> bool { false }
+            fn next_pc(&self) -> GuestAddr {
+                0
+            }
+            fn size(&self) -> u8 {
+                4
+            }
+            fn operand_count(&self) -> usize {
+                0
+            }
+            fn mnemonic(&self) -> &'static str {
+                "nop"
+            }
+            fn is_control_flow(&self) -> bool {
+                false
+            }
+            fn is_memory_access(&self) -> bool {
+                false
+            }
         }
         impl Decoder for StaticDec {
             type Instruction = LocalInsn;
             type Block = IRBlock;
-            
-            fn decode_insn(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+
+            fn decode_insn(
+                &mut self,
+                _mmu: &dyn MMU,
+                _pc: GuestAddr,
+            ) -> Result<Self::Instruction, Fault> {
                 Ok(LocalInsn)
             }
-            
+
             fn decode(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Block, Fault> {
-                Ok(IRBlock { start_pc: self.blk.start_pc, ops: vec![], term: Terminator::Interrupt { vector: 3 } })
+                Ok(IRBlock {
+                    start_pc: self.blk.start_pc,
+                    ops: vec![],
+                    term: Terminator::Interrupt { vector: 3 },
+                })
             }
         }
         let mut dec = StaticDec { blk };
@@ -533,8 +1057,18 @@ use vm_engine_jit::Jit;
         engine.set_reg(31, 0xAA);
         engine.set_reg(26, 0xBB);
         let mut b = IRBuilder::new(0);
-        b.push(IROp::AtomicCmpXchg { dst: 27, base: 30, expected: 31, new: 26, size: 1 });
-        b.push(IROp::CmpEq { dst: 28, lhs: 27, rhs: 31 });
+        b.push(IROp::AtomicCmpXchg {
+            dst: 27,
+            base: 30,
+            expected: 31,
+            new: 26,
+            size: 1,
+        });
+        b.push(IROp::CmpEq {
+            dst: 28,
+            lhs: 27,
+            rhs: 31,
+        });
         let blk = b.build();
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(27), 0xAA);
@@ -551,7 +1085,14 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(0x500, 0x0F, 1);
         engine.set_reg(6, 0xF0);
         let mut b = IRBuilder::new(0);
-        b.push(IROp::AtomicRmwFlag { dst_old: 7, dst_flag: 8, base: 5, src: 6, op: vm_ir::AtomicOp::Or, size: 1 });
+        b.push(IROp::AtomicRmwFlag {
+            dst_old: 7,
+            dst_flag: 8,
+            base: 5,
+            src: 6,
+            op: vm_ir::AtomicOp::Or,
+            size: 1,
+        });
         let blk = b.build();
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(7), 0x0F);
@@ -563,12 +1104,17 @@ use vm_engine_jit::Jit;
     #[test]
     fn accel_selection_returns_kind() {
         let (k, _a) = vm_accel::select();
-        match k { vm_accel::AccelKind::None | vm_accel::AccelKind::Kvm | vm_accel::AccelKind::Hvf | vm_accel::AccelKind::Whpx => {} }
+        match k {
+            vm_accel::AccelKind::None
+            | vm_accel::AccelKind::Kvm
+            | vm_accel::AccelKind::Hvf
+            | vm_accel::AccelKind::Whpx => {}
+        }
     }
 
     #[test]
     fn paged_mmu_read_write_basic() {
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         let _ = mmu.write(0x10, 0xAB, 1);
         let v = mmu.read(0x10, 1).expect("Operation failed");
         assert_eq!(v, 0xAB);
@@ -583,7 +1129,13 @@ use vm_engine_jit::Jit;
         engine.set_reg(11, 0x55); // expected
         engine.set_reg(12, 0x99); // new
         let mut b = IRBuilder::new(0);
-        b.push(IROp::AtomicCmpXchg { dst: 13, base: 10, expected: 11, new: 12, size: 1 });
+        b.push(IROp::AtomicCmpXchg {
+            dst: 13,
+            base: 10,
+            expected: 11,
+            new: 12,
+            size: 1,
+        });
         let blk = b.build();
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(13), 0x55);
@@ -601,8 +1153,16 @@ use vm_engine_jit::Jit;
         engine.set_reg(12, 0x34); // new
         let mut b = IRBuilder::new(0);
         let mut flags = MemFlags::default();
-        flags.atomic = true; flags.order = vm_ir::MemOrder::SeqCst;
-        b.push(IROp::AtomicCmpXchgOrder { dst: 13, base: 10, expected: 11, new: 12, size: 1, flags });
+        flags.atomic = true;
+        flags.order = vm_ir::MemOrder::SeqCst;
+        b.push(IROp::AtomicCmpXchgOrder {
+            dst: 13,
+            base: 10,
+            expected: 11,
+            new: 12,
+            size: 1,
+            flags,
+        });
         let blk = b.build();
         let _ = engine.run(&mut mmu, &blk);
         assert_eq!(engine.get_reg(13), 0x12);
@@ -619,17 +1179,36 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(0x420, 0xAA, 1);
         // warm up with a dummy loop to trigger compilation
         let mut warm = IRBuilder::new(0x6FFF);
-        warm.push(IROp::AddImm { dst: 2, src: 2, imm: 1 });
+        warm.push(IROp::AddImm {
+            dst: 2,
+            src: 2,
+            imm: 1,
+        });
         warm.set_term(vm_ir::Terminator::Jmp { target: 0x6FFF });
-        let warm_blk = warm.build(); jit.set_pc(warm_blk.start_pc);
-        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) { let _ = jit.run(&mut mmu, &warm_blk); }
+        let warm_blk = warm.build();
+        jit.set_pc(warm_blk.start_pc);
+        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+            let _ = jit.run(&mut mmu, &warm_blk);
+        }
 
         let mut b = IRBuilder::new(0x7000);
-        b.push(IROp::MovImm { dst: 10, imm: 0x420 });
+        b.push(IROp::MovImm {
+            dst: 10,
+            imm: 0x420,
+        });
         b.push(IROp::MovImm { dst: 11, imm: 0xAA });
         b.push(IROp::MovImm { dst: 12, imm: 0xBB });
-        let mut flags = MemFlags::default(); flags.atomic = true; flags.order = vm_ir::MemOrder::SeqCst;
-        b.push(IROp::AtomicCmpXchgOrder { dst: 13, base: 10, expected: 11, new: 12, size: 1, flags });
+        let mut flags = MemFlags::default();
+        flags.atomic = true;
+        flags.order = vm_ir::MemOrder::SeqCst;
+        b.push(IROp::AtomicCmpXchgOrder {
+            dst: 13,
+            base: 10,
+            expected: 11,
+            new: 12,
+            size: 1,
+            flags,
+        });
         b.set_term(vm_ir::Terminator::Jmp { target: 0x7000 });
         let blk = b.build();
         jit.compile_many_parallel(&[blk.clone()]);
@@ -663,7 +1242,13 @@ use vm_engine_jit::Jit;
         let _ = mmu.write(0x200, 0xAAAA_BBBB_CCCC_DDDD, 8);
         engine.set_reg(5, 0x1111_2222_3333_4444);
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::AtomicRMW { dst: 6, base: 4, src: 5, op: vm_ir::AtomicOp::Xchg, size: 8 });
+        builder.push(IROp::AtomicRMW {
+            dst: 6,
+            base: 4,
+            src: 5,
+            op: vm_ir::AtomicOp::Xchg,
+            size: 8,
+        });
         let block = builder.build();
         let _ = engine.run(&mut mmu, &block);
         assert_eq!(engine.get_reg(6), 0xAAAA_BBBB_CCCC_DDDD);
@@ -687,7 +1272,9 @@ use vm_engine_jit::Jit;
         let i = imm as u32;
         (((i >> 5) & 0x7f) << 25) | (rs2 << 20) | (rs1 << 15) | (2 << 12) | ((i & 0x1f) << 7) | 0x23
     }
-    fn enc_jal(rd: u32, imm: i32) -> u32 { encode_jal(rd, imm) }
+    fn enc_jal(rd: u32, imm: i32) -> u32 {
+        encode_jal(rd, imm)
+    }
     fn enc_jalr(rd: u32, rs1: u32, imm: i32) -> u32 {
         (((imm as u32) << 20) | (rs1 << 15) | (0 << 12) | (rd << 7) | 0x67)
     }
@@ -722,7 +1309,9 @@ use vm_engine_jit::Jit;
         let addi0 = ((9u32) << 20) | (0 << 15) | (0 << 12) | (1 << 7) | 0x13; // x1=9 @ pc=0
         let jal_back = enc_jal(0, -4); // from pc=4 jump back to 0
         let prog = [jal_back, addi0];
-        for (i, w) in prog.iter().enumerate() { let _ = mmu.write((i * 4) as u64, *w as u64, 4); }
+        for (i, w) in prog.iter().enumerate() {
+            let _ = mmu.write((i * 4) as u64, *w as u64, 4);
+        }
         let _ = run_chain(&mut dec, &mut mmu, &mut interp, 4, 4);
         assert_eq!(interp.get_reg(1), 9);
     }
@@ -734,7 +1323,9 @@ use vm_engine_jit::Jit;
         let addi0 = ((5u32) << 20) | (0 << 15) | (0 << 12) | (2 << 7) | 0x13; // x2=5 @ pc=0
         let jalr0 = enc_jalr(0, 0, 0); // from pc=4 jump to 0
         let prog = [jalr0, addi0];
-        for (i, w) in prog.iter().enumerate() { let _ = mmu.write((i * 4) as u64, *w as u64, 4); }
+        for (i, w) in prog.iter().enumerate() {
+            let _ = mmu.write((i * 4) as u64, *w as u64, 4);
+        }
         let _ = run_chain(&mut dec, &mut mmu, &mut interp, 4, 4);
         assert_eq!(interp.get_reg(2), 5);
     }
@@ -747,7 +1338,9 @@ use vm_engine_jit::Jit;
             encode_beq(2, 1, 8),
             enc_sub(3, 2, 1),
         ];
-        for (i, w) in prog.iter().enumerate() { let _ = mmu.write((i * 4) as u64, *w as u64, 4); }
+        for (i, w) in prog.iter().enumerate() {
+            let _ = mmu.write((i * 4) as u64, *w as u64, 4);
+        }
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         let res = run_chain(&mut dec, &mut mmu, &mut interp, 0, 8);
@@ -795,8 +1388,12 @@ use vm_engine_jit::Jit;
         let mut mmu = SoftMmu::new(0x2000, false);
         let mut code = Vec::new();
         // REX.W + MOV RBX, imm64
-        code.push(0x48u8); code.push(0xBBu8); code.extend_from_slice(&0x10u64.to_le_bytes());
-        for (i, b) in code.iter().enumerate() { let _ = mmu.write(0x100 + i as u64, *b as u64, 1); }
+        code.push(0x48u8);
+        code.push(0xBBu8);
+        code.extend_from_slice(&0x10u64.to_le_bytes());
+        for (i, b) in code.iter().enumerate() {
+            let _ = mmu.write(0x100 + i as u64, *b as u64, 1);
+        }
         let mut dec = X86Decoder;
         let mut interp = Interpreter::new();
         let mut jit = Jit::new();
@@ -813,16 +1410,24 @@ use vm_engine_jit::Jit;
         let mut mmu = SoftMmu::new(0x4000, false);
         let mut code = Vec::new();
         // MOV RBX, imm64 = 0x10
-        code.push(0x48u8); code.push(0xBBu8); code.extend_from_slice(&0x10u64.to_le_bytes());
+        code.push(0x48u8);
+        code.push(0xBBu8);
+        code.extend_from_slice(&0x10u64.to_le_bytes());
         // CMP RBX, imm8 = 0x10  => 0x83 /7 r/m64, imm8 ; ModRM: 11 (reg), /7, rbx(011) => 0xFB
-        code.push(0x48u8); code.push(0x83u8); code.push(0xFBu8); code.push(0x10u8);
+        code.push(0x48u8);
+        code.push(0x83u8);
+        code.push(0xFBu8);
+        code.push(0x10u8);
         // JZ short +0x05 (to land at target label)
-        code.push(0x74u8); code.push(0x05u8);
+        code.push(0x74u8);
+        code.push(0x05u8);
         // NOP padding
         code.push(0x90u8);
         // Target label region (single NOP)
         code.push(0x90u8);
-        for (i, b) in code.iter().enumerate() { let _ = mmu.write(0x200 + i as u64, *b as u64, 1); }
+        for (i, b) in code.iter().enumerate() {
+            let _ = mmu.write(0x200 + i as u64, *b as u64, 1);
+        }
 
         let mut dec = X86Decoder;
         let mut interp = Interpreter::new();
@@ -832,15 +1437,25 @@ use vm_engine_jit::Jit;
         if let Ok(blk1) = dec.decode(&mmu, 0x200) {
             let _ = interp.run(&mut mmu, &blk1);
             jit.set_pc(blk1.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) { let _ = jit.run(&mut mmu, &blk1); }
-        } else { eprintln!("x86 MOV decode not supported, skipping"); return; }
+            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+                let _ = jit.run(&mut mmu, &blk1);
+            }
+        } else {
+            eprintln!("x86 MOV decode not supported, skipping");
+            return;
+        }
 
         // decode and run CMP
         if let Ok(blk2) = dec.decode(&mmu, 0x200 + (2 + 8) as u64) {
             let _ = interp.run(&mut mmu, &blk2);
             jit.set_pc(blk2.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) { let _ = jit.run(&mut mmu, &blk2); }
-        } else { eprintln!("x86 CMP decode not supported, skipping"); return; }
+            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+                let _ = jit.run(&mut mmu, &blk2);
+            }
+        } else {
+            eprintln!("x86 CMP decode not supported, skipping");
+            return;
+        }
 
         // decode and run JZ
         let jz_pc = 0x200 + (2 + 8 + 4) as u64;
@@ -848,26 +1463,37 @@ use vm_engine_jit::Jit;
             let ri = interp.run(&mut mmu, &blk3);
             let _ = ri; // interpreter may set pc via terminator
             jit.set_pc(blk3.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) { let _ = jit.run(&mut mmu, &blk3); }
+            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+                let _ = jit.run(&mut mmu, &blk3);
+            }
             // After JZ taken, expect PC to jump forward
             assert!(jit.get_pc() > blk3.start_pc);
-        } else { eprintln!("x86 JZ decode not supported, skipping"); }
+        } else {
+            eprintln!("x86 JZ decode not supported, skipping");
+        }
     }
 
     #[test]
     fn arm64_frontend_cbz_cbnz_jit_consistency_minimal() {
         use vm_frontend_arm64::Arm64Decoder;
         let mut mmu = SoftMmu::new(0x4000, false);
-        let mut code = vec![0xD2,0x80,0x00,0x01];
+        let mut code = vec![0xD2, 0x80, 0x00, 0x01];
         let cbz = arm64_api::encode_cbz(1, 8, true);
         code.extend_from_slice(&cbz.to_le_bytes());
-        code.extend_from_slice(&[0xD5,0x03,0x20,0x1F]);
-        for (i, b) in code.iter().enumerate() { let _ = mmu.write(0x100 + i as u64, *b as u64, 1); }
+        code.extend_from_slice(&[0xD5, 0x03, 0x20, 0x1F]);
+        for (i, b) in code.iter().enumerate() {
+            let _ = mmu.write(0x100 + i as u64, *b as u64, 1);
+        }
         let mut dec = Arm64Decoder;
         let mut interp = Interpreter::new();
         let mut jit = Jit::new();
         if let Ok(blk) = dec.decode(&mmu, 0x100) {
-            if let vm_ir::Terminator::CondJmp { cond: _, target_true, target_false } = blk.term {
+            if let vm_ir::Terminator::CondJmp {
+                cond: _,
+                target_true,
+                target_false,
+            } = blk.term
+            {
                 assert_eq!(target_true, 0x10C);
                 assert_eq!(target_false, 0x108);
             } else {
@@ -875,32 +1501,74 @@ use vm_engine_jit::Jit;
                 let bcond = arm64_api::encode_b_eq(8);
                 let _ = mmu.write(0x104, bcond as u64, 4);
                 if let Ok(blk2) = dec.decode(&mmu, 0x100) {
-                    if let vm_ir::Terminator::CondJmp { target_true, target_false, .. } = blk2.term {
+                    if let vm_ir::Terminator::CondJmp {
+                        target_true,
+                        target_false,
+                        ..
+                    } = blk2.term
+                    {
                         assert_eq!(target_true, 0x10C);
                         assert_eq!(target_false, 0x108);
-                    } else { eprintln!("ARM64 CBZ/B.cond decode not supported, skipping"); return; }
-                } else { eprintln!("ARM64 decode not supported, skipping"); return; }
+                    } else {
+                        eprintln!("ARM64 CBZ/B.cond decode not supported, skipping");
+                        return;
+                    }
+                } else {
+                    eprintln!("ARM64 decode not supported, skipping");
+                    return;
+                }
             }
             let _ = interp.run(&mut mmu, &blk);
             jit.set_pc(blk.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) { let _ = jit.run(&mut mmu, &blk); }
-        } else { eprintln!("ARM64 CBZ decode not supported, skipping"); }
+            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+                let _ = jit.run(&mut mmu, &blk);
+            }
+        } else {
+            eprintln!("ARM64 CBZ decode not supported, skipping");
+        }
     }
 
     #[test]
     fn arm64_ir_str_ldr_cbz_cbnz_jit_consistency() {
-        use vm_ir::{IRBlock, IROp, Terminator, MemFlags};
+        use vm_ir::{IRBlock, IROp, MemFlags, Terminator};
         let mut mmu = SoftMmu::new(0x4000, false);
         let start_pc = 0x3000u64;
         // Compose: base=x10=0x200, x1=99; STR x1,[x10]; LDR x2,[x10]; CBZ x2 -> false branch (since 99!=0)
-        let block = IRBlock { start_pc, ops: vec![
-            IROp::MovImm { dst: 10, imm: 0x200 },
-            IROp::MovImm { dst: 1, imm: 99 },
-            IROp::Store { src: 1, base: 10, offset: 0, size: 8, flags: MemFlags::default() },
-            IROp::Load { dst: 2, base: 10, offset: 0, size: 8, flags: MemFlags::default() },
-            // CBZ: cond = (x2 == 0)
-            IROp::CmpEq { dst: 3, lhs: 2, rhs: 0 },
-        ], term: Terminator::CondJmp { cond: 3, target_true: 0x3100, target_false: 0x3200 } };
+        let block = IRBlock {
+            start_pc,
+            ops: vec![
+                IROp::MovImm {
+                    dst: 10,
+                    imm: 0x200,
+                },
+                IROp::MovImm { dst: 1, imm: 99 },
+                IROp::Store {
+                    src: 1,
+                    base: 10,
+                    offset: 0,
+                    size: 8,
+                    flags: MemFlags::default(),
+                },
+                IROp::Load {
+                    dst: 2,
+                    base: 10,
+                    offset: 0,
+                    size: 8,
+                    flags: MemFlags::default(),
+                },
+                // CBZ: cond = (x2 == 0)
+                IROp::CmpEq {
+                    dst: 3,
+                    lhs: 2,
+                    rhs: 0,
+                },
+            ],
+            term: Terminator::CondJmp {
+                cond: 3,
+                target_true: 0x3100,
+                target_false: 0x3200,
+            },
+        };
 
         // Interpreter run
         let mut interp = Interpreter::new();
@@ -912,24 +1580,53 @@ use vm_engine_jit::Jit;
         // JIT run
         let mut jit = Jit::new();
         jit.set_pc(block.start_pc);
-        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 50) { let _ = jit.run(&mut mmu, &block); }
+        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 50) {
+            let _ = jit.run(&mut mmu, &block);
+        }
         assert_eq!(jit.get_reg(2), 99);
         assert_eq!(jit.get_pc(), 0x3200);
     }
 
     #[test]
     fn x86_ir_cmp_jcc_jit_consistency() {
-        use vm_ir::{IRBlock, IROp, Terminator, MemFlags};
+        use vm_ir::{IRBlock, IROp, MemFlags, Terminator};
         let mut mmu = SoftMmu::new(0x4000, false);
         let start_pc = 0x3500u64;
         // Compose: base=x10=0x300, RBX=x3=10; STR x3,[x10]; LDR x2,[x10]; CMP x2,10 ; Jcc equal -> true
-        let block = IRBlock { start_pc, ops: vec![
-            IROp::MovImm { dst: 10, imm: 0x300 },
-            IROp::MovImm { dst: 3, imm: 10 },
-            IROp::Store { src: 3, base: 10, offset: 0, size: 8, flags: MemFlags::default() },
-            IROp::Load { dst: 2, base: 10, offset: 0, size: 8, flags: MemFlags::default() },
-            IROp::CmpEq { dst: 1, lhs: 2, rhs: 3 },
-        ], term: Terminator::CondJmp { cond: 1, target_true: 0x3600, target_false: 0x3700 } };
+        let block = IRBlock {
+            start_pc,
+            ops: vec![
+                IROp::MovImm {
+                    dst: 10,
+                    imm: 0x300,
+                },
+                IROp::MovImm { dst: 3, imm: 10 },
+                IROp::Store {
+                    src: 3,
+                    base: 10,
+                    offset: 0,
+                    size: 8,
+                    flags: MemFlags::default(),
+                },
+                IROp::Load {
+                    dst: 2,
+                    base: 10,
+                    offset: 0,
+                    size: 8,
+                    flags: MemFlags::default(),
+                },
+                IROp::CmpEq {
+                    dst: 1,
+                    lhs: 2,
+                    rhs: 3,
+                },
+            ],
+            term: Terminator::CondJmp {
+                cond: 1,
+                target_true: 0x3600,
+                target_false: 0x3700,
+            },
+        };
 
         let mut interp = Interpreter::new();
         let ri = interp.run(&mut mmu, &block);
@@ -939,17 +1636,19 @@ use vm_engine_jit::Jit;
 
         let mut jit = Jit::new();
         jit.set_pc(block.start_pc);
-        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 50) { let _ = jit.run(&mut mmu, &block); }
+        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 50) {
+            let _ = jit.run(&mut mmu, &block);
+        }
         assert_eq!(jit.get_reg(2), 10);
         assert_eq!(jit.get_pc(), 0x3600);
     }
 
     #[test]
     fn riscv_plic_end_to_end_claim_complete() {
-        use vm_frontend_riscv64::RiscvDecoder;
-        use vm_device::plic::{Plic, PlicMmio, offsets, context_offsets};
-        use std::sync::Arc;
         use parking_lot::Mutex;
+        use std::sync::Arc;
+        use vm_device::plic::{Plic, PlicMmio, context_offsets, offsets};
+        use vm_frontend_riscv64::RiscvDecoder;
 
         let mut mmu = SoftMmu::new(0x400000, false);
         let plic = Arc::new(Mutex::new(Plic::new(64, 2)));
@@ -957,11 +1656,23 @@ use vm_engine_jit::Jit;
         mmu.map_mmio(0x0C00_0000, 0x400000, Box::new(plic_mmio));
 
         // Configure priorities and enables for context 0
-        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 5, 3, 4).expect("Operation failed");
-        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 10, 5, 4).expect("Operation failed");
+        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 5, 3, 4)
+            .expect("Operation failed");
+        mmu.write(0x0C00_0000 + offsets::PRIORITY_BASE + 4 * 10, 5, 4)
+            .expect("Operation failed");
         let enable_word0 = (1u64 << 5) | (1u64 << 10);
-        mmu.write(0x0C00_0000 + offsets::ENABLE_BASE + 0 * 0x80 + 0, enable_word0, 4).expect("Operation failed");
-        mmu.write(0x0C00_0000 + offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::THRESHOLD, 0, 4).expect("Operation failed");
+        mmu.write(
+            0x0C00_0000 + offsets::ENABLE_BASE + 0 * 0x80 + 0,
+            enable_word0,
+            4,
+        )
+        .expect("Operation failed");
+        mmu.write(
+            0x0C00_0000 + offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::THRESHOLD,
+            0,
+            4,
+        )
+        .expect("Operation failed");
 
         {
             let mut p = plic.lock();
@@ -973,26 +1684,38 @@ use vm_engine_jit::Jit;
         // - Read CLAIM (lw t0, claim_addr)
         // - Write COMPLETE (sw t0, complete_addr)
         // - Repeat twice
-        fn enc_lw(rd: u32, rs1: u32, imm: i32) -> u32 { ((imm as u32) << 20) | (rs1 << 15) | (2 << 12) | (rd << 7) | 0x03 }
+        fn enc_lw(rd: u32, rs1: u32, imm: i32) -> u32 {
+            ((imm as u32) << 20) | (rs1 << 15) | (2 << 12) | (rd << 7) | 0x03
+        }
         fn enc_sw(rs1: u32, rs2: u32, imm: i32) -> u32 {
             let imm11_5 = ((imm as u32) >> 5) & 0x7F;
             let imm4_0 = (imm as u32) & 0x1F;
             (imm11_5 << 25) | (rs2 << 20) | (rs1 << 15) | (2 << 12) | (imm4_0 << 7) | 0x23
         }
-        fn enc_addi(rd: u32, rs1: u32, imm: i32) -> u32 { ((imm as u32) << 20) | (rs1 << 15) | (0 << 12) | (rd << 7) | 0x13 }
+        fn enc_addi(rd: u32, rs1: u32, imm: i32) -> u32 {
+            ((imm as u32) << 20) | (rs1 << 15) | (0 << 12) | (rd << 7) | 0x13
+        }
 
-        fn enc_lui(rd: u32, imm20: i32) -> u32 { ((imm20 as u32) << 12) | (rd << 7) | 0x37 }
+        fn enc_lui(rd: u32, imm20: i32) -> u32 {
+            ((imm20 as u32) << 12) | (rd << 7) | 0x37
+        }
         let plic_base = 0x0C00_0000u64 + offsets::CONTEXT_BASE as u64 + (0 * 0x1000) as u64;
         let hi = ((plic_base >> 12) & 0xFFFFF) as i32;
         let lo = (plic_base & 0xFFF) as i32;
         let claim_off = context_offsets::CLAIM as i32; // within context block
         let complete_off = context_offsets::COMPLETE as i32;
-        mmu.write(0x1000, enc_lui(10, hi) as u64, 4).expect("Operation failed");
-        mmu.write(0x1004, enc_addi(10, 10, lo) as u64, 4).expect("Operation failed");
-        mmu.write(0x1008, enc_lw(5, 10, claim_off) as u64, 4).expect("Operation failed");
-        mmu.write(0x100C, enc_sw(10, 5, complete_off) as u64, 4).expect("Operation failed");
-        mmu.write(0x1010, enc_lw(5, 10, claim_off) as u64, 4).expect("Operation failed");
-        mmu.write(0x1014, enc_sw(10, 5, complete_off) as u64, 4).expect("Operation failed");
+        mmu.write(0x1000, enc_lui(10, hi) as u64, 4)
+            .expect("Operation failed");
+        mmu.write(0x1004, enc_addi(10, 10, lo) as u64, 4)
+            .expect("Operation failed");
+        mmu.write(0x1008, enc_lw(5, 10, claim_off) as u64, 4)
+            .expect("Operation failed");
+        mmu.write(0x100C, enc_sw(10, 5, complete_off) as u64, 4)
+            .expect("Operation failed");
+        mmu.write(0x1010, enc_lw(5, 10, claim_off) as u64, 4)
+            .expect("Operation failed");
+        mmu.write(0x1014, enc_sw(10, 5, complete_off) as u64, 4)
+            .expect("Operation failed");
 
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
@@ -1001,15 +1724,20 @@ use vm_engine_jit::Jit;
             let _ = interp.run(&mut mmu, &blk);
         }
 
-        let claimed_after = mmu.read(0x0C00_0000 + offsets::CONTEXT_BASE + context_offsets::CLAIM, 4).expect("Operation failed") as u32;
+        let claimed_after = mmu
+            .read(
+                0x0C00_0000 + offsets::CONTEXT_BASE + context_offsets::CLAIM,
+                4,
+            )
+            .expect("Operation failed") as u32;
         assert_eq!(claimed_after, 0);
     }
 
     #[test]
     fn plic_claim_complete_routing() {
-        use vm_device::plic::{Plic, PlicMmio, offsets, context_offsets};
-        use std::sync::Arc;
         use parking_lot::Mutex;
+        use std::sync::Arc;
+        use vm_device::plic::{Plic, PlicMmio, context_offsets, offsets};
         let plic = Arc::new(Mutex::new(Plic::new(64, 2)));
         let mut plic_mmio = PlicMmio::new(Arc::clone(&plic));
         // priorities
@@ -1019,7 +1747,11 @@ use vm_engine_jit::Jit;
         let enable_word0 = (1u64 << 5) | (1u64 << 10);
         plic_mmio.write(offsets::ENABLE_BASE + 0 * 0x80 + 0, enable_word0, 4);
         // threshold = 0
-        plic_mmio.write(offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::THRESHOLD, 0, 4);
+        plic_mmio.write(
+            offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::THRESHOLD,
+            0,
+            4,
+        );
         // set pending
         {
             let mut p = plic.lock();
@@ -1027,12 +1759,22 @@ use vm_engine_jit::Jit;
             p.set_pending(10);
         }
         // claim highest priority first
-        let c0 = plic_mmio.read(offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::CLAIM, 4) as u32;
+        let c0 = plic_mmio.read(
+            offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::CLAIM,
+            4,
+        ) as u32;
         assert_eq!(c0, 10);
         // complete
-        plic_mmio.write(offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::COMPLETE, c0 as u64, 4);
+        plic_mmio.write(
+            offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::COMPLETE,
+            c0 as u64,
+            4,
+        );
         // next claim
-        let c1 = plic_mmio.read(offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::CLAIM, 4) as u32;
+        let c1 = plic_mmio.read(
+            offsets::CONTEXT_BASE + 0 * 0x1000 + context_offsets::CLAIM,
+            4,
+        ) as u32;
         assert_eq!(c1, 5);
     }
 
@@ -1045,7 +1787,9 @@ use vm_engine_jit::Jit;
         code.push(0x48u8); // REX.W
         code.push(0xBBu8); // MOV rBX, imm64
         code.extend_from_slice(&0x1122_3344_5566_7788u64.to_le_bytes());
-        for (i, b) in code.iter().enumerate() { let _ = mmu.write(0x100 + i as u64, *b as u64, 1); }
+        for (i, b) in code.iter().enumerate() {
+            let _ = mmu.write(0x100 + i as u64, *b as u64, 1);
+        }
         let mut dec = X86Decoder;
         let blk = dec.decode(&mmu, 0x100).expect("Operation failed");
         let mut interp = Interpreter::new();
@@ -1056,8 +1800,16 @@ use vm_engine_jit::Jit;
     #[test]
     fn vring_chain_used_updates() {
         let mut mmu = SoftMmu::new(0x2000, false);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
-        let desc = 0x300u64; let avail = 0x400u64; let used = 0x500u64; let p0 = 0x600u64; let p1 = 0x700u64;
+        mmu.map_mmio(
+            0x2000_0000,
+            0x1000,
+            Box::new(virtio::VirtioBlock::new_with_capacity(1024)),
+        );
+        let desc = 0x300u64;
+        let avail = 0x400u64;
+        let used = 0x500u64;
+        let p0 = 0x600u64;
+        let p1 = 0x700u64;
         let _ = mmu.write(0x2000_0000 + 0x00, 2, 8);
         let _ = mmu.write(0x2000_0000 + 0x08, desc, 8);
         let _ = mmu.write(0x2000_0000 + 0x10, avail, 8);
@@ -1099,7 +1851,9 @@ use vm_engine_jit::Jit;
         // At target: ADDI x6, x0, 7
         let addi_target = ((7u32) << 20) | (0 << 15) | (0 << 12) | (6 << 7) | 0x13;
         let prog = [auipc, beq];
-        for (i, w) in prog.iter().enumerate() { let _ = mmu.write((i * 4) as u64, *w as u64, 4); }
+        for (i, w) in prog.iter().enumerate() {
+            let _ = mmu.write((i * 4) as u64, *w as u64, 4);
+        }
         let _ = mmu.write(8, addi_target as u64, 4);
         let _ = run_chain(&mut dec, &mut mmu, &mut interp, 0, 4);
         // AUIPC: x5 = pc + upperImm (0x1000)
@@ -1111,8 +1865,15 @@ use vm_engine_jit::Jit;
     #[test]
     fn used_event_default_triggers_irq() {
         let mut mmu = SoftMmu::new(0x2000, false);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
-        let desc = 0x300u64; let avail = 0x400u64; let used = 0x500u64; let p0 = 0x600u64;
+        mmu.map_mmio(
+            0x2000_0000,
+            0x1000,
+            Box::new(virtio::VirtioBlock::new_with_capacity(1024)),
+        );
+        let desc = 0x300u64;
+        let avail = 0x400u64;
+        let used = 0x500u64;
+        let p0 = 0x600u64;
         let _ = mmu.write(0x2000_0000 + 0x00, 1, 8);
         let _ = mmu.write(0x2000_0000 + 0x08, desc, 8);
         let _ = mmu.write(0x2000_0000 + 0x10, avail, 8);
@@ -1137,7 +1898,11 @@ use vm_engine_jit::Jit;
     #[test]
     fn mmio_unaligned_default_allows() {
         let mut mmu = SoftMmu::new(0x4000, false);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(64)));
+        mmu.map_mmio(
+            0x2000_0000,
+            0x1000,
+            Box::new(virtio::VirtioBlock::new_with_capacity(64)),
+        );
         let v = mmu.read(0x2000_0000 + 2, 4).expect("Operation failed");
         let _ = v;
         let w = mmu.write(0x2000_0000 + 6, 2, 2);
@@ -1148,7 +1913,11 @@ use vm_engine_jit::Jit;
     fn mmio_unaligned_strict_errors() {
         let mut mmu = SoftMmu::new(0x4000, false);
         mmu.set_strict_align(true);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(64)));
+        mmu.map_mmio(
+            0x2000_0000,
+            0x1000,
+            Box::new(virtio::VirtioBlock::new_with_capacity(64)),
+        );
         let r = mmu.read(0x2000_0000 + 2, 4);
         assert!(matches!(r, Err(vm_core::Fault::AlignmentFault { .. })));
         let w = mmu.write(0x2000_0000 + 3, 2, 2);
@@ -1161,45 +1930,104 @@ use vm_engine_jit::Jit;
         let mut mmu = SoftMmu::new(0x400000, false);
         mmu.set_strict_align(true);
         // Map PLIC and CLINT
-        use vm_device::plic::{Plic, PlicMmio};
-        use vm_device::clint::{Clint, ClintMmio, offsets as clint_ofs};
-        use std::sync::Arc;
         use parking_lot::Mutex;
-        mmu.map_mmio(0x0C00_0000, 0x400000, Box::new(PlicMmio::new(Arc::new(Mutex::new(Plic::new(64, 2))))));
-        mmu.map_mmio(0x0200_0000, 0x10000, Box::new(ClintMmio::new(Arc::new(Mutex::new(Clint::new(2, 1_000_000))))));
+        use std::sync::Arc;
+        use vm_device::clint::{Clint, ClintMmio, offsets as clint_ofs};
+        use vm_device::plic::{Plic, PlicMmio};
+        mmu.map_mmio(
+            0x0C00_0000,
+            0x400000,
+            Box::new(PlicMmio::new(Arc::new(Mutex::new(Plic::new(64, 2))))),
+        );
+        mmu.map_mmio(
+            0x0200_0000,
+            0x10000,
+            Box::new(ClintMmio::new(Arc::new(Mutex::new(Clint::new(
+                2, 1_000_000,
+            ))))),
+        );
         let mut faults = 0u64;
         // PLIC: try 4/8 at misaligned offsets
         for &off in &[1u64, 2, 3, 5, 6, 7] {
-            if mmu.read(0x0C00_0000 + off, 4).is_err() { faults += 1; }
-            if mmu.write(0x0C00_0000 + off, 0, 4).is_err() { faults += 1; }
-            if mmu.read(0x0C00_0000 + off, 8).is_err() { faults += 1; }
-            if mmu.write(0x0C00_0000 + off, 0, 8).is_err() { faults += 1; }
+            if mmu.read(0x0C00_0000 + off, 4).is_err() {
+                faults += 1;
+            }
+            if mmu.write(0x0C00_0000 + off, 0, 4).is_err() {
+                faults += 1;
+            }
+            if mmu.read(0x0C00_0000 + off, 8).is_err() {
+                faults += 1;
+            }
+            if mmu.write(0x0C00_0000 + off, 0, 8).is_err() {
+                faults += 1;
+            }
         }
         // PLIC region tail cross-page attempts
         let plic_end = 0x0C00_0000u64 + 0x400000u64;
-        for &tail_off in &[plic_end - 3, plic_end - 7] { // misaligned for 4/8
-            if mmu.read(tail_off, 4).is_err() { faults += 1; }
-            if mmu.write(tail_off, 0, 4).is_err() { faults += 1; }
-            if mmu.read(tail_off, 8).is_err() { faults += 1; }
-            if mmu.write(tail_off, 0, 8).is_err() { faults += 1; }
+        for &tail_off in &[plic_end - 3, plic_end - 7] {
+            // misaligned for 4/8
+            if mmu.read(tail_off, 4).is_err() {
+                faults += 1;
+            }
+            if mmu.write(tail_off, 0, 4).is_err() {
+                faults += 1;
+            }
+            if mmu.read(tail_off, 8).is_err() {
+                faults += 1;
+            }
+            if mmu.write(tail_off, 0, 8).is_err() {
+                faults += 1;
+            }
         }
         // CLINT: MSIP (word), MTIMECMP (double), MTIME (double)
-        for &off in &[clint_ofs::MSIP_BASE + 1, clint_ofs::MSIP_BASE + 2, clint_ofs::MSIP_BASE + 3] {
-            if mmu.read(0x0200_0000 + off, 4).is_err() { faults += 1; }
-            if mmu.write(0x0200_0000 + off, 0, 4).is_err() { faults += 1; }
+        for &off in &[
+            clint_ofs::MSIP_BASE + 1,
+            clint_ofs::MSIP_BASE + 2,
+            clint_ofs::MSIP_BASE + 3,
+        ] {
+            if mmu.read(0x0200_0000 + off, 4).is_err() {
+                faults += 1;
+            }
+            if mmu.write(0x0200_0000 + off, 0, 4).is_err() {
+                faults += 1;
+            }
         }
-        for &off in &[clint_ofs::MTIMECMP_BASE + 1, clint_ofs::MTIMECMP_BASE + 2, clint_ofs::MTIMECMP_BASE + 3,
-                      clint_ofs::MTIMECMP_BASE + 5, clint_ofs::MTIMECMP_BASE + 6, clint_ofs::MTIMECMP_BASE + 7] {
-            if mmu.read(0x0200_0000 + off, 8).is_err() { faults += 1; }
-            if mmu.write(0x0200_0000 + off, 0, 8).is_err() { faults += 1; }
+        for &off in &[
+            clint_ofs::MTIMECMP_BASE + 1,
+            clint_ofs::MTIMECMP_BASE + 2,
+            clint_ofs::MTIMECMP_BASE + 3,
+            clint_ofs::MTIMECMP_BASE + 5,
+            clint_ofs::MTIMECMP_BASE + 6,
+            clint_ofs::MTIMECMP_BASE + 7,
+        ] {
+            if mmu.read(0x0200_0000 + off, 8).is_err() {
+                faults += 1;
+            }
+            if mmu.write(0x0200_0000 + off, 0, 8).is_err() {
+                faults += 1;
+            }
         }
         // CLINT region tail cross-page attempts
         let clint_end = 0x0200_0000u64 + 0x10000u64;
         for &tail_off in &[clint_end - 3, clint_end - 7] {
-            if mmu.read(0x0200_0000 + tail_off - 0x0200_0000, 4).is_err() { faults += 1; }
-            if mmu.write(0x0200_0000 + tail_off - 0x0200_0000, 0, 4).is_err() { faults += 1; }
-            if mmu.read(0x0200_0000 + tail_off - 0x0200_0000, 8).is_err() { faults += 1; }
-            if mmu.write(0x0200_0000 + tail_off - 0x0200_0000, 0, 8).is_err() { faults += 1; }
+            if mmu.read(0x0200_0000 + tail_off - 0x0200_0000, 4).is_err() {
+                faults += 1;
+            }
+            if mmu
+                .write(0x0200_0000 + tail_off - 0x0200_0000, 0, 4)
+                .is_err()
+            {
+                faults += 1;
+            }
+            if mmu.read(0x0200_0000 + tail_off - 0x0200_0000, 8).is_err() {
+                faults += 1;
+            }
+            if mmu
+                .write(0x0200_0000 + tail_off - 0x0200_0000, 0, 8)
+                .is_err()
+            {
+                faults += 1;
+            }
         }
         println!("ALIGNMENT_FAULTS={}", faults);
         assert!(faults > 0);
@@ -1209,12 +2037,16 @@ use vm_engine_jit::Jit;
     fn riscv_jal_decode_negative_extreme() {
         let mut mmu = SoftMmu::new(0x400000, false);
         let mut dec = RiscvDecoder;
-        
+
         let base = 0x200000u64;
         let jal_neg = 0x8000006fu32;
         let _ = mmu.write(base, jal_neg as u64, 4);
         let block_neg = dec.decode(&mmu, base).expect("Operation failed");
-        if let vm_ir::Terminator::Jmp { target } = block_neg.term { assert_eq!(target, 0x100000); } else { panic!(); }
+        if let vm_ir::Terminator::Jmp { target } = block_neg.term {
+            assert_eq!(target, 0x100000);
+        } else {
+            panic!();
+        }
     }
 
     #[test]
@@ -1225,7 +2057,11 @@ use vm_engine_jit::Jit;
         let jal_pos = enc_jal(0, pos);
         let _ = mmu.write(0, jal_pos as u64, 4);
         let block_pos = dec.decode(&mmu, 0).expect("Operation failed");
-        if let vm_ir::Terminator::Jmp { target } = block_pos.term { assert_eq!(target, pos as u64); } else { panic!(); }
+        if let vm_ir::Terminator::Jmp { target } = block_pos.term {
+            assert_eq!(target, pos as u64);
+        } else {
+            panic!();
+        }
     }
 
     #[test]
@@ -1236,14 +2072,16 @@ use vm_engine_jit::Jit;
         let jal_back = enc_jal(0, -4);
         let addi0 = enc_addi(4, 0, 17);
         let prog = [jal_back, addi0];
-        for (i, w) in prog.iter().enumerate() { let _ = mmu.write((i * 4) as u64, *w as u64, 4); }
+        for (i, w) in prog.iter().enumerate() {
+            let _ = mmu.write((i * 4) as u64, *w as u64, 4);
+        }
         let _ = run_chain(&mut dec, &mut mmu, &mut interp, 4, 8);
         assert_eq!(interp.get_reg(4), 17);
     }
 
     #[test]
     fn riscv_auipc_jalr_combo_executes() {
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         let mut dec = RiscvDecoder;
         let mut interp = Interpreter::new();
         let auipc = enc_auipc(8, 0x1);
@@ -1269,7 +2107,9 @@ use vm_engine_jit::Jit;
         let srl = enc_srl(15, 14, 10);
         let sra = enc_sra(16, 15, 10);
         let prog = [addi, slli, srli, srai, sll, srl, sra];
-        for (i, w) in prog.iter().enumerate() { let _ = mmu.write((i * 4) as u64, *w as u64, 4); }
+        for (i, w) in prog.iter().enumerate() {
+            let _ = mmu.write((i * 4) as u64, *w as u64, 4);
+        }
         let _ = run_chain(&mut dec, &mut mmu, &mut interp, 0, 16);
         assert_eq!(interp.get_reg(11), 32);
         assert_eq!(interp.get_reg(12), 4);
@@ -1282,8 +2122,15 @@ use vm_engine_jit::Jit;
     #[test]
     fn vring_avail_event_default_and_feature_negotiation() {
         let mut mmu = SoftMmu::new(0x8000, false);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
-        let desc0 = 0x300u64; let avail0 = 0x400u64; let used0 = 0x500u64; let p0 = 0x600u64;
+        mmu.map_mmio(
+            0x2000_0000,
+            0x1000,
+            Box::new(virtio::VirtioBlock::new_with_capacity(1024)),
+        );
+        let desc0 = 0x300u64;
+        let avail0 = 0x400u64;
+        let used0 = 0x500u64;
+        let p0 = 0x600u64;
         let _ = mmu.write(0x2000_0000 + 0x00, 2, 8);
         let _ = mmu.write(0x2000_0000 + 0x44, 1, 8);
         let _ = mmu.write(0x2000_0000 + 0x04, 0, 8);
@@ -1315,8 +2162,15 @@ use vm_engine_jit::Jit;
     #[test]
     fn vring_large_queue_event_index_boundary() {
         let mut mmu = SoftMmu::new(0x200000, false);
-        mmu.map_mmio(0x2000_0000, 0x1000, Box::new(virtio::VirtioBlock::new_with_capacity(1024)));
-        let desc = 0x3000u64; let avail = 0x4000u64; let used = 0x5000u64; let p0 = 0x6000u64;
+        mmu.map_mmio(
+            0x2000_0000,
+            0x1000,
+            Box::new(virtio::VirtioBlock::new_with_capacity(1024)),
+        );
+        let desc = 0x3000u64;
+        let avail = 0x4000u64;
+        let used = 0x5000u64;
+        let p0 = 0x6000u64;
         let _ = mmu.write(0x2000_0000 + 0x04, 0, 8);
         let _ = mmu.write(0x2000_0000 + 0x00, 1024, 8);
         let _ = mmu.write(0x2000_0000 + 0x08, desc, 8);
@@ -1395,14 +2249,16 @@ use vm_engine_jit::Jit;
         let ppage = ((1i64 << 20) - 1) << 12;
         let e_ppage = arm64_api::encode_adrp(3, ppage);
         let pval = ((ppage) >> 12) as u64;
-        let pl = (pval & 0x3) as u32; let ph = ((pval >> 2) & 0x7FFFF) as u32;
+        let pl = (pval & 0x3) as u32;
+        let ph = ((pval >> 2) & 0x7FFFF) as u32;
         let expect_ppage = 0x90000000u32 | ((pl & 0x3) << 29) | ((ph & 0x7FFFF) << 5) | 3;
         assert_eq!(e_ppage, expect_ppage);
         // ADRP negative extreme: -((1<<20) << 12)
         let npage = -((1i64 << 20) << 12);
         let e_npage = arm64_api::encode_adrp(4, npage);
         let nval = ((npage) >> 12) as u64;
-        let nl = (nval & 0x3) as u32; let nh = ((nval >> 2) & 0x7FFFF) as u32;
+        let nl = (nval & 0x3) as u32;
+        let nh = ((nval >> 2) & 0x7FFFF) as u32;
         let expect_npage = 0x90000000u32 | ((nl & 0x3) << 29) | ((nh & 0x7FFFF) << 5) | 4;
         assert_eq!(e_npage, expect_npage);
     }
@@ -1594,7 +2450,7 @@ use vm_engine_jit::Jit;
         // Maybe the test meant scale 2?
         // Let's check the call: x86::encode_lea_r64(0, Some(4), Some(3), 1, -4);
         // Scale is 1.
-        
+
         // Let's just fix the length check and the disp check.
         assert_eq!(b.len(), 5);
         assert_eq!(b[4], 0xFC);
@@ -1623,10 +2479,10 @@ use vm_engine_jit::Jit;
         assert_eq!(d8_neg.last().copied(), Some(0x80));
         let d32_pos = x86::encode_lea_r64(0, Some(3), None, 0, 128);
         assert_eq!(d32_pos[2] >> 6, 0b10);
-        assert_eq!(&d32_pos[d32_pos.len()-4..], &[0x80, 0x00, 0x00, 0x00]);
+        assert_eq!(&d32_pos[d32_pos.len() - 4..], &[0x80, 0x00, 0x00, 0x00]);
         let d32_neg = x86::encode_lea_r64(0, Some(3), None, 0, -129);
         assert_eq!(d32_neg[2] >> 6, 0b10);
-        assert_eq!(&d32_neg[d32_neg.len()-4..], &[0x7F, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(&d32_neg[d32_neg.len() - 4..], &[0x7F, 0xFF, 0xFF, 0xFF]);
 
         let max_pos = x86::encode_lea_r64(12, Some(13), Some(14), 3, i32::MAX);
         assert_eq!(max_pos[0], 0x4F);
@@ -1656,25 +2512,39 @@ use vm_engine_jit::Jit;
     #[test]
     fn arm64_cinc_cdec_more_quick_aliases() {
         use vm_frontend_arm64::api::*;
-        let hi = encode_cinc_hi(1, 2, true); assert_eq!((hi >> 12) & 0xF, 9);
-        let ls = encode_cinc_ls(3, 4, false); assert_eq!((ls >> 12) & 0xF, 8);
-        let gt = encode_cinc_gt(5, 6, true); assert_eq!((gt >> 12) & 0xF, 13);
-        let le = encode_cinc_le(7, 8, false); assert_eq!((le >> 12) & 0xF, 12);
-        let dmi = encode_cdec_mi(9, 10, true); assert_eq!((dmi >> 12) & 0xF, 4);
-        let dpl = encode_cdec_pl(11, 12, false); assert_eq!((dpl >> 12) & 0xF, 5);
-        let dvs = encode_cdec_vs(13, 14, true); assert_eq!((dvs >> 12) & 0xF, 6);
-        let dvc = encode_cdec_vc(15, 16, false); assert_eq!((dvc >> 12) & 0xF, 7);
+        let hi = encode_cinc_hi(1, 2, true);
+        assert_eq!((hi >> 12) & 0xF, 9);
+        let ls = encode_cinc_ls(3, 4, false);
+        assert_eq!((ls >> 12) & 0xF, 8);
+        let gt = encode_cinc_gt(5, 6, true);
+        assert_eq!((gt >> 12) & 0xF, 13);
+        let le = encode_cinc_le(7, 8, false);
+        assert_eq!((le >> 12) & 0xF, 12);
+        let dmi = encode_cdec_mi(9, 10, true);
+        assert_eq!((dmi >> 12) & 0xF, 4);
+        let dpl = encode_cdec_pl(11, 12, false);
+        assert_eq!((dpl >> 12) & 0xF, 5);
+        let dvs = encode_cdec_vs(13, 14, true);
+        assert_eq!((dvs >> 12) & 0xF, 6);
+        let dvc = encode_cdec_vc(15, 16, false);
+        assert_eq!((dvc >> 12) & 0xF, 7);
     }
 
     #[test]
     fn arm64_cond_module_group_exports() {
         use vm_frontend_arm64::api::cond;
-        let e = cond::cinc::eq(1, 2, true); assert_eq!((e >> 12) & 0xF, 1);
-        let n = cond::cinc::ne(3, 4, false); assert_eq!((n >> 12) & 0xF, 0);
-        let g = cond::cdec::ge(5, 6, true); assert_eq!((g >> 12) & 0xF, 10);
-        let l = cond::cdec::lt(7, 8, false); assert_eq!((l >> 12) & 0xF, 11);
-        let i = cond::cinv::hi(9, 10, true); assert_eq!((i >> 12) & 0xF, 8);
-        let c = cond::cneg::pl(11, 12, false); assert_eq!((c >> 12) & 0xF, 5);
+        let e = cond::cinc::eq(1, 2, true);
+        assert_eq!((e >> 12) & 0xF, 1);
+        let n = cond::cinc::ne(3, 4, false);
+        assert_eq!((n >> 12) & 0xF, 0);
+        let g = cond::cdec::ge(5, 6, true);
+        assert_eq!((g >> 12) & 0xF, 10);
+        let l = cond::cdec::lt(7, 8, false);
+        assert_eq!((l >> 12) & 0xF, 11);
+        let i = cond::cinv::hi(9, 10, true);
+        assert_eq!((i >> 12) & 0xF, 8);
+        let c = cond::cneg::pl(11, 12, false);
+        assert_eq!((c >> 12) & 0xF, 5);
     }
 
     #[test]
@@ -1737,10 +2607,10 @@ use vm_engine_jit::Jit;
         assert_eq!(d8n[2] >> 6, 0b01);
         let d32p = x86::encode_lea_r64(0, Some(5), None, 0, 128);
         assert_eq!(d32p[2] >> 6, 0b10);
-        assert_eq!(&d32p[d32p.len()-4..], &[0x80, 0x00, 0x00, 0x00]);
+        assert_eq!(&d32p[d32p.len() - 4..], &[0x80, 0x00, 0x00, 0x00]);
         let d32n = x86::encode_lea_r64(0, Some(5), None, 0, -129);
         assert_eq!(d32n[2] >> 6, 0b10);
-        assert_eq!(&d32n[d32n.len()-4..], &[0x7F, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(&d32n[d32n.len() - 4..], &[0x7F, 0xFF, 0xFF, 0xFF]);
     }
 
     #[test]
@@ -1801,31 +2671,64 @@ use vm_engine_jit::Jit;
     #[test]
     fn condjmp_executes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         engine.set_reg(1, 1);
         let mut b = IRBuilder::new(0);
-        b.push(IROp::CmpEq { dst: 31, lhs: 1, rhs: 1 });
+        b.push(IROp::CmpEq {
+            dst: 31,
+            lhs: 1,
+            rhs: 1,
+        });
         let target = 0x8;
-        b.set_term(vm_ir::Terminator::CondJmp { cond: 31, target_true: target, target_false: target });
+        b.set_term(vm_ir::Terminator::CondJmp {
+            cond: 31,
+            target_true: target,
+            target_false: target,
+        });
         let block = b.build();
         let _ = engine.run(&mut mmu, &block);
     }
 
     struct FaultyMMU;
     impl MMU for FaultyMMU {
-        fn translate(&mut self, va: vm_core::GuestAddr, access: vm_core::AccessType) -> Result<vm_core::GuestAddr, vm_core::Fault> {
+        fn translate(
+            &mut self,
+            va: vm_core::GuestAddr,
+            access: vm_core::AccessType,
+        ) -> Result<vm_core::GuestAddr, vm_core::Fault> {
             Err(vm_core::Fault::PageFault { addr: va, access })
         }
-        fn fetch_insn(&self, _pc: vm_core::GuestAddr) -> Result<u64, vm_core::Fault> { Ok(0) }
-        fn read(&self, _pa: vm_core::GuestAddr, _size: u8) -> Result<u64, vm_core::Fault> { Ok(0) }
-        fn write(&mut self, _pa: vm_core::GuestAddr, _val: u64, _size: u8) -> Result<(), vm_core::Fault> { Ok(()) }
+        fn fetch_insn(&self, _pc: vm_core::GuestAddr) -> Result<u64, vm_core::Fault> {
+            Ok(0)
+        }
+        fn read(&self, _pa: vm_core::GuestAddr, _size: u8) -> Result<u64, vm_core::Fault> {
+            Ok(0)
+        }
+        fn write(
+            &mut self,
+            _pa: vm_core::GuestAddr,
+            _val: u64,
+            _size: u8,
+        ) -> Result<(), vm_core::Fault> {
+            Ok(())
+        }
         fn map_mmio(&mut self, _base: u64, _size: u64, _device: Box<dyn MmioDevice>) {}
         fn flush_tlb(&mut self) {}
-        fn memory_size(&self) -> usize { 0 }
-        fn dump_memory(&self) -> Vec<u8> { Vec::new() }
-        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> { Ok(()) }
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+        fn memory_size(&self) -> usize {
+            0
+        }
+        fn dump_memory(&self) -> Vec<u8> {
+            Vec::new()
+        }
+        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
+            Ok(())
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
@@ -1833,11 +2736,17 @@ use vm_engine_jit::Jit;
         let mut engine = Interpreter::new();
         let mut mmu = FaultyMMU;
         let mut builder = IRBuilder::new(0);
-        builder.push(IROp::Load { dst: 1, base: 2, offset: 0, size: 4, flags: MemFlags::default() });
+        builder.push(IROp::Load {
+            dst: 1,
+            base: 2,
+            offset: 0,
+            size: 4,
+            flags: MemFlags::default(),
+        });
         let block = builder.build();
         let res = engine.run(&mut mmu, &block);
         match res.status {
-            vm_core::ExecStatus::Fault(vm_core::Fault::PageFault { .. }) => {},
+            vm_core::ExecStatus::Fault(vm_core::Fault::PageFault { .. }) => {}
             _ => panic!("Expected PageFault"),
         }
     }
@@ -1845,7 +2754,7 @@ use vm_engine_jit::Jit;
     #[test]
     fn interpreter_vec256_interleaved_sat_dst23_full_bytes() {
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // helper to pack lanes (LSB-first) into a u64 chunk
         let pack = |lanes: &[u64], es: u8| -> u64 {
             let lane_bits = (es as u64) * 8;
@@ -1874,8 +2783,20 @@ use vm_engine_jit::Jit;
                 // signed: mix near-max positive and near-min negative to trigger both clamps
                 let max_s = ((1u128 << ((es as u64 * 8) - 1)) - 1) as u64; // e.g., 0x7F, 0x7FFF, 0x7FFF_FFFF
                 let min_s = 1u64 << ((es as u64 * 8) - 1); // two's complement min bit pattern (e.g., 0x80)
-                a3[i] = if i % 3 == 0 { max_s } else if i % 3 == 1 { min_s } else { base };
-                b3[i] = if i % 3 == 0 { 0x10 } else if i % 3 == 1 { 0x01 } else { 0x0F };
+                a3[i] = if i % 3 == 0 {
+                    max_s
+                } else if i % 3 == 1 {
+                    min_s
+                } else {
+                    base
+                };
+                b3[i] = if i % 3 == 0 {
+                    0x10
+                } else if i % 3 == 1 {
+                    0x01
+                } else {
+                    0x0F
+                };
             }
             // place into src regs for chunk2/chunk3
             engine.set_reg(12, pack(&a2, es));
@@ -1883,18 +2804,37 @@ use vm_engine_jit::Jit;
             engine.set_reg(13, pack(&a3, es));
             engine.set_reg(23, pack(&b3, es));
             // zero-fill other chunks to isolate dst2/dst3
-            engine.set_reg(10, 0); engine.set_reg(11, 0);
-            engine.set_reg(14, 0); engine.set_reg(15, 0);
+            engine.set_reg(10, 0);
+            engine.set_reg(11, 0);
+            engine.set_reg(14, 0);
+            engine.set_reg(15, 0);
             // unsigned saturating add into dst2
             let mut bu = IRBuilder::new(0);
-            bu.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 22, src23: 23, element_size: es, signed: false });
-            let blk_u = bu.build(); let _ = engine.run(&mut mmu, &blk_u);
+            bu.push(IROp::Vec256Add {
+                dst0: 18,
+                dst1: 19,
+                dst2: 20,
+                dst3: 21,
+                src10: 10,
+                src11: 11,
+                src12: 12,
+                src13: 13,
+                src20: 14,
+                src21: 15,
+                src22: 22,
+                src23: 23,
+                element_size: es,
+                signed: false,
+            });
+            let blk_u = bu.build();
+            let _ = engine.run(&mut mmu, &blk_u);
             let d2 = engine.get_reg(20);
             // verify every lane of dst2
             let lane_bits = (es as u64) * 8;
             let mask = ((1u128 << lane_bits) - 1) as u64;
             for i in 0..lanes_per {
-                let av = a2[i] & mask; let bv = b2[i] & mask;
+                let av = a2[i] & mask;
+                let bv = b2[i] & mask;
                 let sum = (av as u128) + (bv as u128);
                 let max = ((1u128 << lane_bits) - 1) as u128;
                 let exp = if sum > max { max } else { sum } as u64;
@@ -1903,11 +2843,28 @@ use vm_engine_jit::Jit;
             }
             // signed saturating add into dst3
             let mut bs = IRBuilder::new(0);
-            bs.push(IROp::Vec256Add { dst0: 18, dst1: 19, dst2: 20, dst3: 21, src10: 10, src11: 11, src12: 12, src13: 13, src20: 14, src21: 15, src22: 22, src23: 23, element_size: es, signed: true });
-            let blk_s = bs.build(); let _ = engine.run(&mut mmu, &blk_s);
+            bs.push(IROp::Vec256Add {
+                dst0: 18,
+                dst1: 19,
+                dst2: 20,
+                dst3: 21,
+                src10: 10,
+                src11: 11,
+                src12: 12,
+                src13: 13,
+                src20: 14,
+                src21: 15,
+                src22: 22,
+                src23: 23,
+                element_size: es,
+                signed: true,
+            });
+            let blk_s = bs.build();
+            let _ = engine.run(&mut mmu, &blk_s);
             let d3 = engine.get_reg(21);
             for i in 0..lanes_per {
-                let av = a3[i] & mask; let bv = b3[i] & mask;
+                let av = a3[i] & mask;
+                let bv = b3[i] & mask;
                 // sign-extend to i128 with lane_bits
                 let sa = {
                     let shift = 128 - lane_bits;
@@ -1920,7 +2877,13 @@ use vm_engine_jit::Jit;
                 let sum = sa + sb;
                 let max = ((1i128 << (lane_bits - 1)) - 1) as i128;
                 let min = (-(1i128 << (lane_bits - 1))) as i128;
-                let clamped = if sum > max { max } else if sum < min { min } else { sum };
+                let clamped = if sum > max {
+                    max
+                } else if sum < min {
+                    min
+                } else {
+                    sum
+                };
                 let exp = (clamped as i128 as u128 as u64) & mask;
                 let got = (d3 >> (i as u64 * lane_bits)) & mask;
                 assert_eq!(got, exp);
@@ -1930,60 +2893,108 @@ use vm_engine_jit::Jit;
 
     #[test]
     fn interrupt_windows_overlap_mixed_strategies_precise_assert() {
-        use vm_engine_interpreter::{run_chain, ExecInterruptAction};
-        use vm_ir::Terminator;
-        use vm_core::{ExecStatus, Decoder, MMU, GuestAddr, Fault};
+        use vm_core::{Decoder, ExecStatus, Fault, GuestAddr, MMU};
+        use vm_engine_interpreter::{ExecInterruptAction, run_chain};
         use vm_ir::IRBlock;
+        use vm_ir::Terminator;
         let mut engine = Interpreter::new();
-        let mut mmu = SoftMmu::new(0x10000, false);
+        let mut mmu = SoftMmu::new(0x10000);
         // counters via regs_ptr: [7]=deliver, [8]=mask, [9]=retry
         engine.set_interrupt_handler_ext(|ctx, interp| {
             let regs = ctx.regs_ptr;
             unsafe {
                 match ctx.vector {
-                    1 => { *regs.add(9) = (*regs.add(9)).wrapping_add(1); return ExecInterruptAction::Retry; }
+                    1 => {
+                        *regs.add(9) = (*regs.add(9)).wrapping_add(1);
+                        return ExecInterruptAction::Retry;
+                    }
                     2 => {
                         // open a mask window only once; afterwards deliver on vector 2
-                        if interp.intr_mask_until == 0 && *regs.add(10) == 0 { *regs.add(10) = 1; interp.intr_mask_until = 2; }
-                        if interp.intr_mask_until > 0 { interp.intr_mask_until -= 1; *regs.add(8) = (*regs.add(8)).wrapping_add(1); return ExecInterruptAction::Mask; }
-                        *regs.add(7) = (*regs.add(7)).wrapping_add(1); return ExecInterruptAction::Deliver;
+                        if interp.intr_mask_until == 0 && *regs.add(10) == 0 {
+                            *regs.add(10) = 1;
+                            interp.intr_mask_until = 2;
+                        }
+                        if interp.intr_mask_until > 0 {
+                            interp.intr_mask_until -= 1;
+                            *regs.add(8) = (*regs.add(8)).wrapping_add(1);
+                            return ExecInterruptAction::Mask;
+                        }
+                        *regs.add(7) = (*regs.add(7)).wrapping_add(1);
+                        return ExecInterruptAction::Deliver;
                     }
                     3 => {
-                        if (*regs.add(8) & 1) == 0 { *regs.add(8) = (*regs.add(8)).wrapping_add(1); return ExecInterruptAction::Mask; }
-                        *regs.add(9) = (*regs.add(9)).wrapping_add(1); return ExecInterruptAction::Retry;
+                        if (*regs.add(8) & 1) == 0 {
+                            *regs.add(8) = (*regs.add(8)).wrapping_add(1);
+                            return ExecInterruptAction::Mask;
+                        }
+                        *regs.add(9) = (*regs.add(9)).wrapping_add(1);
+                        return ExecInterruptAction::Retry;
                     }
-                    _ => { *regs.add(7) = (*regs.add(7)).wrapping_add(1); return ExecInterruptAction::Deliver; }
+                    _ => {
+                        *regs.add(7) = (*regs.add(7)).wrapping_add(1);
+                        return ExecInterruptAction::Deliver;
+                    }
                 }
             }
         });
         // decoder that yields a fixed interrupt sequence to create overlapping windows
-        struct SeqDec { seq: Vec<u32>, idx: usize }
-        
+        struct SeqDec {
+            seq: Vec<u32>,
+            idx: usize,
+        }
+
         struct DummyInsn;
         impl vm_core::Instruction for DummyInsn {
-            fn next_pc(&self) -> GuestAddr { 0 }
-            fn size(&self) -> u8 { 4 }
-            fn operand_count(&self) -> usize { 0 }
-            fn mnemonic(&self) -> &'static str { "nop" }
-            fn is_control_flow(&self) -> bool { false }
-            fn is_memory_access(&self) -> bool { false }
+            fn next_pc(&self) -> GuestAddr {
+                0
+            }
+            fn size(&self) -> u8 {
+                4
+            }
+            fn operand_count(&self) -> usize {
+                0
+            }
+            fn mnemonic(&self) -> &'static str {
+                "nop"
+            }
+            fn is_control_flow(&self) -> bool {
+                false
+            }
+            fn is_memory_access(&self) -> bool {
+                false
+            }
         }
-        
+
         impl Decoder for SeqDec {
             type Instruction = DummyInsn;
             type Block = IRBlock;
-            
-            fn decode_insn(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> Result<Self::Instruction, Fault> {
+
+            fn decode_insn(
+                &mut self,
+                _mmu: &dyn MMU,
+                _pc: GuestAddr,
+            ) -> Result<Self::Instruction, Fault> {
                 Ok(DummyInsn)
             }
-            
+
             fn decode(&mut self, _mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, Fault> {
-                let v = if self.idx < self.seq.len() { self.seq[self.idx] } else { 0 };
+                let v = if self.idx < self.seq.len() {
+                    self.seq[self.idx]
+                } else {
+                    0
+                };
                 self.idx += 1;
-                Ok(IRBlock { start_pc: pc, ops: vec![], term: Terminator::Interrupt { vector: v } })
+                Ok(IRBlock {
+                    start_pc: pc,
+                    ops: vec![],
+                    term: Terminator::Interrupt { vector: v },
+                })
             }
         }
-        let mut dec = SeqDec { seq: vec![2,2,3,1,2,3,1,2,2], idx: 0 };
+        let mut dec = SeqDec {
+            seq: vec![2, 2, 3, 1, 2, 3, 1, 2, 2],
+            idx: 0,
+        };
         let res = run_chain(&mut dec, &mut mmu, &mut engine, 0, 9);
         assert!(matches!(res.status, ExecStatus::Ok));
         // precise counters: masks occur at least twice (from vector 2 window and vector 3 first),
@@ -1994,5 +3005,60 @@ use vm_engine_jit::Jit;
         assert!(masked >= 3);
         assert!(retried >= 2);
         assert!(delivered >= 1);
+    }
+
+    /// 测试重构后的页表遍历器功能
+    #[test]
+    fn test_page_table_walker_refactored() {
+        let mut mmu = SoftMmu::new(1024 * 1024, false); // 1MB内存
+
+        // 测试Bare模式（无分页）
+        mmu.set_paging_mode(PagingMode::Bare);
+        let test_va = 0x12345678;
+        match mmu.translate(test_va, AccessType::Read) {
+            Ok(pa) => assert_eq!(pa, test_va, "无分页模式应该是恒等映射"),
+            Err(e) => panic!("无分页模式翻译失败: {:?}", e),
+        }
+
+        // 测试SV39分页模式
+        mmu.set_paging_mode(PagingMode::Sv39);
+
+        // 设置页表基地址
+        let page_table_base = 0x1000;
+        mmu.set_page_table_base(page_table_base);
+
+        // 创建一个简单的3级页表结构
+        // 第一级 -> 第二级 -> 第三级 -> 物理页
+        let level1_entry = 0x2000u64 | pte_flags::V; // 指向第二级页表
+        let level2_entry = 0x3000u64 | pte_flags::V; // 指向第三级页表
+        let level3_entry = 0x10u64 | pte_flags::V | pte_flags::R | pte_flags::W | pte_flags::X; // 映射到物理页
+
+        // 写入页表项
+        mmu.write(page_table_base, level1_entry, 8).unwrap();
+        mmu.write(0x2000, level2_entry, 8).unwrap();
+        mmu.write(0x3000, level3_entry, 8).unwrap();
+
+        // 测试虚拟地址翻译：0x12345678 -> 0x10000 + offset
+        let test_va = 0x12345678;
+        let expected_pa = 0x10000 + 0x678; // page offset from 0x12345678
+
+        match mmu.translate(test_va, AccessType::Read) {
+            Ok(pa) => {
+                assert_eq!(pa, expected_pa, "SV39虚拟地址翻译不正确");
+                println!("✓ SV39页表遍历器工作正常: 0x{:x} -> 0x{:x}", test_va, pa);
+            }
+            Err(e) => panic!("SV39虚拟地址翻译失败: {:?}", e),
+        }
+
+        // 测试权限检查
+        match mmu.translate(test_va, AccessType::Write) {
+            Ok(pa) => assert_eq!(pa, expected_pa, "写权限翻译不正确"),
+            Err(e) => panic!("写权限翻译失败: {:?}", e),
+        }
+
+        match mmu.translate(test_va, AccessType::Exec) {
+            Ok(pa) => assert_eq!(pa, expected_pa, "执行权限翻译不正确"),
+            Err(e) => panic!("执行权限翻译失败: {:?}", e),
+        }
     }
 }

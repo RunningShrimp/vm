@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -24,7 +24,12 @@ impl SnapshotManager {
         }
     }
 
-    pub fn create_snapshot(&mut self, name: String, description: String, memory_dump_path: String) -> String {
+    pub fn create_snapshot(
+        &mut self,
+        name: String,
+        description: String,
+        memory_dump_path: String,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let parent_id = self.current_snapshot.clone();
         let snapshot = Snapshot {

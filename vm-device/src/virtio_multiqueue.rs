@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use vm_core::{VmError, PlatformError};
 use thiserror::Error;
 
 /// VirtIO 队列
@@ -150,6 +151,23 @@ pub enum MultiQueueError {
     IndexOutOfRange(usize),
     #[error("Failed to lock queue")]
     LockFailed,
+}
+
+/// 从传统错误转换为统一错误
+impl From<MultiQueueError> for VmError {
+    fn from(err: MultiQueueError) -> Self {
+        match err {
+            MultiQueueError::IndexOutOfRange(_) => {
+                VmError::Platform(PlatformError::InitializationFailed(err.to_string()))
+            }
+            MultiQueueError::LockFailed => {
+                VmError::Core(vm_core::CoreError::Concurrency {
+                    message: err.to_string(),
+                    operation: "queue_lock".to_string(),
+                })
+            }
+        }
+    }
 }
 
 /// VirtIO 网络设备多队列支持

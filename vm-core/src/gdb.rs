@@ -1,11 +1,10 @@
+use crate::{GuestAddr, MMU, VcpuStateContainer};
+use std::io::{BufRead, BufReader, Write};
 ///! GDB 远程调试协议实现
 ///!
 ///! 支持通过 GDB Remote Serial Protocol (RSP) 调试虚拟机
-
 use std::net::{TcpListener, TcpStream};
-use std::io::{Read, Write, BufReader, BufRead};
 use std::sync::{Arc, Mutex};
-use crate::{VcpuStateContainer, MMU, GuestAddr};
 
 /// GDB 调试服务器
 pub struct GdbServer {
@@ -27,12 +26,14 @@ impl GdbServer {
     /// 启动 GDB 服务器
     pub fn start(&mut self) -> Result<(), String> {
         let addr = format!("127.0.0.1:{}", self.port);
-        let listener = TcpListener::bind(&addr)
-            .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
+        let listener =
+            TcpListener::bind(&addr).map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
 
         println!("GDB server listening on {}", addr);
         self.listener = Some(listener);
-        let mut running = self.running.lock()
+        let mut running = self
+            .running
+            .lock()
             .map_err(|e| format!("Failed to lock running state: {}", e))?;
         *running = true;
 
@@ -50,7 +51,8 @@ impl GdbServer {
     /// 接受客户端连接
     pub fn accept(&self) -> Result<GdbConnection, String> {
         if let Some(ref listener) = self.listener {
-            let (stream, addr) = listener.accept()
+            let (stream, addr) = listener
+                .accept()
                 .map_err(|e| format!("Failed to accept connection: {}", e))?;
 
             println!("GDB client connected from {}", addr);
@@ -62,9 +64,7 @@ impl GdbServer {
 
     /// 是否正在运行
     pub fn is_running(&self) -> bool {
-        self.running.lock()
-            .map(|state| *state)
-            .unwrap_or(false)
+        self.running.lock().map(|state| *state).unwrap_or(false)
     }
 }
 
@@ -87,7 +87,8 @@ impl GdbConnection {
         let mut reader = BufReader::new(&self.stream);
         let mut line = String::new();
 
-        reader.read_line(&mut line)
+        reader
+            .read_line(&mut line)
             .map_err(|e| format!("Failed to read packet: {}", e))?;
 
         // GDB 数据包格式: $data#checksum
@@ -105,10 +106,12 @@ impl GdbConnection {
         let checksum = Self::calculate_checksum(data);
         let packet = format!("${}#{:02x}\n", data, checksum);
 
-        self.stream.write_all(packet.as_bytes())
+        self.stream
+            .write_all(packet.as_bytes())
             .map_err(|e| format!("Failed to send packet: {}", e))?;
 
-        self.stream.flush()
+        self.stream
+            .flush()
             .map_err(|e| format!("Failed to flush stream: {}", e))?;
 
         Ok(())
@@ -116,7 +119,8 @@ impl GdbConnection {
 
     /// 发送确认
     pub fn send_ack(&mut self) -> Result<(), String> {
-        self.stream.write_all(b"+")
+        self.stream
+            .write_all(b"+")
             .map_err(|e| format!("Failed to send ack: {}", e))?;
         Ok(())
     }
@@ -147,14 +151,20 @@ impl GdbSession {
     }
 
     /// 处理 GDB 命令
-    pub fn handle_command(&mut self, cmd: &str, vcpu: &mut VcpuStateContainer, mmu: &mut dyn MMU) -> Result<bool, String> {
+    pub fn handle_command(
+        &mut self,
+        cmd: &str,
+        vcpu: &mut VcpuStateContainer,
+        mmu: &mut dyn MMU,
+    ) -> Result<bool, String> {
         let parts: Vec<&str> = cmd.split(',').collect();
         let cmd_type = parts[0];
 
         match cmd_type {
             // 查询支持的功能
             "qSupported" => {
-                self.connection.send_packet("PacketSize=4096;qXfer:features:read+")?;
+                self.connection
+                    .send_packet("PacketSize=4096;qXfer:features:read+")?;
             }
 
             // 读取所有寄存器
@@ -182,7 +192,8 @@ impl GdbSession {
 
                     match self.read_memory(mmu, addr, len) {
                         Ok(data) => {
-                            let hex = data.iter()
+                            let hex = data
+                                .iter()
                                 .map(|b| format!("{:02x}", b))
                                 .collect::<String>();
                             self.connection.send_packet(&hex)?;
@@ -276,7 +287,8 @@ impl GdbSession {
 
     /// 格式化寄存器为十六进制字符串
     fn format_registers(&self, vcpu: &VcpuStateContainer) -> String {
-        vcpu.regs.iter()
+        vcpu.regs
+            .iter()
             .map(|r| format!("{:016x}", r))
             .collect::<Vec<_>>()
             .join("")
@@ -298,7 +310,12 @@ impl GdbSession {
     }
 
     /// 读取内存
-    fn read_memory(&self, mmu: &mut dyn MMU, addr: GuestAddr, len: usize) -> Result<Vec<u8>, String> {
+    fn read_memory(
+        &self,
+        mmu: &mut dyn MMU,
+        addr: GuestAddr,
+        len: usize,
+    ) -> Result<Vec<u8>, String> {
         let mut data = Vec::with_capacity(len);
         for i in 0..len {
             match mmu.read(addr + i as u64, 1) {
@@ -352,8 +369,7 @@ mod tests {
     #[test]
     fn test_hex_conversion() {
         let hex = "48656c6c6f";
-        let bytes = GdbSession::hex_to_bytes(hex)
-            .expect("Failed to convert hex string");
+        let bytes = GdbSession::hex_to_bytes(hex).expect("Failed to convert hex string");
         assert_eq!(bytes, b"Hello");
     }
 }

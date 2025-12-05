@@ -170,16 +170,16 @@ pub fn detect() -> CpuFeatures {
     #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "cpuid"))]
     {
         let cpuid = CpuId::new();
-        
+
         if let Some(info) = cpuid.get_feature_info() {
             features.vmx = info.has_vmx();
         }
 
         if let Some(info) = cpuid.get_extended_feature_info() {
-             features.avx2 = info.has_avx2();
-             features.avx512 = info.has_avx512f();
+            features.avx2 = info.has_avx2();
+            features.avx512 = info.has_avx512f();
         }
-        
+
         // AMD SVM 检测需要扩展功能叶
         if let Some(ext_info) = cpuid.get_extended_processor_and_feature_identifiers() {
             // SVM 在扩展功能中，这里简化处理
@@ -190,9 +190,9 @@ pub fn detect() -> CpuFeatures {
     #[cfg(target_arch = "aarch64")]
     {
         // On aarch64, NEON is mandatory.
-        features.neon = true; 
+        features.neon = true;
         // Simple heuristic for virtualization support availability
-        features.arm_el2 = std::path::Path::new("/dev/kvm").exists(); 
+        features.arm_el2 = std::path::Path::new("/dev/kvm").exists();
     }
 
     features
@@ -202,31 +202,63 @@ pub fn detect() -> CpuFeatures {
 // 统一加速器接口
 // ============================================================================
 
-use vm_core::{GuestRegs, MMU};
+use vm_core::{GuestRegs, MMU, PlatformError, VmError};
 
-/// 加速器错误类型
+/// 加速器错误类型别名
 ///
-/// 表示硬件虚拟化操作中可能发生的各种错误。
-///
-/// # 错误分类
-///
-/// - **可用性错误**: [`NotAvailable`](AccelError::NotAvailable), [`NotInitialized`](AccelError::NotInitialized)
-/// - **操作错误**: [`CreateVmFailed`](AccelError::CreateVmFailed), [`MapMemoryFailed`](AccelError::MapMemoryFailed)
-/// - **运行时错误**: [`RunFailed`](AccelError::RunFailed), [`GetRegsFailed`](AccelError::GetRegsFailed)
-///
-/// # 示例
-///
-/// ```rust,ignore
-/// match accel.init() {
-///     Ok(()) => println!("Accelerator initialized"),
-///     Err(AccelError::NotAvailable(msg)) => {
-///         eprintln!("Hardware acceleration not available: {}", msg);
-///     }
-///     Err(e) => eprintln!("Error: {}", e),
-/// }
-/// ```
+/// 使用统一的 VmError 系统，加速器相关的错误映射到 PlatformError
+pub type AccelError = VmError;
+
+/// 从传统错误转换为统一错误
+impl From<AccelLegacyError> for VmError {
+    fn from(err: AccelLegacyError) -> Self {
+        match err {
+            AccelLegacyError::NotAvailable(msg) => {
+                VmError::Platform(PlatformError::HardwareUnavailable(msg))
+            }
+            AccelLegacyError::NotInitialized(msg) => {
+                VmError::Platform(PlatformError::InitializationFailed(msg))
+            }
+            AccelLegacyError::InitFailed(msg) => {
+                VmError::Platform(PlatformError::InitializationFailed(msg))
+            }
+            AccelLegacyError::CreateVmFailed(msg) => {
+                VmError::Platform(PlatformError::ResourceAllocationFailed(msg))
+            }
+            AccelLegacyError::CreateVcpuFailed(msg) => {
+                VmError::Platform(PlatformError::ResourceAllocationFailed(msg))
+            }
+            AccelLegacyError::MapMemoryFailed(msg) => {
+                VmError::Platform(PlatformError::MemoryMappingFailed(msg))
+            }
+            AccelLegacyError::UnmapMemoryFailed(msg) => {
+                VmError::Platform(PlatformError::MemoryMappingFailed(msg))
+            }
+            AccelLegacyError::RunFailed(msg) => {
+                VmError::Platform(PlatformError::ExecutionFailed(msg))
+            }
+            AccelLegacyError::GetRegsFailed(msg) => {
+                VmError::Platform(PlatformError::AccessDenied(msg))
+            }
+            AccelLegacyError::SetRegsFailed(msg) => {
+                VmError::Platform(PlatformError::AccessDenied(msg))
+            }
+            AccelLegacyError::InvalidVcpuId(id) => VmError::Platform(
+                PlatformError::InvalidParameter(format!("Invalid vCPU ID: {}", id)),
+            ),
+            AccelLegacyError::InvalidAddress(msg) => VmError::Platform(
+                PlatformError::InvalidParameter(format!("Invalid address: {}", msg)),
+            ),
+            AccelLegacyError::NotSupported(msg) => {
+                VmError::Platform(PlatformError::UnsupportedOperation(msg))
+            }
+        }
+    }
+}
+
+/// 传统的加速器错误类型（保留用于向后兼容）
 #[derive(Debug, thiserror::Error)]
-pub enum AccelError {
+pub enum AccelLegacyError {
     /// 加速器不可用（硬件不支持或驱动未加载）
     #[error("Accelerator not available: {0}")]
     NotAvailable(String),
@@ -318,25 +350,25 @@ pub enum AccelError {
 pub trait Accel {
     /// 初始化加速器
     fn init(&mut self) -> Result<(), AccelError>;
-    
+
     /// 创建 vCPU
     fn create_vcpu(&mut self, id: u32) -> Result<(), AccelError>;
-    
+
     /// 映射内存
     fn map_memory(&mut self, gpa: u64, hva: u64, size: u64, flags: u32) -> Result<(), AccelError>;
-    
+
     /// 取消映射内存
     fn unmap_memory(&mut self, gpa: u64, size: u64) -> Result<(), AccelError>;
-    
+
     /// 运行 vCPU
     fn run_vcpu(&mut self, vcpu_id: u32, mmu: &mut dyn MMU) -> Result<(), AccelError>;
-    
+
     /// 获取寄存器
     fn get_regs(&self, vcpu_id: u32) -> Result<GuestRegs, AccelError>;
-    
+
     /// 设置寄存器
     fn set_regs(&mut self, vcpu_id: u32, regs: &GuestRegs) -> Result<(), AccelError>;
-    
+
     /// 获取加速器名称
     fn name(&self) -> &str;
 }
@@ -373,7 +405,7 @@ pub struct MemFlags {
 #[derive(Debug)]
 pub enum VmExitReason {
     /// 未知原因
-    Unknown
+    Unknown,
 }
 
 /// 加速器类型枚举
@@ -433,67 +465,100 @@ impl AccelKind {
     }
 }
 
-pub mod event;
 pub mod accel_fallback;
+pub mod event;
 
 pub use accel_fallback::{AccelFallbackManager, ExecResult};
+pub use numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer};
 
 pub struct NoAccel;
 impl Accel for NoAccel {
     fn init(&mut self) -> Result<(), AccelError> {
-        Err(AccelError::NotAvailable("No accelerator available".to_string()))
+        Err(VmError::Platform(PlatformError::HardwareUnavailable(
+            "No accelerator available".to_string(),
+        )))
     }
     fn create_vcpu(&mut self, _id: u32) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported("No accelerator".to_string()))
+        Err(VmError::Platform(PlatformError::UnsupportedOperation(
+            "No accelerator".to_string(),
+        )))
     }
-    fn map_memory(&mut self, _gpa: u64, _hva: u64, _size: u64, _flags: u32) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported("No accelerator".to_string()))
+    fn map_memory(
+        &mut self,
+        _gpa: u64,
+        _hva: u64,
+        _size: u64,
+        _flags: u32,
+    ) -> Result<(), AccelError> {
+        Err(VmError::Platform(PlatformError::UnsupportedOperation(
+            "No accelerator".to_string(),
+        )))
     }
     fn unmap_memory(&mut self, _gpa: u64, _size: u64) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported("No accelerator".to_string()))
+        Err(VmError::Platform(PlatformError::UnsupportedOperation(
+            "No accelerator".to_string(),
+        )))
     }
     fn run_vcpu(&mut self, _vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported("No accelerator".to_string()))
+        Err(VmError::Platform(PlatformError::UnsupportedOperation(
+            "No accelerator".to_string(),
+        )))
     }
     fn get_regs(&self, _vcpu_id: u32) -> Result<GuestRegs, AccelError> {
-        Err(AccelError::NotSupported("No accelerator".to_string()))
+        Err(VmError::Platform(PlatformError::UnsupportedOperation(
+            "No accelerator".to_string(),
+        )))
     }
     fn set_regs(&mut self, _vcpu_id: u32, _regs: &GuestRegs) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported("No accelerator".to_string()))
+        Err(VmError::Platform(PlatformError::UnsupportedOperation(
+            "No accelerator".to_string(),
+        )))
     }
-    fn name(&self) -> &str { "None" }
+    fn name(&self) -> &str {
+        "None"
+    }
 }
 
 // 新的实现模块
-#[cfg(target_os = "linux")]
-mod kvm_impl;
 #[cfg(target_os = "macos")]
 mod hvf_impl;
+#[cfg(target_os = "linux")]
+mod kvm_impl;
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+mod vz_impl;
 #[cfg(target_os = "windows")]
 mod whpx_impl;
 #[cfg(target_os = "windows")]
 mod whpx_io;
-#[cfg(any(target_os = "ios", target_os = "tvos"))]
-mod vz_impl;
 
 // 旧模块保留以保持兼容
-#[cfg(target_os = "linux")]
-mod kvm;
 #[cfg(target_os = "macos")]
 mod hvf;
+#[cfg(target_os = "linux")]
+mod kvm;
 #[cfg(target_os = "windows")]
 mod whpx;
 
-/// CPU 详细信息模块
-pub mod cpuinfo;
-/// Intel CPU 特定功能
-pub mod intel;
 /// AMD CPU 特定功能
 pub mod amd;
 /// Apple Silicon 特定功能
 pub mod apple;
+/// CPU 详细信息模块
+pub mod cpuinfo;
+/// Intel CPU 特定功能
+pub mod intel;
 /// 移动平台支持
 pub mod mobile;
+/// 高级 NUMA 感知优化器
+pub mod numa_optimizer;
+/// 实时优化 - 微秒级延迟处理
+pub mod realtime;
+/// 实时性能监控
+pub mod realtime_monitor;
+/// vCPU 亲和性和 NUMA 支持
+pub mod vcpu_affinity;
+/// 厂商扩展检测
+pub mod vendor_extensions;
 
 /// 自动选择最佳的硬件加速器
 ///
@@ -544,35 +609,43 @@ pub fn select() -> (AccelKind, Box<dyn Accel>) {
     #[cfg(target_os = "linux")]
     {
         let mut a = kvm_impl::AccelKvm::new();
-        if a.init().is_ok() { return (AccelKind::Kvm, Box::new(a)); }
+        if a.init().is_ok() {
+            return (AccelKind::Kvm, Box::new(a));
+        }
     }
     #[cfg(target_os = "macos")]
     {
         let mut a = hvf_impl::AccelHvf::new();
-        if a.init().is_ok() { return (AccelKind::Hvf, Box::new(a)); }
+        if a.init().is_ok() {
+            return (AccelKind::Hvf, Box::new(a));
+        }
     }
     #[cfg(target_os = "windows")]
     {
         let mut a = whpx_impl::AccelWhpx::new();
-        if a.init().is_ok() { return (AccelKind::Whpx, Box::new(a)); }
+        if a.init().is_ok() {
+            return (AccelKind::Whpx, Box::new(a));
+        }
     }
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
     {
         let mut a = vz_impl::AccelVz::new();
-        if a.init().is_ok() { return (AccelKind::Hvf, Box::new(a)); } // 使用 Hvf 作为类型
+        if a.init().is_ok() {
+            return (AccelKind::Hvf, Box::new(a));
+        } // 使用 Hvf 作为类型
     }
     (AccelKind::None, Box::new(NoAccel))
 }
 
 // 导出各平台的实现
-#[cfg(target_os = "linux")]
-pub use kvm_impl::AccelKvm;
 #[cfg(target_os = "macos")]
 pub use hvf_impl::AccelHvf;
-#[cfg(target_os = "windows")]
-pub use whpx_impl::AccelWhpx;
+#[cfg(target_os = "linux")]
+pub use kvm_impl::AccelKvm;
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 pub use vz_impl::AccelVz;
+#[cfg(target_os = "windows")]
+pub use whpx_impl::AccelWhpx;
 
 // ============================================================================
 // SIMD 辅助函数
@@ -621,7 +694,9 @@ pub fn add_i32x8(a: [i32; 8], b: [i32; 8]) -> [i32; 8] {
         }
     } else {
         let mut out = [0i32; 8];
-        for i in 0..8 { out[i] = a[i] + b[i]; }
+        for i in 0..8 {
+            out[i] = a[i] + b[i];
+        }
         out
     }
 }

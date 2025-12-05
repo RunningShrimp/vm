@@ -9,10 +9,11 @@ num_cpus = "1.17"
 log = "0.4"
 thiserror = "2.0"
 vm-core = { path = "../vm-core" }
+parking_lot = "0.12"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-kvm-ioctls = { version = "0.19", optional = true }
-kvm-bindings = { version = "0.10", optional = true }
+kvm-ioctls = { version = "0.24", optional = true }
+kvm-bindings = { version = "0.14", optional = true }
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]

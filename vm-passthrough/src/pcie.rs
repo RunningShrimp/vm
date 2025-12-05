@@ -2,7 +2,7 @@
 //!
 //! 支持 VFIO (Virtual Function I/O) 和 IOMMU
 
-use super::{PciAddress, PciDeviceInfo, PassthroughError};
+use super::{PassthroughError, PciAddress, PciDeviceInfo};
 use std::path::PathBuf;
 
 /// IOMMU 组
@@ -24,7 +24,7 @@ impl VfioDevice {
     /// 创建新的 VFIO 设备
     pub fn new(address: PciAddress, info: PciDeviceInfo) -> Result<Self, PassthroughError> {
         let iommu_group = Self::get_iommu_group(address)?;
-        
+
         Ok(Self {
             address,
             info,
@@ -46,11 +46,13 @@ impl VfioDevice {
         }
 
         let target = fs::read_link(iommu_link)?;
-        let group_name = target.file_name()
+        let group_name = target
+            .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| PassthroughError::InvalidAddress("Invalid IOMMU group".to_string()))?;
 
-        group_name.parse::<u32>()
+        group_name
+            .parse::<u32>()
             .map_err(|_| PassthroughError::InvalidAddress("Invalid IOMMU group ID".to_string()))
     }
 
@@ -88,7 +90,9 @@ impl VfioDevice {
 
         let bind_path = "/sys/bus/pci/drivers/vfio-pci/bind";
         if Path::new(bind_path).exists() {
-            let mut file = fs::OpenOptions::new().write(true).open(bind_path)
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .open(bind_path)
                 .map_err(|e| PassthroughError::DriverBindingFailed(e.to_string()))?;
             file.write_all(addr_str.as_bytes())
                 .map_err(|e| PassthroughError::DriverBindingFailed(e.to_string()))?;
@@ -100,14 +104,16 @@ impl VfioDevice {
 
     #[cfg(not(target_os = "linux"))]
     pub fn bind_vfio_driver(&self) -> Result<(), PassthroughError> {
-        Err(PassthroughError::DriverBindingFailed("VFIO only supported on Linux".to_string()))
+        Err(PassthroughError::DriverBindingFailed(
+            "VFIO only supported on Linux".to_string(),
+        ))
     }
 
     /// 打开 VFIO 设备
     #[cfg(target_os = "linux")]
     pub fn open_vfio(&mut self) -> Result<(), PassthroughError> {
-        use std::os::unix::io::AsRawFd;
         use std::fs::OpenOptions;
+        use std::os::unix::io::AsRawFd;
 
         let group_path = format!("/dev/vfio/{}", self.iommu_group);
         let group_file = OpenOptions::new()
@@ -123,7 +129,9 @@ impl VfioDevice {
 
     #[cfg(not(target_os = "linux"))]
     pub fn open_vfio(&mut self) -> Result<(), PassthroughError> {
-        Err(PassthroughError::DriverBindingFailed("VFIO only supported on Linux".to_string()))
+        Err(PassthroughError::DriverBindingFailed(
+            "VFIO only supported on Linux".to_string(),
+        ))
     }
 
     /// 检查 IOMMU 是否启用
@@ -146,9 +154,7 @@ pub struct IommuManager {
 impl IommuManager {
     /// 创建新的 IOMMU 管理器
     pub fn new() -> Self {
-        Self {
-            groups: Vec::new(),
-        }
+        Self { groups: Vec::new() }
     }
 
     /// 扫描 IOMMU 组
@@ -163,7 +169,8 @@ impl IommuManager {
 
         for entry in fs::read_dir(iommu_path)? {
             let entry = entry?;
-            let group_id = entry.file_name()
+            let group_id = entry
+                .file_name()
                 .to_string_lossy()
                 .parse::<u32>()
                 .unwrap_or(0);
@@ -226,8 +233,14 @@ pub struct PciConfigSpace {
 
 impl PciConfigSpace {
     pub fn new(address: PciAddress) -> Self {
-        let config_path = PathBuf::from(format!("/sys/bus/pci/devices/{}/config", address.to_string()));
-        Self { _address: address, config_path }
+        let config_path = PathBuf::from(format!(
+            "/sys/bus/pci/devices/{}/config",
+            address.to_string()
+        ));
+        Self {
+            _address: address,
+            config_path,
+        }
     }
 
     /// 读取配置空间
@@ -238,41 +251,41 @@ impl PciConfigSpace {
 
         let mut file = fs::File::open(&self.config_path)?;
         let mut buffer = vec![0u8; size];
-        
+
         file.seek(std::io::SeekFrom::Start(offset as u64))?;
         file.read_exact(&mut buffer)?;
-        
+
         Ok(buffer)
     }
 
     #[cfg(not(target_os = "linux"))]
     pub fn read(&self, _offset: usize, _size: usize) -> Result<Vec<u8>, PassthroughError> {
-        Err(PassthroughError::IoError(
-            std::io::Error::new(std::io::ErrorKind::Unsupported, "Not supported on this platform")
-        ))
+        Err(PassthroughError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Not supported on this platform",
+        )))
     }
 
     /// 写入配置空间
     #[cfg(target_os = "linux")]
     pub fn write(&self, offset: usize, data: &[u8]) -> Result<(), PassthroughError> {
         use std::fs;
-        use std::io::{Write, Seek};
+        use std::io::{Seek, Write};
 
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .open(&self.config_path)?;
-        
+        let mut file = fs::OpenOptions::new().write(true).open(&self.config_path)?;
+
         file.seek(std::io::SeekFrom::Start(offset as u64))?;
         file.write_all(data)?;
-        
+
         Ok(())
     }
 
     #[cfg(not(target_os = "linux"))]
     pub fn write(&self, _offset: usize, _data: &[u8]) -> Result<(), PassthroughError> {
-        Err(PassthroughError::IoError(
-            std::io::Error::new(std::io::ErrorKind::Unsupported, "Not supported on this platform")
-        ))
+        Err(PassthroughError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Not supported on this platform",
+        )))
     }
 
     /// 读取 16 位值

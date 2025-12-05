@@ -2,11 +2,11 @@
 //!
 //! 实现 RISC-V PLIC，管理外部中断的优先级和路由
 
-use vm_core::MmioDevice;
-use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
+use vm_core::MmioDevice;
 
 /// PLIC 寄存器偏移
 pub mod offsets {
@@ -50,10 +50,6 @@ pub struct Plic {
     tick_interval_ms: u64,
     virtio_queue_source_base: usize,
     source_map: HashMap<String, (usize, usize)>,
-    last_tick: Instant,
-    tick_interval_ms: u64,
-    virtio_queue_source_base: usize,
-    source_map: HashMap<String, (usize, usize)>,
 }
 
 impl Plic {
@@ -67,10 +63,6 @@ impl Plic {
             enables: vec![vec![false; num_sources + 1]; num_contexts],
             thresholds: vec![0; num_contexts],
             claimed: vec![None; num_contexts],
-            last_tick: Instant::now(),
-            tick_interval_ms: 100,
-            virtio_queue_source_base: 16,
-            source_map: HashMap::new(),
             last_tick: Instant::now(),
             tick_interval_ms: 100,
             virtio_queue_source_base: 16,
@@ -195,7 +187,7 @@ impl Plic {
             o if o >= offsets::ENABLE_BASE && o < offsets::CONTEXT_BASE => {
                 let context = ((o - offsets::ENABLE_BASE) / 0x80) as usize;
                 let word_idx = (((o - offsets::ENABLE_BASE) % 0x80) / 4) as usize;
-                
+
                 if context < self.num_contexts {
                     let mut val = 0u32;
                     for i in 0..32 {
@@ -213,7 +205,7 @@ impl Plic {
             o if o >= offsets::CONTEXT_BASE => {
                 let context = ((o - offsets::CONTEXT_BASE) / 0x1000) as usize;
                 let reg_offset = (o - offsets::CONTEXT_BASE) % 0x1000;
-                
+
                 if context < self.num_contexts {
                     match reg_offset {
                         context_offsets::THRESHOLD => self.thresholds[context] as u64,
@@ -250,7 +242,7 @@ impl Plic {
             o if o >= offsets::ENABLE_BASE && o < offsets::CONTEXT_BASE => {
                 let context = ((o - offsets::ENABLE_BASE) / 0x80) as usize;
                 let word_idx = (((o - offsets::ENABLE_BASE) % 0x80) / 4) as usize;
-                
+
                 if context < self.num_contexts {
                     let val = val as u32;
                     for i in 0..32 {
@@ -265,7 +257,7 @@ impl Plic {
             o if o >= offsets::CONTEXT_BASE => {
                 let context = ((o - offsets::CONTEXT_BASE) / 0x1000) as usize;
                 let reg_offset = (o - offsets::CONTEXT_BASE) % 0x1000;
-                
+
                 if context < self.num_contexts {
                     match reg_offset {
                         context_offsets::THRESHOLD => {
@@ -324,7 +316,7 @@ impl MmioDevice for PlicMmio {
         if offset >= offsets::CONTEXT_BASE {
             let context = ((offset - offsets::CONTEXT_BASE) / 0x1000) as usize;
             let reg_offset = (offset - offsets::CONTEXT_BASE) % 0x1000;
-            
+
             if reg_offset == context_offsets::CLAIM {
                 let mut plic = self.plic.lock();
                 return plic.claim_mut(context) as u64;
@@ -348,12 +340,16 @@ impl MmioDevice for PlicMmio {
             plic.last_tick = Instant::now();
         }
         if let Ok(status) = _mmu.read(0x1000_0000 + 0x030, 4) {
-            if status != 0 { plic.set_pending(1); }
+            if status != 0 {
+                plic.set_pending(1);
+            }
         }
         let cause = _mmu.read(0x1000_0000 + 0x048, 8).unwrap_or(0);
         let base = plic.virtio_queue_source_base;
         for i in 0..32 {
-            if ((cause >> i) & 1) != 0 { plic.set_pending(base + i as usize); }
+            if ((cause >> i) & 1) != 0 {
+                plic.set_pending(base + i as usize);
+            }
         }
     }
 }

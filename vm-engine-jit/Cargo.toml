@@ -2,13 +2,19 @@
 name = "vm-engine-jit"
 version = "0.1.0"
 edition = "2024"
-edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+required-features = ["jit"]
 
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-simd = { path = "../vm-simd" }
 vm-mem = { path = "../vm-mem" }
+vm-ir-lift = { path = "../vm-ir-lift" }
+vm-accel = { path = "../vm-accel" }
+vm-engine-interpreter = { path = "../vm-engine-interpreter" }
 cranelift = "0.126"
 tracing = "0.1"
 cranelift-codegen = "0.126"
@@ -17,16 +23,30 @@ cranelift-module = "0.126"
 cranelift-jit = "0.126"
 cranelift-native = "0.126"
 target-lexicon = "0.13"
-rayon = "1.10"
+rayon = "1.11"
 parking_lot = "0.12.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = { version = "2.0", features = ["serde"] }
+tokio = { version = "1.48", features = ["rt","rt-multi-thread","macros","sync"], optional = true }
+async-trait = { version = "0.1", optional = true }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 vm-engine-interpreter = { path = "../vm-engine-interpreter" }
-vm-mem = { path = "../vm-mem" }
-vm-ir = { path = "../vm-ir" }
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tempfile = "3.23"
+tokio-test = "0.4"
 
 [[bench]]
 name = "jit_compile"
 harness = false
+
+[[bench]]
+name = "gc_performance_benchmark"
+path = "../../benches/gc_performance_benchmark.rs"
+harness = false
+[features]
+jit = []
+async = ["vm-core/async", "async-trait"]
+default = []

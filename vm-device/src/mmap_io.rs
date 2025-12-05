@@ -6,6 +6,7 @@
 //! - 无复制数据访问
 //! - 性能优化
 
+use libc;
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
@@ -53,7 +54,7 @@ impl MmapDeviceIo {
     /// 创建新的 mmap 设备 I/O 管理器
     pub fn new() -> Self {
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
-        
+
         Self {
             regions: Arc::new(Mutex::new(Vec::new())),
             page_size,
@@ -61,7 +62,13 @@ impl MmapDeviceIo {
     }
 
     /// 映射文件到内存
-    pub fn mmap_file(&self, file: &File, offset: u64, size: usize, writable: bool) -> Result<MmapRegion, MmapError> {
+    pub fn mmap_file(
+        &self,
+        file: &File,
+        offset: u64,
+        size: usize,
+        writable: bool,
+    ) -> Result<MmapRegion, MmapError> {
         if size == 0 {
             return Err(MmapError::OutOfBounds);
         }
@@ -97,14 +104,22 @@ impl MmapDeviceIo {
             initialized: true,
         };
 
-        let mut regions = self.regions.lock().map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
+        let mut regions = self
+            .regions
+            .lock()
+            .map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
         regions.push(region.clone());
 
         Ok(region)
     }
 
     /// 从映射区域读取数据
-    pub fn read(&self, region: &MmapRegion, offset: usize, len: usize) -> Result<Vec<u8>, MmapError> {
+    pub fn read(
+        &self,
+        region: &MmapRegion,
+        offset: usize,
+        len: usize,
+    ) -> Result<Vec<u8>, MmapError> {
         if offset + len > region.size {
             return Err(MmapError::OutOfBounds);
         }
@@ -143,7 +158,12 @@ impl MmapDeviceIo {
     }
 
     /// 获取映射区域的直接切片（零复制访问）
-    pub fn get_slice<'a>(&self, region: &'a MmapRegion, offset: usize, len: usize) -> Result<&'a [u8], MmapError> {
+    pub fn get_slice<'a>(
+        &self,
+        region: &'a MmapRegion,
+        offset: usize,
+        len: usize,
+    ) -> Result<&'a [u8], MmapError> {
         if offset + len > region.size {
             return Err(MmapError::OutOfBounds);
         }
@@ -159,7 +179,12 @@ impl MmapDeviceIo {
     }
 
     /// 获取映射区域的可变直接切片（零复制写入）
-    pub fn get_slice_mut<'a>(&self, region: &'a MmapRegion, offset: usize, len: usize) -> Result<&'a mut [u8], MmapError> {
+    pub fn get_slice_mut<'a>(
+        &self,
+        region: &'a MmapRegion,
+        offset: usize,
+        len: usize,
+    ) -> Result<&'a mut [u8], MmapError> {
         if !region.writable {
             return Err(MmapError::PermissionDenied);
         }
@@ -226,12 +251,13 @@ impl MmapDeviceIo {
             return Err(MmapError::MmapFailed("Region not initialized".into()));
         }
 
-        let result = unsafe {
-            libc::munmap(region.base_addr as *mut libc::c_void, region.size)
-        };
+        let result = unsafe { libc::munmap(region.base_addr as *mut libc::c_void, region.size) };
 
         if result == 0 {
-            let mut regions = self.regions.lock().map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
+            let mut regions = self
+                .regions
+                .lock()
+                .map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
             regions.retain(|r| r.base_addr != region.base_addr);
             Ok(())
         } else {
@@ -275,22 +301,27 @@ impl MmapDeviceIo {
 
     /// 获取所有已映射区域
     pub fn get_regions(&self) -> Result<Vec<MmapRegion>, MmapError> {
-        let regions = self.regions.lock().map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
+        let regions = self
+            .regions
+            .lock()
+            .map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
         Ok(regions.clone())
     }
 
     /// 清除所有映射
     pub fn clear_all(&self) -> Result<(), MmapError> {
-        let mut regions = self.regions.lock().map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
-        
+        let mut regions = self
+            .regions
+            .lock()
+            .map_err(|_| MmapError::MmapFailed("Lock failed".into()))?;
+
         for region in regions.drain(..) {
             if region.initialized {
-                let _result = unsafe {
-                    libc::munmap(region.base_addr as *mut libc::c_void, region.size)
-                };
+                let _result =
+                    unsafe { libc::munmap(region.base_addr as *mut libc::c_void, region.size) };
             }
         }
-        
+
         Ok(())
     }
 }

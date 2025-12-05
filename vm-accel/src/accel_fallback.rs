@@ -5,8 +5,8 @@
 //! - 快速回退路径选择
 //! - 错误恢复策略
 
-use std::sync::Arc;
 use std::cell::RefCell;
+use std::sync::Arc;
 use vm_core::GuestAddr;
 
 /// 硬件加速回退错误类型（简化版本，用于回退管理）
@@ -36,7 +36,7 @@ pub struct ExecResult {
 }
 
 /// 预分配的执行资源
-/// 
+///
 /// 用于加速硬件加速失败后的软件回退，避免频繁的内存分配。
 #[derive(Clone)]
 struct PreallocatedResources {
@@ -205,11 +205,7 @@ impl AccelFallbackManager {
     }
 
     /// 处理内存错误
-    fn handle_memory_error(
-        &self,
-        _resources: &PreallocatedResources,
-        pc: GuestAddr,
-    ) -> ExecResult {
+    fn handle_memory_error(&self, _resources: &PreallocatedResources, pc: GuestAddr) -> ExecResult {
         // 简化实现：假设回退成功
         ExecResult {
             success: true,
@@ -253,11 +249,14 @@ mod tests {
     #[test]
     fn test_record_failure() {
         let manager = AccelFallbackManager::new();
-        
+
         manager.record_failure(FallbackError::UnsupportedInstruction);
         assert_eq!(manager.fallback_count(), 1);
-        assert_eq!(manager.last_error(), Some(FallbackError::UnsupportedInstruction));
-        
+        assert_eq!(
+            manager.last_error(),
+            Some(FallbackError::UnsupportedInstruction)
+        );
+
         manager.record_failure(FallbackError::MemoryError);
         assert_eq!(manager.fallback_count(), 2);
         assert_eq!(manager.last_error(), Some(FallbackError::MemoryError));
@@ -266,12 +265,12 @@ mod tests {
     #[test]
     fn test_should_fallback() {
         let manager = AccelFallbackManager::new();
-        
+
         // 应该回退的错误
         assert!(manager.should_fallback(FallbackError::UnsupportedInstruction));
         assert!(manager.should_fallback(FallbackError::MemoryError));
         assert!(manager.should_fallback(FallbackError::InterruptError));
-        
+
         // 不应该回退的错误
         assert!(!manager.should_fallback(FallbackError::IoError));
     }
@@ -279,7 +278,7 @@ mod tests {
     #[test]
     fn test_fallback_execute_unsupported() {
         let manager = AccelFallbackManager::new();
-        
+
         let result = manager.fallback_execute(FallbackError::UnsupportedInstruction, 0x1000);
         assert!(result.success);
         assert_eq!(result.pc, 0x1004);
@@ -289,7 +288,7 @@ mod tests {
     #[test]
     fn test_fallback_execute_io_error() {
         let manager = AccelFallbackManager::new();
-        
+
         let result = manager.fallback_execute(FallbackError::IoError, 0x1000);
         assert!(!result.success);
         assert_eq!(result.error, Some(FallbackError::IoError));
@@ -299,7 +298,7 @@ mod tests {
     #[test]
     fn test_prealloc_resources() {
         let resources = PreallocatedResources::new();
-        
+
         // 验证缓冲区大小
         assert_eq!(resources.reg_buffer.len(), 256);
         assert_eq!(resources.mem_buffer.len(), 1024 * 1024);

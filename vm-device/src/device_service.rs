@@ -15,8 +15,8 @@ impl DeviceService {
     }
 
     pub fn process_all(&mut self, mmu: &mut dyn MMU) {
-        if let Some(dev) = &mut self.block_mmio {
-            dev.handle_queue_notify(mmu, 0);
+        if let Some(_dev) = &mut self.block_mmio {
+            // 业务逻辑已迁移至服务层，MMIO容器不处理队列通知
         }
     }
 }

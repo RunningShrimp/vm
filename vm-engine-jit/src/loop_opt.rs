@@ -5,9 +5,9 @@
 //! - 循环不变量外提 (Loop-Invariant Code Motion, LICM)
 //! - 强度削弱 (Strength Reduction)
 
-use vm_ir::{IRBlock, IROp, Terminator, RegId};
+use std::collections::{HashMap, HashSet};
 use vm_core::GuestAddr;
-use std::collections::{HashSet, HashMap};
+use vm_ir::{IRBlock, IROp, RegId, Terminator};
 
 /// 循环分析结果
 #[derive(Debug, Clone)]
@@ -198,12 +198,7 @@ impl LoopOptimizer {
         let mut induction_vars = HashMap::new();
 
         for &idx in body_indices {
-            if let Some(IROp::Add {
-                dst,
-                src1,
-                src2: _,
-            }) = block.ops.get(idx)
-            {
+            if let Some(IROp::Add { dst, src1, src2: _ }) = block.ops.get(idx) {
                 // 检查是否为 reg = reg + const 的形式
                 if src1 == dst {
                     if let Some(IROp::MovImm { dst: _, imm: step }) = block.ops.get(idx - 1) {
@@ -250,7 +245,12 @@ impl LoopOptimizer {
     fn apply_strength_reduction(&self, ops: &mut Vec<IROp>, loop_info: &LoopInfo) {
         // 遍历归纳变量，用加法替换乘法
         for op in ops.iter_mut() {
-            if let IROp::Mul { dst: _, src1, src2: _ } = op {
+            if let IROp::Mul {
+                dst: _,
+                src1,
+                src2: _,
+            } = op
+            {
                 // 检查 src1 或 src2 是否为归纳变量
                 if let Some(_ind_var) = loop_info.induction_vars.get(src1) {
                     // 将 induction_var * const 替换为 const1 + const2 * induction_var
@@ -378,8 +378,7 @@ impl LoopOptimizer {
                 regs.insert(*src);
                 regs.insert(*shreg);
             }
-            IROp::Not { src, .. }
-            | IROp::Fsqrt { src, .. } => {
+            IROp::Not { src, .. } | IROp::Fsqrt { src, .. } => {
                 regs.insert(*src);
             }
             IROp::Load { base, .. } => {
@@ -403,10 +402,7 @@ mod tests {
     #[test]
     fn test_loop_detection() {
         let mut builder = IRBuilder::new(0x1000);
-        builder.push(IROp::MovImm {
-            dst: 0,
-            imm: 0,
-        });
+        builder.push(IROp::MovImm { dst: 0, imm: 0 });
         builder.push(IROp::Add {
             dst: 0,
             src1: 0,
@@ -440,9 +436,7 @@ mod tests {
             src1: 3,
             src2: 4,
         });
-        builder.set_term(Terminator::Jmp {
-            target: 0x1000,
-        });
+        builder.set_term(Terminator::Jmp { target: 0x1000 });
 
         let block = builder.build();
         let optimizer = LoopOptimizer::default();

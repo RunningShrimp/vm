@@ -1,0 +1,20 @@
+[package]
+name = "aot-builder"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vm-engine-jit = { path = "../vm-engine-jit" }
+vm-ir = { path = "../vm-ir" }
+vm-ir-lift = { path = "../vm-ir-lift" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+serde = { version = "1.0", features = ["derive"] }
+parking_lot = "0.12"
+bincode = { version = "2.0", features = ["serde"] }
+rayon = "1.8"
+flate2 = "1.0"
+
+[[bin]]
+name = "aot-builder"
+path = "src/main.rs"

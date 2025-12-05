@@ -4,7 +4,7 @@
 
 use cranelift::prelude::*;
 use cranelift_codegen::ir::AtomicRmwOp;
-use vm_ir::{IROp, AtomicOp};
+use vm_ir::{AtomicOp, IROp};
 
 /// 编译浮点运算指令
 pub fn compile_float_op(
@@ -133,7 +133,9 @@ pub fn compile_branch_op(
         IROp::Bgeu { src1, src2, target } => {
             let v1 = load_reg(builder, regs_ptr, *src1);
             let v2 = load_reg(builder, regs_ptr, *src2);
-            let cond = builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, v1, v2);
+            let cond = builder
+                .ins()
+                .icmp(IntCC::UnsignedGreaterThanOrEqual, v1, v2);
             let target_val = builder.ins().iconst(types::I64, *target as i64);
             Some((cond, target_val))
         }
@@ -150,59 +152,123 @@ pub fn compile_atomic_op(
     store_reg: impl Fn(&mut FunctionBuilder, Value, u32, Value),
 ) -> bool {
     match op {
-        IROp::AtomicRMW { dst, base, src, op: atomic_op, size } => {
+        IROp::AtomicRMW {
+            dst,
+            base,
+            src,
+            op: atomic_op,
+            size,
+        } => {
             let _size = size;
             let addr_val = load_reg(builder, regs_ptr, *base);
             let val_val = load_reg(builder, regs_ptr, *src);
-            
+
             // Cranelift 的原子操作支持
             let mem_flags = MemFlags::trusted();
             let result = match atomic_op {
-                AtomicOp::Add => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Add, addr_val, val_val)
-                }
-                AtomicOp::Sub => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Sub, addr_val, val_val)
-                }
-                AtomicOp::And => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::And, addr_val, val_val)
-                }
-                AtomicOp::Or => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Or, addr_val, val_val)
-                }
-                AtomicOp::Xor => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Xor, addr_val, val_val)
-                }
-                AtomicOp::Swap => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Xchg, addr_val, val_val)
-                }
-                AtomicOp::Max => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Smax, addr_val, val_val)
-                }
-                AtomicOp::Min => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Smin, addr_val, val_val)
-                }
-                AtomicOp::Maxu => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Umax, addr_val, val_val)
-                }
-                AtomicOp::Minu => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Umin, addr_val, val_val)
-                }
-                AtomicOp::Xchg => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Xchg, addr_val, val_val)
-                }
+                AtomicOp::Add => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Add,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Sub => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Sub,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::And => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::And,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Or => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Or,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Xor => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Xor,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Swap => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Xchg,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Max => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Smax,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Min => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Smin,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Maxu => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Umax,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Minu => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Umin,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::Xchg => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Xchg,
+                    addr_val,
+                    val_val,
+                ),
                 AtomicOp::CmpXchg => {
                     // CmpXchg 需要两个值，这里简化处理
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Xchg, addr_val, val_val)
+                    builder.ins().atomic_rmw(
+                        types::I64,
+                        mem_flags,
+                        AtomicRmwOp::Xchg,
+                        addr_val,
+                        val_val,
+                    )
                 }
-                AtomicOp::MinS => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Smin, addr_val, val_val)
-                }
-                AtomicOp::MaxS => {
-                    builder.ins().atomic_rmw(types::I64, mem_flags, AtomicRmwOp::Smax, addr_val, val_val)
-                }
+                AtomicOp::MinS => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Smin,
+                    addr_val,
+                    val_val,
+                ),
+                AtomicOp::MaxS => builder.ins().atomic_rmw(
+                    types::I64,
+                    mem_flags,
+                    AtomicRmwOp::Smax,
+                    addr_val,
+                    val_val,
+                ),
             };
-            
+
             store_reg(builder, regs_ptr, *dst, result);
             true
         }
@@ -237,10 +303,15 @@ pub fn compile_simd_op(
     store_reg: impl Fn(&mut FunctionBuilder, Value, u32, Value),
 ) -> bool {
     match op {
-        IROp::VecAdd { dst, src1, src2, element_size } => {
+        IROp::VecAdd {
+            dst,
+            src1,
+            src2,
+            element_size,
+        } => {
             let v1 = load_reg(builder, regs_ptr, *src1);
             let v2 = load_reg(builder, regs_ptr, *src2);
-            
+
             // 使用 Cranelift 的 SIMD 支持
             let vec_type = match element_size {
                 1 => types::I8X16,
@@ -249,7 +320,7 @@ pub fn compile_simd_op(
                 8 => types::I64X2,
                 _ => return false,
             };
-            
+
             let vv1 = builder.ins().bitcast(vec_type, MemFlags::trusted(), v1);
             let vv2 = builder.ins().bitcast(vec_type, MemFlags::trusted(), v2);
             let res = builder.ins().iadd(vv1, vv2);
@@ -257,10 +328,15 @@ pub fn compile_simd_op(
             store_reg(builder, regs_ptr, *dst, ires);
             true
         }
-        IROp::VecSub { dst, src1, src2, element_size } => {
+        IROp::VecSub {
+            dst,
+            src1,
+            src2,
+            element_size,
+        } => {
             let v1 = load_reg(builder, regs_ptr, *src1);
             let v2 = load_reg(builder, regs_ptr, *src2);
-            
+
             let vec_type = match element_size {
                 1 => types::I8X16,
                 2 => types::I16X8,
@@ -268,7 +344,7 @@ pub fn compile_simd_op(
                 8 => types::I64X2,
                 _ => return false,
             };
-            
+
             let vv1 = builder.ins().bitcast(vec_type, MemFlags::trusted(), v1);
             let vv2 = builder.ins().bitcast(vec_type, MemFlags::trusted(), v2);
             let res = builder.ins().isub(vv1, vv2);
@@ -276,10 +352,15 @@ pub fn compile_simd_op(
             store_reg(builder, regs_ptr, *dst, ires);
             true
         }
-        IROp::VecMul { dst, src1, src2, element_size } => {
+        IROp::VecMul {
+            dst,
+            src1,
+            src2,
+            element_size,
+        } => {
             let v1 = load_reg(builder, regs_ptr, *src1);
             let v2 = load_reg(builder, regs_ptr, *src2);
-            
+
             let vec_type = match element_size {
                 1 => types::I8X16,
                 2 => types::I16X8,
@@ -287,7 +368,7 @@ pub fn compile_simd_op(
                 8 => types::I64X2,
                 _ => return false,
             };
-            
+
             let vv1 = builder.ins().bitcast(vec_type, MemFlags::trusted(), v1);
             let vv2 = builder.ins().bitcast(vec_type, MemFlags::trusted(), v2);
             let res = builder.ins().imul(vv1, vv2);

@@ -6,5 +6,7 @@ pub enum AccelEvent {
 }
 
 pub trait AccelEventSource {
-    fn poll_event(&mut self) -> Option<AccelEvent> { None }
+    fn poll_event(&mut self) -> Option<AccelEvent> {
+        None
+    }
 }

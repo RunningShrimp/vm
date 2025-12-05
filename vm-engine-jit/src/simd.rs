@@ -1,4 +1,4 @@
-use vm_simd::{vec_add, vec_sub, vec_mul};
+use vm_simd::{vec_add, vec_mul, vec_sub};
 
 pub extern "C" fn jit_vec_add(a: u64, b: u64, element_size: u64) -> u64 {
     vec_add(a, b, element_size as u8)

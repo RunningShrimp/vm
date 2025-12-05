@@ -1,0 +1,182 @@
+#!/bin/bash
+
+# FVP虚拟机系统预提交钩子
+# 在每次提交前运行基本检查
+
+set -e
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[✓]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[⚠]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[✗]${NC} $1"
+}
+
+print_header() {
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${BLUE}$1${NC}"
+    echo -e "${BLUE}=====================================${NC}"
+}
+
+# 获取要提交的文件
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+# 如果没有暂存的文件，退出
+if [ -z "$STAGED_FILES" ]; then
+    print_info "没有暂存的文件，跳过预提交检查"
+    exit 0
+fi
+
+print_header "FVP虚拟机系统预提交检查"
+print_info "检查暂存的文件:"
+
+# 显示要检查的文件
+echo "$STAGED_FILES" | sed 's/^/  - /'
+
+# 检查是否有Rust文件
+RUST_FILES=$(echo "$STAGED_FILES" | grep -E '\.(rs|toml)$' || true)
+
+if [ -z "$RUST_FILES" ]; then
+    print_info "没有Rust文件变更，跳过Rust相关检查"
+    exit 0
+fi
+
+print_info "发现Rust文件变更，开始检查..."
+
+# 1. 代码格式检查
+print_info "检查代码格式..."
+if ! cargo fmt --all -- --check; then
+    print_error "代码格式检查失败！"
+    print_error "请运行 'cargo fmt' 修复格式问题"
+    exit 1
+fi
+print_success "代码格式检查通过"
+
+# 2. Clippy检查
+print_info "运行Clippy检查..."
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    print_error "Clippy检查失败！"
+    print_error "请修复Clippy警告后再次提交"
+    exit 1
+fi
+print_success "Clippy检查通过"
+
+# 3. 编译检查
+print_info "检查编译..."
+if ! cargo check --all-features; then
+    print_error "编译检查失败！"
+    exit 1
+fi
+print_success "编译检查通过"
+
+# 4. 单元测试（仅运行快速测试）
+print_info "运行快速单元测试..."
+if ! cargo test --lib --quiet; then
+    print_error "单元测试失败！"
+    exit 1
+fi
+print_success "单元测试通过"
+
+# 5. 文档测试检查
+print_info "检查文档..."
+if ! cargo test --doc --quiet; then
+    print_error "文档测试失败！"
+    exit 1
+fi
+print_success "文档测试通过"
+
+# 6. 检查大文件
+print_info "检查大文件..."
+MAX_FILE_SIZE=$((10 * 1024 * 1024)) # 10MB
+LARGE_FILES=""
+
+for file in $STAGED_FILES; do
+    if [ -f "$file" ]; then
+        FILE_SIZE=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0)
+        if [ "$FILE_SIZE" -gt "$MAX_FILE_SIZE" ]; then
+            LARGE_FILES="$LARGE_FILES $file ($(($FILE_SIZE / 1024 / 1024))MB"
+        fi
+    fi
+done
+
+if [ -n "$LARGE_FILES" ]; then
+    print_warning "发现大文件（可能影响性能）："
+    echo "$LARGE_FILES" | sed 's/^/  - /'
+    print_warning "请考虑使用Git LFS或减少文件大小"
+fi
+
+# 7. 检查敏感信息
+print_info "检查敏感信息..."
+SENSITIVE_PATTERNS=(
+    "password"
+    "secret"
+    "token"
+    "api[_-]key"
+    "private[_-]key"
+    "auth[_-]token"
+)
+
+SENSITIVE_FILES=""
+
+for file in $STAGED_FILES; do
+    if [ -f "$file" ] && [[ "$file" =~ \.(rs|toml|yaml|yml|json|env|md|sh)$ ]]; then
+        for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+            if git diff --cached "$file" | grep -i "$pattern" > /dev/null; then
+                SENSITIVE_FILES="$SENSITIVE_FILES $file"
+                break
+            fi
+        done
+    fi
+done
+
+if [ -n "$SENSITIVE_FILES" ]; then
+    print_warning "可能包含敏感信息的文件："
+    echo "$SENSITIVE_FILES" | sed 's/^/  - /'
+    print_warning "请确保这些文件不包含真实的敏感信息"
+fi
+
+# 8. 检查TODO/FIXME注释
+print_info "检查TODO/FIXME注释..."
+TODO_FILES=""
+FIXME_FILES=""
+
+for file in $STAGED_FILES; do
+    if [ -f "$file" ] && [[ "$file" =~ \.(rs|toml|yaml|yml|json|sh)$ ]]; then
+        if git diff --cached "$file" | grep -i "TODO" > /dev/null; then
+            TODO_FILES="$TODO_FILES $file"
+        fi
+        if git diff --cached "$file" | grep -i "FIXME" > /dev/null; then
+            FIXME_FILES="$FIXME_FILES $file"
+        fi
+    fi
+done
+
+if [ -n "$TODO_FILES" ]; then
+    print_warning "包含TODO注释的文件："
+    echo "$TODO_FILES" | sed 's/^/  - /'
+fi
+
+if [ -n "$FIXME_FILES" ]; then
+    print_warning "包含FIXME注释的文件："
+    echo "$FIXME_FILES" | sed 's/^/  - /'
+    print_warning "请确保在提交前处理这些FIXME"
+fi
+
+print_header "预提交检查完成"
+print_success "所有检查通过，可以提交！ 🎉"

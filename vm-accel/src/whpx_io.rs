@@ -16,7 +16,7 @@ pub enum IoAccessType {
 pub struct IoAccess {
     pub port: u16,
     pub access_type: IoAccessType,
-    pub size: u8,  // 1, 2, 4
+    pub size: u8, // 1, 2, 4
     pub data: u32,
 }
 
@@ -32,7 +32,7 @@ pub enum MmioAccessType {
 pub struct MmioAccess {
     pub addr: GuestAddr,
     pub access_type: MmioAccessType,
-    pub size: u8,  // 1, 2, 4, 8
+    pub size: u8, // 1, 2, 4, 8
     pub data: u64,
 }
 
@@ -54,7 +54,8 @@ impl IoHandler {
     where
         F: Fn(&IoAccess) -> Option<u32> + 'static,
     {
-        self.io_handlers.push((port_start, port_end, Box::new(handler)));
+        self.io_handlers
+            .push((port_start, port_end, Box::new(handler)));
     }
 
     /// 处理 I/O 端口访问
@@ -71,7 +72,11 @@ impl IoHandler {
 /// MMIO 处理器
 pub struct MmioHandler {
     // MMIO 地址范围映射
-    mmio_handlers: Vec<(GuestAddr, GuestAddr, Box<dyn Fn(&MmioAccess) -> Option<u64>>)>,
+    mmio_handlers: Vec<(
+        GuestAddr,
+        GuestAddr,
+        Box<dyn Fn(&MmioAccess) -> Option<u64>>,
+    )>,
 }
 
 impl MmioHandler {
@@ -82,11 +87,16 @@ impl MmioHandler {
     }
 
     /// 注册 MMIO 处理器
-    pub fn register_mmio_handler<F>(&mut self, addr_start: GuestAddr, addr_end: GuestAddr, handler: F)
-    where
+    pub fn register_mmio_handler<F>(
+        &mut self,
+        addr_start: GuestAddr,
+        addr_end: GuestAddr,
+        handler: F,
+    ) where
         F: Fn(&MmioAccess) -> Option<u64> + 'static,
     {
-        self.mmio_handlers.push((addr_start, addr_end, Box::new(handler)));
+        self.mmio_handlers
+            .push((addr_start, addr_end, Box::new(handler)));
     }
 
     /// 处理 MMIO 访问
@@ -133,7 +143,7 @@ impl WhpxExitHandler {
             WHvRunVpExitReasonX64IoPortAccess => {
                 // 处理 I/O 端口访问
                 let io_info = unsafe { &exit_context.Anonymous.IoPortAccess };
-                
+
                 let access = IoAccess {
                     port: io_info.PortNumber,
                     access_type: if io_info.AccessInfo.IsWrite() != 0 {
@@ -147,7 +157,10 @@ impl WhpxExitHandler {
 
                 if let Some(result) = self.io_handler.handle_io(&access) {
                     // 将结果写回到寄存器（简化示例）
-                    println!("I/O port access handled: port={:#x}, result={:#x}", access.port, result);
+                    println!(
+                        "I/O port access handled: port={:#x}, result={:#x}",
+                        access.port, result
+                    );
                     Ok(())
                 } else {
                     Err(format!("Unhandled I/O port access: {:#x}", access.port))
@@ -156,10 +169,11 @@ impl WhpxExitHandler {
             WHvRunVpExitReasonMemoryAccess => {
                 // 处理 MMIO 访问
                 let mem_info = unsafe { &exit_context.Anonymous.MemoryAccess };
-                
+
                 let access = MmioAccess {
                     addr: mem_info.Gpa,
-                    access_type: if mem_info.AccessInfo.AccessType() == WHV_MEMORY_ACCESS_TYPE_WRITE {
+                    access_type: if mem_info.AccessInfo.AccessType() == WHV_MEMORY_ACCESS_TYPE_WRITE
+                    {
                         MmioAccessType::Write
                     } else {
                         MmioAccessType::Read
@@ -170,15 +184,19 @@ impl WhpxExitHandler {
 
                 if let Some(result) = self.mmio_handler.handle_mmio(&access) {
                     // 将结果写回到寄存器（简化示例）
-                    println!("MMIO access handled: addr={:#x}, result={:#x}", access.addr, result);
+                    println!(
+                        "MMIO access handled: addr={:#x}, result={:#x}",
+                        access.addr, result
+                    );
                     Ok(())
                 } else {
                     Err(format!("Unhandled MMIO access: {:#x}", access.addr))
                 }
             }
-            _ => {
-                Err(format!("Unhandled exit reason: {}", exit_context.ExitReason))
-            }
+            _ => Err(format!(
+                "Unhandled exit reason: {}",
+                exit_context.ExitReason
+            )),
         }
     }
 
@@ -198,7 +216,7 @@ mod tests {
     #[test]
     fn test_io_handler() {
         let mut handler = IoHandler::new();
-        
+
         // 注册一个简单的 I/O 处理器
         handler.register_io_handler(0x3F8, 0x3FF, |access| {
             // 模拟串口
@@ -222,7 +240,7 @@ mod tests {
     #[test]
     fn test_mmio_handler() {
         let mut handler = MmioHandler::new();
-        
+
         // 注册一个简单的 MMIO 处理器
         handler.register_mmio_handler(0x10000000, 0x10000FFF, |access| {
             // 模拟设备寄存器

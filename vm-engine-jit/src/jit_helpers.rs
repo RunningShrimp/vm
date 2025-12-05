@@ -1,5 +1,5 @@
 //! vm-engine-jit 通用操作助手 (Register/SIMD helper functions)
-//! 
+//!
 //! 消除 JIT 编译器中重复的寄存器加载/存储和二元操作模式
 //! 目标：减少 30% 的代码重复
 
@@ -16,7 +16,9 @@ impl RegisterHelper {
             builder.ins().iconst(types::I64, 0)
         } else {
             let offset = (idx as i32) * 8;
-            builder.ins().load(types::I64, MemFlags::trusted(), regs_ptr, offset)
+            builder
+                .ins()
+                .load(types::I64, MemFlags::trusted(), regs_ptr, offset)
         }
     }
 
@@ -25,12 +27,14 @@ impl RegisterHelper {
     pub fn store_reg(builder: &mut FunctionBuilder, regs_ptr: Value, idx: u32, val: Value) {
         if idx != 0 {
             let offset = (idx as i32) * 8;
-            builder.ins().store(MemFlags::trusted(), val, regs_ptr, offset);
+            builder
+                .ins()
+                .store(MemFlags::trusted(), val, regs_ptr, offset);
         }
     }
 
     /// 执行二元整数操作并存储结果
-    /// 
+    ///
     /// # 参数
     /// - `builder`: Cranelift 函数生成器
     /// - `regs_ptr`: 寄存器数组指针
@@ -131,13 +135,8 @@ impl RegisterHelper {
 
     /// 执行一元操作并存储结果
     #[inline]
-    pub fn unary_op<F>(
-        builder: &mut FunctionBuilder,
-        regs_ptr: Value,
-        dst: u32,
-        src: u32,
-        op: F,
-    ) where
+    pub fn unary_op<F>(builder: &mut FunctionBuilder, regs_ptr: Value, dst: u32, src: u32, op: F)
+    where
         F: FnOnce(&mut FunctionBuilder, Value) -> Value,
     {
         let v = Self::load_reg(builder, regs_ptr, src);
@@ -154,14 +153,18 @@ impl FloatRegHelper {
     #[inline]
     pub fn load_freg(builder: &mut FunctionBuilder, fregs_ptr: Value, idx: u32) -> Value {
         let offset = (idx as i32) * 8;
-        builder.ins().load(types::F64, MemFlags::trusted(), fregs_ptr, offset)
+        builder
+            .ins()
+            .load(types::F64, MemFlags::trusted(), fregs_ptr, offset)
     }
 
     /// 将值存储到浮点寄存器数组
     #[inline]
     pub fn store_freg(builder: &mut FunctionBuilder, fregs_ptr: Value, idx: u32, val: Value) {
         let offset = (idx as i32) * 8;
-        builder.ins().store(MemFlags::trusted(), val, fregs_ptr, offset);
+        builder
+            .ins()
+            .store(MemFlags::trusted(), val, fregs_ptr, offset);
     }
 
     /// 执行二元浮点操作并存储结果
@@ -184,13 +187,8 @@ impl FloatRegHelper {
 
     /// 执行一元浮点操作并存储结果
     #[inline]
-    pub fn unary_op<F>(
-        builder: &mut FunctionBuilder,
-        fregs_ptr: Value,
-        dst: u32,
-        src: u32,
-        op: F,
-    ) where
+    pub fn unary_op<F>(builder: &mut FunctionBuilder, fregs_ptr: Value, dst: u32, src: u32, op: F)
+    where
         F: FnOnce(&mut FunctionBuilder, Value) -> Value,
     {
         let v = Self::load_freg(builder, fregs_ptr, src);

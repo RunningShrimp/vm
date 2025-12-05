@@ -4,14 +4,14 @@
 
 #[cfg(test)]
 mod integration_tests {
-    use vm_device::dma::{DmaManager, DmaDescriptor, DmaFlags};
+    use vm_device::dma::{DmaDescriptor, DmaFlags, DmaManager};
+    use vm_device::io_scheduler::{AsyncIoScheduler, IoPriority, IoRequest};
     use vm_device::mmap_io::MmapDeviceIo;
-    use vm_device::io_scheduler::{AsyncIoScheduler, IoRequest, IoPriority};
 
     #[test]
     fn test_dma_integration() {
         let dma = DmaManager::new(4096);
-        
+
         // 创建多个 DMA 映射
         for i in 0..10 {
             let desc = DmaDescriptor {
@@ -37,9 +37,9 @@ mod integration_tests {
     #[test]
     fn test_io_scheduler_integration() {
         use vm_device::io_scheduler::IoResult;
-        
+
         let scheduler = AsyncIoScheduler::new(100);
-        
+
         // 提交不同优先级的请求
         let mut request_ids = Vec::new();
         for priority in [IoPriority::Low, IoPriority::Normal, IoPriority::High].iter() {
@@ -80,7 +80,7 @@ mod integration_tests {
     #[test]
     fn test_dma_and_scheduler_cooperation() {
         use vm_device::io_scheduler::IoResult;
-        
+
         let dma = DmaManager::new(8192);
         let scheduler = AsyncIoScheduler::new(50);
 
@@ -123,13 +123,13 @@ mod integration_tests {
 
         // 验证调度器队列长度
         assert_eq!(scheduler.queue_length(), 15);
-        
+
         // 完成所有请求
         for req_id in request_ids {
             let result = IoResult::WriteOk { size: 4096 };
             let _ = scheduler.complete_request(req_id, result);
         }
-        
+
         // 验证所有请求都完成了
         let scheduler_stats = scheduler.get_stats();
         assert_eq!(scheduler_stats.completed_requests, 15);
@@ -139,7 +139,7 @@ mod integration_tests {
     fn test_mmap_device_io_basic() {
         let mmap_io = MmapDeviceIo::new();
         assert!(mmap_io.page_size() > 0);
-        
+
         // 获取所有区域（应该为空）
         let regions = mmap_io.get_regions().unwrap();
         assert_eq!(regions.len(), 0);
@@ -156,7 +156,9 @@ mod integration_tests {
             IoPriority::Low,
             IoPriority::High,
             IoPriority::Normal,
-        ].iter() {
+        ]
+        .iter()
+        {
             for i in 0..3 {
                 let request = IoRequest::Read {
                     device_id: 1,
@@ -183,7 +185,7 @@ mod integration_tests {
         // 为 5 个设备提交请求
         let mut device_request_counts = vec![0; 5];
         let mut all_request_ids = Vec::new();
-        
+
         for device_id in 0..5 {
             for i in 0..10 {
                 let request = if i % 2 == 0 {
@@ -209,7 +211,7 @@ mod integration_tests {
 
         // 验证队列长度
         assert_eq!(scheduler.queue_length(), 50);
-        
+
         // 完成所有请求
         use vm_device::io_scheduler::IoResult;
         for req_id in all_request_ids {
@@ -219,7 +221,7 @@ mod integration_tests {
             };
             let _ = scheduler.complete_request(req_id, result);
         }
-        
+
         // 验证最终统计
         let stats = scheduler.get_stats();
         assert_eq!(stats.completed_requests, 50);

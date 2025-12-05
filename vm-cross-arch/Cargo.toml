@@ -1,0 +1,39 @@
+[package]
+name = "vm-cross-arch"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+vm-frontend-x86_64 = { path = "../vm-frontend-x86_64" }
+vm-frontend-arm64 = { path = "../vm-frontend-arm64" }
+vm-frontend-riscv64 = { path = "../vm-frontend-riscv64" }
+vm-engine-interpreter = { path = "../vm-engine-interpreter" }
+vm-engine-jit = { path = "../vm-engine-jit" }
+vm-mem = { path = "../vm-mem" }
+vm-boot = { path = "../vm-boot" }
+aot-builder = { path = "../aot-builder" }
+vm-ir-lift = { path = "../vm-ir-lift" }
+thiserror = "2.0"
+tracing = "0.1"
+bincode = "1.3"
+
+[features]
+default = []
+jit = []
+
+[dev-dependencies]
+vm-tests = { path = "../vm-tests" }
+
+[[example]]
+name = "unified_cross_arch_execution"
+path = "../examples/unified_cross_arch_execution.rs"
+

@@ -3,6 +3,7 @@
 //! 实现针对 Apple M1/M2/M3/M4 芯片的优化
 
 use super::cpuinfo::{CpuInfo, CpuVendor};
+use super::vendor_extensions::{VendorExtension, VendorExtensionDetector};
 
 /// Apple Silicon 型号
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,7 +47,7 @@ impl Default for AppleSiliconConfig {
             prefer_performance_cores: true,
             enable_amx: true,
             optimize_unified_memory: true,
-            enable_neural_engine: false,  // 默认不启用，需要特定工作负载
+            enable_neural_engine: false, // 默认不启用，需要特定工作负载
         }
     }
 }
@@ -58,6 +59,7 @@ pub struct AppleOptimizer {
     model: AppleSiliconModel,
     performance_cores: usize,
     efficiency_cores: usize,
+    extension_detector: VendorExtensionDetector,
 }
 
 impl AppleOptimizer {
@@ -66,21 +68,23 @@ impl AppleOptimizer {
         let cpu_info = CpuInfo::get();
         let is_available = cpu_info.vendor == CpuVendor::Apple;
         let model = Self::detect_model(&cpu_info.model_name);
-        let (performance_cores, efficiency_cores) = Self::detect_core_config(model, cpu_info.core_count);
-        
+        let (performance_cores, efficiency_cores) =
+            Self::detect_core_config(model, cpu_info.core_count);
+
         Self {
             config: AppleSiliconConfig::default(),
             is_available,
             model,
             performance_cores,
             efficiency_cores,
+            extension_detector: VendorExtensionDetector::new(),
         }
     }
 
     /// 检测 Apple Silicon 型号
     fn detect_model(model_name: &str) -> AppleSiliconModel {
         let lower = model_name.to_lowercase();
-        
+
         if lower.contains("m4 max") {
             AppleSiliconModel::M4Max
         } else if lower.contains("m4 pro") {
@@ -171,22 +175,32 @@ impl AppleOptimizer {
         log::info!("  - Model: {:?}", self.model);
         log::info!("  - Performance cores: {}", self.performance_cores);
         log::info!("  - Efficiency cores: {}", self.efficiency_cores);
-        
+
         if self.config.enable_hvf {
             log::info!("  - Hypervisor.framework: enabled");
             // HVF 在 Apple Silicon 上性能优异
         }
-        
+
         if self.config.prefer_performance_cores {
             log::info!("  - Performance core affinity: enabled");
             // 将虚拟机线程绑定到性能核心
         }
-        
+
         if self.config.enable_amx {
             log::info!("  - AMX (Apple Matrix): enabled");
             // 使用 AMX 加速矩阵运算
+            if let Some(amx_ext) = self.extension_detector.find_extension("Apple AMX") {
+                if amx_ext.is_available() {
+                    let features = amx_ext.get_features();
+                    log::info!(
+                        "    - Supports matrix ops: {}",
+                        features.supports_matrix_ops
+                    );
+                    log::info!("    - Max vector width: {} bits", features.max_vector_width);
+                }
+            }
         }
-        
+
         if self.config.optimize_unified_memory {
             log::info!("  - Unified memory optimization: enabled");
             // 利用统一内存架构，减少数据拷贝
@@ -195,16 +209,35 @@ impl AppleOptimizer {
 
     /// 获取推荐的 SIMD 指令集
     pub fn get_recommended_simd(&self) -> &'static str {
-        "NEON + AMX"
+        if self.config.enable_amx {
+            "NEON + AMX"
+        } else {
+            "NEON"
+        }
+    }
+
+    /// 检查 AMX 是否可用
+    pub fn has_amx(&self) -> bool {
+        self.config.enable_amx
+            && self
+                .extension_detector
+                .find_extension("Apple AMX")
+                .map(|ext| ext.is_available())
+                .unwrap_or(false)
+    }
+
+    /// 获取厂商扩展检测器
+    pub fn extension_detector(&self) -> &VendorExtensionDetector {
+        &self.extension_detector
     }
 
     /// 优化内存访问模式
     pub fn optimize_memory_access(&self) -> MemoryAccessHint {
         MemoryAccessHint {
-            use_huge_pages: false,  // macOS 自动管理
-            cache_line_size: 128,   // Apple Silicon 是 128 字节
+            use_huge_pages: false, // macOS 自动管理
+            cache_line_size: 128,  // Apple Silicon 是 128 字节
             prefetch_distance: 512,
-            numa_aware: false,      // 统一内存架构，无 NUMA
+            numa_aware: false, // 统一内存架构，无 NUMA
             unified_memory: true,
             memory_bandwidth_gbps: self.get_memory_bandwidth(),
         }
@@ -231,10 +264,10 @@ impl AppleOptimizer {
     /// 获取 JIT 编译器优化建议
     pub fn get_jit_hints(&self) -> JitOptimizationHints {
         JitOptimizationHints {
-            inline_threshold: 150,  // Apple Silicon 分支预测极佳
+            inline_threshold: 150, // Apple Silicon 分支预测极佳
             loop_unroll_factor: 8,
             use_simd: true,
-            simd_width: 128,  // NEON 是 128 位
+            simd_width: 128, // NEON 是 128 位
             enable_branch_prediction_hints: true,
             enable_cache_prefetch: true,
             // Apple 特有优化
@@ -250,7 +283,7 @@ impl AppleOptimizer {
             performance_cores: self.performance_cores,
             efficiency_cores: self.efficiency_cores,
             prefer_performance_for_vm: true,
-            use_qos_classes: true,  // 使用 macOS QoS
+            use_qos_classes: true, // 使用 macOS QoS
         }
     }
 
@@ -277,7 +310,15 @@ impl AppleOptimizer {
         GpuAccelerationHint {
             gpu_cores,
             supports_metal: true,
-            supports_ray_tracing: matches!(self.model, AppleSiliconModel::M3 | AppleSiliconModel::M3Pro | AppleSiliconModel::M3Max | AppleSiliconModel::M4 | AppleSiliconModel::M4Pro | AppleSiliconModel::M4Max),
+            supports_ray_tracing: matches!(
+                self.model,
+                AppleSiliconModel::M3
+                    | AppleSiliconModel::M3Pro
+                    | AppleSiliconModel::M3Max
+                    | AppleSiliconModel::M4
+                    | AppleSiliconModel::M4Pro
+                    | AppleSiliconModel::M4Max
+            ),
             unified_memory: true,
         }
     }
@@ -340,14 +381,17 @@ mod tests {
     fn test_apple_optimizer() {
         let optimizer = AppleOptimizer::new();
         println!("Apple optimizer available: {}", optimizer.is_available());
-        
+
         if optimizer.is_available() {
             optimizer.apply_optimizations();
             println!("Model: {:?}", optimizer.model());
             println!("Recommended SIMD: {}", optimizer.get_recommended_simd());
             println!("Memory hints: {:?}", optimizer.optimize_memory_access());
             println!("JIT hints: {:?}", optimizer.get_jit_hints());
-            println!("Core scheduling: {:?}", optimizer.get_core_scheduling_hint());
+            println!(
+                "Core scheduling: {:?}",
+                optimizer.get_core_scheduling_hint()
+            );
             println!("GPU hints: {:?}", optimizer.get_gpu_hints());
         }
     }

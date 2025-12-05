@@ -2,10 +2,10 @@
 //!
 //! 实现 RISC-V CLINT，提供时钟中断和软件中断功能
 
-use vm_core::MmioDevice;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Instant;
+use vm_core::MmioDevice;
 
 /// CLINT 寄存器偏移
 pub mod offsets {

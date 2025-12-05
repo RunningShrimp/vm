@@ -1,6 +1,6 @@
-use vm_mem::SoftMmu;
 use vm_core::{MMU, MmioDevice};
 use vm_device::block::{VirtioBlock, VirtioBlockMmio};
+use vm_mem::SoftMmu;
 
 #[test]
 fn smoke_mmio_notify_block_device() {
@@ -19,10 +19,10 @@ fn smoke_mmio_notify_block_device() {
 
 #[test]
 fn test_riscv64_simple_execution() {
-    use vm_core::{VirtualMachine, VmConfig, GuestArch, ExecMode, Decoder, ExecutionEngine};
-    use vm_ir::IRBlock;
-    use vm_frontend_riscv64::RiscvDecoder;
+    use vm_core::{Decoder, ExecMode, ExecutionEngine, GuestArch, VirtualMachine, VmConfig};
     use vm_engine_interpreter::Interpreter;
+    use vm_frontend_riscv64::RiscvDecoder;
+    use vm_ir::IRBlock;
 
     // 1. Setup VM
     let config = VmConfig {
@@ -50,28 +50,29 @@ fn test_riscv64_simple_execution() {
     ];
 
     let entry_point = 0x0; // Load at 0x0 for simplicity in this test
-    vm.load_kernel(&code, entry_point).expect("Failed to load kernel");
+    vm.load_kernel(&code, entry_point)
+        .expect("Failed to load kernel");
 
     // 3. Run Loop
     let mut decoder = RiscvDecoder;
     let mut interp = Interpreter::new();
     let mut pc = entry_point;
-    
+
     // Run for a few steps
     for _ in 0..10 {
         let mut mmu = mmu_arc.lock().expect("Failed to acquire MMU lock");
         let block = decoder.decode(mmu.as_ref(), pc).expect("Decode failed");
-        
+
         // Execute
         let res = interp.run(mmu.as_mut(), &block);
-        
+
         // Update PC
         match block.term {
             vm_ir::Terminator::Jmp { target } => pc = target,
             vm_ir::Terminator::Ret => break,
             _ => pc = res.next_pc,
         }
-        
+
         if pc >= entry_point + 12 {
             break; // Reached ebreak
         }

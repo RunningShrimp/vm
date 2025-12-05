@@ -1,15 +1,25 @@
 //! x86-64 操作数解码阶段
 //! 解析 ModR/M、SIB 和立即数
 
-use super::opcode_decode::{OperandKind, OpcodeInfo};
+use super::opcode_decode::OperandKind;
 use super::prefix_decode::PrefixInfo;
 
 /// 解析结果的内存寻址模式
 #[derive(Debug, Clone)]
 pub enum MemoryOperand {
-    Direct { base: u8, disp: i64 },
-    Indexed { base: Option<u8>, index: u8, scale: u8, disp: i64 },
-    Rip { disp: i32 },
+    Direct {
+        base: u8,
+        disp: i64,
+    },
+    Indexed {
+        base: Option<u8>,
+        index: u8,
+        scale: u8,
+        disp: i64,
+    },
+    Rip {
+        disp: i32,
+    },
 }
 
 /// 解析的操作数
@@ -26,9 +36,9 @@ pub enum Operand {
 /// ModR/M 字节解析
 #[derive(Debug, Clone, Copy)]
 pub struct ModRM {
-    pub mode: u8,              // mod (bits 7-6)
-    pub reg: u8,               // reg (bits 5-3)
-    pub rm: u8,                // rm (bits 2-0)
+    pub mode: u8, // mod (bits 7-6)
+    pub reg: u8,  // reg (bits 5-3)
+    pub rm: u8,   // rm (bits 2-0)
 }
 
 impl ModRM {
@@ -58,9 +68,9 @@ impl ModRM {
 /// SIB 字节解析
 #[derive(Debug, Clone, Copy)]
 pub struct SIB {
-    pub scale: u8,             // bits 7-6
-    pub index: u8,             // bits 5-3
-    pub base: u8,              // bits 2-0
+    pub scale: u8, // bits 7-6
+    pub index: u8, // bits 5-3
+    pub base: u8,  // bits 2-0
 }
 
 impl SIB {
@@ -91,11 +101,24 @@ impl SIB {
 pub struct OperandDecoder<'a> {
     bytes: &'a [u8],
     pos: usize,
+    opcode_byte: u8, // 存储操作码字节用于OpReg解码
 }
 
 impl<'a> OperandDecoder<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, pos: 0 }
+        Self {
+            bytes,
+            pos: 0,
+            opcode_byte: bytes.get(0).copied().unwrap_or(0),
+        }
+    }
+
+    pub fn new_with_opcode(bytes: &'a [u8], opcode_byte: u8) -> Self {
+        Self {
+            bytes,
+            pos: 0,
+            opcode_byte,
+        }
     }
 
     pub fn read_u8(&mut self) -> Result<u8, String> {
@@ -164,17 +187,25 @@ impl<'a> OperandDecoder<'a> {
 
             OperandKind::Imm8 => {
                 let val = self.read_i8()? as i64;
-                Ok(Operand::Immediate { value: val, size: 1 })
+                Ok(Operand::Immediate {
+                    value: val,
+                    size: 1,
+                })
             }
 
             OperandKind::Imm32 => {
                 let val = self.read_i32()? as i64;
-                Ok(Operand::Immediate { value: val, size: 4 })
+                Ok(Operand::Immediate {
+                    value: val,
+                    size: 4,
+                })
             }
 
             OperandKind::Rel8 => {
                 let offset = self.read_i8()?;
-                Ok(Operand::Relative { offset: offset as i32 })
+                Ok(Operand::Relative {
+                    offset: offset as i32,
+                })
             }
 
             OperandKind::Rel32 => {
@@ -200,12 +231,39 @@ impl<'a> OperandDecoder<'a> {
                 }
             }
 
+            OperandKind::OpReg => {
+                // 操作码低3位表示寄存器号
+                let reg_id = self.opcode_byte & 0x07;
+                Ok(Operand::Reg {
+                    reg: reg_id,
+                    size: default_size,
+                })
+            }
+
+            OperandKind::Moffs => {
+                // 直接内存地址操作数，读取64位地址
+                let disp64_low = self.read_i32()? as u64;
+                let disp64_high = self.read_i32()? as u64;
+                let disp64 = disp64_low | (disp64_high << 32);
+                Ok(Operand::Memory {
+                    addr: MemoryOperand::Direct {
+                        base: 0xFF,
+                        disp: disp64 as i64,
+                    }, // 使用特殊基址表示moffs
+                    size: default_size,
+                })
+            }
+
             _ => Err(format!("Unsupported operand kind: {:?}", kind)),
         }
     }
 
     /// 解码 ModR/M 字节的内存寻址模式
-    fn decode_modrm_memory(&mut self, modrm: ModRM, _prefix: &PrefixInfo) -> Result<MemoryOperand, String> {
+    fn decode_modrm_memory(
+        &mut self,
+        modrm: ModRM,
+        _prefix: &PrefixInfo,
+    ) -> Result<MemoryOperand, String> {
         match modrm.mode {
             0 => {
                 // [base]
@@ -301,10 +359,11 @@ mod tests {
     fn test_decode_imm8() {
         let bytes = [0xFF];
         let mut decoder = OperandDecoder::new(&bytes);
-        let operand = decoder.decode_operand(OperandKind::Imm8, None, &PrefixInfo::default(), 1)
+        let operand = decoder
+            .decode_operand(OperandKind::Imm8, None, &PrefixInfo::default(), 1)
             .expect("Failed to decode Imm8 operand");
         match operand {
-            Operand::Immediate { value: -1, size: 1 } => {},
+            Operand::Immediate { value: -1, size: 1 } => {}
             _ => panic!("Unexpected operand: {:?}", operand),
         }
     }
@@ -313,10 +372,11 @@ mod tests {
     fn test_decode_rel32() {
         let bytes = [0x10, 0x00, 0x00, 0x00];
         let mut decoder = OperandDecoder::new(&bytes);
-        let operand = decoder.decode_operand(OperandKind::Rel32, None, &PrefixInfo::default(), 4)
+        let operand = decoder
+            .decode_operand(OperandKind::Rel32, None, &PrefixInfo::default(), 4)
             .expect("Failed to decode Rel32 operand");
         match operand {
-            Operand::Relative { offset: 16 } => {},
+            Operand::Relative { offset: 16 } => {}
             _ => panic!("Unexpected operand: {:?}", operand),
         }
     }

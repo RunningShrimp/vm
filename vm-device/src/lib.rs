@@ -51,12 +51,26 @@ pub mod virtio;
 // ============================================================
 // VirtIO 设备实现（保持向后兼容的直接导出）
 // ============================================================
+pub mod async_block_device; // 真正的异步块设备
+pub mod async_buffer_pool; // 异步I/O缓冲池
 pub mod block;
 #[cfg(feature = "async-io")]
 pub mod block_async;
-pub mod virtio_ai;
-pub mod virtio_scsi;
+pub mod block_service; // DDD服务层
+pub mod net;
 pub mod vhost_net;
+pub mod virtio_9p;
+pub mod virtio_ai;
+pub mod virtio_balloon;
+pub mod virtio_console;
+pub mod virtio_crypto;
+pub mod virtio_input;
+pub mod virtio_memory;
+pub mod virtio_performance;
+pub mod virtio_rng;
+pub mod virtio_scsi;
+pub mod virtio_sound;
+pub mod virtio_watchdog;
 
 // ============================================================
 // 中断控制器（保持向后兼容的直接导出）
@@ -74,17 +88,35 @@ pub mod mmu_util;
 // 零复制 I/O 与 DMA
 // ============================================================
 pub mod dma;
-pub mod mmap_io;
+pub mod io_multiplexing;
 pub mod io_scheduler;
+pub mod mmap_io;
+#[cfg(test)]
+pub mod zero_copy_io;
+pub mod vhost_protocol;
+pub mod virtio_zerocopy;
+pub mod zero_copy_optimizer;
+pub mod zerocopy; // 仅用于测试和基准测试
+
+pub use io_multiplexing::{IoEventLoop, IoLatencyOptimizer, IoThroughputOptimizer};
+pub use vhost_protocol::{VhostFeature, VhostFrontend, VhostMemoryMap, VhostServiceManager};
+pub use virtio_zerocopy::{
+    BufferPool, DirectMemoryAccess, ScatterGatherList as VirtioSgList, VirtioZeroCopyManager,
+    ZeroCopyChain,
+};
+pub use zero_copy_optimizer::{ZeroCopyConfig, ZeroCopyIoOptimizer, ZeroCopyStats};
+#[cfg(target_os = "linux")]
+pub use zerocopy::MemoryMappedBuffer;
+pub use zerocopy::{DirectBuffer, ScatterGatherElement, ScatterGatherList, ZeroCopyIoManager};
 
 // ============================================================
 // GPU 虚拟化
 // ============================================================
-pub mod virgl;
-pub mod gpu_virt;
-pub mod gpu_passthrough;
-pub mod gpu_mdev;
 pub mod gpu_manager;
+pub mod gpu_mdev;
+pub mod gpu_passthrough;
+pub mod gpu_virt;
+pub mod virgl;
 
 // ============================================================
 // 设备服务
@@ -94,5 +126,5 @@ pub mod device_service;
 // ============================================================
 // 新的模块化组织（推荐使用）
 // ============================================================
-pub mod virtio_devices;
 pub mod interrupt;
+pub mod virtio_devices;

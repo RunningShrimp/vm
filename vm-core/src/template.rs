@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -21,7 +21,12 @@ impl TemplateManager {
         }
     }
 
-    pub fn create_template(&mut self, name: String, description: String, base_snapshot_id: String) -> String {
+    pub fn create_template(
+        &mut self,
+        name: String,
+        description: String,
+        base_snapshot_id: String,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let template = VmTemplate {
             id: id.clone(),

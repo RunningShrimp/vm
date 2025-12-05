@@ -1,11 +1,11 @@
-use vm_passthrough::{PciAddress, PassthroughError};
+use vm_passthrough::{PassthroughError, PciAddress};
 
 /// Mediated Device 类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MdevType {
-    IntelGvtG,      // Intel GVT-g
-    NvidiaVgpu,     // NVIDIA vGPU
-    AmdMxgpu,       // AMD MxGPU
+    IntelGvtG,  // Intel GVT-g
+    NvidiaVgpu, // NVIDIA vGPU
+    AmdMxgpu,   // AMD MxGPU
 }
 
 /// Mediated Device 配置
@@ -78,7 +78,7 @@ impl GpuMdev {
         let types_path = self.get_mdev_supported_types_path();
         if !types_path.exists() {
             return Err(PassthroughError::DeviceNotFound(
-                "mdev not supported on this device".to_string()
+                "mdev not supported on this device".to_string(),
             ));
         }
 
@@ -138,7 +138,7 @@ impl GpuMdev {
     #[cfg(not(target_os = "linux"))]
     pub fn list_supported_types(&self) -> Result<Vec<MdevConfig>, PassthroughError> {
         Err(PassthroughError::DeviceNotFound(
-            "mdev not supported on this platform".to_string()
+            "mdev not supported on this platform".to_string(),
         ))
     }
 
@@ -153,15 +153,17 @@ impl GpuMdev {
         let uuid = uuid::Uuid::new_v4().to_string();
 
         // 创建 mdev 设备
-        let create_path = self.get_mdev_path()
+        let create_path = self
+            .get_mdev_path()
             .join("mdev_supported_types")
             .join(&self.type_id)
             .join("create");
 
         if !create_path.exists() {
-            return Err(PassthroughError::DeviceNotFound(
-                format!("mdev type {} not found", self.type_id)
-            ));
+            return Err(PassthroughError::DeviceNotFound(format!(
+                "mdev type {} not found",
+                self.type_id
+            )));
         }
 
         let mut file = fs::OpenOptions::new()
@@ -188,7 +190,7 @@ impl GpuMdev {
     #[cfg(not(target_os = "linux"))]
     pub fn create(&mut self) -> Result<(), PassthroughError> {
         Err(PassthroughError::DeviceNotFound(
-            "mdev not supported on this platform".to_string()
+            "mdev not supported on this platform".to_string(),
         ))
     }
 
@@ -200,14 +202,10 @@ impl GpuMdev {
         }
 
         if let Some(uuid) = &self.mdev_uuid {
-            let remove_path = self.get_mdev_path()
-                .join(uuid)
-                .join("remove");
+            let remove_path = self.get_mdev_path().join(uuid).join("remove");
 
             if remove_path.exists() {
-                let mut file = fs::OpenOptions::new()
-                    .write(true)
-                    .open(&remove_path)?;
+                let mut file = fs::OpenOptions::new().write(true).open(&remove_path)?;
 
                 file.write_all(b"1")?;
 
@@ -262,16 +260,12 @@ pub fn scan_mdev_capable_gpus() -> Vec<(PciAddress, Vec<MdevConfig>)> {
     if let Ok(entries) = fs::read_dir(pci_path) {
         for entry in entries.flatten() {
             let addr_str = entry.file_name().to_string_lossy().to_string();
-            
+
             if let Ok(address) = PciAddress::from_str(&addr_str) {
                 // 检查是否支持 mdev
                 let mdev_path = entry.path().join("mdev_supported_types");
                 if mdev_path.exists() {
-                    let mdev = GpuMdev::new(
-                        address,
-                        MdevType::IntelGvtG,
-                        String::new()
-                    );
+                    let mdev = GpuMdev::new(address, MdevType::IntelGvtG, String::new());
 
                     if let Ok(configs) = mdev.list_supported_types() {
                         if !configs.is_empty() {

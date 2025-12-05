@@ -1,9 +1,9 @@
 //! TLB 管理器实现 - 从 SoftMmu 中分离出来
 
-use vm_core::{TlbManager, TlbEntry, AccessType, GuestAddr, GuestPhysAddr};
 use lru::LruCache;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbEntry, TlbManager};
 
 /// TLB 管理器的标准实现，使用 HashMap + LRU 替换策略
 pub struct StandardTlbManager {
@@ -24,7 +24,8 @@ pub struct StandardTlbManager {
 impl StandardTlbManager {
     /// 创建一个新的 TLB 管理器，指定容量
     pub fn new(capacity: usize) -> Self {
-        let lru_capacity = NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1).expect("Operation failed"));
+        let lru_capacity =
+            NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1).expect("Operation failed"));
         Self {
             entries: HashMap::with_capacity(capacity),
             lru: LruCache::new(lru_capacity),
@@ -97,7 +98,8 @@ impl TlbManager for StandardTlbManager {
 
     fn flush_asid(&mut self, target_asid: u16) {
         // 收集需要删除的键
-        let keys_to_remove: Vec<u64> = self.entries
+        let keys_to_remove: Vec<u64> = self
+            .entries
             .iter()
             .filter(|(_, e)| e.asid == target_asid)
             .map(|(k, _)| *k)
@@ -117,16 +119,16 @@ mod tests {
     #[test]
     fn test_tlb_lookup() {
         let mut tlb = StandardTlbManager::new(64);
-        
+
         let entry = TlbEntry {
             guest_addr: 0x1000,
             phys_addr: 0x2000,
             flags: 0x3, // R | V
             asid: 0,
         };
-        
+
         tlb.update(entry);
-        
+
         let result = tlb.lookup(0x1000, 0, AccessType::Read);
         assert!(result.is_some());
         assert_eq!(result.expect("Operation failed").phys_addr, 0x2000);
@@ -136,7 +138,7 @@ mod tests {
     #[test]
     fn test_tlb_miss() {
         let mut tlb = StandardTlbManager::new(64);
-        
+
         let result = tlb.lookup(0x1000, 0, AccessType::Read);
         assert!(result.is_none());
         assert_eq!(tlb.stats().1, 1); // 1 miss
@@ -145,7 +147,7 @@ mod tests {
     #[test]
     fn test_tlb_flush_asid() {
         let mut tlb = StandardTlbManager::new(64);
-        
+
         let entry1 = TlbEntry {
             guest_addr: 0x1000,
             phys_addr: 0x2000,
@@ -158,12 +160,12 @@ mod tests {
             flags: 0x3,
             asid: 2,
         };
-        
+
         tlb.update(entry1);
         tlb.update(entry2);
-        
+
         tlb.flush_asid(1);
-        
+
         // ASID 1 的条目应该被删除
         assert!(tlb.lookup(0x1000, 1, AccessType::Read).is_none());
         // ASID 2 的条目应该仍然存在

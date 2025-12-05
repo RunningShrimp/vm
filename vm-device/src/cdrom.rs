@@ -2,7 +2,7 @@
 //!
 //! 支持将 ISO 镜像文件作为虚拟 CD-ROM 设备挂载
 
-use vm_core::MmioDevice;
+use vm_core::{MmioDevice, VmError, PlatformError};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
@@ -190,6 +190,18 @@ pub enum CdromError {
     NotMounted,
     #[error("Sector out of range")]
     SectorOutOfRange,
+}
+
+/// 从传统错误转换为统一错误
+impl From<CdromError> for VmError {
+    fn from(err: CdromError) -> Self {
+        match err {
+            CdromError::Io(e) => VmError::Platform(PlatformError::IoError(e)),
+            CdromError::NotMounted | CdromError::SectorOutOfRange => {
+                VmError::Platform(PlatformError::InitializationFailed(err.to_string()))
+            }
+        }
+    }
 }
 }
 

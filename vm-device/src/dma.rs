@@ -6,9 +6,9 @@
 //! - 分散-聚集 (Scatter-Gather) 列表
 //! - DMA 一致性处理
 
-use vm_core::{GuestAddr, HostAddr, VmError};
-use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use vm_core::{GuestAddr, HostAddr, MemoryError, VmError};
 
 /// DMA 描述符
 #[derive(Debug, Clone, Copy)]
@@ -81,9 +81,18 @@ pub enum DmaError {
 impl From<DmaError> for VmError {
     fn from(err: DmaError) -> Self {
         match err {
-            DmaError::MappingFailed(msg) | DmaError::Unsupported(msg) => VmError::Io(msg),
-            DmaError::OutOfMemory => VmError::Memory("DMA: out of memory".into()),
-            DmaError::InvalidAddress => VmError::Memory("DMA: invalid address".into()),
+            DmaError::MappingFailed(msg) | DmaError::Unsupported(msg) => {
+                VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, msg).to_string())
+            }
+            DmaError::OutOfMemory => VmError::Memory(MemoryError::AllocationFailed {
+                message: "DMA: out of memory".into(),
+                size: None,
+            }),
+            DmaError::InvalidAddress => VmError::Memory(MemoryError::MappingFailed {
+                message: "DMA: invalid address".into(),
+                src: None,
+                dst: None,
+            }),
         }
     }
 }
@@ -107,33 +116,44 @@ impl DmaManager {
 
     /// 注册 DMA 映射
     pub fn register_mapping(&self, desc: DmaDescriptor) -> Result<(), DmaError> {
-        let mut mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
-        
+        let mut mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+
         if desc.len == 0 {
             return Err(DmaError::InvalidAddress);
         }
-        
+
         if desc.len > self.max_transfer_size {
             return Err(DmaError::Unsupported("Transfer too large".into()));
         }
-        
+
         mappings.insert(desc.guest_addr, desc);
         Ok(())
     }
 
     /// 查找 DMA 映射
     pub fn find_mapping(&self, guest_addr: GuestAddr) -> Result<Option<DmaDescriptor>, DmaError> {
-        let mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
         Ok(mappings.get(&guest_addr).copied())
     }
 
     /// 从客户机地址翻译 DMA 地址
     pub fn translate_dma_addr(&self, guest_addr: GuestAddr) -> Result<DmaTranslation, DmaError> {
-        let mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
-        
+        let mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+
         if let Some(desc) = mappings.get(&guest_addr) {
-            let host_addr = desc.host_addr.ok_or(DmaError::MappingFailed("No host address".into()))?;
-            
+            let host_addr = desc
+                .host_addr
+                .ok_or(DmaError::MappingFailed("No host address".into()))?;
+
             Ok(DmaTranslation {
                 host_addr,
                 contiguous_len: desc.len,
@@ -151,15 +171,18 @@ impl DmaManager {
         len: usize,
     ) -> Result<Vec<ScatterGatherEntry>, DmaError> {
         let mut sg_list = Vec::new();
-        let mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
-        
+        let mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+
         let mut remaining = len;
         let mut current_guest = guest_addr;
-        
+
         while remaining > 0 && sg_list.len() < 1024 {
             if let Some(desc) = mappings.get(&current_guest) {
                 let transfer_len = remaining.min(desc.len);
-                
+
                 sg_list.push(ScatterGatherEntry {
                     descriptor: DmaDescriptor {
                         guest_addr: current_guest,
@@ -173,25 +196,28 @@ impl DmaManager {
                         DmaMapType::Unmapped
                     },
                 });
-                
+
                 current_guest += transfer_len as u64;
                 remaining -= transfer_len;
             } else {
                 return Err(DmaError::InvalidAddress);
             }
         }
-        
+
         if remaining > 0 {
             return Err(DmaError::Unsupported("Address space fragmented".into()));
         }
-        
+
         Ok(sg_list)
     }
 
     /// 同步 DMA 缓存（对于非一致设备）
     pub fn sync_for_device(&self, guest_addr: GuestAddr) -> Result<(), DmaError> {
-        let mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
-        
+        let mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+
         if let Some(desc) = mappings.get(&guest_addr) {
             if !desc.flags.coherent {
                 // 这里应该调用实际的缓存同步代码
@@ -205,8 +231,11 @@ impl DmaManager {
 
     /// 同步 DMA 缓存（从设备读取）
     pub fn sync_from_device(&self, guest_addr: GuestAddr) -> Result<(), DmaError> {
-        let mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
-        
+        let mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+
         if let Some(desc) = mappings.get(&guest_addr) {
             if !desc.flags.coherent {
                 // 这里应该调用实际的缓存同步代码
@@ -220,26 +249,35 @@ impl DmaManager {
 
     /// 注销 DMA 映射
     pub fn unregister_mapping(&self, guest_addr: GuestAddr) -> Result<(), DmaError> {
-        let mut mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mut mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
         mappings.remove(&guest_addr);
         Ok(())
     }
 
     /// 清除所有映射
     pub fn clear_all_mappings(&self) -> Result<(), DmaError> {
-        let mut mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mut mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
         mappings.clear();
         Ok(())
     }
 
     /// 获取映射统计信息
     pub fn get_stats(&self) -> Result<DmaStats, DmaError> {
-        let mappings = self.mappings.lock().map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
-        
+        let mappings = self
+            .mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+
         let total_size: usize = mappings.values().map(|d| d.len).sum();
         let coherent_count = mappings.values().filter(|d| d.flags.coherent).count();
         let mapped_count = mappings.values().filter(|d| d.host_addr.is_some()).count();
-        
+
         Ok(DmaStats {
             total_mappings: mappings.len(),
             total_size,
@@ -348,7 +386,7 @@ mod tests {
 
         dma.register_mapping(desc1).unwrap();
         dma.register_mapping(desc2).unwrap();
-        
+
         let stats = dma.get_stats().unwrap();
         assert_eq!(stats.total_mappings, 2);
         assert_eq!(stats.total_size, 1536);

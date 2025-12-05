@@ -2,19 +2,19 @@
 //!
 //! 支持华为达芬奇、高通 Hexagon、联发科 APU、Apple Neural Engine 等
 
-use super::{PassthroughError};
+use super::PassthroughError;
 use std::collections::HashMap;
 
 /// NPU 厂商
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NpuVendor {
-    Huawei,      // 达芬奇架构
-    Qualcomm,    // Hexagon DSP/NPU
-    MediaTek,    // APU
-    Apple,       // Neural Engine
-    Intel,       // GNA/VPU
-    Nvidia,      // Tensor Cores
-    Google,      // TPU
+    Huawei,   // 达芬奇架构
+    Qualcomm, // Hexagon DSP/NPU
+    MediaTek, // APU
+    Apple,    // Neural Engine
+    Intel,    // GNA/VPU
+    Nvidia,   // Tensor Cores
+    Google,   // TPU
     Unknown,
 }
 
@@ -56,7 +56,7 @@ pub struct NpuInfo {
     pub vendor: NpuVendor,
     pub architecture: NpuArchitecture,
     pub name: String,
-    pub tops: f32,  // AI 算力 (TOPS)
+    pub tops: f32, // AI 算力 (TOPS)
     pub cores: usize,
     pub supports_int8: bool,
     pub supports_int4: bool,
@@ -72,7 +72,13 @@ pub struct NpuDevice {
 
 impl NpuDevice {
     /// 创建新的 NPU 设备
-    pub fn new(vendor: NpuVendor, architecture: NpuArchitecture, name: String, tops: f32, cores: usize) -> Self {
+    pub fn new(
+        vendor: NpuVendor,
+        architecture: NpuArchitecture,
+        name: String,
+        tops: f32,
+        cores: usize,
+    ) -> Self {
         let info = NpuInfo {
             vendor,
             architecture,
@@ -80,7 +86,10 @@ impl NpuDevice {
             tops,
             cores,
             supports_int8: true,
-            supports_int4: matches!(vendor, NpuVendor::Huawei | NpuVendor::Qualcomm | NpuVendor::MediaTek),
+            supports_int4: matches!(
+                vendor,
+                NpuVendor::Huawei | NpuVendor::Qualcomm | NpuVendor::MediaTek
+            ),
             supports_fp16: true,
             supports_bf16: matches!(vendor, NpuVendor::Apple | NpuVendor::Nvidia),
         };
@@ -105,7 +114,7 @@ impl NpuDevice {
                     NpuVendor::Huawei,
                     NpuArchitecture::DaVinci2,
                     "Huawei DaVinci NPU".to_string(),
-                    60.0,  // 麒麟 9010 约 60 TOPS
+                    60.0, // 麒麟 9010 约 60 TOPS
                     2,
                 ));
             }
@@ -126,19 +135,22 @@ impl NpuDevice {
 
         // 尝试通过 getprop 获取 SoC 信息
         if let Ok(output) = Command::new("getprop").arg("ro.hardware").output() {
-            let hardware = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-            
+            let hardware = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_lowercase();
+
             if hardware.contains("qcom") || hardware.contains("qualcomm") {
                 // 根据 SoC 型号判断 Hexagon 版本
-                let (architecture, tops) = if hardware.contains("8gen3") || hardware.contains("8elite") {
-                    (NpuArchitecture::HexagonV73, 45.0)
-                } else if hardware.contains("8gen2") {
-                    (NpuArchitecture::HexagonV69, 35.0)
-                } else if hardware.contains("8gen1") {
-                    (NpuArchitecture::HexagonV68, 27.0)
-                } else {
-                    (NpuArchitecture::HexagonV66, 15.0)
-                };
+                let (architecture, tops) =
+                    if hardware.contains("8gen3") || hardware.contains("8elite") {
+                        (NpuArchitecture::HexagonV73, 45.0)
+                    } else if hardware.contains("8gen2") {
+                        (NpuArchitecture::HexagonV69, 35.0)
+                    } else if hardware.contains("8gen1") {
+                        (NpuArchitecture::HexagonV68, 27.0)
+                    } else {
+                        (NpuArchitecture::HexagonV66, 15.0)
+                    };
 
                 return Some(Self::new(
                     NpuVendor::Qualcomm,
@@ -164,8 +176,10 @@ impl NpuDevice {
         use std::process::Command;
 
         if let Ok(output) = Command::new("getprop").arg("ro.hardware").output() {
-            let hardware = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-            
+            let hardware = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_lowercase();
+
             if hardware.contains("mt") || hardware.contains("mediatek") {
                 let (architecture, tops) = if hardware.contains("9400") {
                     (NpuArchitecture::APU890, 50.0)
@@ -206,10 +220,10 @@ impl NpuDevice {
             .output()
         {
             let brand = String::from_utf8_lossy(&output.stdout).to_lowercase();
-            
+
             if brand.contains("apple") {
                 let (tops, cores) = if brand.contains("m4") {
-                    (38.0, 16)  // M4 Pro/Max
+                    (38.0, 16) // M4 Pro/Max
                 } else if brand.contains("m3") {
                     (35.0, 16)
                 } else if brand.contains("m2") {
@@ -244,7 +258,7 @@ impl NpuDevice {
         log::info!("  - Architecture: {:?}", self.info.architecture);
         log::info!("  - Performance: {:.1} TOPS", self.info.tops);
         log::info!("  - Cores: {}", self.info.cores);
-        
+
         match self.info.vendor {
             NpuVendor::Huawei => {
                 log::info!("  - Using CANN (Compute Architecture for Neural Networks)");
@@ -264,7 +278,7 @@ impl NpuDevice {
             }
             _ => {}
         }
-        
+
         Ok(())
     }
 
@@ -372,7 +386,10 @@ impl NpuManager {
             println!("  - Architecture: {:?}", device.info.architecture);
             println!("  - Performance: {:.1} TOPS", device.info.tops);
             println!("  - Cores: {}", device.info.cores);
-            println!("  - Supported frameworks: {:?}", device.get_supported_frameworks());
+            println!(
+                "  - Supported frameworks: {:?}",
+                device.get_supported_frameworks()
+            );
         }
     }
 }

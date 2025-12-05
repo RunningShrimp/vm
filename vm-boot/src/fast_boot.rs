@@ -2,9 +2,9 @@
 //!
 //! 实现虚拟机的快速启动功能
 
-use std::path::Path;
 use std::fs::File;
 use std::io::{self, Read};
+use std::path::Path;
 
 /// 启动缓存
 pub struct BootCache {
@@ -98,7 +98,11 @@ impl FastBootOptimizer {
     }
 
     /// 优化启动流程
-    pub fn optimize_boot(&mut self, kernel_path: &str, initrd_path: Option<&str>) -> io::Result<()> {
+    pub fn optimize_boot(
+        &mut self,
+        kernel_path: &str,
+        initrd_path: Option<&str>,
+    ) -> io::Result<()> {
         if self.parallel_loading {
             // 并行加载内核和 initrd
             self.parallel_load(kernel_path, initrd_path)?;
@@ -139,14 +143,16 @@ impl FastBootOptimizer {
         });
 
         // 等待加载完成
-        let kernel_result = kernel_handle.join()
+        let kernel_result = kernel_handle
+            .join()
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "Kernel loader thread panicked"))?;
         let kernel_data = kernel_result?;
         self.cache.kernel_cache = Some(kernel_data);
 
         if let Some(handle) = initrd_handle {
-            let initrd_result = handle.join()
-                .map_err(|_| io::Error::new(io::ErrorKind::Other, "Initrd loader thread panicked"))?;
+            let initrd_result = handle.join().map_err(|_| {
+                io::Error::new(io::ErrorKind::Other, "Initrd loader thread panicked")
+            })?;
             let initrd_data = initrd_result?;
             self.cache.initrd_cache = Some(initrd_data);
         }
@@ -255,22 +261,22 @@ impl BootProfiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use std::env;
+    use std::io::Write;
 
     #[test]
     fn test_boot_cache() {
         let temp_dir = env::temp_dir();
         let kernel_path = temp_dir.join("test_kernel");
-        
+
         // 创建测试文件
-        let mut file = File::create(&kernel_path)
-            .expect("Failed to create kernel test file");
+        let mut file = File::create(&kernel_path).expect("Failed to create kernel test file");
         file.write_all(b"test kernel data")
             .expect("Failed to write kernel test data");
 
         let mut cache = BootCache::new();
-        cache.preload_kernel(&kernel_path)
+        cache
+            .preload_kernel(&kernel_path)
             .expect("Failed to preload kernel");
 
         assert!(cache.get_kernel().is_some());
@@ -285,18 +291,21 @@ mod tests {
     fn test_fast_boot_optimizer() {
         let temp_dir = env::temp_dir();
         let kernel_path = temp_dir.join("test_kernel2");
-        
+
         // 创建测试文件
-        let mut file = File::create(&kernel_path)
-            .expect("Failed to create kernel test file");
+        let mut file = File::create(&kernel_path).expect("Failed to create kernel test file");
         file.write_all(b"test kernel data")
             .expect("Failed to write kernel test data");
 
         let mut optimizer = FastBootOptimizer::new();
-        optimizer.optimize_boot(
-            kernel_path.to_str().expect("Kernel path is not valid UTF-8"),
-            None,
-        ).expect("Optimized boot should succeed");
+        optimizer
+            .optimize_boot(
+                kernel_path
+                    .to_str()
+                    .expect("Kernel path is not valid UTF-8"),
+                None,
+            )
+            .expect("Optimized boot should succeed");
 
         assert!(optimizer.cache().get_kernel().is_some());
 

@@ -43,12 +43,12 @@ pub struct AmdOptimizer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AmdGeneration {
     Unknown,
-    Zen,      // Ryzen 1000
-    ZenPlus,  // Ryzen 2000
-    Zen2,     // Ryzen 3000
-    Zen3,     // Ryzen 5000
-    Zen4,     // Ryzen 7000
-    Zen5,     // Ryzen 9000
+    Zen,     // Ryzen 1000
+    ZenPlus, // Ryzen 2000
+    Zen2,    // Ryzen 3000
+    Zen3,    // Ryzen 5000
+    Zen4,    // Ryzen 7000
+    Zen5,    // Ryzen 9000
 }
 
 impl AmdOptimizer {
@@ -57,7 +57,7 @@ impl AmdOptimizer {
         let cpu_info = CpuInfo::get();
         let is_available = cpu_info.vendor == CpuVendor::AMD && cpu_info.features.svm;
         let generation = Self::detect_generation(&cpu_info.model_name);
-        
+
         Self {
             config: AmdSvmConfig::default(),
             is_available,
@@ -68,7 +68,7 @@ impl AmdOptimizer {
     /// 检测 AMD CPU 代数
     fn detect_generation(model_name: &str) -> AmdGeneration {
         let lower = model_name.to_lowercase();
-        
+
         if lower.contains("ryzen 9000") || lower.contains("zen 5") {
             AmdGeneration::Zen5
         } else if lower.contains("ryzen 7000") || lower.contains("zen 4") {
@@ -115,27 +115,27 @@ impl AmdOptimizer {
 
         log::info!("Applying AMD-V (SVM) optimizations:");
         log::info!("  - CPU Generation: {:?}", self.generation);
-        
+
         if self.config.enable_npt {
             log::info!("  - NPT (Nested Page Tables): enabled");
             // NPT 优化：二级地址转换，减少 VM exit
         }
-        
+
         if self.config.enable_avic {
             log::info!("  - AVIC (Advanced Virtual Interrupt Controller): enabled");
             // AVIC 优化：硬件虚拟化中断，减少中断处理开销
         }
-        
+
         if self.config.enable_decode_assists {
             log::info!("  - Decode Assists: enabled");
             // 硬件辅助指令解码
         }
-        
+
         if self.config.enable_flush_by_asid {
             log::info!("  - Flush by ASID: enabled");
             // 按 ASID 刷新 TLB，避免全局 flush
         }
-        
+
         if self.config.enable_vmcb_clean {
             log::info!("  - VMCB Clean Bits: enabled");
             // 减少 VMCB 状态同步开销
@@ -145,9 +145,11 @@ impl AmdOptimizer {
     /// 获取推荐的 SIMD 指令集
     pub fn get_recommended_simd(&self) -> &'static str {
         let cpu_info = CpuInfo::get();
-        
+
         // Zen 4+ 支持 AVX-512
-        if matches!(self.generation, AmdGeneration::Zen4 | AmdGeneration::Zen5) && cpu_info.features.avx512f {
+        if matches!(self.generation, AmdGeneration::Zen4 | AmdGeneration::Zen5)
+            && cpu_info.features.avx512f
+        {
             "AVX-512"
         } else if cpu_info.features.avx2 {
             "AVX2"
@@ -161,10 +163,10 @@ impl AmdOptimizer {
     /// 优化内存访问模式
     pub fn optimize_memory_access(&self) -> MemoryAccessHint {
         let cpu_info = CpuInfo::get();
-        
+
         MemoryAccessHint {
             use_huge_pages: true,
-            cache_line_size: 64,  // AMD 也是 64 字节
+            cache_line_size: 64, // AMD 也是 64 字节
             prefetch_distance: match self.generation {
                 AmdGeneration::Zen4 | AmdGeneration::Zen5 => 512,
                 AmdGeneration::Zen3 => 384,
@@ -179,22 +181,29 @@ impl AmdOptimizer {
     /// 获取 JIT 编译器优化建议
     pub fn get_jit_hints(&self) -> JitOptimizationHints {
         let cpu_info = CpuInfo::get();
-        
+
         JitOptimizationHints {
-            inline_threshold: 120,  // AMD 分支预测较好，可以更激进
+            inline_threshold: 120, // AMD 分支预测较好，可以更激进
             loop_unroll_factor: match self.generation {
                 AmdGeneration::Zen4 | AmdGeneration::Zen5 => 8,
                 AmdGeneration::Zen3 => 6,
                 _ => 4,
             },
             use_simd: cpu_info.features.avx2,
-            simd_width: if cpu_info.features.avx512f { 512 } 
-                       else if cpu_info.features.avx2 { 256 }
-                       else { 128 },
+            simd_width: if cpu_info.features.avx512f {
+                512
+            } else if cpu_info.features.avx2 {
+                256
+            } else {
+                128
+            },
             enable_branch_prediction_hints: true,
             enable_cache_prefetch: true,
             // AMD 特有优化
-            prefer_micro_op_cache: !matches!(self.generation, AmdGeneration::Unknown | AmdGeneration::Zen | AmdGeneration::ZenPlus),
+            prefer_micro_op_cache: !matches!(
+                self.generation,
+                AmdGeneration::Unknown | AmdGeneration::Zen | AmdGeneration::ZenPlus
+            ),
         }
     }
 
@@ -202,7 +211,7 @@ impl AmdOptimizer {
     pub fn get_ccx_optimization(&self) -> CcxOptimization {
         match self.generation {
             AmdGeneration::Zen5 => CcxOptimization {
-                cores_per_ccx: 16,  // Zen 5 每个 CCX 16 核心
+                cores_per_ccx: 16, // Zen 5 每个 CCX 16 核心
                 shared_l3_size_mb: 32,
                 prefer_same_ccx_scheduling: true,
             },
@@ -274,7 +283,7 @@ mod tests {
     fn test_amd_optimizer() {
         let optimizer = AmdOptimizer::new();
         println!("AMD optimizer available: {}", optimizer.is_available());
-        
+
         if optimizer.is_available() {
             optimizer.apply_optimizations();
             println!("CPU Generation: {:?}", optimizer.generation());

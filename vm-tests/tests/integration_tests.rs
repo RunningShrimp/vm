@@ -1,11 +1,10 @@
+use vm_core::{ExecMode, GuestArch, MMU, VirtualMachine, VmConfig};
+use vm_ir::IRBlock;
 /// 集成测试 - 虚拟机完整生命周期测试
 ///
 /// 这些测试覆盖了虚拟机从初始化、启动、执行到停止的完整生命周期。
 /// 测试目标是确保系统在各种场景下都能正确工作。
-
 use vm_mem::SoftMmu;
-use vm_core::{MMU, VirtualMachine, VmConfig, GuestArch, ExecMode};
-use vm_ir::IRBlock;
 
 /// VM 初始化测试
 #[test]
@@ -42,8 +41,7 @@ fn test_memory_mapping() {
         .expect("Failed to write to memory");
 
     // 读取
-    let read_value = mmu.read(test_addr, 8)
-        .expect("Failed to read from memory");
+    let read_value = mmu.read(test_addr, 8).expect("Failed to read from memory");
 
     assert_eq!(read_value, test_value, "Memory value mismatch");
 }
@@ -64,7 +62,8 @@ fn test_bulk_memory_operations() {
 
     // 批量读取
     for (i, &expected) in test_data.iter().enumerate() {
-        let value = mmu.read(test_addr + i as u64, 1)
+        let value = mmu
+            .read(test_addr + i as u64, 1)
             .expect("Failed to read from memory");
         assert_eq!(value, expected as u64, "Bulk read mismatch at offset {}", i);
     }
@@ -131,31 +130,32 @@ fn test_vm_memory_layout() {
     // 测试内存的不同区域
     // 低地址空间
     let addr1 = 0x0;
-    mmu.write(addr1, 0x1111, 4).expect("Failed to write to low address");
+    mmu.write(addr1, 0x1111, 4)
+        .expect("Failed to write to low address");
     let val1 = mmu.read(addr1, 4).expect("Failed to read from low address");
     assert_eq!(val1, 0x1111);
 
     // 中间地址空间
     let addr2 = 0x100000;
-    mmu.write(addr2, 0x2222, 4).expect("Failed to write to mid address");
+    mmu.write(addr2, 0x2222, 4)
+        .expect("Failed to write to mid address");
     let val2 = mmu.read(addr2, 4).expect("Failed to read from mid address");
     assert_eq!(val2, 0x2222);
 
     // 高地址空间
     let addr3 = 0x200000;
-    mmu.write(addr3, 0x3333, 4).expect("Failed to write to high address");
-    let val3 = mmu.read(addr3, 4).expect("Failed to read from high address");
+    mmu.write(addr3, 0x3333, 4)
+        .expect("Failed to write to high address");
+    let val3 = mmu
+        .read(addr3, 4)
+        .expect("Failed to read from high address");
     assert_eq!(val3, 0x3333);
 }
 
 /// 虚拟机多个 vCPU 配置测试
 #[test]
 fn test_multi_vcpu_config() {
-    let configs = vec![
-        (1, "Single vCPU"),
-        (2, "Dual vCPU"),
-        (4, "Quad vCPU"),
-    ];
+    let configs = vec![(1, "Single vCPU"), (2, "Dual vCPU"), (4, "Quad vCPU")];
 
     for (vcpu_count, desc) in configs {
         let config = VmConfig {
@@ -232,7 +232,8 @@ fn test_vm_config_persistence() {
     };
 
     let mmu = SoftMmu::new(original_config.memory_size, false);
-    let vm: VirtualMachine<IRBlock> = VirtualMachine::with_mmu(original_config.clone(), Box::new(mmu));
+    let vm: VirtualMachine<IRBlock> =
+        VirtualMachine::with_mmu(original_config.clone(), Box::new(mmu));
 
     let vm_config = vm.config();
     assert_eq!(vm_config.guest_arch, original_config.guest_arch);
@@ -257,7 +258,8 @@ fn test_memory_alignment() {
     // 测试 2 字节对齐
     for i in 0..5 {
         let addr = 0x2000 + i * 2;
-        mmu.write(addr, (i * 0x1111) as u64, 2).expect("Failed 2-byte write");
+        mmu.write(addr, (i * 0x1111) as u64, 2)
+            .expect("Failed 2-byte write");
         let val = mmu.read(addr, 2).expect("Failed 2-byte read");
         assert_eq!(val, (i * 0x1111) as u64);
     }
@@ -265,7 +267,8 @@ fn test_memory_alignment() {
     // 测试 4 字节对齐
     for i in 0..5 {
         let addr = 0x3000 + i * 4;
-        mmu.write(addr, (i * 0x11111111) as u64, 4).expect("Failed 4-byte write");
+        mmu.write(addr, (i * 0x11111111) as u64, 4)
+            .expect("Failed 4-byte write");
         let val = mmu.read(addr, 4).expect("Failed 4-byte read");
         assert_eq!(val, (i * 0x11111111) as u64);
     }
@@ -273,7 +276,8 @@ fn test_memory_alignment() {
     // 测试 8 字节对齐
     for i in 0..5 {
         let addr = 0x4000 + i * 8;
-        mmu.write(addr, (i as u64) * 0x1111111111111111, 8).expect("Failed 8-byte write");
+        mmu.write(addr, (i as u64) * 0x1111111111111111, 8)
+            .expect("Failed 8-byte write");
         let val = mmu.read(addr, 8).expect("Failed 8-byte read");
         assert_eq!(val, (i as u64) * 0x1111111111111111);
     }

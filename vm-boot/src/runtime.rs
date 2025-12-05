@@ -2,8 +2,11 @@
 //!
 //! 支持暂停、恢复、安全关闭等操作
 
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
-use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// 运行时控制命令
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +58,7 @@ impl RuntimeController {
     /// 创建新的运行时控制器
     pub fn new() -> Self {
         let (cmd_tx, cmd_rx) = channel();
-        
+
         Self {
             state: Arc::new(Mutex::new(RuntimeState::Stopped)),
             cmd_tx,
@@ -67,10 +70,8 @@ impl RuntimeController {
 
     /// 获取当前状态
     pub fn state(&self) -> RuntimeState {
-        self.state.lock()
-            .map(|state| *state)
-            .unwrap_or(RuntimeState::Stopped)
-        self.state.lock()
+        self.state
+            .lock()
             .map(|state| *state)
             .unwrap_or(RuntimeState::Stopped)
     }
@@ -87,7 +88,8 @@ impl RuntimeController {
 
     /// 发送命令
     pub fn send_command(&self, cmd: RuntimeCommand) -> Result<(), String> {
-        self.cmd_tx.send(cmd)
+        self.cmd_tx
+            .send(cmd)
             .map_err(|e| format!("Failed to send command: {}", e))
     }
 
@@ -170,14 +172,14 @@ impl RuntimeController {
                     Some(RuntimeEvent::Reset)
                 }
                 RuntimeCommand::SaveSnapshot => Some(RuntimeEvent::SnapshotSaved("default".into())),
-                RuntimeCommand::LoadSnapshot => Some(RuntimeEvent::SnapshotLoaded("default".into())),
+                RuntimeCommand::LoadSnapshot => {
+                    Some(RuntimeEvent::SnapshotLoaded("default".into()))
+                }
             }
         } else {
             None
         }
     }
-
-    
 
     /// 更新状态
     pub fn update_state(&self, new_state: RuntimeState) {
@@ -306,22 +308,26 @@ mod tests {
         assert!(controller.is_running());
 
         controller.pause().expect("Pause command should succeed");
-        let cmd = controller.process_commands().expect("Expected pause command");
+        let cmd = controller
+            .process_commands()
+            .expect("Expected pause command");
         controller.pause().expect("Pause command should succeed");
-        let cmd = controller.process_commands().expect("Expected pause command");
+        let cmd = controller
+            .process_commands()
+            .expect("Expected pause command");
         assert_eq!(cmd, RuntimeCommand::Pause);
     }
 
     #[test]
     fn test_state_transitions() {
         let controller = RuntimeController::new();
-        
+
         assert!(controller.pause().is_err()); // 不能从 Stopped 暂停
-        
+
         controller.start().expect("Should start for pause test");
         controller.start().expect("Should start for pause test");
         assert!(controller.pause().is_ok());
-        
+
         controller.update_state(RuntimeState::Paused);
         assert!(controller.resume().is_ok());
     }

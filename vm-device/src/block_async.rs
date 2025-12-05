@@ -21,7 +21,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 /// 异步块设备请求类型
 #[derive(Debug, Clone)]
@@ -235,7 +235,7 @@ impl AsyncVirtioBlock {
 
     /// 使用自定义配置从文件路径异步打开块设备
     pub async fn open_with_config<P: AsRef<Path>>(
-        path: P, 
+        path: P,
         read_only: bool,
         config: AsyncIoConfig,
     ) -> std::io::Result<Self> {
@@ -264,32 +264,40 @@ impl AsyncVirtioBlock {
     }
 
     /// 批量读取操作
-    pub async fn batch_read(&self, requests: Vec<BatchReadRequest>) -> Result<Vec<BatchResult>, String> {
-        let file = self.file.as_ref()
+    pub async fn batch_read(
+        &self,
+        requests: Vec<BatchReadRequest>,
+    ) -> Result<Vec<BatchResult>, String> {
+        let file = self
+            .file
+            .as_ref()
             .ok_or_else(|| "Device not opened".to_string())?;
 
         let mut results = Vec::with_capacity(requests.len());
         let stats = self.stats.clone();
-        
+
         // 按优先级排序
         let mut sorted_requests: Vec<_> = requests.into_iter().enumerate().collect();
         sorted_requests.sort_by(|a, b| b.1.priority.cmp(&a.1.priority));
-        
+
         // 尝试合并相邻的读请求
         let merged_requests = if self.config.write_coalescing {
             Self::merge_read_requests(&sorted_requests)
         } else {
-            sorted_requests.into_iter().map(|(i, r)| (vec![i], r)).collect()
+            sorted_requests
+                .into_iter()
+                .map(|(i, r)| (vec![i], r))
+                .collect()
         };
-        
+
         let mut file_guard = file.lock().await;
-        
+
         for (indices, req) in merged_requests {
             let offset = req.sector * (self.sector_size as u64);
             let size = (req.count as usize) * (self.sector_size as usize);
-            
+
             let start = std::time::Instant::now();
-            
+
             if let Err(e) = file_guard.seek(std::io::SeekFrom::Start(offset)).await {
                 for i in indices {
                     results.push(BatchResult {
@@ -301,7 +309,7 @@ impl AsyncVirtioBlock {
                 }
                 continue;
             }
-            
+
             let mut buffer = vec![0u8; size];
             match file_guard.read_exact(&mut buffer).await {
                 Ok(_) => {
@@ -311,7 +319,7 @@ impl AsyncVirtioBlock {
                     s.bytes_read += size as u64;
                     s.avg_read_latency_ns = (s.avg_read_latency_ns + latency) / 2;
                     drop(s);
-                    
+
                     // 分发数据到各个请求
                     let sector_size = self.sector_size as usize;
                     let mut offset = 0usize;
@@ -338,26 +346,29 @@ impl AsyncVirtioBlock {
                 }
             }
         }
-        
+
         // 按原始索引排序结果
         results.sort_by_key(|r| r.index);
         Ok(results)
     }
-    
+
     /// 合并相邻的读请求
-    fn merge_read_requests(requests: &[(usize, BatchReadRequest)]) -> Vec<(Vec<usize>, BatchReadRequest)> {
+    fn merge_read_requests(
+        requests: &[(usize, BatchReadRequest)],
+    ) -> Vec<(Vec<usize>, BatchReadRequest)> {
         if requests.is_empty() {
             return Vec::new();
         }
-        
+
         let mut result = Vec::new();
         let mut current_indices = vec![requests[0].0];
         let mut current = requests[0].1.clone();
-        
+
         for (idx, req) in requests.iter().skip(1) {
             // 检查是否可以合并（连续扇区）
-            if req.sector == current.sector + current.count as u64 
-               && req.priority == current.priority {
+            if req.sector == current.sector + current.count as u64
+                && req.priority == current.priority
+            {
                 current_indices.push(*idx);
                 current.count += req.count;
             } else {
@@ -371,37 +382,47 @@ impl AsyncVirtioBlock {
     }
 
     /// 批量写入操作
-    pub async fn batch_write(&self, requests: Vec<BatchWriteRequest>) -> Result<Vec<BatchResult>, String> {
+    pub async fn batch_write(
+        &self,
+        requests: Vec<BatchWriteRequest>,
+    ) -> Result<Vec<BatchResult>, String> {
         if self.read_only {
             return Err("Device is read-only".to_string());
         }
 
-        let file = self.file.as_ref()
+        let file = self
+            .file
+            .as_ref()
             .ok_or_else(|| "Device not opened".to_string())?;
 
         let mut results = Vec::with_capacity(requests.len());
         let stats = self.stats.clone();
-        
+
         // 按优先级排序
         let mut sorted_requests: Vec<_> = requests.into_iter().enumerate().collect();
         sorted_requests.sort_by(|a, b| b.1.priority.cmp(&a.1.priority));
-        
+
         let mut file_guard = file.lock().await;
-        
+
         for (idx, req) in sorted_requests {
             let offset = req.sector * (self.sector_size as u64);
             let start = std::time::Instant::now();
-            
+
             let result = async {
-                file_guard.seek(std::io::SeekFrom::Start(offset)).await
+                file_guard
+                    .seek(std::io::SeekFrom::Start(offset))
+                    .await
                     .map_err(|e| format!("Seek failed: {}", e))?;
-                file_guard.write_all(&req.data).await
+                file_guard
+                    .write_all(&req.data)
+                    .await
                     .map_err(|e| format!("Write failed: {}", e))?;
                 Ok::<(), String>(())
-            }.await;
-            
+            }
+            .await;
+
             let latency = start.elapsed().as_nanos() as u64;
-            
+
             match result {
                 Ok(()) => {
                     let mut s = stats.lock().await;
@@ -409,7 +430,7 @@ impl AsyncVirtioBlock {
                     s.bytes_written += req.data.len() as u64;
                     s.avg_write_latency_ns = (s.avg_write_latency_ns + latency) / 2;
                     drop(s);
-                    
+
                     results.push(BatchResult {
                         index: idx,
                         success: true,
@@ -427,7 +448,7 @@ impl AsyncVirtioBlock {
                 }
             }
         }
-        
+
         results.sort_by_key(|r| r.index);
         Ok(results)
     }
@@ -461,18 +482,24 @@ impl AsyncVirtioBlock {
 
     /// 异步读取数据
     pub async fn read_async(&self, sector: u64, count: u32) -> Result<Vec<u8>, String> {
-        let file = self.file.as_ref()
+        let file = self
+            .file
+            .as_ref()
             .ok_or_else(|| "Device not opened".to_string())?;
 
         let mut file_guard = file.lock().await;
         let offset = sector * (self.sector_size as u64);
         let size = (count as usize) * (self.sector_size as usize);
 
-        file_guard.seek(std::io::SeekFrom::Start(offset)).await
+        file_guard
+            .seek(std::io::SeekFrom::Start(offset))
+            .await
             .map_err(|e| format!("Seek failed: {}", e))?;
 
         let mut buffer = vec![0u8; size];
-        file_guard.read_exact(&mut buffer).await
+        file_guard
+            .read_exact(&mut buffer)
+            .await
             .map_err(|e| format!("Read failed: {}", e))?;
 
         Ok(buffer)
@@ -484,16 +511,22 @@ impl AsyncVirtioBlock {
             return Err("Device is read-only".to_string());
         }
 
-        let file = self.file.as_ref()
+        let file = self
+            .file
+            .as_ref()
             .ok_or_else(|| "Device not opened".to_string())?;
 
         let mut file_guard = file.lock().await;
         let offset = sector * (self.sector_size as u64);
 
-        file_guard.seek(std::io::SeekFrom::Start(offset)).await
+        file_guard
+            .seek(std::io::SeekFrom::Start(offset))
+            .await
             .map_err(|e| format!("Seek failed: {}", e))?;
 
-        file_guard.write_all(data).await
+        file_guard
+            .write_all(data)
+            .await
             .map_err(|e| format!("Write failed: {}", e))?;
 
         Ok(())
@@ -501,11 +534,15 @@ impl AsyncVirtioBlock {
 
     /// 异步刷新
     pub async fn flush_async(&self) -> Result<(), String> {
-        let file = self.file.as_ref()
+        let file = self
+            .file
+            .as_ref()
             .ok_or_else(|| "Device not opened".to_string())?;
 
         let file_guard = file.lock().await;
-        file_guard.sync_all().await
+        file_guard
+            .sync_all()
+            .await
             .map_err(|e| format!("Flush failed: {}", e))?;
 
         Ok(())
@@ -519,7 +556,7 @@ impl Default for AsyncVirtioBlock {
 }
 
 /// 异步请求处理器
-/// 
+///
 /// 在独立的 tokio 任务中运行，处理来自 VM 的块设备请求
 pub async fn run_async_block_handler(
     device: Arc<AsyncVirtioBlock>,
@@ -529,7 +566,11 @@ pub async fn run_async_block_handler(
 
     while let Some(request) = rx.recv().await {
         match request {
-            AsyncBlockRequest::Read { sector, count, response_tx } => {
+            AsyncBlockRequest::Read {
+                sector,
+                count,
+                response_tx,
+            } => {
                 let result = device.read_async(sector, count).await;
                 let response = match result {
                     Ok(data) => AsyncBlockResponse::ReadOk(data),
@@ -537,7 +578,11 @@ pub async fn run_async_block_handler(
                 };
                 let _ = response_tx.send(response).await;
             }
-            AsyncBlockRequest::Write { sector, data, response_tx } => {
+            AsyncBlockRequest::Write {
+                sector,
+                data,
+                response_tx,
+            } => {
                 let result = device.write_async(sector, &data).await;
                 let response = match result {
                     Ok(()) => AsyncBlockResponse::WriteOk,
@@ -661,31 +706,45 @@ impl AsyncVirtioBlockMmio {
     }
 
     /// 提交异步读取请求
-    pub async fn submit_read(&self, sector: u64, count: u32, desc_idx: u16) -> Result<Vec<u8>, String> {
+    pub async fn submit_read(
+        &self,
+        sector: u64,
+        count: u32,
+        desc_idx: u16,
+    ) -> Result<Vec<u8>, String> {
         let (response_tx, mut response_rx) = mpsc::channel(1);
-        
-        self.request_tx.send(AsyncBlockRequest::Read {
-            sector,
-            count,
-            response_tx,
-        }).await.map_err(|e| format!("Send failed: {}", e))?;
+
+        self.request_tx
+            .send(AsyncBlockRequest::Read {
+                sector,
+                count,
+                response_tx,
+            })
+            .await
+            .map_err(|e| format!("Send failed: {}", e))?;
 
         match response_rx.recv().await {
             Some(AsyncBlockResponse::ReadOk(data)) => {
                 // 发送完成通知
-                let _ = self.completion_tx.send(VirtioCompletion {
-                    desc_idx,
-                    len: data.len() as u32,
-                    status: 0, // OK
-                }).await;
+                let _ = self
+                    .completion_tx
+                    .send(VirtioCompletion {
+                        desc_idx,
+                        len: data.len() as u32,
+                        status: 0, // OK
+                    })
+                    .await;
                 Ok(data)
             }
             Some(AsyncBlockResponse::Error(e)) => {
-                let _ = self.completion_tx.send(VirtioCompletion {
-                    desc_idx,
-                    len: 0,
-                    status: 1, // IO_ERR
-                }).await;
+                let _ = self
+                    .completion_tx
+                    .send(VirtioCompletion {
+                        desc_idx,
+                        len: 0,
+                        status: 1, // IO_ERR
+                    })
+                    .await;
                 Err(e)
             }
             _ => Err("Unexpected response".to_string()),
@@ -693,30 +752,44 @@ impl AsyncVirtioBlockMmio {
     }
 
     /// 提交异步写入请求
-    pub async fn submit_write(&self, sector: u64, data: Vec<u8>, desc_idx: u16) -> Result<(), String> {
+    pub async fn submit_write(
+        &self,
+        sector: u64,
+        data: Vec<u8>,
+        desc_idx: u16,
+    ) -> Result<(), String> {
         let (response_tx, mut response_rx) = mpsc::channel(1);
-        
-        self.request_tx.send(AsyncBlockRequest::Write {
-            sector,
-            data,
-            response_tx,
-        }).await.map_err(|e| format!("Send failed: {}", e))?;
+
+        self.request_tx
+            .send(AsyncBlockRequest::Write {
+                sector,
+                data,
+                response_tx,
+            })
+            .await
+            .map_err(|e| format!("Send failed: {}", e))?;
 
         match response_rx.recv().await {
             Some(AsyncBlockResponse::WriteOk) => {
-                let _ = self.completion_tx.send(VirtioCompletion {
-                    desc_idx,
-                    len: 0,
-                    status: 0,
-                }).await;
+                let _ = self
+                    .completion_tx
+                    .send(VirtioCompletion {
+                        desc_idx,
+                        len: 0,
+                        status: 0,
+                    })
+                    .await;
                 Ok(())
             }
             Some(AsyncBlockResponse::Error(e)) => {
-                let _ = self.completion_tx.send(VirtioCompletion {
-                    desc_idx,
-                    len: 0,
-                    status: 1,
-                }).await;
+                let _ = self
+                    .completion_tx
+                    .send(VirtioCompletion {
+                        desc_idx,
+                        len: 0,
+                        status: 1,
+                    })
+                    .await;
                 Err(e)
             }
             _ => Err("Unexpected response".to_string()),
@@ -726,26 +799,33 @@ impl AsyncVirtioBlockMmio {
     /// 提交异步刷新请求
     pub async fn submit_flush(&self, desc_idx: u16) -> Result<(), String> {
         let (response_tx, mut response_rx) = mpsc::channel(1);
-        
-        self.request_tx.send(AsyncBlockRequest::Flush {
-            response_tx,
-        }).await.map_err(|e| format!("Send failed: {}", e))?;
+
+        self.request_tx
+            .send(AsyncBlockRequest::Flush { response_tx })
+            .await
+            .map_err(|e| format!("Send failed: {}", e))?;
 
         match response_rx.recv().await {
             Some(AsyncBlockResponse::FlushOk) => {
-                let _ = self.completion_tx.send(VirtioCompletion {
-                    desc_idx,
-                    len: 0,
-                    status: 0,
-                }).await;
+                let _ = self
+                    .completion_tx
+                    .send(VirtioCompletion {
+                        desc_idx,
+                        len: 0,
+                        status: 0,
+                    })
+                    .await;
                 Ok(())
             }
             Some(AsyncBlockResponse::Error(e)) => {
-                let _ = self.completion_tx.send(VirtioCompletion {
-                    desc_idx,
-                    len: 0,
-                    status: 1,
-                }).await;
+                let _ = self
+                    .completion_tx
+                    .send(VirtioCompletion {
+                        desc_idx,
+                        len: 0,
+                        status: 1,
+                    })
+                    .await;
                 Err(e)
             }
             _ => Err("Unexpected response".to_string()),
@@ -787,8 +867,8 @@ impl AsyncVirtioBlockMmio {
     /// 获取设备特性
     fn get_features(&self) -> u32 {
         let mut features = 0u32;
-        features |= 1 << 6;  // VIRTIO_BLK_F_BLK_SIZE
-        features |= 1 << 9;  // VIRTIO_BLK_F_FLUSH
+        features |= 1 << 6; // VIRTIO_BLK_F_BLK_SIZE
+        features |= 1 << 9; // VIRTIO_BLK_F_FLUSH
         if self.device.is_read_only() {
             features |= 1 << 5; // VIRTIO_BLK_F_RO
         }
@@ -802,7 +882,9 @@ impl AsyncVirtioBlockMmio {
         self.pending_completions = self.pending_completions.saturating_sub(1);
         log::debug!(
             "Async block completion: desc_idx={}, len={}, status={}",
-            completion.desc_idx, completion.len, completion.status
+            completion.desc_idx,
+            completion.len,
+            completion.status
         );
     }
 
@@ -818,7 +900,7 @@ impl AsyncVirtioBlockMmio {
 }
 
 /// 异步 VirtIO 块设备完成处理器
-/// 
+///
 /// 监听完成通知并更新设备状态
 pub async fn run_completion_handler(
     device: Arc<Mutex<AsyncVirtioBlockMmio>>,
@@ -832,7 +914,7 @@ pub async fn run_completion_handler(
             let mut dev = device.lock().await;
             dev.process_completion(&completion);
         }
-        
+
         // 触发中断回调
         if let Some(ref callback) = interrupt_callback {
             callback();
@@ -859,11 +941,10 @@ mod tests {
         let device = Arc::new(AsyncVirtioBlock::new());
         let (tx, _rx) = mpsc::channel(64);
         let mmio = AsyncVirtioBlockMmio::new(device, tx);
-        
+
         // 验证 MMIO 寄存器读取
         assert_eq!(mmio.read(0x000, 4), 0x74726976); // Magic
-        assert_eq!(mmio.read(0x004, 4), 0x2);        // Version
-        assert_eq!(mmio.read(0x008, 4), 0x2);        // Device ID
+        assert_eq!(mmio.read(0x004, 4), 0x2); // Version
+        assert_eq!(mmio.read(0x008, 4), 0x2); // Device ID
     }
 }
-

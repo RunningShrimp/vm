@@ -1,10 +1,11 @@
 use crate::mmu_util::MmuUtil;
+use vm_core::{MMU, VmError};
 
 pub trait VirtioDevice {
     fn device_id(&self) -> u32;
     fn num_queues(&self) -> usize;
     fn get_queue(&mut self, index: usize) -> &mut Queue;
-    fn process_queues(&mut self, mmu: &mut dyn MmuUtil);
+    fn process_queues(&mut self, mmu: &mut dyn MMU);
 }
 
 pub use crate::block::VirtioBlockMmio as VirtioBlock;
@@ -29,19 +30,55 @@ impl Queue {
         }
     }
 
-    pub fn pop(&mut self, mmu: &dyn MmuUtil) -> Option<DescChain> {
+    pub fn pop(&mut self, mmu: &dyn MMU) -> Option<DescChain> {
         let avail_idx = mmu.read_u16(self.avail_addr + 2).ok()?;
         if self.last_avail_idx == avail_idx {
             return None;
         }
 
-        let desc_index = mmu.read_u16(self.avail_addr + 4 + (self.last_avail_idx % self.size) as u64 * 2).ok()?;
+        let desc_index = mmu
+            .read_u16(self.avail_addr + 4 + (self.last_avail_idx % self.size) as u64 * 2)
+            .ok()?;
         self.last_avail_idx = self.last_avail_idx.wrapping_add(1);
 
         Some(DescChain::new(mmu, self.desc_addr, desc_index))
     }
 
-    pub fn add_used(&mut self, mmu: &mut dyn MmuUtil, head_index: u16, len: u32) {
+    /// 批量弹出多个描述符链（优化性能）
+    ///
+    /// 一次性读取多个可用索引，减少MMU调用次数
+    pub fn pop_batch(&mut self, mmu: &dyn MMU, max_count: usize) -> Vec<DescChain> {
+        let avail_idx = match mmu.read_u16(self.avail_addr + 2) {
+            Ok(idx) => idx,
+            Err(_) => return Vec::new(),
+        };
+
+        let available_count = (avail_idx.wrapping_sub(self.last_avail_idx) as usize)
+            .min(max_count)
+            .min(self.size as usize);
+
+        if available_count == 0 {
+            return Vec::new();
+        }
+
+        // 批量读取可用索引
+        let mut chains = Vec::with_capacity(available_count);
+        let ring_addr = self.avail_addr + 4;
+
+        for i in 0..available_count {
+            let ring_offset = ((self.last_avail_idx.wrapping_add(i as u16) % self.size) as u64) * 2;
+            if let Ok(desc_index) = mmu.read_u16(ring_addr + ring_offset) {
+                if let Ok(chain) = DescChain::try_new(mmu, self.desc_addr, desc_index) {
+                    chains.push(chain);
+                }
+            }
+        }
+
+        self.last_avail_idx = self.last_avail_idx.wrapping_add(chains.len() as u16);
+        chains
+    }
+
+    pub fn add_used(&mut self, mmu: &mut dyn MMU, head_index: u16, len: u32) {
         if let Ok(used_idx) = mmu.read_u16(self.used_addr + 2) {
             let used_elem_addr = self.used_addr + 4 + (used_idx % self.size) as u64 * 8;
             let _ = mmu.write_u32(used_elem_addr, head_index as u32);
@@ -50,7 +87,30 @@ impl Queue {
         }
     }
 
-    pub fn signal_used(&self, _mmu: &mut dyn MmuUtil) {
+    /// 批量添加已使用的描述符（优化性能）
+    ///
+    /// 一次性写入多个used元素，减少MMU调用次数
+    pub fn add_used_batch(&mut self, mmu: &mut dyn MMU, entries: &[(u16, u32)]) {
+        if entries.is_empty() {
+            return;
+        }
+
+        if let Ok(mut used_idx) = mmu.read_u16(self.used_addr + 2) {
+            let base_addr = self.used_addr + 4;
+
+            for (head_index, len) in entries {
+                let used_elem_addr = base_addr + (used_idx % self.size) as u64 * 8;
+                let _ = mmu.write_u32(used_elem_addr, *head_index as u32);
+                let _ = mmu.write_u32(used_elem_addr + 4, *len);
+                used_idx = used_idx.wrapping_add(1);
+            }
+
+            // 最后更新used索引
+            let _ = mmu.write_u16(self.used_addr + 2, used_idx);
+        }
+    }
+
+    pub fn signal_used(&self, _mmu: &mut dyn MMU) {
         // For now, we don't support interrupts
     }
 }
@@ -61,17 +121,45 @@ pub struct DescChain {
 }
 
 impl DescChain {
-    pub fn new(mmu: &dyn MmuUtil, desc_table: u64, head_index: u16) -> Self {
+    pub fn new(mmu: &dyn MMU, desc_table: u64, head_index: u16) -> Self {
+        Self::try_new(mmu, desc_table, head_index).unwrap_or_else(|_| {
+            // 如果失败，返回一个空的描述符链
+            Self {
+                head_index,
+                descs: Vec::new(),
+            }
+        })
+    }
+
+    /// 尝试创建描述符链（返回Result以便错误处理）
+    pub fn try_new(mmu: &dyn MMU, desc_table: u64, head_index: u16) -> Result<Self, VmError> {
         let mut descs = Vec::new();
         let mut next_index = Some(head_index);
+        let mut visited = std::collections::HashSet::new();
 
         while let Some(index) = next_index {
+            // 防止循环引用
+            if !visited.insert(index) {
+                return Err(VmError::Core(vm_core::CoreError::Internal {
+                    message: "Circular descriptor chain detected".to_string(),
+                    module: "VirtIO".to_string(),
+                }));
+            }
+
             let desc = Desc::from_memory(mmu, desc_table, index);
             next_index = desc.next;
             descs.push(desc);
+
+            // 限制链长度，防止无限循环
+            if descs.len() > 256 {
+                return Err(VmError::Core(vm_core::CoreError::Internal {
+                    message: "Descriptor chain too long".to_string(),
+                    module: "VirtIO".to_string(),
+                }));
+            }
         }
 
-        Self { head_index, descs }
+        Ok(Self { head_index, descs })
     }
 }
 
@@ -84,7 +172,7 @@ pub struct Desc {
 }
 
 impl Desc {
-    pub fn from_memory(mmu: &dyn MmuUtil, desc_table: u64, index: u16) -> Self {
+    pub fn from_memory(mmu: &dyn MMU, desc_table: u64, index: u16) -> Self {
         let base = desc_table + index as u64 * 16;
         let addr = mmu.read_u64(base).unwrap_or(0);
         let len = mmu.read_u32(base + 8).unwrap_or(0);
@@ -95,6 +183,11 @@ impl Desc {
             None
         };
 
-        Self { addr, len, flags, next }
+        Self {
+            addr,
+            len,
+            flags,
+            next,
+        }
     }
 }

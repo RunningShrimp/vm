@@ -3,7 +3,7 @@
 //! 支持保存和恢复虚拟机的完整状态
 
 use std::fs::{File, create_dir_all};
-use std::io::{Read, Write, BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use vm_core::GuestAddr;
@@ -42,7 +42,12 @@ pub struct SnapshotMetadata {
 
 impl SnapshotMetadata {
     /// 创建新的快照元数据
-    pub fn new(name: impl Into<String>, arch: impl Into<String>, memory_size: usize, vcpu_count: u32) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        arch: impl Into<String>,
+        memory_size: usize,
+        vcpu_count: u32,
+    ) -> Self {
         Self {
             name: name.into(),
             timestamp: SystemTime::now()
@@ -71,7 +76,10 @@ impl SnapshotMetadata {
             self.arch,
             self.memory_size,
             self.vcpu_count,
-            self.description.as_ref().map(|s| format!("\"{}\"", s)).unwrap_or_else(|| "null".to_string())
+            self.description
+                .as_ref()
+                .map(|s| format!("\"{}\"", s))
+                .unwrap_or_else(|| "null".to_string())
         )
     }
 
@@ -80,7 +88,7 @@ impl SnapshotMetadata {
         // 简化的 JSON 解析
         let json = json.trim_matches(|c| c == '{' || c == '}');
         let mut fields = std::collections::HashMap::new();
-        
+
         for pair in json.split(',') {
             let parts: Vec<&str> = pair.splitn(2, ':').collect();
             if parts.len() == 2 {
@@ -91,31 +99,39 @@ impl SnapshotMetadata {
         }
 
         Ok(Self {
-            name: fields.get("name")
+            name: fields
+                .get("name")
                 .ok_or_else(|| SnapshotError::InvalidFormat("Missing name".to_string()))?
                 .trim_matches('"')
                 .to_string(),
-            timestamp: fields.get("timestamp")
+            timestamp: fields
+                .get("timestamp")
                 .ok_or_else(|| SnapshotError::InvalidFormat("Missing timestamp".to_string()))?
                 .parse()
                 .map_err(|_| SnapshotError::InvalidFormat("Invalid timestamp".to_string()))?,
-            arch: fields.get("arch")
+            arch: fields
+                .get("arch")
                 .ok_or_else(|| SnapshotError::InvalidFormat("Missing arch".to_string()))?
                 .trim_matches('"')
                 .to_string(),
-            memory_size: fields.get("memory_size")
+            memory_size: fields
+                .get("memory_size")
                 .ok_or_else(|| SnapshotError::InvalidFormat("Missing memory_size".to_string()))?
                 .parse()
                 .map_err(|_| SnapshotError::InvalidFormat("Invalid memory_size".to_string()))?,
-            vcpu_count: fields.get("vcpu_count")
+            vcpu_count: fields
+                .get("vcpu_count")
                 .ok_or_else(|| SnapshotError::InvalidFormat("Missing vcpu_count".to_string()))?
                 .parse()
                 .map_err(|_| SnapshotError::InvalidFormat("Invalid vcpu_count".to_string()))?,
-            description: fields.get("description")
-                .and_then(|s| {
-                    let s = s.trim_matches('"');
-                    if s == "null" { None } else { Some(s.to_string()) }
-                }),
+            description: fields.get("description").and_then(|s| {
+                let s = s.trim_matches('"');
+                if s == "null" {
+                    None
+                } else {
+                    Some(s.to_string())
+                }
+            }),
         })
     }
 }
@@ -162,7 +178,7 @@ impl SnapshotManager {
     pub fn new(snapshot_dir: impl AsRef<Path>) -> Result<Self, SnapshotError> {
         let snapshot_dir = snapshot_dir.as_ref().to_path_buf();
         create_dir_all(&snapshot_dir)?;
-        
+
         Ok(Self { snapshot_dir })
     }
 
@@ -210,8 +226,10 @@ impl SnapshotManager {
         writer.write_all(&(snapshot.memory.data.len() as u64).to_le_bytes())?;
         writer.write_all(&snapshot.memory.data)?;
 
-        log::info!("Snapshot saved successfully: {} bytes", 
-            std::fs::metadata(&path)?.len());
+        log::info!(
+            "Snapshot saved successfully: {} bytes",
+            std::fs::metadata(&path)?.len()
+        );
 
         Ok(())
     }
@@ -233,7 +251,9 @@ impl SnapshotManager {
         let mut magic = [0u8; 4];
         reader.read_exact(&mut magic)?;
         if &magic != b"VMSN" {
-            return Err(SnapshotError::InvalidFormat("Invalid magic number".to_string()));
+            return Err(SnapshotError::InvalidFormat(
+                "Invalid magic number".to_string(),
+            ));
         }
 
         // 读取版本号
@@ -241,14 +261,17 @@ impl SnapshotManager {
         reader.read_exact(&mut version_bytes)?;
         let version = u32::from_le_bytes(version_bytes);
         if version != 1 {
-            return Err(SnapshotError::InvalidFormat(format!("Unsupported version: {}", version)));
+            return Err(SnapshotError::InvalidFormat(format!(
+                "Unsupported version: {}",
+                version
+            )));
         }
 
         // 读取元数据
         let mut metadata_len_bytes = [0u8; 4];
         reader.read_exact(&mut metadata_len_bytes)?;
         let metadata_len = u32::from_le_bytes(metadata_len_bytes) as usize;
-        
+
         let mut metadata_json = vec![0u8; metadata_len];
         reader.read_exact(&mut metadata_json)?;
         let metadata = SnapshotMetadata::from_json(&String::from_utf8_lossy(&metadata_json))?;
@@ -311,11 +334,11 @@ impl SnapshotManager {
     /// 列出所有快照
     pub fn list(&self) -> Result<Vec<String>, SnapshotError> {
         let mut snapshots = Vec::new();
-        
+
         for entry in std::fs::read_dir(&self.snapshot_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.extension().and_then(|s| s.to_str()) == Some("snapshot") {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                     snapshots.push(name.to_string());
@@ -347,10 +370,11 @@ mod tests {
     fn test_snapshot_metadata() {
         let metadata = SnapshotMetadata::new("test", "riscv64", 1024 * 1024 * 1024, 2)
             .with_description("Test snapshot");
-        
+
         let json = metadata.to_json();
-        let loaded = SnapshotMetadata::from_json(&json).expect("Failed to deserialize snapshot metadata");
-        
+        let loaded =
+            SnapshotMetadata::from_json(&json).expect("Failed to deserialize snapshot metadata");
+
         assert_eq!(loaded.name, "test");
         assert_eq!(loaded.arch, "riscv64");
         assert_eq!(loaded.memory_size, 1024 * 1024 * 1024);
@@ -361,7 +385,7 @@ mod tests {
     fn test_snapshot_manager() {
         let temp_dir = std::env::temp_dir().join("vm_snapshots_test");
         let manager = SnapshotManager::new(&temp_dir).expect("Failed to create snapshot manager");
-        
+
         let metadata = SnapshotMetadata::new("test", "riscv64", 1024, 1);
         let vcpu = VcpuSnapshot {
             id: 0,
@@ -373,20 +397,20 @@ mod tests {
             data: vec![0; 1024],
             base_addr: 0x80000000,
         };
-        
+
         let snapshot = VmSnapshot {
             metadata,
             vcpus: vec![vcpu],
             memory,
         };
-        
+
         manager.save(&snapshot).expect("Failed to save snapshot");
         let loaded = manager.load("test").expect("Failed to load snapshot");
-        
+
         assert_eq!(loaded.metadata.name, "test");
         assert_eq!(loaded.vcpus.len(), 1);
         assert_eq!(loaded.memory.data.len(), 1024);
-        
+
         // 清理
         manager.delete("test").expect("Failed to delete snapshot");
         std::fs::remove_dir_all(&temp_dir).ok();

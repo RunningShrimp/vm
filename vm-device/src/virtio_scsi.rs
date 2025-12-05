@@ -1,5 +1,5 @@
-use crate::virtio::{VirtioDevice, Queue};
-use crate::mmu_util::MmuUtil;
+use crate::virtio::{Queue, VirtioDevice};
+use vm_core::MMU;
 
 pub struct VirtioScsi {
     queues: Vec<Queue>,
@@ -7,7 +7,9 @@ pub struct VirtioScsi {
 
 impl VirtioScsi {
     pub fn new() -> Self {
-        Self { queues: vec![Queue::new(256); 2] }
+        Self {
+            queues: vec![Queue::new(256); 2],
+        }
     }
 }
 
@@ -24,7 +26,7 @@ impl VirtioDevice for VirtioScsi {
         &mut self.queues[index]
     }
 
-    fn process_queues(&mut self, _mmu: &mut dyn MmuUtil) {
+    fn process_queues(&mut self, _mmu: &mut dyn MMU) {
         for i in 0..self.num_queues() {
             let _queue = &mut self.queues[i];
             // ...

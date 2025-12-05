@@ -1,16 +1,11 @@
-# Cargo configuration for VM workspace
+# Cargo配置文件
+# 用于配置代码覆盖率工具和其他开发工具
 
 [build]
-# Enable all CPU features for better performance
-# rustflags = ["-C", "target-cpu=native"]
+# 启用调试信息以支持代码覆盖率
+rustflags = ["-C", "debuginfo=1"]
 
-[doc]
-# Documentation build settings
-rustdoc-args = ["--document-private-items"]
-
-[alias]
-# Custom aliases for common operations
-doc-open = "doc --workspace --no-deps --open"
-doc-all = "doc --workspace --all-features"
-test-all = "test --workspace --all-features"
+[target.'cfg(all())']
+# 覆盖率工具配置
+rustflags = ["-C", "debuginfo=1"]
 

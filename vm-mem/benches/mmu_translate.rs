@@ -1,15 +1,17 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box, BenchmarkId, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use vm_core::{AccessType, MMU};
 use vm_mem::SoftMmu;
-use vm_core::{MMU, AccessType};
 
 /// 基准测试: Bare 模式地址翻译 (无 TLB 查找)
 fn bench_translate_bare(c: &mut Criterion) {
     let mut mmu = SoftMmu::new(64 * 1024 * 1024, false);
-    
+
     c.bench_function("translate_bare", |b| {
         b.iter(|| {
             let va = black_box(0x1000_0000);
-            let _ = mmu.translate(va, AccessType::Read).expect("Translate failed");
+            let _ = mmu
+                .translate(va, AccessType::Read)
+                .expect("Translate failed");
         })
     });
 }
@@ -18,12 +20,12 @@ fn bench_translate_bare(c: &mut Criterion) {
 fn bench_memory_read(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_read");
     let mut mmu = SoftMmu::new(64 * 1024 * 1024, false);
-    
+
     // 初始化测试数据
     for i in 0..1000 {
         let _ = mmu.write(i * 8, 0xDEADBEEF_u64, 8);
     }
-    
+
     for size in [1u8, 2, 4, 8].iter() {
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
@@ -40,7 +42,7 @@ fn bench_memory_read(c: &mut Criterion) {
 fn bench_memory_write(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_write");
     let mut mmu = SoftMmu::new(64 * 1024 * 1024, false);
-    
+
     for size in [1u8, 2, 4, 8].iter() {
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
@@ -57,7 +59,7 @@ fn bench_memory_write(c: &mut Criterion) {
 /// 基准测试: 顺序内存访问
 fn bench_sequential_access(c: &mut Criterion) {
     let mut mmu = SoftMmu::new(64 * 1024 * 1024, false);
-    
+
     c.bench_function("sequential_read_1k", |b| {
         b.iter(|| {
             for i in 0..1000 {
@@ -71,7 +73,7 @@ fn bench_sequential_access(c: &mut Criterion) {
 /// 基准测试: 随机内存访问
 fn bench_random_access(c: &mut Criterion) {
     let mut mmu = SoftMmu::new(64 * 1024 * 1024, false);
-    
+
     // 预生成随机地址 (简单的 LCG 伪随机)
     let mut addresses: Vec<u64> = Vec::with_capacity(1000);
     let mut seed: u64 = 12345;
@@ -79,7 +81,7 @@ fn bench_random_access(c: &mut Criterion) {
         seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
         addresses.push((seed % (64 * 1024 * 1024)) & !7); // 8 字节对齐
     }
-    
+
     c.bench_function("random_read_1k", |b| {
         b.iter(|| {
             for &addr in &addresses {
@@ -92,12 +94,12 @@ fn bench_random_access(c: &mut Criterion) {
 /// 基准测试: TLB 命中率影响
 fn bench_tlb_performance(c: &mut Criterion) {
     let mut group = c.benchmark_group("tlb_performance");
-    
+
     // 测试不同数量的唯一页面访问
     for num_pages in [1, 10, 64, 128, 256].iter() {
         let mut mmu = SoftMmu::new(64 * 1024 * 1024, false);
         let page_size = 4096u64;
-        
+
         group.bench_with_input(
             BenchmarkId::new("pages", num_pages),
             num_pages,

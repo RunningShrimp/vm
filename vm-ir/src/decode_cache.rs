@@ -3,8 +3,8 @@
 //! 实现指令预解码缓存，用于缓存已解码的指令，以提高解码性能。
 //! 采用 LRU 替换策略管理缓存容量。
 
-use std::collections::HashMap;
 use crate::IROp;
+use std::collections::HashMap;
 
 /// 预解码缓存条目
 #[derive(Clone, Debug)]
@@ -16,7 +16,7 @@ struct CacheEntry {
 }
 
 /// 预解码缓存
-/// 
+///
 /// 缓存已解码的指令，以避免重复解码相同的指令序列。
 /// 采用 LRU 替换策略，自动驱逐访问最不频繁的条目。
 ///
@@ -132,11 +132,7 @@ impl DecodeCache {
 
     /// 驱逐访问时间戳最小的条目（LRU）
     fn evict_lru(&mut self) {
-        if let Some((&key, _)) = self
-            .cache
-            .iter()
-            .min_by_key(|(_, entry)| entry.access_time)
-        {
+        if let Some((&key, _)) = self.cache.iter().min_by_key(|(_, entry)| entry.access_time) {
             self.cache.remove(&key);
         }
     }
@@ -162,16 +158,20 @@ mod tests {
     #[test]
     fn test_decode_cache_basic() {
         let mut cache = DecodeCache::new(10);
-        
+
         let ir_ops = vec![
             IROp::MovImm { dst: 0, imm: 42 },
-            IROp::Add { dst: 1, src1: 0, src2: 0 },
+            IROp::Add {
+                dst: 1,
+                src1: 0,
+                src2: 0,
+            },
         ];
-        
+
         // 插入缓存
         cache.insert(0x1000, 8, ir_ops.clone());
         assert_eq!(cache.len(), 1);
-        
+
         // 查询缓存
         let result = cache.get(0x1000, 8);
         assert!(result.is_some());
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_decode_cache_miss() {
         let mut cache = DecodeCache::new(10);
-        
+
         // 查询不存在的条目
         let result = cache.get(0x2000, 8);
         assert!(result.is_none());
@@ -190,26 +190,26 @@ mod tests {
     #[test]
     fn test_decode_cache_lru_eviction() {
         let mut cache = DecodeCache::new(2);
-        
+
         let ir1 = vec![IROp::MovImm { dst: 0, imm: 1 }];
         let ir2 = vec![IROp::MovImm { dst: 1, imm: 2 }];
         let ir3 = vec![IROp::MovImm { dst: 2, imm: 3 }];
-        
+
         // 插入第一个条目
         cache.insert(0x1000, 4, ir1);
         assert_eq!(cache.len(), 1);
-        
+
         // 插入第二个条目
         cache.insert(0x2000, 4, ir2);
         assert_eq!(cache.len(), 2);
-        
+
         // 访问第一个条目更新时间戳
         cache.get(0x1000, 4);
-        
+
         // 插入第三个条目，应该驱逐第二个（LRU）
         cache.insert(0x3000, 4, ir3);
         assert_eq!(cache.len(), 2);
-        
+
         // 验证第一个和第三个还在
         assert!(cache.get(0x1000, 4).is_some());
         assert!(cache.get(0x3000, 4).is_some());
@@ -220,11 +220,11 @@ mod tests {
     #[test]
     fn test_decode_cache_clear() {
         let mut cache = DecodeCache::new(10);
-        
+
         let ir = vec![IROp::MovImm { dst: 0, imm: 42 }];
         cache.insert(0x1000, 4, ir);
         assert_eq!(cache.len(), 1);
-        
+
         cache.clear();
         assert_eq!(cache.len(), 0);
     }
@@ -232,16 +232,20 @@ mod tests {
     #[test]
     fn test_decode_cache_size_estimate() {
         let mut cache = DecodeCache::new(10);
-        
+
         let ir1 = vec![
             IROp::MovImm { dst: 0, imm: 1 },
-            IROp::Add { dst: 1, src1: 0, src2: 0 },
+            IROp::Add {
+                dst: 1,
+                src1: 0,
+                src2: 0,
+            },
         ];
         let ir2 = vec![IROp::MovImm { dst: 1, imm: 2 }];
-        
+
         cache.insert(0x1000, 8, ir1);
         cache.insert(0x2000, 4, ir2);
-        
+
         // 应该有 3 个 IR 操作
         assert_eq!(cache.size_estimate(), 3);
     }

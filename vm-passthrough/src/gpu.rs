@@ -2,7 +2,7 @@
 //!
 //! 支持 NVIDIA、AMD 和移动端 GPU
 
-use super::{PciAddress, PciDeviceInfo, PassthroughDevice, PassthroughError};
+use super::{PassthroughDevice, PassthroughError, PciAddress, PciDeviceInfo};
 use std::collections::HashMap;
 
 /// GPU 厂商
@@ -52,7 +52,7 @@ pub struct GpuInfo {
     pub architecture: GpuArchitecture,
     pub name: String,
     pub vram_size_mb: usize,
-    pub compute_capability: Option<(u32, u32)>,  // NVIDIA CUDA compute capability
+    pub compute_capability: Option<(u32, u32)>, // NVIDIA CUDA compute capability
     pub supports_cuda: bool,
     pub supports_rocm: bool,
     pub supports_vulkan: bool,
@@ -72,13 +72,13 @@ impl NvidiaGpu {
     pub fn new(pci_info: PciDeviceInfo, address: PciAddress) -> Self {
         let architecture = Self::detect_architecture(pci_info.device_id);
         let compute_capability = Self::get_compute_capability(pci_info.device_id);
-        
+
         let info = GpuInfo {
             pci_info: pci_info.clone(),
             vendor: GpuVendor::Nvidia,
             architecture,
             name: pci_info.name.clone(),
-            vram_size_mb: 0,  // 需要通过 NVML 或 nvidia-smi 获取
+            vram_size_mb: 0, // 需要通过 NVML 或 nvidia-smi 获取
             compute_capability,
             supports_cuda: true,
             supports_rocm: false,
@@ -120,14 +120,14 @@ impl NvidiaGpu {
     /// 获取 CUDA 计算能力
     fn get_compute_capability(device_id: u16) -> Option<(u32, u32)> {
         match device_id {
-            0x2330..=0x233F => Some((9, 0)),   // Hopper: 9.0
-            0x2300..=0x232F | 0x2340..=0x23FF => Some((10, 0)),  // Blackwell: 10.0
-            0x2684..=0x2704 => Some((8, 9)),   // Ada: 8.9
-            0x2200..=0x22FF => Some((8, 6)),   // Ampere: 8.6
-            0x1E00..=0x1FFF => Some((7, 5)),   // Turing: 7.5
-            0x1D00..=0x1DFF => Some((7, 0)),   // Volta: 7.0
-            0x1B00..=0x1CFF => Some((6, 1)),   // Pascal: 6.1
-            0x1300..=0x1400 => Some((5, 2)),   // Maxwell: 5.2
+            0x2330..=0x233F => Some((9, 0)),                    // Hopper: 9.0
+            0x2300..=0x232F | 0x2340..=0x23FF => Some((10, 0)), // Blackwell: 10.0
+            0x2684..=0x2704 => Some((8, 9)),                    // Ada: 8.9
+            0x2200..=0x22FF => Some((8, 6)),                    // Ampere: 8.6
+            0x1E00..=0x1FFF => Some((7, 5)),                    // Turing: 7.5
+            0x1D00..=0x1DFF => Some((7, 0)),                    // Volta: 7.0
+            0x1B00..=0x1CFF => Some((6, 1)),                    // Pascal: 6.1
+            0x1300..=0x1400 => Some((5, 2)),                    // Maxwell: 5.2
             _ => None,
         }
     }
@@ -148,9 +148,14 @@ impl NvidiaGpu {
         }
 
         // 尝试运行 nvidia-smi
-        if let Ok(output) = Command::new("nvidia-smi").arg("--query-gpu=driver_version").arg("--format=csv,noheader").output() {
+        if let Ok(output) = Command::new("nvidia-smi")
+            .arg("--query-gpu=driver_version")
+            .arg("--format=csv,noheader")
+            .output()
+        {
             if output.status.success() {
-                self.driver_version = Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+                self.driver_version =
+                    Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
         }
 
@@ -164,14 +169,17 @@ impl NvidiaGpu {
 
     /// 启用 GPU 直通模式
     pub fn enable_passthrough_mode(&self) -> Result<(), PassthroughError> {
-        log::info!("Enabling NVIDIA GPU passthrough for {}", self.address.to_string());
-        
+        log::info!(
+            "Enabling NVIDIA GPU passthrough for {}",
+            self.address.to_string()
+        );
+
         // 对于 NVIDIA GPU，需要隐藏虚拟化环境
         // 否则驱动会检测到并拒绝工作（Error 43）
         log::warn!("NVIDIA GPU passthrough requires hypervisor hiding");
         log::info!("  - Use 'kvm=off' or similar flags");
         log::info!("  - May need vendor_id spoofing");
-        
+
         Ok(())
     }
 
@@ -207,7 +215,7 @@ impl AmdGpu {
     /// 创建新的 AMD GPU
     pub fn new(pci_info: PciDeviceInfo, address: PciAddress) -> Self {
         let architecture = Self::detect_architecture(pci_info.device_id);
-        
+
         let info = GpuInfo {
             pci_info: pci_info.clone(),
             vendor: GpuVendor::Amd,
@@ -255,7 +263,8 @@ impl AmdGpu {
 
         if let Ok(output) = Command::new("rocm-smi").arg("--version").output() {
             if output.status.success() {
-                self.rocm_version = Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+                self.rocm_version =
+                    Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
         }
 
@@ -269,12 +278,15 @@ impl AmdGpu {
 
     /// 启用 GPU 直通模式
     pub fn enable_passthrough_mode(&self) -> Result<(), PassthroughError> {
-        log::info!("Enabling AMD GPU passthrough for {}", self.address.to_string());
-        
+        log::info!(
+            "Enabling AMD GPU passthrough for {}",
+            self.address.to_string()
+        );
+
         // AMD GPU 对虚拟化环境更友好
         log::info!("  - AMD GPU passthrough typically works without special configuration");
         log::info!("  - Ensure IOMMU is enabled and reset bug is handled");
-        
+
         Ok(())
     }
 }
@@ -381,7 +393,7 @@ impl MobileGpu {
             vendor,
             architecture,
             name: gpu_name.clone(),
-            vram_size_mb: 0,  // 移动端共享内存
+            vram_size_mb: 0, // 移动端共享内存
             compute_capability: None,
             supports_cuda: false,
             supports_rocm: false,
@@ -403,8 +415,10 @@ impl MobileGpu {
 
         // 尝试通过 getprop 获取 SoC 信息
         if let Ok(output) = Command::new("getprop").arg("ro.hardware").output() {
-            let hardware = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-            
+            let hardware = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_lowercase();
+
             let soc_vendor = if hardware.contains("qcom") || hardware.contains("qualcomm") {
                 SocVendor::Qualcomm
             } else if hardware.contains("kirin") || hardware.contains("hisi") {
@@ -439,7 +453,7 @@ impl MobileGpu {
     /// 启用 GPU 加速
     pub fn enable_acceleration(&self) -> Result<(), PassthroughError> {
         log::info!("Enabling mobile GPU acceleration: {}", self.gpu_name);
-        
+
         match self.soc_vendor {
             SocVendor::Qualcomm => {
                 log::info!("  - Using Adreno GPU via Vulkan/OpenCL");
@@ -458,14 +472,14 @@ impl MobileGpu {
             }
             _ => {}
         }
-        
+
         Ok(())
     }
 
     /// 获取 Vulkan 支持信息
     pub fn get_vulkan_info(&self) -> VulkanInfo {
         let version = match self.soc_vendor {
-            SocVendor::Qualcomm => "1.3",  // Adreno 最新支持 Vulkan 1.3
+            SocVendor::Qualcomm => "1.3", // Adreno 最新支持 Vulkan 1.3
             SocVendor::HiSilicon | SocVendor::MediaTek | SocVendor::Samsung => "1.3",
             _ => "1.0",
         };
@@ -473,10 +487,7 @@ impl MobileGpu {
         VulkanInfo {
             supported: true,
             version: version.to_string(),
-            extensions: vec![
-                "VK_KHR_swapchain".to_string(),
-                "VK_KHR_surface".to_string(),
-            ],
+            extensions: vec!["VK_KHR_swapchain".to_string(), "VK_KHR_surface".to_string()],
         }
     }
 }
@@ -496,7 +507,10 @@ mod tests {
     #[test]
     fn test_nvidia_architecture_detection() {
         assert_eq!(NvidiaGpu::detect_architecture(0x2684), GpuArchitecture::Ada);
-        assert_eq!(NvidiaGpu::detect_architecture(0x2204), GpuArchitecture::Ampere);
+        assert_eq!(
+            NvidiaGpu::detect_architecture(0x2204),
+            GpuArchitecture::Ampere
+        );
     }
 
     #[test]

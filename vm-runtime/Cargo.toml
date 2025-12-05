@@ -1,0 +1,39 @@
+[package]
+name = "vm-runtime"
+version = "0.1.0"
+edition = "2024"
+description = "Multi-Runtime Support for Virtual Machine"
+authors = ["VM Team <team@vm-project.org>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-monitor = { path = "../vm-monitor", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.48", features = ["full"], optional = true }
+async-std = { version = "1.13", features = ["attributes"], optional = true }
+smol = { version = "2.0", optional = true }
+async-trait = "0.1"
+futures = "0.3"
+num_cpus = "1.17"
+parking_lot = "0.12"
+thiserror = "2.0"
+tracing = "0.1"
+core_affinity = "0.8"
+crossbeam-queue = "0.3"
+stacker = "0.1"
+mio = { version = "1.1", features = ["os-poll", "os-ext"] }
+psm = "0.1"
+context = "3.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = ["tokio"]
+std = ["tokio"]
+tokio = ["dep:tokio"]
+async-std = ["dep:async-std"]
+smol = ["dep:smol"]
+all-runtimes = ["tokio", "async-std", "smol"]
+monitoring = ["dep:vm-monitor"]

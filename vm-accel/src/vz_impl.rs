@@ -4,8 +4,8 @@
 //! 注意: Virtualization.framework 在 iOS/iPadOS 上需要特殊权限
 
 use super::{Accel, AccelError};
-use vm_core::{GuestRegs, MMU};
 use std::collections::HashMap;
+use vm_core::{GuestRegs, MMU};
 
 // Virtualization.framework FFI 绑定 (iOS/iPadOS)
 // 注意: 这些 API 在 iOS 15+ 和 iPadOS 15+ 上可用，但需要特殊的 entitlements
@@ -17,7 +17,7 @@ extern "C" {
     fn VZVirtualMachineConfiguration_new() -> *mut std::ffi::c_void;
     fn VZVirtualMachineConfiguration_setMemorySize(config: *mut std::ffi::c_void, size: u64);
     fn VZVirtualMachineConfiguration_setCPUCount(config: *mut std::ffi::c_void, count: u32);
-    
+
     // VM 创建和运行
     fn VZVirtualMachine_new(config: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
     fn VZVirtualMachine_start(vm: *mut std::ffi::c_void) -> bool;
@@ -40,12 +40,16 @@ impl VzVcpu {
     pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
         // Virtualization.framework 是高层 API，不直接暴露寄存器访问
         // 需要通过 GDB stub 或其他机制
-        Err(AccelError::NotSupported("Direct register access not supported in Virtualization.framework".to_string()))
+        Err(AccelError::NotSupported(
+            "Direct register access not supported in Virtualization.framework".to_string(),
+        ))
     }
 
     /// 设置寄存器 (Virtualization.framework 不直接支持)
     pub fn set_regs(&mut self, _regs: &GuestRegs) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported("Direct register access not supported in Virtualization.framework".to_string()))
+        Err(AccelError::NotSupported(
+            "Direct register access not supported in Virtualization.framework".to_string(),
+        ))
     }
 }
 
@@ -55,7 +59,7 @@ pub struct AccelVz {
     vm: Option<*mut std::ffi::c_void>,
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
     config: Option<*mut std::ffi::c_void>,
-    
+
     vcpus: Vec<VzVcpu>,
     memory_regions: HashMap<u64, u64>, // gpa -> size
     memory_size: u64,
@@ -73,7 +77,7 @@ impl AccelVz {
             vcpus: Vec::new(),
             memory_regions: HashMap::new(),
             memory_size: 2 * 1024 * 1024 * 1024, // 默认 2GB
-            cpu_count: 2, // 默认 2 核
+            cpu_count: 2,                        // 默认 2 核
             initialized: false,
         }
     }
@@ -112,14 +116,18 @@ impl Accel for AccelVz {
             }
 
             if !Self::is_available() {
-                return Err(AccelError::NotAvailable("Virtualization.framework not available".to_string()));
+                return Err(AccelError::NotAvailable(
+                    "Virtualization.framework not available".to_string(),
+                ));
             }
 
             unsafe {
                 // 创建 VM 配置
                 let config = VZVirtualMachineConfiguration_new();
                 if config.is_null() {
-                    return Err(AccelError::InitFailed("Failed to create VM configuration".to_string()));
+                    return Err(AccelError::InitFailed(
+                        "Failed to create VM configuration".to_string(),
+                    ));
                 }
 
                 // 设置内存大小
@@ -139,21 +147,30 @@ impl Accel for AccelVz {
                 self.initialized = true;
 
                 log::info!("Virtualization.framework accelerator initialized successfully");
-                log::info!("Memory: {} MB, CPUs: {}", self.memory_size / (1024 * 1024), self.cpu_count);
+                log::info!(
+                    "Memory: {} MB, CPUs: {}",
+                    self.memory_size / (1024 * 1024),
+                    self.cpu_count
+                );
                 Ok(())
             }
         }
 
         #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
         {
-            Err(AccelError::NotSupported("Virtualization.framework only available on iOS/iPadOS".to_string()))
+            Err(AccelError::NotSupported(
+                "Virtualization.framework only available on iOS/iPadOS".to_string(),
+            ))
         }
     }
 
     fn create_vcpu(&mut self, id: u32) -> Result<(), AccelError> {
         // Virtualization.framework 在配置时设置 CPU 数量，不需要单独创建 vCPU
         if id >= self.cpu_count {
-            return Err(AccelError::CreateVcpuFailed(format!("vCPU {} exceeds configured count {}", id, self.cpu_count)));
+            return Err(AccelError::CreateVcpuFailed(format!(
+                "vCPU {} exceeds configured count {}",
+                id, self.cpu_count
+            )));
         }
 
         let vcpu = VzVcpu::new(id)?;
@@ -163,11 +180,21 @@ impl Accel for AccelVz {
         Ok(())
     }
 
-    fn map_memory(&mut self, gpa: u64, _hva: u64, size: u64, _flags: u32) -> Result<(), AccelError> {
+    fn map_memory(
+        &mut self,
+        gpa: u64,
+        _hva: u64,
+        size: u64,
+        _flags: u32,
+    ) -> Result<(), AccelError> {
         // Virtualization.framework 使用高层内存管理
         // 内存映射在配置阶段完成，运行时不支持动态映射
         self.memory_regions.insert(gpa, size);
-        log::debug!("Registered memory region: GPA 0x{:x}, size 0x{:x}", gpa, size);
+        log::debug!(
+            "Registered memory region: GPA 0x{:x}, size 0x{:x}",
+            gpa,
+            size
+        );
         Ok(())
     }
 
@@ -180,7 +207,9 @@ impl Accel for AccelVz {
     fn run_vcpu(&mut self, vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
         #[cfg(any(target_os = "ios", target_os = "tvos"))]
         {
-            let vm = self.vm.as_ref()
+            let vm = self
+                .vm
+                .as_ref()
                 .ok_or_else(|| AccelError::NotInitialized("VM not initialized".to_string()))?;
 
             // Virtualization.framework 运行整个 VM，而不是单个 vCPU
@@ -198,18 +227,24 @@ impl Accel for AccelVz {
 
         #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
         {
-            Err(AccelError::NotSupported("Virtualization.framework not available on this platform".to_string()))
+            Err(AccelError::NotSupported(
+                "Virtualization.framework not available on this platform".to_string(),
+            ))
         }
     }
 
     fn get_regs(&self, vcpu_id: u32) -> Result<GuestRegs, AccelError> {
-        let vcpu = self.vcpus.get(vcpu_id as usize)
+        let vcpu = self
+            .vcpus
+            .get(vcpu_id as usize)
             .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
         vcpu.get_regs()
     }
 
     fn set_regs(&mut self, vcpu_id: u32, regs: &GuestRegs) -> Result<(), AccelError> {
-        let vcpu = self.vcpus.get_mut(vcpu_id as usize)
+        let vcpu = self
+            .vcpus
+            .get_mut(vcpu_id as usize)
             .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
         vcpu.set_regs(regs)
     }
@@ -243,7 +278,10 @@ mod tests {
 
     #[test]
     fn test_vz_availability() {
-        println!("Virtualization.framework available: {}", AccelVz::is_available());
+        println!(
+            "Virtualization.framework available: {}",
+            AccelVz::is_available()
+        );
     }
 
     #[test]

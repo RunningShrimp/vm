@@ -3,6 +3,7 @@
 //! 实现针对华为海思麒麟、高通骁龙、联发科天玑等移动芯片的优化
 
 use super::cpuinfo::{CpuInfo, CpuVendor};
+use super::vendor_extensions::{VendorExtension, VendorExtensionDetector};
 
 /// 移动芯片型号
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +63,8 @@ pub struct MobileOptimizer {
     model: MobileChipModel,
     big_cores: usize,
     little_cores: usize,
-    mid_cores: usize,  // 部分芯片有中核
+    mid_cores: usize, // 部分芯片有中核
+    extension_detector: VendorExtensionDetector,
 }
 
 impl MobileOptimizer {
@@ -73,10 +75,11 @@ impl MobileOptimizer {
             cpu_info.vendor,
             CpuVendor::HiSilicon | CpuVendor::Qualcomm | CpuVendor::MediaTek
         );
-        
+
         let model = Self::detect_model(&cpu_info.model_name, cpu_info.vendor);
-        let (big_cores, mid_cores, little_cores) = Self::detect_core_config(model, cpu_info.core_count);
-        
+        let (big_cores, mid_cores, little_cores) =
+            Self::detect_core_config(model, cpu_info.core_count);
+
         Self {
             config: MobileChipConfig::default(),
             is_available: is_mobile,
@@ -85,13 +88,14 @@ impl MobileOptimizer {
             big_cores,
             mid_cores,
             little_cores,
+            extension_detector: VendorExtensionDetector::new(),
         }
     }
 
     /// 检测移动芯片型号
     fn detect_model(model_name: &str, vendor: CpuVendor) -> MobileChipModel {
         let lower = model_name.to_lowercase();
-        
+
         match vendor {
             CpuVendor::HiSilicon => {
                 if lower.contains("kirin 9010") {
@@ -138,22 +142,22 @@ impl MobileOptimizer {
     fn detect_core_config(model: MobileChipModel, total_cores: usize) -> (usize, usize, usize) {
         match model {
             // 华为麒麟
-            MobileChipModel::Kirin9010 => (1, 3, 4),  // 1x3.3GHz + 3x2.8GHz + 4x2.0GHz
+            MobileChipModel::Kirin9010 => (1, 3, 4), // 1x3.3GHz + 3x2.8GHz + 4x2.0GHz
             MobileChipModel::Kirin9000S => (1, 3, 4),
             MobileChipModel::Kirin9000 => (1, 3, 4),
-            
+
             // 高通骁龙
-            MobileChipModel::Snapdragon8Elite => (2, 6, 0),  // 2xOryon + 6xOryon (全大核架构)
-            MobileChipModel::Snapdragon8Gen3 => (1, 5, 2),   // 1xX4 + 5xA720 + 2xA520
-            MobileChipModel::Snapdragon8Gen2 => (1, 4, 3),   // 1xX3 + 4xA715 + 3xA510
-            MobileChipModel::Snapdragon8Gen1 => (1, 3, 4),   // 1xX2 + 3xA710 + 4xA510
-            
+            MobileChipModel::Snapdragon8Elite => (2, 6, 0), // 2xOryon + 6xOryon (全大核架构)
+            MobileChipModel::Snapdragon8Gen3 => (1, 5, 2),  // 1xX4 + 5xA720 + 2xA520
+            MobileChipModel::Snapdragon8Gen2 => (1, 4, 3),  // 1xX3 + 4xA715 + 3xA510
+            MobileChipModel::Snapdragon8Gen1 => (1, 3, 4),  // 1xX2 + 3xA710 + 4xA510
+
             // 联发科天玑
-            MobileChipModel::Dimensity9400 => (1, 3, 4),     // 1xX925 + 3xX4 + 4xA720
-            MobileChipModel::Dimensity9300 => (4, 4, 0),     // 4xX4 + 4xA720 (全大核)
-            MobileChipModel::Dimensity9200 => (1, 3, 4),     // 1xX3 + 3xA715 + 4xA510
-            MobileChipModel::Dimensity9000 => (1, 3, 4),     // 1xX2 + 3xA710 + 4xA510
-            
+            MobileChipModel::Dimensity9400 => (1, 3, 4), // 1xX925 + 3xX4 + 4xA720
+            MobileChipModel::Dimensity9300 => (4, 4, 0), // 4xX4 + 4xA720 (全大核)
+            MobileChipModel::Dimensity9200 => (1, 3, 4), // 1xX3 + 3xA715 + 4xA510
+            MobileChipModel::Dimensity9000 => (1, 3, 4), // 1xX2 + 3xA710 + 4xA510
+
             MobileChipModel::Unknown => {
                 // 启发式估计：假设 1+3+4 配置
                 if total_cores >= 8 {
@@ -200,46 +204,123 @@ impl MobileOptimizer {
             log::info!("  - Mid cores: {}", self.mid_cores);
         }
         log::info!("  - Little cores: {}", self.little_cores);
-        
+
         if self.config.enable_big_little {
             log::info!("  - big.LITTLE scheduling: enabled");
             // 智能调度到合适的核心
         }
-        
+
         if self.config.enable_power_management {
             log::info!("  - Power management: enabled");
             // 根据负载动态调整频率和核心使用
         }
-        
+
         if self.config.prefer_big_cores {
             log::info!("  - Big core affinity: enabled");
             // 将虚拟机线程优先绑定到大核
         }
-        
+
         if self.config.enable_dvfs {
             log::info!("  - DVFS (Dynamic Voltage and Frequency Scaling): enabled");
+        }
+
+        // 显示厂商扩展支持情况
+        if self.config.enable_npu_accel {
+            let extension_name = match self.vendor {
+                CpuVendor::Qualcomm => "Qualcomm Hexagon DSP",
+                CpuVendor::MediaTek => "MediaTek APU",
+                CpuVendor::HiSilicon => "HiSilicon NPU",
+                _ => "",
+            };
+
+            if !extension_name.is_empty() {
+                if let Some(ext) = self.extension_detector.find_extension(extension_name) {
+                    if ext.is_available() {
+                        log::info!("  - {}: enabled", extension_name);
+                        let features = ext.get_features();
+                        log::info!(
+                            "    - Supports AI inference: {}",
+                            features.supports_ai_inference
+                        );
+                        log::info!("    - Max vector width: {} bits", features.max_vector_width);
+                    }
+                }
+            }
         }
     }
 
     /// 获取推荐的 SIMD 指令集
-    pub fn get_recommended_simd(&self) -> &'static str {
+    pub fn get_recommended_simd(&self) -> String {
         let cpu_info = CpuInfo::get();
-        
+        let mut simd = String::new();
+
+        simd.push_str("NEON");
+
         if cpu_info.features.sve2 {
-            "NEON + SVE2"
+            simd.push_str(" + SVE2");
         } else if cpu_info.features.sve {
-            "NEON + SVE"
-        } else {
-            "NEON"
+            simd.push_str(" + SVE");
         }
+
+        // 添加厂商扩展
+        let extension_name = match self.vendor {
+            CpuVendor::Qualcomm if cpu_info.features.hexagon_dsp => " + Hexagon DSP",
+            CpuVendor::MediaTek if cpu_info.features.apu => " + APU",
+            CpuVendor::HiSilicon if cpu_info.features.npu => " + NPU",
+            _ => "",
+        };
+
+        if !extension_name.is_empty() {
+            simd.push_str(extension_name);
+        }
+
+        simd
+    }
+
+    /// 检查 Hexagon DSP 是否可用（高通）
+    pub fn has_hexagon_dsp(&self) -> bool {
+        self.vendor == CpuVendor::Qualcomm
+            && self.config.enable_npu_accel
+            && self
+                .extension_detector
+                .find_extension("Qualcomm Hexagon DSP")
+                .map(|ext| ext.is_available())
+                .unwrap_or(false)
+    }
+
+    /// 检查 APU 是否可用（联发科）
+    pub fn has_apu(&self) -> bool {
+        self.vendor == CpuVendor::MediaTek
+            && self.config.enable_npu_accel
+            && self
+                .extension_detector
+                .find_extension("MediaTek APU")
+                .map(|ext| ext.is_available())
+                .unwrap_or(false)
+    }
+
+    /// 检查 NPU 是否可用（华为）
+    pub fn has_npu(&self) -> bool {
+        self.vendor == CpuVendor::HiSilicon
+            && self.config.enable_npu_accel
+            && self
+                .extension_detector
+                .find_extension("HiSilicon NPU")
+                .map(|ext| ext.is_available())
+                .unwrap_or(false)
+    }
+
+    /// 获取厂商扩展检测器
+    pub fn extension_detector(&self) -> &VendorExtensionDetector {
+        &self.extension_detector
     }
 
     /// 优化内存访问模式
     pub fn optimize_memory_access(&self) -> MemoryAccessHint {
         MemoryAccessHint {
-            use_huge_pages: false,  // 移动设备通常不支持
+            use_huge_pages: false, // 移动设备通常不支持
             cache_line_size: 64,
-            prefetch_distance: 128,  // 移动芯片缓存较小
+            prefetch_distance: 128, // 移动芯片缓存较小
             numa_aware: false,
             optimize_for_battery: self.config.enable_power_management,
             memory_bandwidth_gbps: self.get_memory_bandwidth(),
@@ -249,7 +330,9 @@ impl MobileOptimizer {
     /// 获取内存带宽（GB/s）
     fn get_memory_bandwidth(&self) -> usize {
         match self.model {
-            MobileChipModel::Kirin9010 | MobileChipModel::Kirin9000S | MobileChipModel::Kirin9000 => 44,
+            MobileChipModel::Kirin9010
+            | MobileChipModel::Kirin9000S
+            | MobileChipModel::Kirin9000 => 44,
             MobileChipModel::Snapdragon8Elite => 77,
             MobileChipModel::Snapdragon8Gen3 => 77,
             MobileChipModel::Snapdragon8Gen2 => 64,
@@ -265,12 +348,12 @@ impl MobileOptimizer {
     /// 获取 JIT 编译器优化建议
     pub fn get_jit_hints(&self) -> JitOptimizationHints {
         JitOptimizationHints {
-            inline_threshold: 80,   // 移动设备代码缓存较小
+            inline_threshold: 80, // 移动设备代码缓存较小
             loop_unroll_factor: 4,
             use_simd: true,
-            simd_width: 128,  // NEON
+            simd_width: 128, // NEON
             enable_branch_prediction_hints: true,
-            enable_cache_prefetch: false,  // 移动设备功耗敏感
+            enable_cache_prefetch: false, // 移动设备功耗敏感
             optimize_for_power: self.config.enable_power_management,
             prefer_big_cores: self.config.prefer_big_cores,
         }
@@ -283,7 +366,7 @@ impl MobileOptimizer {
             mid_cores: self.mid_cores,
             little_cores: self.little_cores,
             prefer_big_for_vm: self.config.prefer_big_cores,
-            enable_migration: true,  // 允许核心间迁移
+            enable_migration: true, // 允许核心间迁移
             power_aware: self.config.enable_power_management,
         }
     }
@@ -291,15 +374,15 @@ impl MobileOptimizer {
     /// 获取 NPU 加速建议
     pub fn get_npu_hints(&self) -> NpuAccelerationHint {
         let (npu_cores, tops) = match self.model {
-            MobileChipModel::Kirin9010 => (2, 60),  // 双核NPU, 60 TOPS
+            MobileChipModel::Kirin9010 => (2, 60), // 双核NPU, 60 TOPS
             MobileChipModel::Kirin9000S => (2, 50),
             MobileChipModel::Kirin9000 => (2, 40),
-            MobileChipModel::Snapdragon8Elite => (1, 45),  // Hexagon NPU
+            MobileChipModel::Snapdragon8Elite => (1, 45), // Hexagon NPU
             MobileChipModel::Snapdragon8Gen3 => (1, 45),
             MobileChipModel::Snapdragon8Gen2 => (1, 35),
             MobileChipModel::Snapdragon8Gen1 => (1, 27),
-            MobileChipModel::Dimensity9400 => (1, 50),  // APU 890
-            MobileChipModel::Dimensity9300 => (1, 45),  // APU 790
+            MobileChipModel::Dimensity9400 => (1, 50), // APU 890
+            MobileChipModel::Dimensity9300 => (1, 45), // APU 790
             MobileChipModel::Dimensity9200 => (1, 35),
             MobileChipModel::Dimensity9000 => (1, 24),
             MobileChipModel::Unknown => (0, 0),
@@ -389,7 +472,7 @@ pub struct CoreSchedulingHint {
 pub struct NpuAccelerationHint {
     pub available: bool,
     pub npu_cores: usize,
-    pub tops: usize,  // AI 算力 (TOPS)
+    pub tops: usize, // AI 算力 (TOPS)
     pub vendor: CpuVendor,
 }
 
@@ -411,14 +494,17 @@ mod tests {
     fn test_mobile_optimizer() {
         let optimizer = MobileOptimizer::new();
         println!("Mobile optimizer available: {}", optimizer.is_available());
-        
+
         if optimizer.is_available() {
             optimizer.apply_optimizations();
             println!("Model: {:?}", optimizer.model());
             println!("Recommended SIMD: {}", optimizer.get_recommended_simd());
             println!("Memory hints: {:?}", optimizer.optimize_memory_access());
             println!("JIT hints: {:?}", optimizer.get_jit_hints());
-            println!("Core scheduling: {:?}", optimizer.get_core_scheduling_hint());
+            println!(
+                "Core scheduling: {:?}",
+                optimizer.get_core_scheduling_hint()
+            );
             println!("NPU hints: {:?}", optimizer.get_npu_hints());
             println!("GPU hints: {:?}", optimizer.get_gpu_hints());
         }

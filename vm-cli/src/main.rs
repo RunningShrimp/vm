@@ -1,9 +1,9 @@
-use std::process;
-use std::path::PathBuf;
 use log::{error, info};
-use vm_core::{VmConfig, GuestArch, ExecMode};
-use vm_osal::{host_os, host_arch};
+use std::path::PathBuf;
+use std::process;
+use vm_core::{ExecMode, GuestArch, VmConfig};
 use vm_device::hw_detect::HardwareDetector;
+use vm_osal::{host_arch, host_os};
 use vm_service::VmService;
 
 struct CliArgs {
@@ -94,22 +94,34 @@ fn parse_args() -> CliArgs {
                 }
             }
             "--jit-min-threshold" => {
-                if let Some(v) = iter.next() { args.jit_min_threshold = v.parse().ok(); }
+                if let Some(v) = iter.next() {
+                    args.jit_min_threshold = v.parse().ok();
+                }
             }
             "--jit-max-threshold" => {
-                if let Some(v) = iter.next() { args.jit_max_threshold = v.parse().ok(); }
+                if let Some(v) = iter.next() {
+                    args.jit_max_threshold = v.parse().ok();
+                }
             }
             "--jit-sample-window" => {
-                if let Some(v) = iter.next() { args.jit_sample_window = v.parse().ok(); }
+                if let Some(v) = iter.next() {
+                    args.jit_sample_window = v.parse().ok();
+                }
             }
             "--jit-compile-weight" => {
-                if let Some(v) = iter.next() { args.jit_compile_weight = v.parse().ok(); }
+                if let Some(v) = iter.next() {
+                    args.jit_compile_weight = v.parse().ok();
+                }
             }
             "--jit-benefit-weight" => {
-                if let Some(v) = iter.next() { args.jit_benefit_weight = v.parse().ok(); }
+                if let Some(v) = iter.next() {
+                    args.jit_benefit_weight = v.parse().ok();
+                }
             }
             "--jit-share-pool" => {
-                if let Some(v) = iter.next() { args.jit_share_pool = Some(!(v=="0" || v.eq_ignore_ascii_case("false"))); }
+                if let Some(v) = iter.next() {
+                    args.jit_share_pool = Some(!(v == "0" || v.eq_ignore_ascii_case("false")));
+                }
             }
             "--help" | "-h" => {
                 print_usage();
@@ -129,7 +141,10 @@ fn parse_args() -> CliArgs {
 fn parse_memory_size(s: &str) -> usize {
     let s = s.trim().to_uppercase();
     let (num_str, multiplier) = if s.ends_with("G") || s.ends_with("GB") {
-        (s.trim_end_matches("GB").trim_end_matches("G"), 1024 * 1024 * 1024)
+        (
+            s.trim_end_matches("GB").trim_end_matches("G"),
+            1024 * 1024 * 1024,
+        )
     } else if s.ends_with("M") || s.ends_with("MB") {
         (s.trim_end_matches("MB").trim_end_matches("M"), 1024 * 1024)
     } else if s.ends_with("K") || s.ends_with("KB") {
@@ -200,7 +215,7 @@ async fn main() {
     if let Some(disk) = &args.disk {
         config.virtio.block_image = Some(disk.to_string_lossy().to_string());
     }
-    
+
     if let Some(kernel) = &args.kernel {
         config.kernel_path = Some(kernel.to_string_lossy().to_string());
     }
@@ -212,12 +227,23 @@ async fn main() {
             process::exit(1);
         }
     };
-    service.configure_tlb_from_env();
+    if let Err(e) = service.configure_tlb_from_env() {
+        error!("Failed to configure TLB from environment: {}", e);
+        // 非致命错误，继续执行
+    }
 
     if let (Some(min), Some(max)) = (args.jit_min_threshold, args.jit_max_threshold) {
-        service.set_hot_config_vals(min, max, args.jit_sample_window, args.jit_compile_weight, args.jit_benefit_weight);
+        service.set_hot_config_vals(
+            min,
+            max,
+            args.jit_sample_window,
+            args.jit_compile_weight,
+            args.jit_benefit_weight,
+        );
     }
-    if let Some(enable) = args.jit_share_pool { service.set_shared_pool(enable); }
+    if let Some(enable) = args.jit_share_pool {
+        service.set_shared_pool(enable);
+    }
 
     if let Some(kernel_path) = &args.kernel {
         let kernel_path_str = match kernel_path.to_str() {
@@ -228,25 +254,25 @@ async fn main() {
             }
         };
         if let Err(e) = service.load_kernel(kernel_path_str, 0x8000_0000) {
-             error!("Failed to load kernel: {}", e);
-             process::exit(1);
+            error!("Failed to load kernel: {}", e);
+            process::exit(1);
         }
         if let Err(e) = service.run_async(0x8000_0000).await {
-             error!("Runtime error: {}", e);
-             process::exit(1);
+            error!("Runtime error: {}", e);
+            process::exit(1);
         }
     } else {
         info!("No kernel specified, running test program...");
         let code_base = 0x1000;
         if let Err(e) = service.load_test_program(code_base) {
-             error!("Failed to load test program: {}", e);
-             process::exit(1);
+            error!("Failed to load test program: {}", e);
+            process::exit(1);
         }
         if let Err(e) = service.run_async(code_base).await {
-             error!("Runtime error: {}", e);
-             process::exit(1);
+            error!("Runtime error: {}", e);
+            process::exit(1);
         }
-        
+
         // Check results
         info!("Test Results:");
         info!("  x1 = {} (expected: 10)", service.get_reg(1));
@@ -254,6 +280,6 @@ async fn main() {
         info!("  x3 = {} (expected: 30)", service.get_reg(3));
         info!("  x6 = {} (expected: 2)", service.get_reg(6));
     }
-    
+
     info!("Execution finished.");
 }

@@ -7,26 +7,56 @@
 //!
 //! 同时提供运行时控制、快照和设备热插拔功能
 
-use vm_core::GuestAddr;
+use vm_core::{GuestAddr, PlatformError, VmError};
 
 // 子模块
+pub mod eltorito;
+pub mod fast_boot;
+pub mod gc_runtime;
+pub mod hotplug;
+pub mod incremental_snapshot;
+pub mod iso9660;
 pub mod runtime;
 pub mod runtime_service;
 pub mod snapshot;
-pub mod incremental_snapshot;
-pub mod fast_boot;
-pub mod hotplug;
-pub mod iso9660;
-pub mod eltorito;
 
 // 重新导出常用类型
-pub use runtime::{RuntimeController, RuntimeCommand, RuntimeState, RuntimeEvent};
+pub use gc_runtime::GcRuntime;
+pub use hotplug::{DeviceInfo, DeviceType, HotplugEvent, HotplugManager};
+pub use runtime::{RuntimeCommand, RuntimeController, RuntimeEvent, RuntimeState};
 pub use snapshot::{SnapshotManager, SnapshotMetadata, VmSnapshot};
-pub use hotplug::{HotplugManager, DeviceInfo, DeviceType, HotplugEvent};
 
-/// 启动错误
+/// 启动错误类型别名
+pub type BootError = VmError;
+
+/// 从传统错误转换为统一错误
+impl From<BootLegacyError> for VmError {
+    fn from(err: BootLegacyError) -> Self {
+        match err {
+            BootLegacyError::KernelLoadFailed(msg) => {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: msg,
+                    current: "Unknown".to_string(),
+                    expected: "Valid kernel".to_string(),
+                })
+            }
+            BootLegacyError::InitrdLoadFailed(msg) => {
+                VmError::Platform(PlatformError::InitializationFailed(msg))
+            }
+            BootLegacyError::FirmwareLoadFailed(msg) => {
+                VmError::Platform(PlatformError::InitializationFailed(msg))
+            }
+            BootLegacyError::InvalidConfig(msg) => {
+                VmError::Platform(PlatformError::InitializationFailed(msg))
+            }
+            BootLegacyError::Io(e) => VmError::Platform(PlatformError::IoError(e.to_string())),
+        }
+    }
+}
+
+/// 传统的启动错误类型（保留用于向后兼容）
 #[derive(Debug, thiserror::Error)]
-pub enum BootError {
+pub enum BootLegacyError {
     #[error("Failed to load kernel: {0}")]
     KernelLoadFailed(String),
     #[error("Failed to load initrd: {0}")]
@@ -144,17 +174,23 @@ impl BootConfig {
         match self.method {
             BootMethod::Direct => {
                 if self.kernel.is_none() {
-                    return Err(BootError::InvalidConfig("Direct boot requires kernel path".to_string()));
+                    return Err(VmError::Platform(PlatformError::InitializationFailed(
+                        "Direct boot requires kernel path".to_string(),
+                    )));
                 }
             }
             BootMethod::Uefi | BootMethod::Bios => {
                 if self.firmware.is_none() {
-                    return Err(BootError::InvalidConfig(format!("{:?} boot requires firmware path", self.method)));
+                    return Err(VmError::Platform(PlatformError::InitializationFailed(
+                        format!("{:?} boot requires firmware path", self.method),
+                    )));
                 }
             }
             BootMethod::Iso => {
                 if self.iso.is_none() {
-                    return Err(BootError::InvalidConfig("ISO boot requires ISO path".to_string()));
+                    return Err(VmError::Platform(PlatformError::InitializationFailed(
+                        "ISO boot requires ISO path".to_string(),
+                    )));
                 }
             }
         }
@@ -176,38 +212,70 @@ impl BootLoader {
 
     /// 加载内核到内存
     pub fn load_kernel(&self, memory: &mut dyn vm_core::MMU) -> Result<GuestAddr, BootError> {
-        let kernel_path = self.config.kernel.as_ref()
-            .ok_or_else(|| BootError::InvalidConfig("No kernel specified".to_string()))?;
+        let kernel_path = self.config.kernel.as_ref().ok_or_else(|| {
+            VmError::Platform(PlatformError::InitializationFailed(
+                "No kernel specified".to_string(),
+            ))
+        })?;
 
-        let kernel_data = std::fs::read(kernel_path)
-            .map_err(|e| BootError::KernelLoadFailed(format!("Failed to read {}: {}", kernel_path, e)))?;
+        let kernel_data = std::fs::read(kernel_path).map_err(|e| {
+            VmError::Platform(PlatformError::InitializationFailed(format!(
+                "Failed to read {}: {}",
+                kernel_path, e
+            )))
+        })?;
 
-        log::info!("Loading kernel from {} ({} bytes)", kernel_path, kernel_data.len());
+        log::info!(
+            "Loading kernel from {} ({} bytes)",
+            kernel_path,
+            kernel_data.len()
+        );
 
         // 写入内存
         let load_addr = self.config.kernel_load_addr;
-        memory.write_bulk(load_addr, &kernel_data)
-            .map_err(|e| BootError::KernelLoadFailed(format!("Memory write failed: {:?}", e)))?;
+        memory.write_bulk(load_addr, &kernel_data).map_err(|e| {
+            VmError::Platform(PlatformError::InitializationFailed(format!(
+                "Memory write failed: {:?}",
+                e
+            )))
+        })?;
 
         log::info!("Kernel loaded at 0x{:x}", load_addr);
         Ok(load_addr)
     }
 
     /// 加载 initrd 到内存
-    pub fn load_initrd(&self, memory: &mut dyn vm_core::MMU) -> Result<Option<(GuestAddr, usize)>, BootError> {
+    pub fn load_initrd(
+        &self,
+        memory: &mut dyn vm_core::MMU,
+    ) -> Result<Option<(GuestAddr, usize)>, BootError> {
         let Some(initrd_path) = &self.config.initrd else {
             return Ok(None);
         };
 
-        let initrd_data = std::fs::read(initrd_path)
-            .map_err(|e| BootError::InitrdLoadFailed(format!("Failed to read {}: {}", initrd_path, e)))?;
+        let initrd_data = std::fs::read(initrd_path).map_err(|e| {
+            VmError::Platform(PlatformError::InitializationFailed(format!(
+                "Failed to read {}: {}",
+                initrd_path, e
+            )))
+        })?;
 
-        log::info!("Loading initrd from {} ({} bytes)", initrd_path, initrd_data.len());
+        log::info!(
+            "Loading initrd from {} ({} bytes)",
+            initrd_path,
+            initrd_data.len()
+        );
 
         let load_addr = self.config.initrd_load_addr;
         for (i, &byte) in initrd_data.iter().enumerate() {
-            memory.write(load_addr + i as u64, byte as u64, 1)
-                .map_err(|e| BootError::InitrdLoadFailed(format!("Memory write failed: {:?}", e)))?;
+            memory
+                .write(load_addr + i as u64, byte as u64, 1)
+                .map_err(|e| {
+                    VmError::Platform(PlatformError::InitializationFailed(format!(
+                        "Memory write failed: {:?}",
+                        e
+                    )))
+                })?;
         }
 
         log::info!("Initrd loaded at 0x{:x}", load_addr);
@@ -215,7 +283,11 @@ impl BootLoader {
     }
 
     /// 设置内核命令行
-    pub fn setup_cmdline(&self, memory: &mut dyn vm_core::MMU, cmdline_addr: GuestAddr) -> Result<(), BootError> {
+    pub fn setup_cmdline(
+        &self,
+        memory: &mut dyn vm_core::MMU,
+        cmdline_addr: GuestAddr,
+    ) -> Result<(), BootError> {
         let Some(cmdline) = &self.config.cmdline else {
             return Ok(());
         };
@@ -223,13 +295,27 @@ impl BootLoader {
         log::info!("Setting up kernel command line: {}", cmdline);
 
         for (i, &byte) in cmdline.as_bytes().iter().enumerate() {
-            memory.write(cmdline_addr + i as u64, byte as u64, 1)
-                .map_err(|e| BootError::KernelLoadFailed(format!("Cmdline write failed: {:?}", e)))?;
+            memory
+                .write(cmdline_addr + i as u64, byte as u64, 1)
+                .map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidState {
+                        message: "Cmdline write failed".to_string(),
+                        current: "Memory write error".to_string(),
+                        expected: "Successful write".to_string(),
+                    })
+                })?;
         }
 
         // 添加 null 终止符
-        memory.write(cmdline_addr + cmdline.len() as u64, 0, 1)
-            .map_err(|e| BootError::KernelLoadFailed(format!("Cmdline null terminator write failed: {:?}", e)))?;
+        memory
+            .write(cmdline_addr + cmdline.len() as u64, 0, 1)
+            .map_err(|_| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: "Cmdline null terminator write failed".to_string(),
+                    current: "Memory write error".to_string(),
+                    expected: "Successful write".to_string(),
+                })
+            })?;
 
         Ok(())
     }
@@ -272,20 +358,37 @@ impl BootLoader {
     fn uefi_boot(&self, memory: &mut dyn vm_core::MMU) -> Result<BootInfo, BootError> {
         log::info!("Starting UEFI Boot");
 
-        let firmware_path = self.config.firmware.as_ref()
-            .ok_or_else(|| BootError::InvalidConfig("No firmware specified".to_string()))?;
+        let firmware_path = self.config.firmware.as_ref().ok_or_else(|| {
+            VmError::Platform(PlatformError::InitializationFailed(
+                "No firmware specified".to_string(),
+            ))
+        })?;
 
-        let firmware_data = std::fs::read(firmware_path)
-            .map_err(|e| BootError::FirmwareLoadFailed(format!("Failed to read {}: {}", firmware_path, e)))?;
+        let firmware_data = std::fs::read(firmware_path).map_err(|e| {
+            VmError::Platform(PlatformError::InitializationFailed(format!(
+                "Failed to read {}: {}",
+                firmware_path, e
+            )))
+        })?;
 
-        log::info!("Loading UEFI firmware from {} ({} bytes)", firmware_path, firmware_data.len());
+        log::info!(
+            "Loading UEFI firmware from {} ({} bytes)",
+            firmware_path,
+            firmware_data.len()
+        );
 
         // UEFI 固件通常加载到高地址
         let firmware_addr = 0xFFFF_0000 - firmware_data.len() as u64;
 
         for (i, &byte) in firmware_data.iter().enumerate() {
-            memory.write(firmware_addr + i as u64, byte as u64, 1)
-                .map_err(|e| BootError::FirmwareLoadFailed(format!("Memory write failed: {:?}", e)))?;
+            memory
+                .write(firmware_addr + i as u64, byte as u64, 1)
+                .map_err(|e| {
+                    VmError::Platform(PlatformError::InitializationFailed(format!(
+                        "Memory write failed: {:?}",
+                        e
+                    )))
+                })?;
         }
 
         log::info!("UEFI firmware loaded at 0x{:x}", firmware_addr);
@@ -302,20 +405,37 @@ impl BootLoader {
     fn bios_boot(&self, memory: &mut dyn vm_core::MMU) -> Result<BootInfo, BootError> {
         log::info!("Starting BIOS Boot");
 
-        let firmware_path = self.config.firmware.as_ref()
-            .ok_or_else(|| BootError::InvalidConfig("No firmware specified".to_string()))?;
+        let firmware_path = self.config.firmware.as_ref().ok_or_else(|| {
+            VmError::Platform(PlatformError::InitializationFailed(
+                "No firmware specified".to_string(),
+            ))
+        })?;
 
-        let firmware_data = std::fs::read(firmware_path)
-            .map_err(|e| BootError::FirmwareLoadFailed(format!("Failed to read {}: {}", firmware_path, e)))?;
+        let firmware_data = std::fs::read(firmware_path).map_err(|e| {
+            VmError::Platform(PlatformError::InitializationFailed(format!(
+                "Failed to read {}: {}",
+                firmware_path, e
+            )))
+        })?;
 
-        log::info!("Loading BIOS firmware from {} ({} bytes)", firmware_path, firmware_data.len());
+        log::info!(
+            "Loading BIOS firmware from {} ({} bytes)",
+            firmware_path,
+            firmware_data.len()
+        );
 
         // BIOS 固件加载到 0xF0000
         let firmware_addr = 0xF0000;
 
         for (i, &byte) in firmware_data.iter().enumerate() {
-            memory.write(firmware_addr + i as u64, byte as u64, 1)
-                .map_err(|e| BootError::FirmwareLoadFailed(format!("Memory write failed: {:?}", e)))?;
+            memory
+                .write(firmware_addr + i as u64, byte as u64, 1)
+                .map_err(|e| {
+                    VmError::Platform(PlatformError::InitializationFailed(format!(
+                        "Memory write failed: {:?}",
+                        e
+                    )))
+                })?;
         }
 
         log::info!("BIOS firmware loaded at 0x{:x}", firmware_addr);
@@ -331,32 +451,50 @@ impl BootLoader {
     /// ISO 引导
     fn iso_boot(&self, memory: &mut dyn vm_core::MMU) -> Result<BootInfo, BootError> {
         use std::fs::File;
-        
+
         use crate::eltorito::ElTorito;
 
         log::info!("Starting ISO Boot");
 
-        let iso_path = self.config.iso.as_ref()
-            .ok_or_else(|| BootError::InvalidConfig("No ISO specified".to_string()))?;
+        let iso_path = match self.config.iso.as_ref() {
+            Some(path) => path,
+            None => {
+                return Err(VmError::Platform(PlatformError::InitializationFailed(
+                    "No ISO specified".to_string(),
+                )));
+            }
+        };
 
-        let file = File::open(iso_path)
-            .map_err(|e| BootError::Io(e))?;
+        let file = File::open(iso_path).map_err(|e| BootError::Io(e.to_string()))?;
 
         // 解析 El Torito 引导目录
-        let mut eltorito = ElTorito::new(file)
-            .map_err(|e| BootError::InvalidConfig(format!("Failed to parse El Torito: {}", e)))?;
+        let mut eltorito = ElTorito::new(file).map_err(|_| {
+            VmError::Platform(PlatformError::InitializationFailed(
+                "Failed to parse El Torito".to_string(),
+            ))
+        })?;
 
-        let catalog = eltorito.boot_catalog()
-            .ok_or_else(|| BootError::InvalidConfig("No boot catalog found".to_string()))?;
+        let catalog = eltorito.boot_catalog().ok_or_else(|| {
+            VmError::Platform(PlatformError::InitializationFailed(
+                "No boot catalog found".to_string(),
+            ))
+        })?;
 
         log::info!("Found El Torito boot catalog");
         log::info!("Platform ID: {}", catalog.validation_entry.platform_id);
-        log::info!("Boot media type: {:?}", catalog.initial_entry.boot_media_type);
+        log::info!(
+            "Boot media type: {:?}",
+            catalog.initial_entry.boot_media_type
+        );
 
         // 读取引导镜像
         let initial_entry = catalog.initial_entry.clone();
-        let boot_image = eltorito.read_boot_image(&initial_entry)
-            .map_err(|e| BootError::InvalidConfig(format!("Failed to read boot image: {}", e)))?;
+        let boot_image = eltorito.read_boot_image(&initial_entry).map_err(|e| {
+            VmError::Platform(PlatformError::InitializationFailed(format!(
+                "Failed to read boot image: {}",
+                e
+            )))
+        })?;
 
         log::info!("Loaded boot image ({} bytes)", boot_image.len());
 
@@ -365,8 +503,14 @@ impl BootLoader {
         let boot_addr = 0x7C00u64;
 
         for (i, &byte) in boot_image.iter().enumerate() {
-            memory.write(boot_addr + i as u64, byte as u64, 1)
-                .map_err(|e| BootError::InvalidConfig(format!("Memory write failed: {:?}", e)))?;
+            memory
+                .write(boot_addr + i as u64, byte as u64, 1)
+                .map_err(|e| {
+                    VmError::Platform(PlatformError::InitializationFailed(format!(
+                        "Memory write failed: {:?}",
+                        e
+                    )))
+                })?;
         }
 
         log::info!("Boot image loaded at 0x{:x}", boot_addr);

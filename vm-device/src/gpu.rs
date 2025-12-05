@@ -1,4 +1,4 @@
-use vm_core::MmioDevice;
+use vm_core::{MmioDevice, VmError, PlatformError};
 use wgpu::{Instance, Surface, Adapter, Device, Queue};
 use winit::window::Window;
 use std::sync::Arc;
@@ -28,13 +28,15 @@ impl GpuDevice {
         }
     }
 
-    pub async fn init(&mut self, window: Arc<Window>) {
-        let surface = self.instance.create_surface(window.clone()).expect("Failed to create GPU surface");
+    pub async fn init(&mut self, window: Arc<Window>) -> Result<(), VmError> {
+        let surface = self.instance.create_surface(window.clone())
+            .map_err(|e| VmError::Platform(PlatformError::InitializationFailed(format!("Failed to create GPU surface: {}", e))))?;
+        
         let adapter = self.instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
-        }).await.expect("Failed to request GPU adapter");
+        }).await.ok_or_else(|| VmError::Platform(PlatformError::HardwareUnavailable("No GPU adapter available".to_string())))?;
 
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -43,13 +45,15 @@ impl GpuDevice {
                 required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
             },
             None,
-        ).await.expect("Failed to request GPU device");
+        ).await.map_err(|e| VmError::Platform(PlatformError::InitializationFailed(format!("Failed to request GPU device: {}", e))))?;
 
         self.surface = Some(surface);
         self.adapter = Some(adapter);
         self.device = Some(device);
         self.queue = Some(queue);
         self.window = Some(window);
+        
+        Ok(())
     }
 }
 
