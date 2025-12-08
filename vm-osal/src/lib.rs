@@ -337,12 +337,16 @@ impl MappedMemory {
 
     /// 作为切片访问
     pub unsafe fn as_slice(&self) -> &[u8] {
-        std::slice::from_raw_parts(self.ptr, self.size)
+        unsafe {
+            std::slice::from_raw_parts(self.ptr, self.size)
+        }
     }
 
     /// 作为可变切片访问
     pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
-        std::slice::from_raw_parts_mut(self.ptr, self.size)
+        unsafe {
+            std::slice::from_raw_parts_mut(self.ptr, self.size)
+        }
     }
 }
 
@@ -424,8 +428,10 @@ impl JitMemory {
 
     /// 获取函数指针
     pub unsafe fn get_fn<T>(&self, offset: usize) -> T {
-        let ptr = self.mem.as_ptr().add(offset);
-        std::mem::transmute_copy(&ptr)
+        unsafe {
+            let ptr = self.mem.as_ptr().add(offset);
+            std::mem::transmute_copy(&ptr)
+        }
     }
 
     pub fn as_ptr(&self) -> *const u8 {

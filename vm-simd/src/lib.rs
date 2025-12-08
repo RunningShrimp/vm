@@ -55,10 +55,10 @@ pub fn vec_add_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
         let lane_bits = (element_size.max(1) as u64) * 8;
         let lanes = 64 / lane_bits;
         let mut acc = 0u64;
-        let max_val = ((1u128 << lane_bits) - 1) as u128;
+        let max_val = (1u128 << lane_bits) - 1;
         for i in 0..lanes {
             let shift = i * lane_bits;
-            let mask = ((1u128 << lane_bits) - 1) as u128;
+            let mask = (1u128 << lane_bits) - 1;
             let av = ((a >> shift) as u128) & mask;
             let bv = ((b >> shift) as u128) & mask;
             let sum = av + bv;

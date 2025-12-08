@@ -62,6 +62,7 @@ impl Default for LoopOptConfig {
 }
 
 /// 循环检测和优化器
+#[derive(Clone)]
 pub struct LoopOptimizer {
     config: LoopOptConfig,
 }
