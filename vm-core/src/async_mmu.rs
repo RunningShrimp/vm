@@ -1,6 +1,10 @@
 use crate::{AccessType, GuestAddr, GuestPhysAddr, VmError};
 use parking_lot::RwLock;
 use std::collections::VecDeque;
+
+#[cfg(feature = "async")]
+use tokio::time::sleep;
+
 /// Week 4 - 异步内存管理单元 (AsyncMMU)
 ///
 /// 为虚拟机的内存管理单元添加异步支持，包括：
@@ -351,6 +355,7 @@ mod tests {
         assert!(tlb.lookup(0x1000).is_none());
     }
 
+    #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_async_translate() {
         let tlb = AsyncTLB::new(10);
@@ -358,7 +363,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[tokio::test]
+    #[cfg(feature = "async")]
     async fn test_batch_translate() {
         let tlb = AsyncTLB::new(10);
         let addresses = vec![0x1000, 0x2000, 0x3000];

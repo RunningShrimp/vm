@@ -4,12 +4,15 @@
 
 use crate::VmError;
 use crate::domain_event_bus::{DomainEventBus, EventHandler, EventSubscriptionId};
-// #[allow(dead_code)] use crate::domain_events::DomainEvent; // 保留以备将来使用
 use std::collections::VecDeque;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use std::time::Duration;
+
+#[cfg(feature = "async")]
+use tokio::time::sleep;
 use std::time::SystemTime;
 
 #[cfg(feature = "async")]

@@ -439,7 +439,8 @@ impl<'a> MMU for OptimizedMmu<'a> {
         Ok(())
     }
 
-    fn translate_addr(&self, addr: GuestAddr) -> Result<u64, crate::VmError> {
+    // Helper: get physical address from virtual address
+    fn _translate_addr_helper(&self, addr: GuestAddr) -> Result<u64, crate::VmError> {
         if let Some(paddr) = self.mmu_cache.fast_translate(addr) {
             self.stats.record_cache_hit();
             Ok(paddr)

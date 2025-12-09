@@ -98,6 +98,7 @@ mod jit_helpers;
 pub mod loop_opt;
 pub mod pool;
 pub mod trace_selection;
+pub mod async_executor;
 pub mod tiered_compiler;
 
 // 拆分出的模块（提升可维护性）

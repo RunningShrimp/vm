@@ -1,6 +1,10 @@
 use crate::{AccessType, GuestAddr, GuestPhysAddr, TlbEntry, TlbManager, VmError};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+
+#[cfg(feature = "async")]
+use tokio::time::sleep;
+
 /// Week 4 - TLB 异步优化
 ///
 /// 实现高效的 TLB 异步操作，包括：
@@ -492,6 +496,7 @@ mod tests {
         assert!(stats.hit_rate > 0.65 && stats.hit_rate < 0.75);
     }
 
+    #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_batch_flush() {
         let cache = AsyncTLBCache::new(20);
@@ -512,6 +517,7 @@ mod tests {
         assert!(cache.lookup(0x2000).is_none());
     }
 
+    #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_selective_flush() {
         let cache = AsyncTLBCache::new(20);
@@ -525,6 +531,7 @@ mod tests {
         assert_eq!(count.unwrap(), 2);
     }
 
+    #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_concurrent_manager() {
         let manager = ConcurrentTLBManager::new(10);
