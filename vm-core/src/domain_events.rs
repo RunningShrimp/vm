@@ -194,6 +194,12 @@ pub struct EventMigrationTool {
     migrator: EventVersionMigrator,
 }
 
+impl Default for EventMigrationTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventMigrationTool {
     /// 创建新的迁移工具
     pub fn new() -> Self {

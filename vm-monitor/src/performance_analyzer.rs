@@ -530,8 +530,8 @@ impl PerformanceAnalyzer {
         let sum_xy: f64 = values.iter().enumerate().map(|(i, &y)| i as f64 * y).sum();
         let sum_x2: f64 = (0..values.len()).map(|i| (i as f64).powi(2)).sum();
         
-        let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
-        slope
+        
+        (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2))
     }
 
     /// 生成性能报告（JSON格式）
@@ -564,7 +564,7 @@ impl PerformanceAnalyzer {
                     bottleneck.description
                 ));
             }
-            report.push_str("\n");
+            report.push('\n');
         }
         
         if !analysis.recommendations.is_empty() {

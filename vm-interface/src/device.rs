@@ -142,7 +142,7 @@ impl VirtualDevice {
     pub fn new(config: DeviceConfig) -> Self {
         let state = DeviceState {
             device_id: config.device_id,
-            device_type: config.device_type.clone(),
+            device_type: config.device_type,
             status: DeviceStatus::Uninitialized,
             last_access: None,
             access_count: 0,
@@ -260,7 +260,7 @@ impl Device for VirtualDevice {
     }
 
     fn device_type(&self) -> DeviceType {
-        self.config.device_type.clone()
+        self.config.device_type
     }
 
     fn io_regions(&self) -> &[Self::IoRegion] {

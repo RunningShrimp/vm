@@ -303,32 +303,32 @@ pub fn vec256_mul(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
 
 /// 256-bit 向量饱和加法（无符号）
 pub fn vec256_add_sat_u(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
-    combine_chunks(a, b, element_size, |x, y, es| vec_add_sat_u(x, y, es))
+    combine_chunks(a, b, element_size, vec_add_sat_u)
 }
 
 /// 256-bit 向量饱和加法（有符号）
 pub fn vec256_add_sat_s(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
-    combine_chunks(a, b, element_size, |x, y, es| vec_add_sat_s(x, y, es))
+    combine_chunks(a, b, element_size, vec_add_sat_s)
 }
 
 /// 256-bit 向量饱和减法（无符号）
 pub fn vec256_sub_sat_u(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
-    combine_chunks(a, b, element_size, |x, y, es| vec_sub_sat_u(x, y, es))
+    combine_chunks(a, b, element_size, vec_sub_sat_u)
 }
 
 /// 256-bit 向量饱和减法（有符号）
 pub fn vec256_sub_sat_s(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
-    combine_chunks(a, b, element_size, |x, y, es| vec_sub_sat_s(x, y, es))
+    combine_chunks(a, b, element_size, vec_sub_sat_s)
 }
 
 /// 256-bit 向量饱和乘法（无符号）
 pub fn vec256_mul_sat_u(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
-    combine_chunks(a, b, element_size, |x, y, es| vec_mul_sat_u(x, y, es))
+    combine_chunks(a, b, element_size, vec_mul_sat_u)
 }
 
 /// 256-bit 向量饱和乘法（有符号）
 pub fn vec256_mul_sat_s(a: [u64; 4], b: [u64; 4], element_size: u8) -> [u64; 4] {
-    combine_chunks(a, b, element_size, |x, y, es| vec_mul_sat_s(x, y, es))
+    combine_chunks(a, b, element_size, vec_mul_sat_s)
 }
 
 /// 512-bit（8×u64）向量加法

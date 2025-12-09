@@ -2,7 +2,7 @@
 //!
 //! 提供集中化的配置管理，支持运行时配置更新和验证。
 
-use crate::{ComponentStatus, VmError};
+use crate::VmError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -52,6 +52,12 @@ pub struct ConfigManager {
     validators: HashMap<String, Box<dyn ConfigValidator + Send + Sync>>,
     /// 配置监听器
     listeners: Vec<Box<dyn Fn(&str, &ConfigItem) + Send + Sync>>,
+}
+
+impl Default for ConfigManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConfigManager {
@@ -128,14 +134,13 @@ impl ConfigManager {
             })
         })?;
 
-        if let Some(existing) = configs.get(&key) {
-            if !existing.runtime_modifiable {
+        if let Some(existing) = configs.get(&key)
+            && !existing.runtime_modifiable {
                 return Err(VmError::Core(vm_core::CoreError::Config {
                     message: format!("Configuration '{}' is not runtime modifiable", key),
                     path: Some(key),
                 }));
             }
-        }
 
         drop(configs);
         self.set(

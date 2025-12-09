@@ -12,6 +12,12 @@ pub struct DependencyResolver {
     installed_plugins: HashMap<PluginId, PluginVersion>,
 }
 
+impl Default for DependencyResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DependencyResolver {
     pub fn new() -> Self {
         Self {

@@ -15,6 +15,12 @@ pub struct EventPublisher {
     next_id: AtomicU64,
 }
 
+impl Default for EventPublisher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventPublisher {
     pub fn new() -> Self {
         Self {
@@ -49,7 +55,7 @@ impl EventPublisher {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.subscribers
             .entry(event_type.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(Box::new(callback));
         id
     }
@@ -74,6 +80,12 @@ pub struct EventBus {
     publisher: Arc<Mutex<EventPublisher>>,
 }
 
+impl Default for EventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventBus {
     pub fn new() -> Self {
         Self {
@@ -84,7 +96,7 @@ impl EventBus {
     /// 获取全局事件总线实例
     pub fn global() -> &'static Self {
         static INSTANCE: std::sync::OnceLock<EventBus> = std::sync::OnceLock::new();
-        INSTANCE.get_or_init(|| EventBus::new())
+        INSTANCE.get_or_init(EventBus::new)
     }
 
     /// 发布事件

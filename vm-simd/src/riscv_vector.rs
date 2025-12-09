@@ -213,12 +213,11 @@ pub fn vredmax_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut found = false;
 
     for i in 0..a.len().min(mask.get_bits().len()) {
-        if mask.test(i) {
-            if !found || a[i] > max_val {
+        if mask.test(i)
+            && (!found || a[i] > max_val) {
                 max_val = a[i];
                 found = true;
             }
-        }
     }
 
     if found { max_val } else { 0.0 }
@@ -230,12 +229,11 @@ pub fn vredmin_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut found = false;
 
     for i in 0..a.len().min(mask.get_bits().len()) {
-        if mask.test(i) {
-            if !found || a[i] < min_val {
+        if mask.test(i)
+            && (!found || a[i] < min_val) {
                 min_val = a[i];
                 found = true;
             }
-        }
     }
 
     if found { min_val } else { 0.0 }

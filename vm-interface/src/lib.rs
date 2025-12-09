@@ -3,8 +3,7 @@
 //! 提供虚拟机各组件的统一接口定义，遵循SOLID原则，提高代码的可维护性和扩展性。
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use vm_core::{ExecResult, ExecStats, GuestAddr, VcpuStateContainer, VmError};
+use vm_core::{ExecResult, ExecStats, GuestAddr, VmError};
 use vm_ir::IRBlock;
 
 /// 组件状态枚举

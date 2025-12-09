@@ -26,7 +26,7 @@
 //! ```
 
 use crate::{VmError, VmResult};
-use crate::domain_events::{DomainEvent, DomainEventEnum};
+use crate::domain_events::DomainEventEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -163,8 +163,8 @@ impl EventStore for InMemoryEventStore {
             }
             None => {
                 // 自动分配序号
-                let next_seq = sequences.get(vm_id).copied().unwrap_or(0) + 1;
-                next_seq
+                
+                sequences.get(vm_id).copied().unwrap_or(0) + 1
             }
         };
 
@@ -208,8 +208,8 @@ impl EventStore for InMemoryEventStore {
             .into_iter()
             .filter(|e| {
                 let seq = e.sequence_number;
-                let from_ok = from_sequence.map_or(true, |f| seq >= f);
-                let to_ok = to_sequence.map_or(true, |t| seq <= t);
+                let from_ok = from_sequence.is_none_or(|f| seq >= f);
+                let to_ok = to_sequence.is_none_or(|t| seq <= t);
                 from_ok && to_ok
             })
             .collect();

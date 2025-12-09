@@ -242,6 +242,12 @@ pub struct LoadBalancer {
     rebalance_interval_ms: u64,
 }
 
+impl Default for LoadBalancer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoadBalancer {
     pub fn new() -> Self {
         Self {

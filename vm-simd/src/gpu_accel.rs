@@ -276,7 +276,7 @@ impl GpuManager {
     pub fn create_stream(&self, device_id: u32) -> Arc<GpuStream> {
         let stream_id = {
             let mut streams = self.streams.write();
-            let streams_vec = streams.entry(device_id).or_insert_with(Vec::new);
+            let streams_vec = streams.entry(device_id).or_default();
             streams_vec.len() as u32
         };
         let stream = Arc::new(GpuStream::new(device_id, stream_id));

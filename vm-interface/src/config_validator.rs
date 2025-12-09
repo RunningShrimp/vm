@@ -53,7 +53,7 @@ pub struct ConfigValidator {
 impl Default for ConfigValidator {
     fn default() -> Self {
         Self {
-            min_memory_size: 1 * 1024 * 1024,          // 1MB
+            min_memory_size: 1024 * 1024,          // 1MB
             max_memory_size: 256 * 1024 * 1024 * 1024, // 256GB
             min_vcpu_count: 1,
             max_vcpu_count: 256,

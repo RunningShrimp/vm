@@ -243,7 +243,7 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
         let results = Arc::new(Mutex::new(Vec::with_capacity(self.vcpus.len())));
         let mut handles: Vec<thread::JoinHandle<()>> = vec![];
 
-        for (_vcpu_id, (vcpu, block)) in self.vcpus.iter().zip(blocks.iter()).enumerate() {
+        for (vcpu, block) in self.vcpus.iter().zip(blocks.iter()) {
             let vcpu_clone: Arc<Mutex<Box<dyn ExecutionEngine<B>>>> = Arc::clone(vcpu);
             let sharded_mmu_clone: Arc<ShardedMmu> = Arc::clone(&self.sharded_mmu);
             let results_clone: Arc<Mutex<Vec<ExecResult>>> = Arc::clone(&results);

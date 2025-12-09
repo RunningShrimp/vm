@@ -31,7 +31,7 @@ impl VfId {
     /// 获取 VF Bus Device Function
     pub fn get_vf_bdf(&self) -> u16 {
         let base = self.pf_bdf & 0xfff8; // 清除 Function 部分
-        base + (self.vf_index as u16 & 0xff)
+        base + (self.vf_index & 0xff)
     }
 }
 
@@ -318,24 +318,22 @@ impl SriovVfManager {
     /// 启用 VF
     pub fn enable_vf(&self, vf_id: VfId) -> bool {
         let mut configs = self.vf_configs.write().unwrap();
-        if let Some(config) = configs.get_mut(&vf_id) {
-            if config.state == VfState::Initialized || config.state == VfState::Disabled {
+        if let Some(config) = configs.get_mut(&vf_id)
+            && (config.state == VfState::Initialized || config.state == VfState::Disabled) {
                 config.state = VfState::Enabled;
                 return true;
             }
-        }
         false
     }
 
     /// 禁用 VF
     pub fn disable_vf(&self, vf_id: VfId) -> bool {
         let mut configs = self.vf_configs.write().unwrap();
-        if let Some(config) = configs.get_mut(&vf_id) {
-            if config.state == VfState::Enabled {
+        if let Some(config) = configs.get_mut(&vf_id)
+            && config.state == VfState::Enabled {
                 config.state = VfState::Disabled;
                 return true;
             }
-        }
         false
     }
 

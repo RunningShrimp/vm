@@ -151,9 +151,9 @@ impl VectorDecoder {
         mmu: &dyn MMU,
         pc: GuestAddr,
     ) -> Result<IRBlock, VmError> {
-        let rd = ((insn >> 7) & 0x1f) as u32;
-        let rs1 = ((insn >> 15) & 0x1f) as u32;
-        let rs2 = ((insn >> 20) & 0x1f) as u32;
+        let rd = ((insn >> 7) & 0x1f);
+        let rs1 = ((insn >> 15) & 0x1f);
+        let rs2 = ((insn >> 20) & 0x1f);
         let vm = (insn >> 25) & 0x1;
         let funct3 = (insn >> 12) & 0x7;
 

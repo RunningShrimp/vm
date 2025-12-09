@@ -497,7 +497,7 @@ impl ExtendedDecoder {
             return None;
         }
 
-        if opcode.len() < 1 {
+        if opcode.is_empty() {
             return None;
         }
 

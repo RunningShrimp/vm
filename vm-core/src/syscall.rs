@@ -41,6 +41,12 @@ pub struct SyscallHandler {
     brk_addr: GuestAddr,
 }
 
+impl Default for SyscallHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SyscallHandler {
     pub fn new() -> Self {
         let mut handler = Self {
@@ -77,38 +83,38 @@ impl SyscallHandler {
     ) -> SyscallResult {
         let (syscall_num, args) = match arch {
             SyscallArch::X86_64 => {
-                let num = regs.gpr[0] as u64; // RAX
+                let num = regs.gpr[0]; // RAX
                 let args = [
-                    regs.gpr[7] as u64,  // RDI
-                    regs.gpr[6] as u64,  // RSI
-                    regs.gpr[2] as u64,  // RDX
-                    regs.gpr[10] as u64, // R10
-                    regs.gpr[8] as u64,  // R8
-                    regs.gpr[9] as u64,  // R9
+                    regs.gpr[7],  // RDI
+                    regs.gpr[6],  // RSI
+                    regs.gpr[2],  // RDX
+                    regs.gpr[10], // R10
+                    regs.gpr[8],  // R8
+                    regs.gpr[9],  // R9
                 ];
                 (num, args)
             }
             SyscallArch::Riscv64 => {
-                let num = regs.gpr[17] as u64; // a7
+                let num = regs.gpr[17]; // a7
                 let args = [
-                    regs.gpr[10] as u64, // a0
-                    regs.gpr[11] as u64, // a1
-                    regs.gpr[12] as u64, // a2
-                    regs.gpr[13] as u64, // a3
-                    regs.gpr[14] as u64, // a4
-                    regs.gpr[15] as u64, // a5
+                    regs.gpr[10], // a0
+                    regs.gpr[11], // a1
+                    regs.gpr[12], // a2
+                    regs.gpr[13], // a3
+                    regs.gpr[14], // a4
+                    regs.gpr[15], // a5
                 ];
                 (num, args)
             }
             SyscallArch::Aarch64 => {
-                let num = regs.gpr[8] as u64; // x8
+                let num = regs.gpr[8]; // x8
                 let args = [
-                    regs.gpr[0] as u64, // x0
-                    regs.gpr[1] as u64, // x1
-                    regs.gpr[2] as u64, // x2
-                    regs.gpr[3] as u64, // x3
-                    regs.gpr[4] as u64, // x4
-                    regs.gpr[5] as u64, // x5
+                    regs.gpr[0], // x0
+                    regs.gpr[1], // x1
+                    regs.gpr[2], // x2
+                    regs.gpr[3], // x3
+                    regs.gpr[4], // x4
+                    regs.gpr[5], // x5
                 ];
                 (num, args)
             }
@@ -259,7 +265,7 @@ impl SyscallHandler {
                 args[4] as *mut u32,
                 mmu,
             ), // getsockopt
-            56 => self.sys_clone(args[0] as u64, args[1], args[2], args[3], args[4], mmu), // clone (x86_64实际只有5个参数)
+            56 => self.sys_clone(args[0], args[1], args[2], args[3], args[4], mmu), // clone (x86_64实际只有5个参数)
             57 => self.sys_fork(mmu),                                                      // fork
             58 => self.sys_vfork(mmu),                                                     // vfork
             59 => self.sys_execve(args[0], args[1], args[2], mmu),                         // execve
@@ -351,11 +357,11 @@ impl SyscallHandler {
             132 => self.sys_utime(args[0], args[1], mmu),                  // utime
             133 => self.sys_mknod(args[0], args[1] as u32, args[2] as u32, mmu), // mknod
             134 => self.sys_uselib(args[0], mmu),                          // uselib
-            135 => self.sys_personality(args[0] as u64),                   // personality
+            135 => self.sys_personality(args[0]),                   // personality
             136 => self.sys_ustat(args[0] as u32, args[1], mmu),           // ustat
             137 => self.sys_statfs(args[0], args[1], mmu),                 // statfs
             138 => self.sys_fstatfs(args[0] as i32, args[1], mmu),         // fstatfs
-            139 => self.sys_sysfs(args[0] as i32, args[1] as u64, args[2] as u64), // sysfs
+            139 => self.sys_sysfs(args[0] as i32, args[1], args[2]), // sysfs
             140 => self.sys_getpriority(args[0] as i32, args[1] as i32),   // getpriority
             141 => self.sys_setpriority(args[0] as i32, args[1] as i32, args[2] as i32), // setpriority
             142 => self.sys_sched_setparam(args[0] as i32, args[1], mmu), // sched_setparam
@@ -374,10 +380,10 @@ impl SyscallHandler {
             155 => self.sys_pivot_root(args[0], args[1], mmu), // pivot_root
             156 => self.sys_prctl(
                 args[0] as i32,
-                args[1] as u64,
-                args[2] as u64,
-                args[3] as u64,
-                args[4] as u64,
+                args[1],
+                args[2],
+                args[3],
+                args[4],
                 mmu,
             ), // prctl
             157 => self.sys_arch_prctl(args[0] as i32, args[1], mmu), // arch_prctl
@@ -387,7 +393,7 @@ impl SyscallHandler {
             161 => self.sys_sync(),                            // sync
             162 => self.sys_acct(args[0], mmu),                // acct
             163 => self.sys_settimeofday(args[0], args[1], mmu), // settimeofday
-            164 => self.sys_mount(args[0], args[1], args[2], args[3] as u64, args[4], mmu), // mount
+            164 => self.sys_mount(args[0], args[1], args[2], args[3], args[4], mmu), // mount
             165 => self.sys_umount2(args[0], args[1] as i32, mmu), // umount2
             166 => self.sys_swapon(args[0], args[1] as i32, mmu), // swapon
             167 => self.sys_swapoff(args[0], mmu),             // swapoff
@@ -395,7 +401,7 @@ impl SyscallHandler {
             169 => self.sys_sethostname(args[0], args[1] as usize, mmu), // sethostname
             170 => self.sys_setdomainname(args[0], args[1] as usize, mmu), // setdomainname
             171 => self.sys_iopl(args[0] as i32),                        // iopl
-            172 => self.sys_ioperm(args[0] as u64, args[1] as u64, args[2] as i32), // ioperm
+            172 => self.sys_ioperm(args[0], args[1], args[2] as i32), // ioperm
             173 => self.sys_create_module(args[0], args[1] as usize, mmu), // create_module
             174 => self.sys_init_module(args[0], args[1] as usize, args[2], mmu), // init_module
             175 => self.sys_delete_module(args[0], args[1] as i32, mmu), // delete_module
@@ -499,7 +505,7 @@ impl SyscallHandler {
             209 => self.sys_io_submit(args[0] as u32, args[1] as u32, args[2], mmu), // io_submit
             210 => self.sys_io_cancel(args[0] as u32, args[1], args[2], mmu), // io_cancel
             211 => self.sys_get_thread_area(args[0], mmu), // get_thread_area
-            212 => self.sys_lookup_dcookie(args[0] as u64, args[1], args[2] as usize, mmu), // lookup_dcookie
+            212 => self.sys_lookup_dcookie(args[0], args[1], args[2] as usize, mmu), // lookup_dcookie
             213 => self.sys_epoll_create(args[0] as i32), // epoll_create
             214 => {
                 self.sys_epoll_ctl_old(args[0] as i32, args[1] as i32, args[2] as i32, args[3], mmu)
@@ -546,12 +552,12 @@ impl SyscallHandler {
             234 => self.sys_tgkill(args[0] as i32, args[1] as i32, args[2] as i32), // tgkill
             235 => self.sys_utimes(args[0], args[1], mmu),                          // utimes
             236 => self.sys_vserver(
-                args[0] as u64,
-                args[1] as u64,
-                args[2] as u64,
-                args[3] as u64,
-                args[4] as u64,
-                args[5] as u64,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+                args[5],
             ), // vserver
             237 => self.sys_mbind(
                 args[0],
@@ -567,8 +573,8 @@ impl SyscallHandler {
                 args[0],
                 args[1],
                 args[2] as usize,
-                args[3] as u64,
-                args[4] as u64,
+                args[3],
+                args[4],
                 mmu,
             ), // get_mempolicy
             240 => self.sys_mq_open(args[0], args[1] as i32, args[2] as u32, args[3], mmu), // mq_open
@@ -592,10 +598,10 @@ impl SyscallHandler {
             244 => self.sys_mq_notify(args[0] as i32, args[1], mmu), // mq_notify
             245 => self.sys_mq_getsetattr(args[0] as i32, args[1], args[2], mmu), // mq_getsetattr
             246 => self.sys_kexec_load(
-                args[0] as u64,
+                args[0],
                 args[1] as usize,
                 args[2],
-                args[3] as u64,
+                args[3],
                 mmu,
             ), // kexec_load
             247 => self.sys_waitid(args[0] as i32, args[1] as i32, args[2], args[3] as i32, mmu), // waitid
@@ -610,11 +616,11 @@ impl SyscallHandler {
             249 => self.sys_request_key(args[0], args[1], args[2], args[3] as u32, mmu), // request_key
             250 => self.sys_keyctl(
                 args[0] as i32,
-                args[1] as u64,
-                args[2] as u64,
-                args[3] as u64,
-                args[4] as u64,
-                args[5] as u64,
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+                args[5],
             ), // keyctl
             251 => self.sys_ioprio_set(args[0] as i32, args[1] as i32, args[2] as i32), // ioprio_set
             252 => self.sys_ioprio_get(args[0] as i32, args[1] as i32), // ioprio_get
@@ -754,7 +760,7 @@ impl SyscallHandler {
                 args[1] as i32,
                 args[2] as i32,
                 args[3] as i32,
-                args[4] as u64,
+                args[4],
                 mmu,
             ), // perf_event_open
             299 => self.sys_recvmmsg(
@@ -769,7 +775,7 @@ impl SyscallHandler {
             301 => self.sys_fanotify_mark(
                 args[0] as i32,
                 args[1] as u32,
-                args[2] as u64,
+                args[2],
                 args[3] as i32,
                 args[4],
                 mmu,
@@ -795,7 +801,7 @@ impl SyscallHandler {
                 args[2] as usize,
                 args[3],
                 args[4] as usize,
-                args[5] as u64,
+                args[5],
                 mmu,
             ), // process_vm_readv
             311 => self.sys_process_vm_writev(
@@ -804,15 +810,15 @@ impl SyscallHandler {
                 args[2] as usize,
                 args[3],
                 args[4] as usize,
-                args[5] as u64,
+                args[5],
                 mmu,
             ), // process_vm_writev
             312 => self.sys_kcmp(
                 args[0] as i32,
                 args[1] as i32,
                 args[2] as i32,
-                args[3] as u64,
-                args[4] as u64,
+                args[3],
+                args[4],
             ), // kcmp
             313 => self.sys_finit_module(args[0] as i32, args[1], args[2] as i32, mmu), // finit_module
             314 => self.sys_sched_setattr(args[0] as i32, args[1], args[2] as u32, mmu), // sched_setattr
@@ -835,7 +841,7 @@ impl SyscallHandler {
                 args[1] as i32,
                 args[2] as usize,
                 args[3],
-                args[4] as u64,
+                args[4],
                 mmu,
             ), // kexec_file_load
             321 => self.sys_bpf(args[0] as i32, args[1], args[2] as u32, mmu), // bpf

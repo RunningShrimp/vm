@@ -25,7 +25,7 @@ pub use security::{
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use vm_core::VmError;
 
@@ -294,6 +294,12 @@ pub struct EventBusStats {
     pub events_by_type: HashMap<String, u64>,
 }
 
+impl Default for PluginEventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PluginEventBus {
     pub fn new() -> Self {
         Self {
@@ -325,7 +331,7 @@ impl PluginEventBus {
     {
         self.subscribers
             .entry(event_type.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(Box::new(callback));
         
         // 更新统计
@@ -392,6 +398,12 @@ pub struct PluginRepository {
     available_plugins: HashMap<PluginId, PluginMetadata>,
     /// 插件下载URL
     download_urls: HashMap<PluginId, String>,
+}
+
+impl Default for PluginRepository {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PluginRepository {

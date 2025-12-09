@@ -1,5 +1,5 @@
 use vm_accel::cpuinfo::CpuInfo;
-use vm_core::{Decoder, Fault, GuestAddr, Instruction, MMU, VmError};
+use vm_core::{Decoder, GuestAddr, Instruction, MMU, VmError};
 use vm_ir::{IRBlock, IRBuilder, IROp, MemFlags, RegisterFile, Terminator};
 
 mod apple_amx;
@@ -159,11 +159,10 @@ impl Decoder for Arm64Decoder {
 
     fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, VmError> {
         // 检查缓存
-        if let Some(ref cache) = self.decode_cache {
-            if let Some(cached_block) = cache.get(&pc) {
+        if let Some(ref cache) = self.decode_cache
+            && let Some(cached_block) = cache.get(&pc) {
                 return Ok(cached_block.clone());
             }
-        }
 
         let mut builder = IRBuilder::new(pc);
         let mut current_pc = pc;
@@ -298,7 +297,7 @@ impl Decoder for Arm64Decoder {
                 // Link register is x30
                 builder.push(IROp::MovImm {
                     dst: 30,
-                    imm: (current_pc + 4) as u64,
+                    imm: (current_pc + 4),
                 });
                 builder.set_term(Terminator::Jmp { target });
                 break;
@@ -323,10 +322,10 @@ impl Decoder for Arm64Decoder {
             }
 
             // CBZ/CBNZ (Compare and Branch)
-            if {
+            let res = {
                 let top = insn & 0xFF000000;
                 top == 0x34000000 || top == 0x35000000 || top == 0xB4000000 || top == 0xB5000000
-            } {
+            }; if res {
                 let top = insn & 0xFF000000;
                 let is_nz = top == 0x35000000 || top == 0xB5000000;
                 let imm19 = (insn >> 5) & 0x7FFFF;
@@ -2061,7 +2060,7 @@ impl Decoder for Arm64Decoder {
 
                     if is_load {
                         builder.push(IROp::Load {
-                            dst: (vt as u32),
+                            dst: vt,
                             base: rn,
                             offset: 0,
                             size: element_size as u8,
@@ -2069,7 +2068,7 @@ impl Decoder for Arm64Decoder {
                         });
                     } else {
                         builder.push(IROp::Store {
-                            src: (vt as u32),
+                            src: vt,
                             base: rn,
                             offset: 0,
                             size: element_size as u8,
@@ -2082,7 +2081,7 @@ impl Decoder for Arm64Decoder {
 
                 // LD1/ST1 with multiple registers (Vt, Vt2, Vt3, Vt4)
                 // opcode bits [15:12] determine the number of registers
-                if opcode >= 0b0000 && opcode <= 0b0111 {
+                if (0b0000..=0b0111).contains(&opcode) {
                     let num_regs = match opcode {
                         0b0000 | 0b0100 => 1, // Single register
                         0b0010 | 0b0110 => 2, // Two registers
@@ -2905,7 +2904,7 @@ impl Decoder for Arm64Decoder {
             // sf 0 0 1 1 1 0 1 0 0 0 0 0 ...
             if (insn & 0x1FE00000) == 0x1A400000 {
                 let cond = (insn >> 12) & 0xF;
-                let nzcv = (insn >> 0) & 0xF; // NZCV flags to set if condition fails
+                let nzcv = insn & 0xF; // NZCV flags to set if condition fails
                 let rm = (insn >> 16) & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
                 let is_neg = (insn & 0x20000000) != 0; // N bit: CMN if set, CMP if clear
@@ -3719,7 +3718,7 @@ impl Decoder for Arm64Decoder {
 
                     // Clear bits [immr+imms:immr] in Rd
                     let clear_mask = 203;
-                    let clear_val = (mask << immr) as u64;
+                    let clear_val = (mask << immr);
                     builder.push(IROp::MovImm {
                         dst: clear_mask,
                         imm: !clear_val,
@@ -4248,7 +4247,7 @@ impl Decoder for Arm64Decoder {
 
                     if is_signed && mem_size < 8 {
                         // Sign extend loaded value
-                        let sign_bit_shift = (mem_size * 8 - 1) as u8;
+                        let sign_bit_shift = (mem_size * 8 - 1);
                         let sign_bit = 201;
                         builder.push(IROp::SrlImm {
                             dst: sign_bit,
@@ -4463,7 +4462,7 @@ impl Decoder for Arm64Decoder {
                         offset: 0,
                         size: mem_size,
                         dst_flag: rs,
-                        flags: store_flags.clone(),
+                        flags: store_flags,
                     });
                     builder.push(IROp::AtomicStoreCond {
                         src: rt2,
@@ -4638,7 +4637,7 @@ impl Decoder for Arm64Decoder {
             // FCMP/FCMPE (Floating-point Compare)
             // 00 0 11110 1 0 0 0 ...
             if (insn & 0x1F200000) == 0x1E200000 && (insn & 0x00C00000) == 0x00000000 {
-                let opcode = (insn >> 0) & 0x1F;
+                let opcode = insn & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
                 let rm = (insn >> 16) & 0x1F;
                 let type_bits = (insn >> 22) & 0x3;
@@ -4941,7 +4940,7 @@ impl Decoder for Arm64Decoder {
             // 11 0101 0100 0 ...
             if (insn & 0xFFFFF000) == 0xD5030000 {
                 let op = (insn >> 8) & 0xF;
-                let cr = (insn >> 0) & 0xF;
+                let cr = insn & 0xF;
 
                 match op {
                     0x5 => {
@@ -4968,7 +4967,7 @@ impl Decoder for Arm64Decoder {
             if (insn & 0xFFFFF000) == 0xD50B0000 {
                 let op1 = (insn >> 8) & 0xF;
                 let crn = (insn >> 12) & 0xF;
-                let crm = (insn >> 0) & 0xF;
+                let crm = insn & 0xF;
                 let rt = (insn >> 5) & 0x1F;
 
                 // Cache operations - simplified as no-ops
@@ -5037,8 +5036,8 @@ impl Decoder for Arm64Decoder {
             let mut handled = false;
 
             // Apple AMX
-            if cpu_info.vendor == vm_accel::cpuinfo::CpuVendor::Apple && cpu_info.features.amx {
-                if let Ok(Some(amx_insn)) = self.amx_decoder.decode(insn, current_pc) {
+            if cpu_info.vendor == vm_accel::cpuinfo::CpuVendor::Apple && cpu_info.features.amx
+                && let Ok(Some(amx_insn)) = self.amx_decoder.decode(insn, current_pc) {
                     let mut reg_file = RegisterFile::new(32, vm_ir::RegisterMode::SSA);
                     if let Err(_) = self
                         .amx_decoder
@@ -5049,14 +5048,12 @@ impl Decoder for Arm64Decoder {
                         handled = true;
                     }
                 }
-            }
 
             // Qualcomm Hexagon DSP
             if !handled
                 && cpu_info.vendor == vm_accel::cpuinfo::CpuVendor::Qualcomm
                 && cpu_info.features.hexagon_dsp
-            {
-                if let Ok(Some(hex_insn)) = self.hexagon_decoder.decode(insn, current_pc) {
+                && let Ok(Some(hex_insn)) = self.hexagon_decoder.decode(insn, current_pc) {
                     let mut reg_file = RegisterFile::new(32, vm_ir::RegisterMode::SSA);
                     if let Err(_) =
                         self.hexagon_decoder
@@ -5067,14 +5064,12 @@ impl Decoder for Arm64Decoder {
                         handled = true;
                     }
                 }
-            }
 
             // MediaTek APU
             if !handled
                 && cpu_info.vendor == vm_accel::cpuinfo::CpuVendor::MediaTek
                 && cpu_info.features.apu
-            {
-                if let Ok(Some(apu_insn)) = self.apu_decoder.decode(insn, current_pc) {
+                && let Ok(Some(apu_insn)) = self.apu_decoder.decode(insn, current_pc) {
                     let mut reg_file = RegisterFile::new(32, vm_ir::RegisterMode::SSA);
                     if self
                         .apu_decoder
@@ -5084,14 +5079,12 @@ impl Decoder for Arm64Decoder {
                         handled = true;
                     }
                 }
-            }
 
             // HiSilicon NPU
             if !handled
                 && cpu_info.vendor == vm_accel::cpuinfo::CpuVendor::HiSilicon
                 && cpu_info.features.npu
-            {
-                if let Ok(Some(npu_insn)) = self.npu_decoder.decode(insn, current_pc) {
+                && let Ok(Some(npu_insn)) = self.npu_decoder.decode(insn, current_pc) {
                     let mut reg_file = RegisterFile::new(32, vm_ir::RegisterMode::SSA);
                     if self
                         .npu_decoder
@@ -5101,7 +5094,6 @@ impl Decoder for Arm64Decoder {
                         handled = true;
                     }
                 }
-            }
 
             if handled {
                 current_pc += 4;

@@ -46,11 +46,10 @@ impl PlatformInfo {
     #[cfg(target_os = "macos")]
     fn get_os_version() -> String {
         use std::process::Command;
-        if let Ok(output) = Command::new("sw_vers").arg("-productVersion").output() {
-            if let Ok(version) = String::from_utf8(output.stdout) {
+        if let Ok(output) = Command::new("sw_vers").arg("-productVersion").output()
+            && let Ok(version) = String::from_utf8(output.stdout) {
                 return format!("macOS {}", version.trim());
             }
-        }
         "macOS".to_string()
     }
 
@@ -115,13 +114,11 @@ impl PlatformInfo {
     #[cfg(target_os = "macos")]
     fn get_total_memory() -> u64 {
         use std::process::Command;
-        if let Ok(output) = Command::new("sysctl").arg("-n").arg("hw.memsize").output() {
-            if let Ok(mem_str) = String::from_utf8(output.stdout) {
-                if let Ok(mem) = mem_str.trim().parse::<u64>() {
+        if let Ok(output) = Command::new("sysctl").arg("-n").arg("hw.memsize").output()
+            && let Ok(mem_str) = String::from_utf8(output.stdout)
+                && let Ok(mem) = mem_str.trim().parse::<u64>() {
                     return mem;
                 }
-            }
-        }
         0
     }
 
@@ -263,7 +260,7 @@ impl PlatformFeatures {
         #[cfg(target_os = "macos")]
         {
             // macOS 10.10+ 都支持 Hypervisor.framework
-            return true;
+            true
         }
 
         #[cfg(target_os = "windows")]
@@ -283,7 +280,7 @@ impl PlatformFeatures {
         // 所有桌面平台都支持某种形式的 GPU 加速
         #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         {
-            return true;
+            true
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
@@ -303,7 +300,7 @@ impl PlatformFeatures {
         #[cfg(target_os = "macos")]
         {
             // macOS 需要安装 tuntap 驱动
-            return false;
+            false
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]

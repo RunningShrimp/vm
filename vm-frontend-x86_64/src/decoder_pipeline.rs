@@ -3,12 +3,10 @@
 //! 提供统一的解码管道，将前缀、操作码、操作数解码串联起来
 
 use vm_core::{Fault, GuestAddr, VmError};
-use vm_ir::IRBlock;
 
 use super::{
     X86Instruction, X86Mnemonic, X86Operand,
     opcode_decode::{OpcodeInfo, decode_opcode},
-    operand_decode::{MemoryOperand, Operand, OperandDecoder},
     prefix_decode::{PrefixInfo, decode_prefixes},
 };
 
@@ -167,7 +165,7 @@ impl DecoderPipeline {
         {
             let imm32_low = stream.read_u8()?;
             let imm32 = stream.read_u32()? as u64 | ((imm32_low as u64) << 32);
-            operand_bytes.push(imm32_low as u8);
+            operand_bytes.push(imm32_low);
             operand_bytes.extend_from_slice(&imm32.to_le_bytes()[0..4]);
         }
 
@@ -243,8 +241,7 @@ impl DecoderPipeline {
         };
 
         let op1 = self
-            .operands
-            .get(0)
+            .operands.first()
             .cloned()
             .unwrap_or(super::operand_decode::Operand::None);
         let op2 = self
@@ -291,7 +288,7 @@ impl DecoderPipeline {
                             base: Some(*base),
                             index: None,
                             scale: 1,
-                            disp: *disp as i64,
+                            disp: *disp,
                         }
                     }
                     super::operand_decode::MemoryOperand::Indexed {
@@ -303,7 +300,7 @@ impl DecoderPipeline {
                         base: *base,
                         index: Some(*index),
                         scale: *scale,
-                        disp: *disp as i64,
+                        disp: *disp,
                     },
                     super::operand_decode::MemoryOperand::Rip { disp } => {
                         X86Operand::Mem {

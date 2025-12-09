@@ -79,13 +79,12 @@ impl AsyncTLBCache {
     pub fn lookup(&self, va: GuestAddr) -> Option<(GuestPhysAddr, AccessType)> {
         let entries = self.entries.write();
 
-        if let Some(&(pa, access, consistency)) = entries.get(&va) {
-            if consistency == TLBConsistency::Valid {
+        if let Some(&(pa, access, consistency)) = entries.get(&va)
+            && consistency == TLBConsistency::Valid {
                 let mut stats = self.stats.lock();
                 stats.hits += 1;
                 return Some((pa, access));
             }
-        }
 
         let mut stats = self.stats.lock();
         stats.misses += 1;
@@ -101,12 +100,11 @@ impl AsyncTLBCache {
         let result = self.lookup(va);
 
         // 如果提供了预取地址，异步处理
-        if let Some(addrs) = prefetch_addrs {
-            if result.is_none() {
+        if let Some(addrs) = prefetch_addrs
+            && result.is_none() {
                 // 可以在这里触发异步预取
                 let _ = self.async_prefetch(addrs).await;
             }
-        }
 
         result
     }
@@ -120,7 +118,7 @@ impl AsyncTLBCache {
     /// 4. 自适应窗口：根据命中率调整预取窗口大小
     pub async fn async_prefetch(&self, addresses: &[GuestAddr]) -> Result<(), VmError> {
         let mut records = self.access_records.lock();
-        let mut entries = self.entries.write();
+        let entries = self.entries.write();
         let mut stats = self.stats.lock();
 
         // 计算当前命中率

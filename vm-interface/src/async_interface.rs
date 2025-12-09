@@ -54,7 +54,7 @@ impl DefaultTaskScheduler {
             .build()
             .map_err(|e| {
                 VmError::Io(
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)).to_string(),
+                    std::io::Error::other(format!("{}", e)).to_string(),
                 )
             })?;
 
@@ -113,7 +113,7 @@ impl DefaultAsyncContext {
             .build()
             .map_err(|e| {
                 VmError::Io(
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)).to_string(),
+                    std::io::Error::other(format!("{}", e)).to_string(),
                 )
             })?;
 

@@ -349,7 +349,7 @@ impl PassthroughGpuManager {
     /// 打印 GPU 信息
     pub fn print_gpus(&self) {
         println!("\n=== GPU Devices ===");
-        for (addr, _gpu) in &self.gpus {
+        for addr in self.gpus.keys() {
             println!("GPU at {}", addr.to_string());
         }
     }

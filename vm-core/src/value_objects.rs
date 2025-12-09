@@ -133,7 +133,7 @@ impl MemorySize {
 
     /// 检查是否为页对齐
     pub fn is_page_aligned(&self) -> bool {
-        self.bytes % 4096 == 0
+        self.bytes.is_multiple_of(4096)
     }
 }
 

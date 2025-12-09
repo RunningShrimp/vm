@@ -2,7 +2,7 @@
 //!
 //! 提供插件执行的安全隔离和权限控制
 
-use crate::{PluginPermission, PluginState};
+use crate::PluginPermission;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use vm_core::VmError;
@@ -57,6 +57,12 @@ pub enum PermissionPolicy {
     Whitelist,
     /// 黑名单策略（禁止明确拒绝的权限）
     Blacklist,
+}
+
+impl Default for SecurityManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SecurityManager {
@@ -166,8 +172,8 @@ impl SecurityManager {
 
     /// 检查内存使用限制
     pub fn check_memory_limit(&self, current_usage: u64) -> Result<(), VmError> {
-        if let Some(limit) = self.sandbox_config.memory_limit {
-            if current_usage > limit {
+        if let Some(limit) = self.sandbox_config.memory_limit
+            && current_usage > limit {
                 return Err(VmError::Core(vm_core::CoreError::InvalidState {
                     message: format!(
                         "Memory limit exceeded: {} > {}",
@@ -177,7 +183,6 @@ impl SecurityManager {
                     expected: "within_limit".to_string(),
                 }));
             }
-        }
         Ok(())
     }
 

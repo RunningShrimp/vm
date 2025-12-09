@@ -542,13 +542,13 @@ impl vm_core::Instruction for X86Instruction {
 
     fn operand_count(&self) -> usize {
         let mut count = 0;
-        if matches!(self.op1, X86Operand::None) == false {
+        if !matches!(self.op1, X86Operand::None) {
             count += 1;
         }
-        if matches!(self.op2, X86Operand::None) == false {
+        if !matches!(self.op2, X86Operand::None) {
             count += 1;
         }
-        if matches!(self.op3, X86Operand::None) == false {
+        if !matches!(self.op3, X86Operand::None) {
             count += 1;
         }
         count
@@ -873,11 +873,10 @@ impl Decoder for X86Decoder {
 
     fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, VmError> {
         // 检查缓存
-        if let Some(ref cache) = self.decode_cache {
-            if let Some(cached_block) = cache.get(&pc) {
+        if let Some(ref cache) = self.decode_cache
+            && let Some(cached_block) = cache.get(&pc) {
                 return Ok(cached_block.clone());
             }
-        }
 
         let mut builder = IRBuilder::new(pc);
         let mut stream = InsnStream::new(mmu, pc);
@@ -985,7 +984,7 @@ fn decode_insn_impl(
     } else {
         32
     };
-    let _op_bytes = (op_size / 8) as u8;
+    let _op_bytes = (op_size / 8);
 
     // Check for EVEX prefix (AVX-512 instructions) - must be checked before reading opcode
     let is_evex = prefix.evex.is_some();
@@ -3339,7 +3338,7 @@ fn write_operand(
 }
 
 fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), VmError> {
-    let op_bytes = (insn.op_size / 8) as u8;
+    let op_bytes = (insn.op_size / 8);
 
     match insn.mnemonic {
         X86Mnemonic::Nop => builder.push(IROp::Nop),
@@ -3925,7 +3924,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             builder.push(IROp::VecAdd {
                 dst,
                 src1: tmp1,
-                src2: src2,
+                src2,
                 element_size: 4,
             });
             write_operand(builder, &insn.op1, dst, 16)?;
@@ -4016,7 +4015,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             builder.push(IROp::VecAdd {
                 dst,
                 src1: tmp1,
-                src2: src2,
+                src2,
                 element_size: 4,
             });
             write_operand(builder, &insn.op1, dst, 16)?;
@@ -4615,7 +4614,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
                         builder.push(IROp::SrlImm {
                             dst: cf_src,
                             src,
-                            sh: msb_shift as u8,
+                            sh: msb_shift,
                         });
                         builder.push(IROp::And {
                             dst: new_cf,
@@ -6185,7 +6184,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             builder.push(IROp::SrlImm {
                 dst: upper_half,
                 src,
-                sh: half_bits as u8,
+                sh: half_bits,
             });
             let upper_has_bits = 213;
             builder.push(IROp::CmpNe {
@@ -8762,7 +8761,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
                 sh: 64,
             });
             builder.push(IROp::Or {
-                dst: dst,
+                dst,
                 src1: elem0_prod,
                 src2: tmp,
             });
@@ -8797,7 +8796,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             });
             builder.push(IROp::SrlImm {
                 dst: elem1,
-                src: src,
+                src,
                 sh: 64,
             });
             builder.push(IROp::SllImm {
@@ -8811,7 +8810,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
                 sh: 64,
             });
             builder.push(IROp::Or {
-                dst: dst,
+                dst,
                 src1: elem0,
                 src2: elem1,
             });
@@ -8846,7 +8845,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             });
             builder.push(IROp::SrlImm {
                 dst: elem1,
-                src: src,
+                src,
                 sh: 64,
             });
             builder.push(IROp::SrlImm {
@@ -8860,7 +8859,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
                 sh: 64,
             });
             builder.push(IROp::Or {
-                dst: dst,
+                dst,
                 src1: elem0,
                 src2: elem1,
             });
@@ -8895,7 +8894,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             });
             builder.push(IROp::SrlImm {
                 dst: elem1,
-                src: src,
+                src,
                 sh: 64,
             });
             builder.push(IROp::SraImm {
@@ -8909,7 +8908,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
                 sh: 64,
             });
             builder.push(IROp::Or {
-                dst: dst,
+                dst,
                 src1: elem0,
                 src2: elem1,
             });
@@ -8934,11 +8933,11 @@ pub mod api {
         vec![0xEB, clamp_rel8(rel) as u8]
     }
     pub fn encode_jmp_near(rel: i32) -> Vec<u8> {
-        let b = (rel as i32).to_le_bytes();
+        let b = rel.to_le_bytes();
         vec![0xE9, b[0], b[1], b[2], b[3]]
     }
     pub fn encode_call_near(rel: i32) -> Vec<u8> {
-        let b = (rel as i32).to_le_bytes();
+        let b = rel.to_le_bytes();
         vec![0xE8, b[0], b[1], b[2], b[3]]
     }
     pub fn encode_ret() -> Vec<u8> {
@@ -8948,7 +8947,7 @@ pub mod api {
         vec![0x70 + (cc & 0x0F), clamp_rel8(rel) as u8]
     }
     pub fn encode_jcc_near(cc: u8, rel: i32) -> Vec<u8> {
-        let b = (rel as i32).to_le_bytes();
+        let b = rel.to_le_bytes();
         vec![0x0F, 0x80 + (cc & 0x0F), b[0], b[1], b[2], b[3]]
     }
     #[derive(Copy, Clone)]
@@ -9209,16 +9208,14 @@ pub mod api {
         disp: i32,
     ) -> Vec<u8> {
         let mut rex = 0x48;
-        if let Some(b) = base {
-            if b >= 8 {
+        if let Some(b) = base
+            && b >= 8 {
                 rex |= 0x01;
             }
-        }
-        if let Some(i) = index {
-            if i >= 8 {
+        if let Some(i) = index
+            && i >= 8 {
                 rex |= 0x02;
             }
-        }
         let mut v = vec![rex, 0xFF];
         match (base, index) {
             (Some(b), None) if (b & 0x7) != 4 && !(((b & 0x7) == 5) && disp == 0) => {
@@ -9296,16 +9293,14 @@ pub mod api {
         if dest >= 8 {
             rex |= 0x04;
         }
-        if let Some(b) = base {
-            if b >= 8 {
+        if let Some(b) = base
+            && b >= 8 {
                 rex |= 0x01;
             }
-        }
-        if let Some(i) = index {
-            if i >= 8 {
+        if let Some(i) = index
+            && i >= 8 {
                 rex |= 0x02;
             }
-        }
         let mut v = vec![rex, 0x8D];
         let reg = dest & 0x7;
         match (base, index) {

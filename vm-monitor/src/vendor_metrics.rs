@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// 厂商扩展使用统计
 #[derive(Debug, Clone)]
@@ -120,7 +120,7 @@ impl VendorMetricsCollector {
             report.push_str(&format!("  平均时间: {:?}\n", metric.avg_time));
             report.push_str(&format!("  最大时间: {:?}\n", metric.max_time));
             report.push_str(&format!("  最小时间: {:?}\n", metric.min_time));
-            report.push_str("\n");
+            report.push('\n');
         }
 
         report

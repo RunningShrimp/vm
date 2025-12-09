@@ -10,10 +10,9 @@ use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 use metrics::{counter, histogram, gauge};
-use uuid::Uuid;
 use vm_core::GuestAddr;
 
-use crate::{MonitorConfig, PerformanceSnapshot};
+use crate::MonitorConfig;
 
 /// 热点检测器trait
 pub trait HotspotDetector: Send + Sync {
@@ -719,7 +718,7 @@ impl MetricsCollector {
         // 这里使用正确的API格式：counter!(name, value) 或 counter!(name; labels)
         // JIT指标
         counter!("fvp_jit_executions_total").increment(metrics.jit_metrics.total_executions);
-        histogram!("fvp_jit_execution_duration_seconds").record(metrics.jit_metrics.avg_execution_time_ns as f64 / 1_000_000_000.0);
+        histogram!("fvp_jit_execution_duration_seconds").record(metrics.jit_metrics.avg_execution_time_ns / 1_000_000_000.0);
         gauge!("fvp_jit_compilation_cache_size").set(metrics.jit_metrics.hot_blocks_count as f64);
         gauge!("fvp_jit_compilation_rate").set(metrics.jit_metrics.compilation_rate);
 

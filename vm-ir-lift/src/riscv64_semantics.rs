@@ -2,7 +2,7 @@
 //!
 //! 实现 RISC-V ISA 的指令语义转换为 LLVM IR
 
-use crate::decoder::{ISA, Instruction, OperandType};
+use crate::decoder::{Instruction, OperandType};
 use crate::{LiftError, LiftResult, LiftingContext, Semantics};
 use std::collections::HashMap;
 
@@ -10,6 +10,12 @@ use std::collections::HashMap;
 pub struct RISCV64SemanticsImpl {
     /// 指令缓存
     instr_cache: HashMap<String, String>,
+}
+
+impl Default for RISCV64SemanticsImpl {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RISCV64SemanticsImpl {
@@ -418,10 +424,8 @@ impl RISCV64SemanticsImpl {
             OperandType::Register(name) => format!("@{}", name),
             _ => "%target_label".to_string(),
         };
-        let mut ir = vec![
-            format!("store i64 %ra_placeholder, i64* @shadow_RA"),
-            format!("br label {}", target),
-        ];
+        let ir = [format!("store i64 %ra_placeholder, i64* @shadow_RA"),
+            format!("br label {}", target)];
         Ok(ir.join("\n"))
     }
 
@@ -430,10 +434,8 @@ impl RISCV64SemanticsImpl {
             return Err(LiftError::SemanticError("jalr需要2个操作数".to_string()).into());
         }
         let target = self.operand_to_ir(&instr.operands[1])?;
-        let mut ir = vec![
-            format!("store i64 %ra_placeholder, i64* @shadow_RA"),
-            format!("br label {}", target),
-        ];
+        let ir = [format!("store i64 %ra_placeholder, i64* @shadow_RA"),
+            format!("br label {}", target)];
         Ok(ir.join("\n"))
     }
 

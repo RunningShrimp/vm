@@ -10,7 +10,6 @@ use crate::snapshot;
 use crate::{VmConfig, VmError, VmId, VmResult, VmState};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 聚合根仓储trait
 ///
@@ -266,8 +265,8 @@ impl InMemoryAggregateRepository {
     /// 遍历事件列表，查找VmCreated或VmCreatedV2事件以获取初始配置，
     /// 然后应用后续的配置变更事件（如果有）
     fn extract_config_from_events(events: &[DomainEventEnum]) -> VmConfig {
-        use crate::domain_events::{VmLifecycleEvent, VmConfigSnapshot};
-        use crate::{GuestArch, ExecMode};
+        use crate::domain_events::VmLifecycleEvent;
+        
         
         // 查找VmCreated事件获取初始配置
         for event in events.iter() {
@@ -368,8 +367,8 @@ impl EventRepository for InMemoryEventRepository {
             .enumerate()
             .filter_map(|(idx, event)| {
                 let version = idx as u64 + 1;
-                let from_ok = from_version.map_or(true, |from| version >= from);
-                let to_ok = to_version.map_or(true, |to| version <= to);
+                let from_ok = from_version.is_none_or(|from| version >= from);
+                let to_ok = to_version.is_none_or(|to| version <= to);
                 if from_ok && to_ok {
                     Some(crate::event_store::StoredEvent {
                         sequence_number: version,
@@ -435,6 +434,12 @@ pub struct InMemorySnapshotRepository {
     snapshots: Arc<std::sync::RwLock<HashMap<String, HashMap<String, snapshot::Snapshot>>>>,
 }
 
+impl Default for InMemorySnapshotRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemorySnapshotRepository {
     pub fn new() -> Self {
         Self {
@@ -474,15 +479,12 @@ impl InMemorySnapshotRepository {
         // 策略3：从memory_dump_path中提取
         if !snapshot.memory_dump_path.is_empty() {
             // 尝试从路径中提取目录名作为vm_id
-            if let Some(path) = std::path::Path::new(&snapshot.memory_dump_path).parent() {
-                if let Some(dir_name) = path.file_name() {
-                    if let Some(name) = dir_name.to_str() {
-                        if !name.is_empty() && name != "snapshots" && name != "." {
+            if let Some(path) = std::path::Path::new(&snapshot.memory_dump_path).parent()
+                && let Some(dir_name) = path.file_name()
+                    && let Some(name) = dir_name.to_str()
+                        && !name.is_empty() && name != "snapshots" && name != "." {
                             return name.to_string();
                         }
-                    }
-                }
-            }
         }
         
         // 策略4：返回默认值

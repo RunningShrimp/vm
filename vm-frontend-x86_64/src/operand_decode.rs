@@ -109,7 +109,7 @@ impl<'a> OperandDecoder<'a> {
         Self {
             bytes,
             pos: 0,
-            opcode_byte: bytes.get(0).copied().unwrap_or(0),
+            opcode_byte: bytes.first().copied().unwrap_or(0),
         }
     }
 

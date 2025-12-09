@@ -1,7 +1,7 @@
 //! 内存管理接口定义
 
 use crate::{
-    CacheStats, Configurable, GuestAddr, MemoryOrder, PageFlags, PageStats, VmComponent, VmError,
+    CacheStats, GuestAddr, MemoryOrder, PageFlags, PageStats, VmComponent, VmError,
 };
 use vm_core::GuestPhysAddr;
 

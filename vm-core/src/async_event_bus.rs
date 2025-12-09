@@ -10,7 +10,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 #[cfg(feature = "async")]
 use tokio::sync::mpsc;

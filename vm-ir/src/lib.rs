@@ -69,7 +69,9 @@ pub struct MemFlags {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum MemOrder {
+    #[default]
     None,
     Acquire,
     Release,
@@ -77,11 +79,6 @@ pub enum MemOrder {
     SeqCst,
 }
 
-impl Default for MemOrder {
-    fn default() -> Self {
-        MemOrder::None
-    }
-}
 
 #[derive(Clone, Debug)]
 pub enum IROp {

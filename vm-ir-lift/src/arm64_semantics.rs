@@ -2,7 +2,7 @@
 //!
 //! 实现 ARM64 ISA 的指令语义转换为 LLVM IR
 
-use crate::decoder::{ISA, Instruction, OperandType};
+use crate::decoder::{Instruction, OperandType};
 use crate::{LiftError, LiftResult, LiftingContext, Semantics};
 use std::collections::HashMap;
 
@@ -17,6 +17,12 @@ pub struct ARM64ConditionFlags {
     pub nf: Option<String>,
     /// 溢出标志 (Overflow Flag)
     pub vf: Option<String>,
+}
+
+impl Default for ARM64ConditionFlags {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ARM64ConditionFlags {
@@ -62,6 +68,12 @@ impl ARM64ConditionFlags {
 pub struct ARM64SemanticsImpl {
     /// 条件标志缓存
     cond_flags: HashMap<String, ARM64ConditionFlags>,
+}
+
+impl Default for ARM64SemanticsImpl {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ARM64SemanticsImpl {
@@ -238,11 +250,9 @@ impl ARM64SemanticsImpl {
         let dst1 = self.operand_to_ir(&instr.operands[0])?;
         let dst2 = self.operand_to_ir(&instr.operands[1])?;
         let src = self.operand_to_ir(&instr.operands[2])?;
-        let mut ir = vec![
-            format!("{} = load i64, i64* {}", dst1, src),
+        let ir = [format!("{} = load i64, i64* {}", dst1, src),
             format!("%addr_next = add i64 {}, 8", src),
-            format!("{} = load i64, i64* %addr_next", dst2),
-        ];
+            format!("{} = load i64, i64* %addr_next", dst2)];
         Ok(ir.join("\n"))
     }
 
@@ -253,18 +263,16 @@ impl ARM64SemanticsImpl {
         let src1 = self.operand_to_ir(&instr.operands[0])?;
         let src2 = self.operand_to_ir(&instr.operands[1])?;
         let dst = self.operand_to_ir(&instr.operands[2])?;
-        let mut ir = vec![
-            format!("store i64 {}, i64* {}", src1, dst),
+        let ir = [format!("store i64 {}, i64* {}", src1, dst),
             format!("%addr_next = add i64 {}, 8", dst),
-            format!("store i64 {}, i64* %addr_next", src2),
-        ];
+            format!("store i64 {}, i64* %addr_next", src2)];
         Ok(ir.join("\n"))
     }
 
     // ==================== 转移控制指令 ====================
 
     fn lift_b(&self, instr: &Instruction) -> LiftResult<String> {
-        if instr.operands.len() < 1 {
+        if instr.operands.is_empty() {
             return Err(LiftError::SemanticError("b需要1个操作数".to_string()).into());
         }
         let target = match &instr.operands[0] {
@@ -275,17 +283,15 @@ impl ARM64SemanticsImpl {
     }
 
     fn lift_bl(&self, instr: &Instruction) -> LiftResult<String> {
-        if instr.operands.len() < 1 {
+        if instr.operands.is_empty() {
             return Err(LiftError::SemanticError("bl需要1个操作数".to_string()).into());
         }
         let target = match &instr.operands[0] {
             OperandType::Register(name) => format!("@{}", name),
             _ => "%target_label".to_string(),
         };
-        let mut ir = vec![
-            format!("store i64 %lr_placeholder, i64* @shadow_LR"),
-            format!("call void {}", target),
-        ];
+        let ir = [format!("store i64 %lr_placeholder, i64* @shadow_LR"),
+            format!("call void {}", target)];
         Ok(ir.join("\n"))
     }
 
@@ -294,68 +300,60 @@ impl ARM64SemanticsImpl {
     }
 
     fn lift_beq(&self, instr: &Instruction) -> LiftResult<String> {
-        if instr.operands.len() < 1 {
+        if instr.operands.is_empty() {
             return Err(LiftError::SemanticError("beq需要1个操作数".to_string()).into());
         }
         let target = match &instr.operands[0] {
             OperandType::Register(name) => format!("@{}", name),
             _ => "%target_label".to_string(),
         };
-        let mut ir = vec![
-            format!("%zf = load i1, i1* @shadow_ZF"),
-            format!("br i1 %zf, label {}, label %next_instr", target),
-        ];
+        let ir = [format!("%zf = load i1, i1* @shadow_ZF"),
+            format!("br i1 %zf, label {}, label %next_instr", target)];
         Ok(ir.join("\n"))
     }
 
     fn lift_bne(&self, instr: &Instruction) -> LiftResult<String> {
-        if instr.operands.len() < 1 {
+        if instr.operands.is_empty() {
             return Err(LiftError::SemanticError("bne需要1个操作数".to_string()).into());
         }
         let target = match &instr.operands[0] {
             OperandType::Register(name) => format!("@{}", name),
             _ => "%target_label".to_string(),
         };
-        let mut ir = vec![
-            format!("%zf = load i1, i1* @shadow_ZF"),
+        let ir = [format!("%zf = load i1, i1* @shadow_ZF"),
             format!("%not_zf = xor i1 %zf, 1"),
-            format!("br i1 %not_zf, label {}, label %next_instr", target),
-        ];
+            format!("br i1 %not_zf, label {}, label %next_instr", target)];
         Ok(ir.join("\n"))
     }
 
     fn lift_blt(&self, instr: &Instruction) -> LiftResult<String> {
-        if instr.operands.len() < 1 {
+        if instr.operands.is_empty() {
             return Err(LiftError::SemanticError("blt需要1个操作数".to_string()).into());
         }
         let target = match &instr.operands[0] {
             OperandType::Register(name) => format!("@{}", name),
             _ => "%target_label".to_string(),
         };
-        let mut ir = vec![
-            format!("%nf = load i1, i1* @shadow_NF"),
+        let ir = [format!("%nf = load i1, i1* @shadow_NF"),
             format!("%vf = load i1, i1* @shadow_VF"),
             format!("%cond = xor i1 %nf, %vf"),
-            format!("br i1 %cond, label {}, label %next_instr", target),
-        ];
+            format!("br i1 %cond, label {}, label %next_instr", target)];
         Ok(ir.join("\n"))
     }
 
     fn lift_bge(&self, instr: &Instruction) -> LiftResult<String> {
-        if instr.operands.len() < 1 {
+        if instr.operands.is_empty() {
             return Err(LiftError::SemanticError("bge需要1个操作数".to_string()).into());
         }
         let target = match &instr.operands[0] {
             OperandType::Register(name) => format!("@{}", name),
             _ => "%target_label".to_string(),
         };
-        let mut ir = vec![
-            format!("%nf = load i1, i1* @shadow_NF"),
+        let ir = [format!("%nf = load i1, i1* @shadow_NF"),
             format!("%vf = load i1, i1* @shadow_VF"),
             format!("%cond = xor i1 %nf, %vf"),
             format!("%not_cond = xor i1 %cond, 1"),
-            format!("br i1 %not_cond, label {}, label %next_instr", target),
-        ];
+            format!("br i1 %not_cond, label {}, label %next_instr", target)];
         Ok(ir.join("\n"))
     }
 

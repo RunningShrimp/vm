@@ -6,10 +6,9 @@ use crate::VmError;
 use crate::domain_events::DomainEvent;
 use std::collections::HashMap;
 use std::sync::{
-    Arc, Mutex, RwLock,
+    Arc, RwLock,
     atomic::{AtomicU64, Ordering},
 };
-use std::time::SystemTime;
 
 /// 事件订阅ID
 pub type EventSubscriptionId = u64;
@@ -88,11 +87,10 @@ impl DomainEventBus {
         // 应用过滤器并执行处理器
         for subscription in handlers {
             // 检查过滤器
-            if let Some(filter) = &subscription.filter {
-                if !filter.matches(&event) {
+            if let Some(filter) = &subscription.filter
+                && !filter.matches(&event) {
                     continue;
                 }
-            }
 
             // 执行处理器
             if let Err(e) = subscription.handler.handle(&event) {

@@ -1,4 +1,4 @@
-use vm_core::{Decoder, Fault, GuestAddr, Instruction, MMU, VmError};
+use vm_core::{Decoder, GuestAddr, Instruction, MMU, VmError};
 use vm_ir::{IRBlock, IROp, MemFlags, Terminator};
 
 mod vector;
@@ -95,8 +95,8 @@ impl Decoder for RiscvDecoder {
         if (insn & 0x3) != 0x3 {
             // This is a 16-bit compressed instruction
             let op = (insn >> 13) & 0x7;
-            let rd_rs1 = ((insn >> 7) & 0x1F) as u32;
-            let rs2 = ((insn >> 2) & 0x1F) as u32;
+            let rd_rs1 = ((insn >> 7) & 0x1F);
+            let rs2 = ((insn >> 2) & 0x1F);
 
             match op {
                 0x0 => {
@@ -118,8 +118,8 @@ impl Decoder for RiscvDecoder {
                 0x2 => {
                     // C.LW: Load word
                     let uimm = (((insn >> 5) & 0x7) | ((insn >> 10) & 0x38)) << 2;
-                    let rs1 = ((insn >> 7) & 0x7) as u32;
-                    let rd = ((insn >> 2) & 0x7) as u32;
+                    let rs1 = ((insn >> 7) & 0x7);
+                    let rd = ((insn >> 2) & 0x7);
                     let dst = reg_file.write(rd as usize);
                     b.push(IROp::Load {
                         dst,
@@ -136,8 +136,8 @@ impl Decoder for RiscvDecoder {
                 0x6 => {
                     // C.SW: Store word
                     let uimm = (((insn >> 5) & 0x7) | ((insn >> 10) & 0x38)) << 2;
-                    let rs1 = ((insn >> 7) & 0x7) as u32;
-                    let rs2 = ((insn >> 2) & 0x7) as u32;
+                    let rs1 = ((insn >> 7) & 0x7);
+                    let rs2 = ((insn >> 2) & 0x7);
                     b.push(IROp::Store {
                         src: reg_file.read(rs2 as usize),
                         base: reg_file.read(rs1 as usize),
@@ -298,9 +298,9 @@ impl Decoder for RiscvDecoder {
             // Additional compressed instruction patterns (need to check op bits more carefully)
             if (insn & 0x3) != 0x3 {
                 let op = (insn >> 13) & 0x7;
-                let rd_rs1 = ((insn >> 7) & 0x1F) as u32;
+                let rd_rs1 = ((insn >> 7) & 0x1F);
                 let funct3 = (insn >> 10) & 0x7;
-                let rs2 = ((insn >> 2) & 0x1F) as u32;
+                let rs2 = ((insn >> 2) & 0x1F);
 
                 // C.LUI: Load upper immediate (op = 0x1, rd_rs1 != 0, rd_rs1 != 2)
                 if op == 0x1 && rd_rs1 != 0 && rd_rs1 != 2 {
@@ -439,7 +439,7 @@ impl Decoder for RiscvDecoder {
 
                 // C.BEQZ, C.BNEZ (op = 0x6)
                 if op == 0x6 {
-                    let rs1 = ((insn >> 7) & 0x7) as u32;
+                    let rs1 = ((insn >> 7) & 0x7);
                     let imm =
                         (((insn >> 2) & 0x7) | ((insn >> 10) & 0x18) | ((insn >> 3) & 0x20)) as i64;
                     let imm_sign = (imm & 0x40) != 0;
@@ -550,10 +550,10 @@ impl Decoder for RiscvDecoder {
 
         // Standard 32-bit instructions
         let opcode = insn & 0x7f;
-        let rd = ((insn >> 7) & 0x1f) as u32;
-        let funct3 = ((insn >> 12) & 0x7) as u32;
-        let rs1 = ((insn >> 15) & 0x1f) as u32;
-        let rs2 = ((insn >> 20) & 0x1f) as u32;
+        let rd = ((insn >> 7) & 0x1f);
+        let funct3 = ((insn >> 12) & 0x7);
+        let rs1 = ((insn >> 15) & 0x1f);
+        let rs2 = ((insn >> 20) & 0x1f);
 
         // 检查是否为向量扩展指令 (RV64V)
         if opcode == 0x57 {
@@ -1033,8 +1033,8 @@ impl Decoder for RiscvDecoder {
                 // System instructions (CSR, SFENCE.VMA, etc.)
                 let funct3 = (insn >> 12) & 0x7;
                 let funct7 = (insn >> 25) & 0x7F;
-                let rs1 = ((insn >> 15) & 0x1f) as u32;
-                let rs2 = ((insn >> 20) & 0x1f) as u32;
+                let rs1 = ((insn >> 15) & 0x1f);
+                let rs2 = ((insn >> 20) & 0x1f);
 
                 // SFENCE.VMA: Supervisor Fence Virtual Memory Address
                 // Format: SFENCE.VMA rs1, rs2
@@ -1104,7 +1104,7 @@ impl Decoder for RiscvDecoder {
                     }
                     0x5 => {
                         // CSRRWI
-                        let zimm = ((insn >> 15) & 0x1f) as u32;
+                        let zimm = ((insn >> 15) & 0x1f);
                         let dst = reg_file.write(rd as usize);
                         b.push(IROp::CsrRead { dst, csr });
                         b.push(IROp::CsrWriteImm {
@@ -1118,7 +1118,7 @@ impl Decoder for RiscvDecoder {
                     }
                     0x6 => {
                         // CSRRSI
-                        let zimm = ((insn >> 15) & 0x1f) as u32;
+                        let zimm = ((insn >> 15) & 0x1f);
                         let dst = reg_file.write(rd as usize);
                         b.push(IROp::CsrRead { dst, csr });
                         b.push(IROp::CsrSetImm {
@@ -1132,7 +1132,7 @@ impl Decoder for RiscvDecoder {
                     }
                     0x7 => {
                         // CSRRCI
-                        let zimm = ((insn >> 15) & 0x1f) as u32;
+                        let zimm = ((insn >> 15) & 0x1f);
                         let dst = reg_file.write(rd as usize);
                         b.push(IROp::CsrRead { dst, csr });
                         b.push(IROp::CsrClearImm {
@@ -1202,7 +1202,7 @@ impl Decoder for RiscvDecoder {
             0x27 => {
                 // RV64F: FSW (Floating-point Store Word)
                 let imm = (((insn >> 7) & 0x1f) | (((insn >> 25) & 0x7f) << 5)) as i32;
-                let imm = ((imm as i32) << 20 >> 20) as i64;
+                let imm = (imm << 20 >> 20) as i64;
                 b.push(IROp::Store {
                     src: reg_file.read(rs2 as usize),
                     base: reg_file.read(rs1 as usize),
@@ -1217,8 +1217,8 @@ impl Decoder for RiscvDecoder {
             0x53 => {
                 // RV64F/RV64D: Floating-point operations
                 let funct7 = (insn >> 25) & 0x7f;
-                let rs2 = ((insn >> 20) & 0x1f) as u32;
-                let rs3 = ((insn >> 27) & 0x1f) as u32;
+                let rs2 = ((insn >> 20) & 0x1f);
+                let rs3 = ((insn >> 27) & 0x1f);
                 let rm = (insn >> 12) & 0x7;
 
                 match funct7 {
@@ -1439,7 +1439,7 @@ impl Decoder for RiscvDecoder {
             }
             0x43 => {
                 // RV64F: FMADD.S / FMADD.D
-                let rs3 = ((insn >> 27) & 0x1f) as u32;
+                let rs3 = ((insn >> 27) & 0x1f);
                 let dst = reg_file.write(rd as usize);
                 b.push(IROp::FmaddS {
                     dst,
@@ -1453,7 +1453,7 @@ impl Decoder for RiscvDecoder {
             }
             0x47 => {
                 // RV64F: FMSUB.S / FMSUB.D
-                let rs3 = ((insn >> 27) & 0x1f) as u32;
+                let rs3 = ((insn >> 27) & 0x1f);
                 let dst = reg_file.write(rd as usize);
                 b.push(IROp::FmsubS {
                     dst,
@@ -1467,7 +1467,7 @@ impl Decoder for RiscvDecoder {
             }
             0x4B => {
                 // RV64F: FNMSUB.S / FNMSUB.D
-                let rs3 = ((insn >> 27) & 0x1f) as u32;
+                let rs3 = ((insn >> 27) & 0x1f);
                 let dst = reg_file.write(rd as usize);
                 b.push(IROp::FnmaddS {
                     dst,
@@ -1481,7 +1481,7 @@ impl Decoder for RiscvDecoder {
             }
             0x4F => {
                 // RV64F: FNMADD.S / FNMADD.D
-                let rs3 = ((insn >> 27) & 0x1f) as u32;
+                let rs3 = ((insn >> 27) & 0x1f);
                 let dst = reg_file.write(rd as usize);
                 b.push(IROp::FnmsubS {
                     dst,
@@ -1514,7 +1514,7 @@ impl Decoder for RiscvDecoder {
                 // RV64D: FSD (Floating-point Store Double)
                 if funct3 == 3 {
                     let imm = (((insn >> 7) & 0x1f) | (((insn >> 25) & 0x7f) << 5)) as i32;
-                    let imm = ((imm as i32) << 20 >> 20) as i64;
+                    let imm = (imm << 20 >> 20) as i64;
                     b.push(IROp::Store {
                         src: reg_file.read(rs2 as usize),
                         base: reg_file.read(rs1 as usize),
@@ -1587,7 +1587,7 @@ impl Decoder for RiscvDecoder {
             }
             0x23 => {
                 let imm = (((insn >> 7) & 0x1f) | (((insn >> 25) & 0x7f) << 5)) as i32;
-                let imm = ((imm as i32) << 20 >> 20) as i64;
+                let imm = (imm << 20 >> 20) as i64;
                 match funct3 {
                     0x0 => b.push(IROp::Store {
                         src: reg_file.read(rs2 as usize),
@@ -1628,7 +1628,7 @@ impl Decoder for RiscvDecoder {
                     | (((insn >> 7) & 0x1) << 11)
                     | (((insn >> 25) & 0x3f) << 5)
                     | (((insn >> 8) & 0xf) << 1)) as i32;
-                let imm = ((imm as i32) << 19 >> 19) as i64;
+                let imm = (imm << 19 >> 19) as i64;
                 let target = ((pc as i64).wrapping_add(imm)) as u64;
                 match funct3 {
                     0x0 => {
@@ -1755,7 +1755,7 @@ impl Decoder for RiscvDecoder {
                     0x02 => {
                         // LR (Load Reserved)
                         let dst = reg_file.write(rd as usize);
-                        let mut lr_flags = flags;
+                        let lr_flags = flags;
                         b.push(IROp::AtomicLoadReserve {
                             dst,
                             base: reg_file.read(rs1 as usize),
@@ -1941,7 +1941,7 @@ impl Decoder for RiscvDecoder {
 
 pub fn encode_jal(rd: u32, imm: i32) -> u32 {
     let min = (-(1 << 20)) << 1;
-    let max = (((1 << 20) - 1) << 1) as i32;
+    let max = (((1 << 20) - 1) << 1);
     let mut v = imm;
     if (v & 1) != 0 {
         v &= !1;
@@ -1974,7 +1974,7 @@ fn clamp_i_imm(mut imm: i32) -> i32 {
 
 pub fn encode_jalr(rd: u32, rs1: u32, imm: i32) -> u32 {
     let v = clamp_i_imm(imm) as u32;
-    (v << 20) | (rs1 << 15) | (0 << 12) | (rd << 7) | 0x67
+    ((v << 20) | (rs1 << 15)) | (rd << 7) | 0x67
 }
 
 pub fn encode_jalr_with_align(rd: u32, rs1: u32, imm: i32, align_even: bool) -> u32 {
@@ -1982,7 +1982,7 @@ pub fn encode_jalr_with_align(rd: u32, rs1: u32, imm: i32, align_even: bool) -> 
     if align_even {
         v &= !1;
     }
-    ((v as u32) << 20) | (rs1 << 15) | (0 << 12) | (rd << 7) | 0x67
+    (((v as u32) << 20) | (rs1 << 15)) | (rd << 7) | 0x67
 }
 
 pub fn encode_auipc(rd: u32, upper: u32) -> u32 {
@@ -1999,7 +1999,7 @@ pub mod api {
 
 fn clamp_b_imm(mut imm: i32) -> i32 {
     let min = (-(1 << 12)) << 1;
-    let max = (((1 << 12) - 1) << 1) as i32;
+    let max = (((1 << 12) - 1) << 1);
     if (imm & 1) != 0 {
         imm &= !1;
     }

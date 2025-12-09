@@ -1,6 +1,6 @@
 //! 核心trait定义
 
-use crate::{ComponentStatus, SubscriptionId, VmError, VmEvent};
+use crate::{ComponentStatus, SubscriptionId, VmError};
 use serde::{Deserialize, Serialize};
 
 /// VM组件基础trait，定义生命周期管理
@@ -84,6 +84,12 @@ pub struct ComponentManager {
         String,
         Box<dyn VmComponent<Config = serde_json::Value, Error = VmError>>,
     >,
+}
+
+impl Default for ComponentManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ComponentManager {

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use axum::{
     extract::{Path, State},
-    http::{header, Method, StatusCode},
+    http::{header, StatusCode},
     response::{Html, IntoResponse, Json, Response},
     routing::{get, post, Router},
 };
@@ -15,13 +15,12 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower::ServiceBuilder;
-use tower::{Layer, Service};
+use tower::Layer;
 
 use crate::{
     MetricsCollector, PerformanceSnapshot,
     alerts::AlertManager, Alert,
-    export::PrometheusExporter,
-    MonitorConfig, DashboardConfig,
+    export::PrometheusExporter, DashboardConfig,
     performance_analyzer::PerformanceAnalyzer,
 };
 

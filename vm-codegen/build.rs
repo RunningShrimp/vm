@@ -25,7 +25,7 @@ fn main() {
 
 fn run_codegen_example(example_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::new("cargo")
-        .args(&["run", "--example", example_name])
+        .args(["run", "--example", example_name])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()?;
 

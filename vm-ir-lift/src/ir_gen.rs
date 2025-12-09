@@ -238,6 +238,12 @@ pub struct IROptimizer {
     optimizations: Vec<String>,
 }
 
+impl Default for IROptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IROptimizer {
     pub fn new() -> Self {
         Self {
@@ -274,8 +280,8 @@ impl IROptimizer {
     pub fn optimize(ir: &str) -> String {
         let ir = Self::constant_folding(ir);
         let ir = Self::dead_code_elimination(&ir);
-        let ir = Self::cfg_simplification(&ir);
-        ir
+        
+        Self::cfg_simplification(&ir)
     }
 }
 

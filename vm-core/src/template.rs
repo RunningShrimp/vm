@@ -14,6 +14,12 @@ pub struct TemplateManager {
     pub templates: HashMap<String, VmTemplate>,
 }
 
+impl Default for TemplateManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TemplateManager {
     pub fn new() -> Self {
         Self {

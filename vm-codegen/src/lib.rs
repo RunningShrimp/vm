@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use vm_core::{Decoder, GuestAddr, Instruction, MMU, VmError};
-use vm_ir::{IRBlock, IRBuilder, IROp, MemFlags, Terminator};
+use vm_ir::{IRBlock, IRBuilder, Terminator};
 
 /// 指令字段提取器
 pub trait FieldExtractor {
@@ -94,7 +94,7 @@ impl<F: FieldExtractor + 'static + Send, I: Instruction> Decoder for GenericDeco
     type Block = IRBlock;
 
     fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, VmError> {
-        let insn = mmu.fetch_insn(pc)? as u64;
+        let insn = mmu.fetch_insn(pc)?;
 
         // 这里需要实现指令识别逻辑
         // 为了简化，我们返回一个基本的指令
@@ -111,7 +111,7 @@ impl<F: FieldExtractor + 'static + Send, I: Instruction> Decoder for GenericDeco
         let mut current_pc = pc;
 
         loop {
-            let insn = mmu.fetch_insn(current_pc)? as u64;
+            let insn = mmu.fetch_insn(current_pc)?;
 
             if self.matcher.match_and_handle(&mut builder, insn)? {
                 // 匹配成功，指令已处理
@@ -216,7 +216,7 @@ impl CodeGenerator {
 
         for code in &self.generated_code {
             content.push_str(code);
-            content.push_str("\n");
+            content.push('\n');
         }
 
         content

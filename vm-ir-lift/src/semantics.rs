@@ -39,6 +39,12 @@ pub struct FlagsState {
     pub af: Option<String>,
 }
 
+impl Default for FlagsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FlagsState {
     pub fn new() -> Self {
         Self {
@@ -73,11 +79,10 @@ impl FlagsState {
     pub fn to_ir(&self) -> Vec<String> {
         let mut ir = Vec::new();
 
-        if let Some(cf) = &self.cf {
-            if cf != "undef" {
+        if let Some(cf) = &self.cf
+            && cf != "undef" {
                 ir.push(format!(r#"store i1 {}, i1* @shadow_CF"#, cf));
             }
-        }
         if let Some(zf) = &self.zf {
             ir.push(format!(r#"store i1 {}, i1* @shadow_ZF"#, zf));
         }
@@ -101,6 +106,12 @@ impl FlagsState {
 /// x86-64 指令语义实现
 pub struct X86_64Semantics {
     flags_state: HashMap<String, FlagsState>,
+}
+
+impl Default for X86_64Semantics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl X86_64Semantics {
@@ -423,7 +434,7 @@ store i64 %pop_value, i64* {}"#,
 
         let result_var = format!("%div_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!(
+        let ir_lines = [format!(
             "{} = sdiv i64 {}, {}",
             result_var, dividend, divisor
         )];
@@ -511,7 +522,7 @@ store i64 %pop_value, i64* {}"#,
         let dst = self.operand_to_ir(&instr.operands[0])?;
         let result_var = format!("%not_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!("{} = xor i64 {}, -1", result_var, dst)];
+        let ir_lines = [format!("{} = xor i64 {}, -1", result_var, dst)];
 
         Ok(ir_lines.join("\n"))
     }
@@ -526,7 +537,7 @@ store i64 %pop_value, i64* {}"#,
 
         let result_var = format!("%ror_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!(
+        let ir_lines = [format!(
             "{} = call i64 @llvm.fshr.i64(i64 {}, i64 {}, i64 {})",
             result_var, val, val, shift
         )];
@@ -544,7 +555,7 @@ store i64 %pop_value, i64* {}"#,
 
         let result_var = format!("%rol_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!(
+        let ir_lines = [format!(
             "{} = call i64 @llvm.fshl.i64(i64 {}, i64 {}, i64 {})",
             result_var, val, val, shift
         )];
@@ -562,7 +573,7 @@ store i64 %pop_value, i64* {}"#,
 
         let result_var = format!("%sar_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!("{} = ashr i64 {}, {}", result_var, val, shift)];
+        let ir_lines = [format!("{} = ashr i64 {}, {}", result_var, val, shift)];
 
         Ok(ir_lines.join("\n"))
     }
@@ -640,7 +651,7 @@ store i64 %val, i64* %RDI
         let val = self.operand_to_ir(&instr.operands[0])?;
         let result_var = format!("%bswap_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!(
+        let ir_lines = [format!(
             "{} = call i64 @llvm.bswap.i64(i64 {})",
             result_var, val
         )];
@@ -656,7 +667,7 @@ store i64 %val, i64* %RDI
         let val = self.operand_to_ir(&instr.operands[0])?;
         let result_var = format!("%clz_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!(
+        let ir_lines = [format!(
             "{} = call i64 @llvm.ctlz.i64(i64 {}, i1 0)",
             result_var, val
         )];
@@ -672,7 +683,7 @@ store i64 %val, i64* %RDI
         let val = self.operand_to_ir(&instr.operands[0])?;
         let result_var = format!("%ctz_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!(
+        let ir_lines = [format!(
             "{} = call i64 @llvm.cttz.i64(i64 {}, i1 0)",
             result_var, val
         )];
@@ -688,7 +699,7 @@ store i64 %val, i64* %RDI
         let val = self.operand_to_ir(&instr.operands[0])?;
         let result_var = format!("%popcnt_result_{}", ctx.cache_stats());
 
-        let ir_lines = vec![format!(
+        let ir_lines = [format!(
             "{} = call i64 @llvm.ctpop.i64(i64 {})",
             result_var, val
         )];
@@ -705,10 +716,8 @@ store i64 %val, i64* %RDI
         let result_var = format!("%parity_result_{}", ctx.cache_stats());
 
         let count_var = format!("%count_{}", ctx.cache_stats());
-        let ir_lines = vec![
-            format!("{} = call i64 @llvm.ctpop.i64(i64 {})", count_var, val),
-            format!("{} = and i64 {}, 1", result_var, count_var),
-        ];
+        let ir_lines = [format!("{} = call i64 @llvm.ctpop.i64(i64 {})", count_var, val),
+            format!("{} = and i64 {}, 1", result_var, count_var)];
 
         Ok(ir_lines.join("\n"))
     }

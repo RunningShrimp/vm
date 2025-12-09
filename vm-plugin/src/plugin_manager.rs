@@ -7,10 +7,9 @@ use crate::{
     PluginInstance, PluginManagerStats, PluginMetadata, PluginPermission, PluginState,
     PluginType, SecurityManager,
 };
-use crate::PluginVersion;
-use libloading::{Library, Symbol};
+use libloading::Library;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use vm_core::VmError;
@@ -294,8 +293,8 @@ impl PluginManager {
     /// 发布事件到所有插件
     pub async fn broadcast_event(&mut self, event: PluginEvent) -> Result<(), VmError> {
         for instance in self.loaded_plugins.values_mut() {
-            if let Some(ref mut handle) = instance.handle {
-                if instance.state == PluginState::Active {
+            if let Some(ref mut handle) = instance.handle
+                && instance.state == PluginState::Active {
                     instance.stats.last_activity = std::time::Instant::now();
                     match handle.handle_event(&event).await {
                         Ok(_) => {
@@ -311,7 +310,6 @@ impl PluginManager {
                         }
                     }
                 }
-            }
         }
 
         // 发布到事件总线
@@ -667,12 +665,11 @@ impl PluginManager {
     /// 启用插件
     pub async fn enable_plugin(&mut self, plugin_id: &str) -> Result<(), VmError> {
         if let Some(instance) = self.loaded_plugins.get_mut(plugin_id) {
-            if instance.state == PluginState::Loaded {
-                if let Some(ref mut handle) = instance.handle {
+            if instance.state == PluginState::Loaded
+                && let Some(ref mut handle) = instance.handle {
                     handle.start().await?;
                     instance.state = PluginState::Active;
                 }
-            }
             Ok(())
         } else {
             Err(VmError::Core(vm_core::CoreError::InvalidState {
@@ -686,12 +683,11 @@ impl PluginManager {
     /// 禁用插件
     pub async fn disable_plugin(&mut self, plugin_id: &str) -> Result<(), VmError> {
         if let Some(instance) = self.loaded_plugins.get_mut(plugin_id) {
-            if instance.state == PluginState::Active {
-                if let Some(ref mut handle) = instance.handle {
+            if instance.state == PluginState::Active
+                && let Some(ref mut handle) = instance.handle {
                     handle.stop().await?;
                     instance.state = PluginState::Loaded;
                 }
-            }
             Ok(())
         } else {
             Err(VmError::Core(vm_core::CoreError::InvalidState {

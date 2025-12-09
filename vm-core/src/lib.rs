@@ -843,8 +843,7 @@ impl<B: 'static> VirtualMachine<B> {
             })
         })?;
 
-        mmu.write_bulk(load_addr, data)
-            .map_err(|f| VmError::from(f))?;
+        mmu.write_bulk(load_addr, data)?;
 
         Ok(())
     }
@@ -1040,7 +1039,7 @@ impl<B: 'static> VirtualMachine<B> {
         // bincode 2.x removed the convenience `serialize`/`deserialize` helpers.
         // Use the serde helpers and an explicit configuration instead.
         bincode::serde::encode_to_vec(&state, bincode::config::standard()).map_err(|e| {
-            VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()).to_string())
+            VmError::Io(std::io::Error::other(e.to_string()).to_string())
         })
     }
 
@@ -1050,7 +1049,7 @@ impl<B: 'static> VirtualMachine<B> {
         let (state, _): (migration::MigrationState, usize) =
             bincode::serde::decode_from_slice(data, bincode::config::standard()).map_err(|e| {
                 VmError::Io(
-                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()).to_string(),
+                    std::io::Error::other(e.to_string()).to_string(),
                 )
             })?;
 

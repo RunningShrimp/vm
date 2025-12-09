@@ -308,12 +308,11 @@ pub fn sve_smaxv(a: &[i32], pred: &SvePredicate) -> i32 {
     let mut found = false;
 
     for i in 0..a.len() {
-        if pred.test(i) {
-            if !found || a[i] > max_val {
+        if pred.test(i)
+            && (!found || a[i] > max_val) {
                 max_val = a[i];
                 found = true;
             }
-        }
     }
 
     if found {
@@ -329,12 +328,11 @@ pub fn sve_sminv(a: &[i32], pred: &SvePredicate) -> i32 {
     let mut found = false;
 
     for i in 0..a.len() {
-        if pred.test(i) {
-            if !found || a[i] < min_val {
+        if pred.test(i)
+            && (!found || a[i] < min_val) {
                 min_val = a[i];
                 found = true;
             }
-        }
     }
 
     if found { min_val } else { 0 }

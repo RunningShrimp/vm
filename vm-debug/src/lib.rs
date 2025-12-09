@@ -14,9 +14,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use vm_core::{
-    ExecResult, ExecStatus, ExecutionEngine, GuestAddr, MMU, VcpuStateContainer, VmError,
+    GuestAddr, MMU, VcpuStateContainer, VmError,
 };
 
 /// 调试器配置
@@ -665,18 +665,18 @@ impl Profiler {
 
     pub fn start(&mut self) {
         self.running = true;
-        self.data.time_range.0 = (SystemTime::now()
+        self.data.time_range.0 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_millis() as u64);
+            .as_millis() as u64;
     }
 
     pub fn stop(&mut self) {
         self.running = false;
-        self.data.time_range.1 = (SystemTime::now()
+        self.data.time_range.1 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_millis() as u64);
+            .as_millis() as u64;
     }
 
     pub fn record_function_call(&mut self, function_name: &str, duration_ns: u64) {
@@ -804,7 +804,7 @@ impl DebugLogger {
         let filtered: Vec<_> = self
             .entries
             .iter()
-            .filter(|entry| level.map_or(true, |l| entry.level >= l))
+            .filter(|entry| level.is_none_or(|l| entry.level >= l))
             .cloned()
             .collect();
 
