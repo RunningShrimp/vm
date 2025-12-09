@@ -117,7 +117,7 @@ pub mod ml_model;
 pub mod optimizing_compiler;
 // enhanced_hotspot 已合并到 ewma_hotspot
 // enhanced_cache 已合并到 unified_cache
-pub mod cache;
+// cache.rs, unified_cache_simple.rs, unified_cache_minimal.rs 已删除（P0-01清理）
 pub mod ewma_hotspot;
 pub mod unified_cache;
 pub mod unified_gc;
