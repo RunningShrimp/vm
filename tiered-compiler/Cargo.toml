@@ -1,0 +1,12 @@
+[package]
+name = "tiered-compiler"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+parking_lot = "0.12"
+async-executor = { path = "../async-executor" }
+coroutine-scheduler = { path = "../coroutine-scheduler" }
+
+[dev-dependencies]

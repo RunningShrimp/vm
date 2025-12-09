@@ -32,6 +32,7 @@ members = [
  "async-executor",
  "coroutine-scheduler",
  "perf-bench",
+ "tiered-compiler",
 ]
 resolver = "2"
 
