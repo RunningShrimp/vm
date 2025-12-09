@@ -1,0 +1,10 @@
+[package]
+name = "coroutine-scheduler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio = { version = "1.48", features = ["rt", "macros"] }

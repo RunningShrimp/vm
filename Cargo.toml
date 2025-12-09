@@ -30,6 +30,7 @@ members = [
  "vm-ir-lift",
  "vm-cross-arch",
  "async-executor",
+ "coroutine-scheduler",
 ]
 resolver = "2"
 

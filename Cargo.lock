@@ -901,6 +901,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "coroutine-scheduler"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "tokio",
+]
+
+[[package]]
 name = "cranelift"
 version = "0.126.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
