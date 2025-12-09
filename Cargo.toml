@@ -33,6 +33,7 @@ members = [
  "coroutine-scheduler",
  "perf-bench",
  "tiered-compiler",
+ "parallel-jit",
 ]
 resolver = "2"
 
