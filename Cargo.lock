@@ -259,6 +259,14 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "tokio",
+]
+
+[[package]]
+name = "async-executor"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "497c00e0fd83a72a79a39fcbd8e3e2f055d6f6c7e025f3b3d91f4f8e76527fb8"
@@ -289,7 +297,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05b1b633a2115cd122d73b955eadd9916c18c8f510ec9cd1686404c60ad1c29c"
 dependencies = [
  "async-channel 2.5.0",
- "async-executor",
+ "async-executor 1.13.3",
  "async-io",
  "async-lock",
  "blocking",
@@ -3727,7 +3735,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a33bd3e260892199c3ccfc487c88b2da2265080acb316cd920da72fdfd7c599f"
 dependencies = [
  "async-channel 2.5.0",
- "async-executor",
+ "async-executor 1.13.3",
  "async-fs",
  "async-io",
  "async-lock",

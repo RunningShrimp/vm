@@ -29,6 +29,7 @@ members = [
  "aot-builder",
  "vm-ir-lift",
  "vm-cross-arch",
+ "async-executor",
 ]
 resolver = "2"
 

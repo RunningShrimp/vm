@@ -17,8 +17,6 @@ use std::time::SystemTime;
 
 #[cfg(feature = "async")]
 use tokio::sync::mpsc;
-#[cfg(feature = "async")]
-use tokio::time::sleep;
 
 /// 队列中的事件
 #[derive(Debug, Clone)]

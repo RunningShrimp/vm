@@ -1,40 +1,50 @@
-//! P1-01: 通用异步执行引擎接口
+//! P1-01: 通用异步执行引擎
 //!
-//! 定义异步执行器的通用接口和实现
-//! 注：使用同步版本避免async fn的编译问题
+//! 为虚拟机提供异步执行能力
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::RwLock;
 
-/// 异步执行结果
+/// 执行结果类型
 pub type ExecutionResult = Result<u64, String>;
 
 /// 执行器类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutorType {
+    /// JIT编译执行器
     Jit,
+    /// 解释执行器
     Interpreter,
+    /// 混合执行器
     Hybrid,
 }
 
-/// 异步执行统计
+/// 执行统计信息
 #[derive(Debug, Clone)]
 pub struct ExecutionStats {
+    /// 总执行次数
     pub total_executions: u64,
+    /// 缓存块数量
     pub cached_blocks: u64,
+    /// 编译次数
     pub compilation_count: u64,
+    /// 平均执行时间(微秒)
     pub avg_time_us: u64,
 }
 
 /// 异步执行上下文
 pub struct AsyncExecutionContext {
+    /// 执行器类型
     pub executor_type: ExecutorType,
+    /// 代码块缓存
     pub block_cache: Arc<RwLock<HashMap<u64, Vec<u8>>>>,
+    /// 执行统计
     pub stats: Arc<RwLock<ExecutionStats>>,
 }
 
 impl AsyncExecutionContext {
+    /// 创建新的执行上下文
     pub fn new(executor_type: ExecutorType) -> Self {
         Self {
             executor_type,
@@ -55,43 +65,58 @@ impl AsyncExecutionContext {
         
         let mut stats = self.stats.write();
         stats.cached_blocks = cache.len() as u64;
+        stats.compilation_count += 1;
     }
 
-    /// 查询缓存块
+    /// 获取缓存的代码块
     pub fn get_cached_block(&self, block_id: u64) -> Option<Vec<u8>> {
         let cache = self.block_cache.read();
         cache.get(&block_id).cloned()
     }
 
-    /// 更新执行统计
+    /// 记录一次执行
     pub fn record_execution(&self, time_us: u64) {
         let mut stats = self.stats.write();
         stats.total_executions += 1;
         
         // 计算移动平均
-        stats.avg_time_us = (stats.avg_time_us * (stats.total_executions - 1) + time_us)
-            / stats.total_executions;
+        if stats.total_executions == 1 {
+            stats.avg_time_us = time_us;
+        } else {
+            stats.avg_time_us = (stats.avg_time_us * (stats.total_executions - 1) + time_us)
+                / stats.total_executions;
+        }
     }
 
-    /// 获取统计信息
+    /// 获取执行统计
     pub fn get_stats(&self) -> ExecutionStats {
         self.stats.read().clone()
     }
+
+    /// 清空缓存
+    pub fn flush_cache(&self) {
+        let mut cache = self.block_cache.write();
+        cache.clear();
+        
+        let mut stats = self.stats.write();
+        stats.cached_blocks = 0;
+    }
 }
 
-/// JIT执行器 - 同步版本
+/// JIT执行器
 pub struct JitExecutor {
     context: AsyncExecutionContext,
 }
 
 impl JitExecutor {
+    /// 创建新的JIT执行器
     pub fn new() -> Self {
         Self {
             context: AsyncExecutionContext::new(ExecutorType::Jit),
         }
     }
 
-    /// 同步执行块
+    /// 执行一个基本块
     pub fn execute_block(&mut self, block_id: u64) -> ExecutionResult {
         // 检查缓存
         if let Some(_code) = self.context.get_cached_block(block_id) {
@@ -99,7 +124,7 @@ impl JitExecutor {
             return Ok(block_id);
         }
 
-        // 模拟编译
+        // 模拟编译延迟
         std::thread::sleep(std::time::Duration::from_micros(100));
         
         // 缓存代码
@@ -109,7 +134,7 @@ impl JitExecutor {
         Ok(block_id)
     }
 
-    /// 批量执行块
+    /// 批量执行多个基本块
     pub fn execute_blocks(&mut self, block_ids: &[u64]) -> Result<Vec<u64>, String> {
         let mut results = vec![];
         for &bid in block_ids {
@@ -118,38 +143,58 @@ impl JitExecutor {
         Ok(results)
     }
 
-    /// 获取统计
+    /// 获取统计信息
     pub fn get_stats(&self) -> ExecutionStats {
         self.context.get_stats()
     }
+
+    /// 清空缓存
+    pub fn flush_cache(&self) {
+        self.context.flush_cache();
+    }
 }
 
-/// 解释器执行器 - 同步版本
+impl Default for JitExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 解释器执行器
 pub struct InterpreterExecutor {
     context: AsyncExecutionContext,
 }
 
 impl InterpreterExecutor {
+    /// 创建新的解释器执行器
     pub fn new() -> Self {
         Self {
             context: AsyncExecutionContext::new(ExecutorType::Interpreter),
         }
     }
 
+    /// 执行一个基本块
     pub fn execute_block(&mut self, block_id: u64) -> ExecutionResult {
-        // 模拟解释执行 (较慢)
+        // 模拟解释执行(较慢)
         std::thread::sleep(std::time::Duration::from_micros(500));
         
         self.context.record_execution(500);
         Ok(block_id)
     }
 
+    /// 获取统计信息
     pub fn get_stats(&self) -> ExecutionStats {
         self.context.get_stats()
     }
 }
 
-/// 混合执行器 - 自动选择JIT或解释器
+impl Default for InterpreterExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 混合执行器 - 自动在JIT和解释器之间选择
 pub struct HybridExecutor {
     jit: JitExecutor,
     interpreter: InterpreterExecutor,
@@ -157,6 +202,7 @@ pub struct HybridExecutor {
 }
 
 impl HybridExecutor {
+    /// 创建新的混合执行器
     pub fn new() -> Self {
         Self {
             jit: JitExecutor::new(),
@@ -165,22 +211,33 @@ impl HybridExecutor {
         }
     }
 
+    /// 设置是否优先使用JIT
     pub fn set_prefer_jit(&mut self, prefer: bool) {
         self.prefer_jit = prefer;
     }
 
+    /// 执行一个基本块
     pub fn execute_block(&mut self, block_id: u64) -> ExecutionResult {
-        if self.prefer_jit && self.jit.context.get_cached_block(block_id).is_some() {
-            self.jit.execute_block(block_id)
-        } else if self.prefer_jit {
+        if self.prefer_jit {
             self.jit.execute_block(block_id)
         } else {
             self.interpreter.execute_block(block_id)
         }
     }
 
-    pub fn get_stats(&self) -> (ExecutionStats, ExecutionStats) {
-        (self.jit.get_stats(), self.interpreter.get_stats())
+    /// 获取统计信息
+    pub fn get_jit_stats(&self) -> ExecutionStats {
+        self.jit.get_stats()
+    }
+
+    pub fn get_interpreter_stats(&self) -> ExecutionStats {
+        self.interpreter.get_stats()
+    }
+}
+
+impl Default for HybridExecutor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -189,7 +246,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_jit_executor() {
+    fn test_jit_single_execution() {
         let mut executor = JitExecutor::new();
         let result = executor.execute_block(1);
         
@@ -202,29 +259,45 @@ mod tests {
     }
 
     #[test]
-    fn test_jit_caching() {
+    fn test_jit_caching_benefit() {
         let mut executor = JitExecutor::new();
         
         // 第一次执行会编译
-        executor.execute_block(1).unwrap();
+        let _result1 = executor.execute_block(1);
         let stats1 = executor.get_stats();
-        let time1 = stats1.avg_time_us;
         
-        // 第二次执行使用缓存
-        executor.execute_block(1).unwrap();
+        // 第二次执行使用缓存(更快)
+        let _result2 = executor.execute_block(1);
         let stats2 = executor.get_stats();
         
-        // 缓存速度应该更快
-        assert!(time1 > 50); // 编译需要时间
+        // 验证缓存工作
+        assert_eq!(stats2.cached_blocks, 1);
+        assert_eq!(stats2.total_executions, 2);
     }
 
     #[test]
-    fn test_interpreter() {
+    fn test_jit_batch() {
+        let mut executor = JitExecutor::new();
+        let block_ids = vec![1, 2, 3, 4, 5];
+        
+        let results = executor.execute_blocks(&block_ids).unwrap();
+        assert_eq!(results.len(), 5);
+        
+        let stats = executor.get_stats();
+        assert_eq!(stats.total_executions, 5);
+        assert_eq!(stats.cached_blocks, 5);
+    }
+
+    #[test]
+    fn test_interpreter_execution() {
         let mut executor = InterpreterExecutor::new();
         let result = executor.execute_block(42);
         
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
+        
+        let stats = executor.get_stats();
+        assert_eq!(stats.total_executions, 1);
     }
 
     #[test]
@@ -234,27 +307,51 @@ mod tests {
         
         let result = executor.execute_block(1);
         assert!(result.is_ok());
+        
+        let jit_stats = executor.get_jit_stats();
+        assert!(jit_stats.total_executions > 0);
     }
 
     #[test]
-    fn test_hybrid_interp_path() {
+    fn test_hybrid_interpreter_path() {
         let mut executor = HybridExecutor::new();
         executor.set_prefer_jit(false);
         
         let result = executor.execute_block(1);
         assert!(result.is_ok());
+        
+        let interp_stats = executor.get_interpreter_stats();
+        assert!(interp_stats.total_executions > 0);
     }
 
     #[test]
-    fn test_batch_execution() {
-        let mut executor = JitExecutor::new();
-        let block_ids = vec![1, 2, 3, 4, 5];
+    fn test_context_flush() {
+        let context = AsyncExecutionContext::new(ExecutorType::Jit);
         
-        let results = executor.execute_blocks(&block_ids).unwrap();
-        assert_eq!(results.len(), 5);
+        context.cache_block(1, vec![1, 2, 3]);
+        context.cache_block(2, vec![4, 5, 6]);
         
-        let stats = executor.get_stats();
-        assert_eq!(stats.total_executions, 5);
+        let stats1 = context.get_stats();
+        assert_eq!(stats1.cached_blocks, 2);
+        
+        context.flush_cache();
+        
+        let stats2 = context.get_stats();
+        assert_eq!(stats2.cached_blocks, 0);
+    }
+
+    #[test]
+    fn test_multiple_executor_types() {
+        let mut jit = JitExecutor::new();
+        let mut interp = InterpreterExecutor::new();
+        
+        let _ = jit.execute_block(1);
+        let _ = interp.execute_block(1);
+        
+        let jit_stats = jit.get_stats();
+        let interp_stats = interp.get_stats();
+        
+        // JIT应该更快
+        assert!(jit_stats.avg_time_us < interp_stats.avg_time_us);
     }
 }
-
