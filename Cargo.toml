@@ -35,6 +35,7 @@ members = [
  "tiered-compiler",
  "parallel-jit",
  "gc-optimizer",
+ "memory-optimizer",
 ]
 resolver = "2"
 

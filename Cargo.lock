@@ -2472,6 +2472,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "memory-optimizer"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+]
+
+[[package]]
 name = "metal"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
