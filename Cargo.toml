@@ -36,6 +36,10 @@ members = [
  "parallel-jit",
  "gc-optimizer",
  "memory-optimizer",
+ "vm-simd-opt",
+ "vm-device-enhanced",
+ "ml-guided-compiler",
+ "pgo-optimizer",
 ]
 resolver = "2"
 
