@@ -34,6 +34,7 @@ members = [
  "perf-bench",
  "tiered-compiler",
  "parallel-jit",
+ "gc-optimizer",
 ]
 resolver = "2"
 
