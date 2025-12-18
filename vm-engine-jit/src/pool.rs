@@ -17,32 +17,30 @@ pub struct JitPool {
 impl JitPool {
     /// 创建新的异步JIT代码池
     /// 
-    /// `worker_count`: 工作线程数量
-    pub fn new(worker_count: usize) -> Self {
-        let (tx, mut rx) = mpsc::unbounded_channel::<IRBlock>();
+    /// `worker_count`: 工作线程数量（当前实现使用单个worker处理所有任务）
+    pub fn new(_worker_count: usize) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel::<IRBlock>();
         let cache = Arc::new(RwLock::new(HashMap::new()));
         let mut workers = Vec::new();
         
-        for _ in 0..worker_count {
-            let mut rx_clone = rx.clone();
-            let cache_clone = cache.clone();
-            let handle = tokio::spawn(async move {
-                let mut jit = Jit::new();
-                // 注意：with_pool_cache需要同步的Mutex，我们需要适配
-                // 暂时不使用pool_cache，直接使用jit的缓存
-                loop {
-                    match rx_clone.recv().await {
-                        Some(block) => {
-                            let code_ptr = jit.compile(&block);
-                            // 存储到异步缓存
-                            cache_clone.write().await.insert(block.start_pc, code_ptr);
-                        }
-                        None => break,
+        // 使用单个worker处理所有编译任务
+        // 因为UnboundedReceiver不能clone
+        let cache_clone = cache.clone();
+        let handle = tokio::spawn(async move {
+            let mut jit = Jit::new();
+            let mut rx = rx;
+            loop {
+                match rx.recv().await {
+                    Some(block) => {
+                        let code_ptr = jit.compile(&block);
+                        // 存储到异步缓存
+                        cache_clone.write().await.insert(block.start_pc, code_ptr);
                     }
+                    None => break,
                 }
-            });
-            workers.push(handle);
-        }
+            }
+        });
+        workers.push(handle);
         
         Self { workers, tx, cache }
     }
@@ -104,19 +102,9 @@ impl JitPool {
 
 impl Drop for JitPool {
     fn drop(&mut self) {
-        // 关闭发送端，worker会在接收None时退出
-        drop(self.tx.clone());
-        
-        // 等待所有worker完成
-        // 注意：在Drop中不能使用await，所以我们需要使用block_on
-        // 但这可能不是最优的，建议使用显式的shutdown方法
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            for h in self.workers.drain(..) {
-                let _ = handle.block_on(async {
-                    let _ = h.await;
-                });
-            }
-        }
+        // 关闭发送端不需要在Drop中处理
+        // tx会自动drop，worker会在接收None时退出
+        // workers会在drop时被abort
     }
 }
 
@@ -124,12 +112,15 @@ impl JitPool {
     /// 优雅关闭代码池
     /// 
     /// 关闭发送端并等待所有worker完成
-    pub async fn shutdown(self) {
+    pub async fn shutdown(mut self) {
         // 关闭发送端
-        drop(self.tx);
+        drop(std::mem::replace(&mut self.tx, {
+            let (tx, _) = mpsc::unbounded_channel();
+            tx
+        }));
         
         // 等待所有worker完成
-        for h in self.workers {
+        for h in self.workers.drain(..) {
             let _ = h.await;
         }
     }

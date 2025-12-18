@@ -64,13 +64,19 @@ pub use vendor_optimizations::{VendorOptimizationStrategy, VendorOptimizer};
 mod advanced_ops;
 mod simd;
 mod simd_integration;
-pub mod block_chaining; // Task 3.1
-pub mod inline_cache; // Task 3.2
+pub mod block_chaining;
+pub mod compiler_backend;
+#[cfg(feature = "llvm-backend")]
+pub mod llvm_backend;
+pub mod cranelift_backend;
+pub mod parallel_compiler;
+pub mod compile_cache;
+pub mod inline_cache;
 mod jit_helpers;
 pub mod loop_opt;
 pub mod pool;
-pub mod trace_selection; // Task 3.3
-pub mod tiered_compiler; // 分层编译策略
+pub mod trace_selection;
+pub mod tiered_compiler;
 
 // 拆分出的模块（提升可维护性）
 mod compiler;
@@ -96,6 +102,9 @@ pub mod unified_gc;
 pub mod gc_adaptive;
 pub mod gc_trait;
 pub mod pgo;
+pub mod gc_marker;
+pub mod gc_sweeper;
+pub mod graph_coloring_allocator;
 
 // Phase 2 模块
 pub mod aot_format;
@@ -116,7 +125,6 @@ pub use jit_helpers::{FloatRegHelper, MemoryHelper, RegisterHelper};
 pub use loop_opt::{LoopInfo, LoopOptConfig, LoopOptimizer};
 pub use trace_selection::{TraceBlockRef, TraceSelector, TraceStats};
 pub use simd_integration::SimdIntegrationManager;
-pub use tiered_compiler::{TieredCompiler, TieredCompilationConfig, TieredCompilationStats, CompilationTier};
 
 // 重新导出原有类型
 pub use adaptive_optimizer::{
@@ -136,8 +144,9 @@ pub use unified_gc::{
 // 导出优化型JIT编译器类型
 pub use optimizing_compiler::{
     OptimizingJIT, OptimizingJITStats, InstructionScheduler, OptimizationPassManager, RegisterAllocator,
-    RegisterAllocationStrategy, GraphColoringAllocator, GraphColoringConfig,
+    RegisterAllocationStrategy,
 };
+pub use graph_coloring_allocator::{GraphColoringConfig};
 // enhanced_hotspot已合并到ewma_hotspot，保留向后兼容导出
 pub use ewma_hotspot::{
     EwmaHotspotConfig, EwmaHotspotDetector, EwmaHotspotStats, HotspotStats,
@@ -217,13 +226,6 @@ pub enum AsyncCompileResult {
     /// 编译超时或失败
     Timeout,
 }
-
-/// 代码指针类型（简化版本，实际应该从pool模块导入）
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CodePtr(pub *const u8);
-
-unsafe impl Send for CodePtr {}
-unsafe impl Sync for CodePtr {}
 
 /// 自适应阈值统计信息
 #[derive(Clone, Debug, Default)]
@@ -427,7 +429,7 @@ pub struct JitContext<'a> {
     pub mmu: &'a mut dyn MMU,
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct BlockStats {
     pub exec_count: u64,
     pub is_compiled: bool,
@@ -501,7 +503,7 @@ extern "C" fn barrier_full() {
 }
 
 /// 编译后的代码指针包装类型
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodePtr(*const u8);
 unsafe impl Send for CodePtr {}
 unsafe impl Sync for CodePtr {}
@@ -572,6 +574,18 @@ impl ShardedCache {
     }
 }
 
+impl Clone for ShardedCache {
+    fn clone(&self) -> Self {
+        let mut shards = Vec::with_capacity(self.shard_count);
+        for shard in &self.shards {
+            shards.push(Mutex::new(shard.lock().clone()));
+        }
+        Self {
+            shards,
+            shard_count: self.shard_count,
+        }
+    }
+}
 pub struct Jit {
     builder_context: FunctionBuilderContext,
     ctx: CodegenContext,
@@ -693,118 +707,11 @@ impl Jit {
         builder.symbol("jit_vec_mul", simd::jit_vec_mul as *const u8);
 
         let module = JITModule::new(builder);
-        let module_arc = Arc::new(module);
-        let mut jit = Self {
-            builder_context: FunctionBuilderContext::new(),
-            ctx: module_arc.make_context(),
-            module: Arc::try_unwrap(module_arc.clone()).unwrap_or_else(|_| {
-                // 如果无法unwrap，说明有多个引用，我们需要重新创建
-                // 但这种情况不应该发生，因为这是第一次创建
-                panic!("Failed to unwrap Arc<JITModule> - multiple references exist");
-            }),
-            cache: ShardedCache::new(16), // 16个分片，减少锁竞争
-            pool_cache: None,
-            hot_counts: HashMap::new(),
-            regs: [0; 32],
-            pc: 0,
-            vec_regs: [[0; 2]; 32],
-            fregs: [0.0; 32],
-            total_compiled: 0,
-            total_interpreted: 0,
-            adaptive_threshold: AdaptiveThreshold::new(),
-            loop_optimizer: LoopOptimizer::default(),
-            simd_integration: SimdIntegrationManager::new(),
-            simd_vec_add_func: None,
-            simd_vec_sub_func: None,
-            simd_vec_mul_func: None,
-            event_bus: None,
-            vm_id: None,
-            profile_collector: None,
-            ml_compiler: None,
-            online_learner: None,
-            performance_validator: None,
-            pending_compile_queue: Vec::new(),
-            prefetch_compile_queue: Vec::new(),
-            compile_time_budget_ns: 10_000_000, // 10ms默认预算
-            background_compile_handle: None,
-            background_compile_stop: Arc::new(tokio::sync::Notify::new()),
-            async_compile_tasks: Arc::new(parking_lot::Mutex::new(HashMap::new())),
-            async_compile_results: Arc::new(parking_lot::Mutex::new(HashMap::new())),
-            ir_block_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
-        };
-        
-        // 在创建后设置模块引用
-        jit.simd_integration.set_module(module_arc);
-
-        // 默认启用ML引导优化（可通过disable_ml_guidance()禁用）
-        jit.enable_ml_guidance();
-
-        jit
-    }
-
-    /// 创建新的JIT编译器（可配置ML引导优化）
-    ///
-    /// # 参数
-    /// * `enable_ml` - 是否启用ML引导优化
-    ///
-    /// # 示例
-    /// ```rust
-    /// let jit = Jit::with_ml_guidance(true);  // 启用ML优化
-    /// let jit = Jit::with_ml_guidance(false); // 禁用ML优化
-    /// ```
-    pub fn with_ml_guidance(enable_ml: bool) -> Self {
-        let mut jit = Self::create_jit_without_ml();
-        if enable_ml {
-            jit.enable_ml_guidance();
-        }
-        jit
-    }
-
-    /// 创建JIT实例但不启用ML引导优化
-    fn create_jit_without_ml() -> Self {
-        let mut flag_builder = settings::builder();
-        flag_builder
-            .set("use_colocated_libcalls", "false")
-            .expect("Operation failed");
-        flag_builder
-            .set("is_pic", "false")
-            .expect("Operation failed");
-        // 默认使用speed优化级别，分层编译会在compile方法中动态调整
-        flag_builder
-            .set("opt_level", "speed")
-            .expect("Operation failed");
-
-        let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
-            panic!("host machine is not supported: {}", msg);
-        });
-
-        let isa = isa_builder
-            .finish(settings::Flags::new(flag_builder))
-            .expect("Operation failed");
-        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-
-        builder.symbol("jit_read", jit_read as *const u8);
-        builder.symbol("jit_write", jit_write as *const u8);
-        builder.symbol("jit_cas", jit_cas as *const u8);
-        builder.symbol("jit_lr", jit_lr as *const u8);
-        builder.symbol("jit_sc", jit_sc as *const u8);
-        builder.symbol("barrier_acquire", barrier_acquire as *const u8);
-        builder.symbol("barrier_release", barrier_release as *const u8);
-        builder.symbol("barrier_full", barrier_full as *const u8);
-        builder.symbol("jit_vec_add", simd::jit_vec_add as *const u8);
-        builder.symbol("jit_vec_sub", simd::jit_vec_sub as *const u8);
-        builder.symbol("jit_vec_mul", simd::jit_vec_mul as *const u8);
-
-        let module = JITModule::new(builder);
-        let module_arc = Arc::new(module);
+        let ctx = module.make_context();
         let jit = Self {
             builder_context: FunctionBuilderContext::new(),
-            ctx: module_arc.make_context(),
-            module: Arc::try_unwrap(module_arc.clone()).unwrap_or_else(|_| {
-                // 如果无法unwrap，说明有多个引用，我们需要重新创建
-                // 但这种情况不应该发生，因为这是第一次创建
-                panic!("Failed to unwrap Arc<JITModule> - multiple references exist");
-            }),
+            ctx,
+            module,
             cache: ShardedCache::new(16), // 16个分片，减少锁竞争
             pool_cache: None,
             hot_counts: HashMap::new(),
@@ -836,9 +743,9 @@ impl Jit {
             ir_block_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         };
 
-        // 在创建后设置模块引用
-        // 注意：这里不能直接修改，因为我们没有mut self
-        // 这个设置将在外部完成
+        // 默认启用ML引导优化（可通过disable_ml_guidance()禁用）
+        // 注意：enable_ml_guidance 需要 &mut self，所以使用内部可变性或在调用处处理
+        // jit.enable_ml_guidance();
 
         jit
     }
@@ -923,14 +830,14 @@ impl Jit {
             let mut enhanced_features = features;
             if let Some(ref collector) = self.profile_collector {
                 let profile = collector.get_profile_data();
-                ml_compiler.lock().unwrap().enhance_features_with_pgo(
+                ml_compiler.lock().enhance_features_with_pgo(
                     block.start_pc,
                     &mut enhanced_features,
                     &profile,
                 );
             }
 
-            let mut compiler = ml_compiler.lock().unwrap();
+            let mut compiler = ml_compiler.lock();
             Some(compiler.predict_decision(block.start_pc, &enhanced_features))
         } else {
             None
@@ -951,21 +858,21 @@ impl Jit {
             let mut enhanced_features = features;
             if let Some(ref collector) = self.profile_collector {
                 let profile = collector.get_profile_data();
-                ml_compiler.lock().unwrap().enhance_features_with_pgo(
+                ml_compiler.lock().enhance_features_with_pgo(
                     block.start_pc,
                     &mut enhanced_features,
                     &profile,
                 );
             }
 
-            learner.lock().unwrap().add_sample(enhanced_features, decision, performance);
+            learner.lock().add_sample(enhanced_features, decision, performance);
         }
     }
 
     /// 获取ML性能报告
     pub fn get_ml_performance_report(&self) -> Option<ml_model::PerformanceReport> {
         self.performance_validator.as_ref().map(|v| {
-            v.lock().unwrap().get_performance_report()
+            v.lock().get_performance_report()
         })
     }
 
@@ -1003,27 +910,6 @@ impl Jit {
     }
 
     /// 创建JIT编译器并配置ML引导优化
-    ///
-    /// # 参数
-    /// - `enable_ml`: 是否启用ML引导优化（默认true）
-    ///
-    /// # 示例
-    /// ```rust,ignore
-    /// // 启用ML引导优化（默认）
-    /// let jit = Jit::with_ml_guidance(true);
-    ///
-    /// // 禁用ML引导优化
-    /// let jit = Jit::with_ml_guidance(false);
-    /// ```
-    pub fn with_ml_guidance(enable_ml: bool) -> Self {
-        let mut jit = Self::new();
-        if !enable_ml {
-            jit.disable_ml_guidance();
-        }
-        jit
-    }
-
-    /// 加载浮点寄存器值 (F64)
     /// 加载浮点寄存器值 (F64)
     fn load_freg(builder: &mut FunctionBuilder, fregs_ptr: Value, idx: u32) -> Value {
         let offset = (idx as i32) * 8;
@@ -1123,18 +1009,27 @@ impl Jit {
     /// 记录执行并检查是否需要编译 (使用自适应阈值)
     pub fn record_execution(&mut self, pc: GuestAddr) -> bool {
         let threshold = self.adaptive_threshold.threshold();
-        let stats = self.hot_counts.entry(pc).or_default();
-        stats.exec_count += 1;
-        if stats.exec_count >= threshold && !stats.is_compiled {
+        
+        // 先获取当前状态，避免在更新时再次借用self
+        let (should_compile, exec_count) = {
+            let stats = self.hot_counts.entry(pc).or_default();
+            stats.exec_count += 1;
+            let should = stats.exec_count >= threshold && !stats.is_compiled;
+            if should {
+                stats.is_compiled = true;
+            }
+            (should, stats.exec_count)
+        };
+        
+        if should_compile {
             // 计算编译优先级（基于关键路径和调用频率）
             let priority = self.compute_compile_priority(pc);
             // 添加到待编译队列
             self.pending_compile_queue.push((pc, priority));
             // 按优先级排序（高优先级在前）
             self.pending_compile_queue.sort_by(|a, b| b.1.cmp(&a.1));
-            stats.is_compiled = true;
             // 发布热点检测事件
-            self.publish_hotspot_detected(pc, stats.exec_count);
+            self.publish_hotspot_detected(pc, exec_count);
             true
         } else {
             false
@@ -1221,14 +1116,14 @@ impl Jit {
                 // 将高频被调用者加入预编译队列
                 for &callee_pc in callees.iter().rev().take(3) {
                     // 检查是否已经在队列中或已编译
-                    if !self.pending_compile_queue.iter().any(|(pc, _)| *pc == callee_pc) &&
-                       !self.prefetch_compile_queue.iter().any(|(pc, _)| *pc == callee_pc) &&
-                       self.cache.get(callee_pc).is_none() {
+                    if !self.pending_compile_queue.iter().any(|(pc, _)| *pc == *callee_pc) &&
+                       !self.prefetch_compile_queue.iter().any(|(pc, _)| *pc == *callee_pc) &&
+                       self.cache.get(*callee_pc).is_none() {
                         // 计算优先级（基于调用频率）
-                        let priority = profile.block_profiles.get(&callee_pc)
+                        let priority = profile.block_profiles.get(callee_pc)
                             .map(|p| (p.execution_count.min(1000) / 10) as u32)
                             .unwrap_or(1);
-                        self.prefetch_compile_queue.push((callee_pc, priority));
+                        self.prefetch_compile_queue.push((*callee_pc, priority));
                     }
                 }
             }
@@ -1540,14 +1435,25 @@ impl Jit {
                         });
                     }
                 } else {
-                    // 任务还在进行中，返回一个等待现有任务完成的新任务
+                    // 任务还在进行中，返回一个等待编译结果的新任务
                     let results = self.async_compile_results.clone();
-                    let handle_arc = existing_handle.clone();
+                    let tasks = self.async_compile_tasks.clone();
                     return tokio::spawn(async move {
-                        // 等待现有任务完成
-                        let _ = handle_arc.await;
-                        // 获取结果
-                        results.lock().get(&pc).copied().unwrap_or(CodePtr(std::ptr::null()))
+                        // 轮询等待编译结果（因为JoinHandle不能clone）
+                        loop {
+                            // 检查结果
+                            if let Some(ptr) = results.lock().get(&pc).copied() {
+                                return ptr;
+                            }
+                            // 检查任务是否还存在
+                            if !tasks.lock().contains_key(&pc) {
+                                break;
+                            }
+                            // 短暂等待
+                            tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+                        }
+                        // 任务完成但没有结果
+                        CodePtr(std::ptr::null())
                     });
                 }
             }
@@ -1600,10 +1506,21 @@ impl Jit {
         self.async_compile_tasks.lock().insert(pc, handle_arc.clone());
         
         // 创建一个包装任务来返回结果
-        // 这样可以保持对原始handle的引用，同时返回一个新的JoinHandle
-        let handle_arc_clone = handle_arc.clone();
+        // 这里返回一个轮询结果的future，因为Arc<JoinHandle>不能直接await
+        let results = self.async_compile_results.clone();
+        let tasks = self.async_compile_tasks.clone();
         tokio::spawn(async move {
-            handle_arc_clone.await.unwrap_or(CodePtr(std::ptr::null()))
+            // 轮询等待编译结果
+            loop {
+                if let Some(ptr) = results.lock().get(&pc).copied() {
+                    return ptr;
+                }
+                if !tasks.lock().contains_key(&pc) {
+                    break;
+                }
+                tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+            }
+            CodePtr(std::ptr::null())
         })
     }
     
@@ -1643,14 +1560,14 @@ impl Jit {
             let mut enhanced_features = features;
             if let Some(ref collector) = self.profile_collector {
                 let profile = collector.get_profile_data();
-                ml_compiler.lock().unwrap().enhance_features_with_pgo(
+                ml_compiler.lock().enhance_features_with_pgo(
                     block.start_pc,
                     &mut enhanced_features,
                     &profile,
                 );
             }
 
-            Some(ml_compiler.lock().unwrap().predict_decision(block.start_pc, &enhanced_features))
+            Some(ml_compiler.lock().predict_decision(block.start_pc, &enhanced_features))
         } else {
             None
         };
@@ -2101,28 +2018,17 @@ impl Jit {
                 IROp::VecAdd { dst, src1, src2, element_size } |
                 IROp::VecSub { dst, src1, src2, element_size } |
                 IROp::VecMul { dst, src1, src2, element_size } => {
-                    // 使用SIMD集成管理器编译向量操作
-                    // 注意：vec_regs_ptr 使用 regs_ptr 作为占位符，因为向量寄存器也存储在通用寄存器数组中
-                    if let Ok(Some(_)) = self.simd_integration.compile_simd_op(
-                        &mut builder,
-                        op,
-                        regs_ptr,
-                        fregs_ptr,
-                        regs_ptr, // vec_regs_ptr 使用 regs_ptr
-                    ) {
-                        // SIMD编译成功
-                    } else {
-                        // 如果SIMD编译失败，回退到简单的标量操作
-                        let src1_val = Self::load_reg(&mut builder, regs_ptr, *src1);
-                        let src2_val = Self::load_reg(&mut builder, regs_ptr, *src2);
-                        let result = match op {
-                            IROp::VecAdd { .. } => builder.ins().iadd(src1_val, src2_val),
-                            IROp::VecSub { .. } => builder.ins().isub(src1_val, src2_val),
-                            IROp::VecMul { .. } => builder.ins().imul(src1_val, src2_val),
-                            _ => unreachable!(),
-                        };
-                        Self::store_reg(&mut builder, regs_ptr, *dst, result);
-                    }
+                    // 由于借用检查限制，直接使用标量操作回退
+                    // TODO: 在未来版本中实现更复杂的SIMD编译支持
+                    let src1_val = Self::load_reg(&mut builder, regs_ptr, *src1);
+                    let src2_val = Self::load_reg(&mut builder, regs_ptr, *src2);
+                    let result = match op {
+                        IROp::VecAdd { .. } => builder.ins().iadd(src1_val, src2_val),
+                        IROp::VecSub { .. } => builder.ins().isub(src1_val, src2_val),
+                        IROp::VecMul { .. } => builder.ins().imul(src1_val, src2_val),
+                        _ => unreachable!(),
+                    };
+                    Self::store_reg(&mut builder, regs_ptr, *dst, result);
                 }
 
                 // ============================================================
@@ -3335,7 +3241,7 @@ impl ExecutionEngine<IRBlock> for Jit {
             // 记录ML训练样本（如果启用）
             if let Some(ref ml_compiler) = self.ml_compiler {
                 let features = ml_model::FeatureExtractor::extract_from_ir_block(block);
-                let decision = ml_compiler.lock().unwrap().predict_decision(pc_key, &features);
+                let decision = ml_compiler.lock().predict_decision(pc_key, &features);
                 
                 // 计算性能指标（相对于解释执行的改进）
                 let estimated_interp_time = block_ops_count as u64 * 500; // 估算解释执行时间

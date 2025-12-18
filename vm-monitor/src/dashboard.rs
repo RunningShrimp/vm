@@ -274,11 +274,14 @@ async fn ack_alert_handler(
 }
 
 /// 健康检查
-async fn health_handler() -> impl IntoResponse {
+async fn health_handler(
+    State((metrics_collector, _, _)): State<(Arc<MetricsCollector>, Arc<AlertManager>, Arc<PerformanceAnalyzer>)>,
+) -> impl IntoResponse {
+    let uptime = metrics_collector.get_uptime().await;
     let health = HealthStatus {
         status: "healthy".to_string(),
         timestamp: chrono::Utc::now(),
-        uptime: std::time::Duration::from_secs(0), // TODO: 实现
+        uptime,
         version: env!("CARGO_PKG_VERSION", "0.1.0").to_string(),
     };
 

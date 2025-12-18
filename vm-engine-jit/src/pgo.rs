@@ -637,7 +637,7 @@ impl ProfileAnalyzer {
                     optimization_type: OptimizationType::PrefetchMemory,
                     priority: 65,
                     expected_improvement: 12.0,
-                    reason: "Sequential memory access pattern detected",
+                    reason: "Sequential memory access pattern detected".to_string(),
                 });
             }
         }

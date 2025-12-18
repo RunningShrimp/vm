@@ -12,7 +12,7 @@ vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-simd = { path = "../vm-simd" }
 vm-mem = { path = "../vm-mem" }
-vm-ir-lift = { path = "../vm-ir-lift" }
+vm-ir-lift = { path = "../vm-ir-lift", optional = true }
 vm-accel = { path = "../vm-accel" }
 vm-engine-interpreter = { path = "../vm-engine-interpreter" }
 cranelift = "0.126"
@@ -28,8 +28,8 @@ parking_lot = "0.12.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bincode = { version = "2.0", features = ["serde"] }
-tokio = { version = "1.48", features = ["rt","rt-multi-thread","macros","sync"], optional = true }
-async-trait = { version = "0.1", optional = true }
+tokio = { version = "1.48", features = ["rt","rt-multi-thread","macros","sync","time"] }
+async-trait = "0.1"
 
 [dev-dependencies]
 criterion = "0.8"
@@ -48,5 +48,7 @@ path = "../../benches/gc_performance_benchmark.rs"
 harness = false
 [features]
 jit = []
-async = ["vm-core/async", "async-trait"]
-default = []
+cranelift-backend = []
+llvm-backend = ["vm-ir-lift/llvm"]
+async = ["vm-core/async"]
+default = ["cranelift-backend"]

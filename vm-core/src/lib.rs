@@ -791,7 +791,7 @@ pub struct VirtualMachine<B> {
     /// 执行统计
     stats: ExecStats,
     /// 快照管理器
-    snapshot_manager: Mutex<snapshot::SnapshotManager>,
+    snapshot_manager: Mutex<snapshot::SnapshotMetadataManager>,
     /// 模板管理器
     template_manager: Mutex<template::TemplateManager>,
 }
@@ -806,7 +806,7 @@ impl<B: 'static> VirtualMachine<B> {
             mmu: Arc::new(Mutex::new(mmu)),
             vcpus: Vec::new(),
             stats: ExecStats::default(),
-            snapshot_manager: Mutex::new(snapshot::SnapshotManager::new()),
+            snapshot_manager: Mutex::new(snapshot::SnapshotMetadataManager::new()),
             template_manager: Mutex::new(template::TemplateManager::new()),
         }
     }

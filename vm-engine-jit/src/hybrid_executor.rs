@@ -15,6 +15,7 @@ use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, GuestAddr, MMU
 use vm_ir::IRBlock;
 
 use crate::aot_loader::{AotCodeBlock, AotLoader};
+use crate::CodePtr;
 
 /// 混合执行引擎的代码块来源
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -326,8 +327,9 @@ impl HybridExecutor {
                     "Async compilation failed for PC: {:#x}, falling back to interpreter",
                     pc
                 );
-                return Err(VmError::Core(vm_core::CoreError::CompilationFailed {
+                return Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "Async compilation returned null pointer".to_string(),
+                    module: "hybrid_executor".to_string(),
                 }));
             }
         }
@@ -349,9 +351,9 @@ impl HybridExecutor {
         // 等待编译完成（带超时）
         // 注意：由于我们在同步上下文中，我们需要使用block_on
         // 但为了不阻塞，我们设置一个短超时
-        let compile_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let compile_result: Option<Result<Option<CodePtr>, _>> = if let Ok(handle) = tokio::runtime::Handle::try_current() {
             // 在异步上下文中，可以等待编译完成
-            handle.block_on(async {
+            Some(handle.block_on(async {
                 tokio::time::timeout(compile_timeout, async {
                     // 轮询检查编译结果
                     loop {
@@ -362,7 +364,7 @@ impl HybridExecutor {
                     }
                 })
                 .await
-            })
+            }))
         } else {
             // 不在异步上下文中，使用同步编译作为回退
             None
@@ -384,8 +386,9 @@ impl HybridExecutor {
                     "Async compilation failed (null pointer) for PC: {:#x}, falling back to interpreter",
                     pc
                 );
-                Err(VmError::Core(vm_core::CoreError::CompilationFailed {
+                Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "Async compilation returned null pointer".to_string(),
+                    module: "hybrid_executor".to_string(),
                 }))
             }
             Some(Err(_)) | None => {
@@ -401,15 +404,17 @@ impl HybridExecutor {
                     Ok(jit.run(mmu, block))
                 } else {
                     // 同步编译也失败，回退到解释器
-                    Err(VmError::Core(vm_core::CoreError::CompilationFailed {
+                    Err(VmError::Core(vm_core::CoreError::Internal {
                         message: "Both async and sync compilation failed".to_string(),
+                        module: "hybrid_executor".to_string(),
                     }))
                 }
             }
             _ => {
                 // 其他情况，回退到解释器
-                Err(VmError::Core(vm_core::CoreError::CompilationFailed {
+                Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "Compilation check failed".to_string(),
+                    module: "hybrid_executor".to_string(),
                 }))
             }
         }

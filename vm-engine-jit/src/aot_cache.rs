@@ -93,6 +93,7 @@ struct CacheEntryMetadata {
 }
 
 /// 缓存条目
+#[derive(Clone)]
 struct CacheEntry {
     /// 编译后的代码
     code: Vec<u8>,
@@ -347,22 +348,25 @@ impl AotCache {
 
         // 检查条目数限制
         {
-            let entries = self.entries.read();
-            if entries.len() >= self.config.max_entries {
-                // 使用LRU淘汰
-                if self.config.enable_lru_eviction {
+            let should_evict = {
+                let entries = self.entries.read();
+                entries.len() >= self.config.max_entries
+            };
+            
+            if should_evict && self.config.enable_lru_eviction {
+                // 收集需要淘汰的键
+                let keys_to_evict: Vec<CacheKey> = {
                     let mut lru = self.lru_order.lock().unwrap();
-                    while entries.len() >= self.config.max_entries {
+                    let entries = self.entries.read();
+                    let mut keys = Vec::new();
+                    
+                    while entries.len() - keys.len() >= self.config.max_entries {
                         if let Some(oldest_key) = lru.first().cloned() {
                             // 不要淘汰正在插入的键
                             if &oldest_key != new_key {
-                                drop(entries);
-                                self.remove(&oldest_key);
-                                evicted += 1;
-                                let entries = self.entries.read();
-                                if entries.len() < self.config.max_entries {
-                                    break;
-                                }
+                                keys.push(oldest_key.clone());
+                                // 从lru中移除（使用retain保留不匹配的项）
+                                lru.retain(|k| k != &oldest_key);
                             } else {
                                 break;
                             }
@@ -370,6 +374,13 @@ impl AotCache {
                             break;
                         }
                     }
+                    keys
+                };
+                
+                // 批量移除
+                for key in keys_to_evict {
+                    self.remove(&key);
+                    evicted += 1;
                 }
             }
         }

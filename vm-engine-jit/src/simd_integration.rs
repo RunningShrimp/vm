@@ -11,11 +11,11 @@ use cranelift_jit::JITModule;
 use std::collections::HashMap;
 
 /// SIMD集成管理器
+/// 
+/// 注意：不保存 JITModule 引用，需要时通过参数传入
 pub struct SimdIntegrationManager {
     /// SIMD函数缓存
     func_cache: HashMap<SimdFuncKey, FuncId>,
-    /// 模块引用
-    module: Option<std::sync::Arc<JITModule>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -87,32 +87,25 @@ impl SimdIntegrationManager {
     pub fn new() -> Self {
         Self {
             func_cache: HashMap::new(),
-            module: None,
         }
     }
 
-    /// 设置模块引用
-    pub fn set_module(&mut self, module: std::sync::Arc<JITModule>) {
-        self.module = Some(module);
-    }
-
     /// 获取或创建SIMD函数
-    pub fn get_or_create_func(&mut self, operation: SimdOperation, element_size: u8, vector_size: VectorSize) -> Result<FuncId, VmError> {
+    /// 
+    /// # 参数
+    /// * `module` - JIT模块可变引用，用于创建函数
+    /// * `operation` - SIMD操作类型
+    /// * `element_size` - 元素大小
+    /// * `vector_size` - 向量大小
+    pub fn get_or_create_func(&mut self, module: &mut JITModule, operation: SimdOperation, element_size: u8, vector_size: VectorSize) -> Result<FuncId, VmError> {
         let key = SimdFuncKey { operation, element_size, vector_size };
 
         if let Some(&func_id) = self.func_cache.get(&key) {
             return Ok(func_id);
         }
 
-        let module = self.module.as_ref().ok_or_else(|| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "JIT module not set".to_string(),
-                module: "simd_integration".to_string(),
-            })
-        })?;
-
         // 创建SIMD函数
-        let func_id = self.create_simd_function(module.as_ref(), operation, element_size, vector_size)?;
+        let func_id = self.create_simd_function(module, operation, element_size, vector_size)?;
         self.func_cache.insert(key, func_id);
 
         Ok(func_id)
@@ -121,7 +114,7 @@ impl SimdIntegrationManager {
     /// 创建SIMD函数
     fn create_simd_function(
         &self,
-        module: &JITModule,
+        module: &mut JITModule,
         operation: SimdOperation,
         element_size: u8,
         vector_size: VectorSize,
@@ -325,8 +318,17 @@ impl SimdIntegrationManager {
     }
 
     /// 编译SIMD操作
+    /// 
+    /// # 参数
+    /// * `module` - JIT模块可变引用
+    /// * `builder` - 函数构建器
+    /// * `op` - IR操作
+    /// * `regs_ptr` - 寄存器指针
+    /// * `fregs_ptr` - 浮点寄存器指针
+    /// * `vec_regs_ptr` - 向量寄存器指针
     pub fn compile_simd_op(
         &mut self,
+        module: &mut JITModule,
         builder: &mut FunctionBuilder,
         op: &IROp,
         regs_ptr: Value,
@@ -336,6 +338,7 @@ impl SimdIntegrationManager {
         match op {
             IROp::VecAdd { dst, src1, src2, element_size } => {
                 self.compile_vec_binop(
+                    module,
                     builder,
                     SimdOperation::VecAdd,
                     *dst,
@@ -349,6 +352,7 @@ impl SimdIntegrationManager {
             }
             IROp::VecSub { dst, src1, src2, element_size } => {
                 self.compile_vec_binop(
+                    module,
                     builder,
                     SimdOperation::VecSub,
                     *dst,
@@ -362,6 +366,7 @@ impl SimdIntegrationManager {
             }
             IROp::VecMul { dst, src1, src2, element_size } => {
                 self.compile_vec_binop(
+                    module,
                     builder,
                     SimdOperation::VecMul,
                     *dst,
@@ -380,6 +385,7 @@ impl SimdIntegrationManager {
     /// 编译向量二元运算
     fn compile_vec_binop(
         &mut self,
+        module: &mut JITModule,
         builder: &mut FunctionBuilder,
         operation: SimdOperation,
         dst: u32,
@@ -391,15 +397,7 @@ impl SimdIntegrationManager {
         _vec_regs_ptr: Value,
     ) -> Result<Option<Value>, VmError> {
         // 获取或创建SIMD函数
-        let func_id = self.get_or_create_func(operation, element_size, vector_size)?;
-        
-        // 获取模块引用
-        let module = self.module.as_ref().ok_or_else(|| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "JIT module not set".to_string(),
-                module: "simd_integration".to_string(),
-            })
-        })?;
+        let func_id = self.get_or_create_func(module, operation, element_size, vector_size)?;
         
         // 声明函数引用
         let func_ref = module.declare_func_in_func(func_id, builder.func);

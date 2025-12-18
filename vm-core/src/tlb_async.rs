@@ -77,7 +77,7 @@ impl AsyncTLBCache {
 
     /// 查找 TLB 表项
     pub fn lookup(&self, va: GuestAddr) -> Option<(GuestPhysAddr, AccessType)> {
-        let mut entries = self.entries.write();
+        let entries = self.entries.write();
 
         if let Some(&(pa, access, consistency)) = entries.get(&va) {
             if consistency == TLBConsistency::Valid {
@@ -379,7 +379,7 @@ impl AsyncTLBCache {
 
     /// 获取 TLB 使用率
     pub fn get_occupancy(&self) -> f64 {
-        let mut entries = self.entries.write();
+        let entries = self.entries.write();
         entries.len() as f64 / self.capacity as f64
     }
 }

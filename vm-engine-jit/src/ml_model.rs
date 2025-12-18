@@ -20,8 +20,8 @@ pub trait MLModel: Send + Sync {
     /// 保存模型
     fn save(&self, path: &str) -> Result<(), String>;
 
-    /// 加载模型
-    fn load(path: &str) -> Result<Box<dyn MLModel>, String>;
+    /// 加载模型（静态方法，不能通过 dyn 调用）
+    fn load(path: &str) -> Result<Box<dyn MLModel>, String> where Self: Sized;
 }
 
 /// 线性回归模型

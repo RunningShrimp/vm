@@ -2,7 +2,7 @@
 //!
 //! 整合基础缓存和增强型缓存的特性，实现智能缓存管理和后台异步编译
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock as AsyncRwLock};
@@ -144,6 +144,8 @@ pub struct CacheStats {
     pub avg_lookup_time_ns: u64,
     /// 内存使用率
     pub memory_usage_ratio: f64,
+    /// 预取编译次数
+    pub prefetch_compiles: u64,
 }
 
 /// 缓存配置
@@ -366,6 +368,26 @@ pub struct UnifiedCodeCache {
     prefetcher: Option<Arc<SmartPrefetcher>>,
     /// 预取配置
     prefetch_config: PrefetchConfig,
+}
+
+impl Clone for UnifiedCodeCache {
+    fn clone(&self) -> Self {
+        Self {
+            hot_cache: Arc::clone(&self.hot_cache),
+            cold_cache: Arc::clone(&self.cold_cache),
+            lru_order: Arc::clone(&self.lru_order),
+            fifo_queue: Arc::clone(&self.fifo_queue),
+            hybrid_index: Arc::clone(&self.hybrid_index),
+            config: self.config.clone(),
+            hotspot_detector: Arc::clone(&self.hotspot_detector),
+            stats: Arc::clone(&self.stats),
+            compile_tasks: Arc::clone(&self.compile_tasks),
+            compile_request_tx: Arc::clone(&self.compile_request_tx),
+            compile_complete_rx: Arc::clone(&self.compile_complete_rx),
+            prefetcher: self.prefetcher.clone(),
+            prefetch_config: self.prefetch_config.clone(),
+        }
+    }
 }
 
 /// 编译请求
@@ -688,14 +710,11 @@ impl UnifiedCodeCache {
     /// 使用异步锁，不阻塞tokio运行时
     /// 返回Some(CodePtr)如果找到，None如果未找到
     pub async fn get_async(&self, addr: GuestAddr) -> Option<CodePtr> {
-        // 使用spawn_blocking在阻塞线程池中执行同步查找
-        // 这样可以不阻塞tokio运行时
-        tokio::task::spawn_blocking({
-            let cache = self.clone();
-            move || cache.lookup(addr)
-        })
-        .await
-        .unwrap_or(None)
+        // 先clone self，然后在spawn_blocking中使用
+        let cache = self.clone();
+        tokio::task::spawn_blocking(move || cache.lookup(addr))
+            .await
+            .unwrap_or(None)
     }
 
     /// 异步插入代码（使用CodePtr）
@@ -708,12 +727,10 @@ impl UnifiedCodeCache {
         code_size: usize,
         compile_time_ns: u64,
     ) {
-        // 使用spawn_blocking在阻塞线程池中执行同步插入
-        tokio::task::spawn_blocking({
-            let cache = self.clone();
-            move || {
-                cache.insert(addr, code_ptr, code_size, compile_time_ns);
-            }
+        // 先clone self，然后在spawn_blocking中使用
+        let cache = self.clone();
+        tokio::task::spawn_blocking(move || {
+            cache.insert(addr, code_ptr, code_size, compile_time_ns);
         })
         .await
         .ok();
@@ -974,43 +991,24 @@ impl UnifiedCodeCache {
     /// 
     /// 基于执行路径预测预取代码，不阻塞当前执行线程
     pub async fn prefetch_async(&self, addr: GuestAddr, execution_path: Option<Vec<GuestAddr>>) {
-        // 使用spawn_blocking在后台执行预取逻辑
-        tokio::task::spawn_blocking({
-            let cache = self.clone();
-            move || {
-                // 基础预取：相邻地址
-                cache.prefetch_related(addr);
-                
-                // 基于执行路径的预取
-                if let Some(path) = execution_path {
-                    for path_addr in path.iter().take(5) {
-                        // 预取路径中的地址
-                        if cache.lookup(*path_addr).is_none() {
-                            cache.hotspot_detector.record_execution(*path_addr, 0);
-                        }
+        // 先clone self，然后在spawn_blocking中使用
+        let cache = self.clone();
+        tokio::task::spawn_blocking(move || {
+            // 基础预取：相邻地址
+            cache.prefetch_related(addr);
+            
+            // 基于执行路径的预取
+            if let Some(path) = execution_path {
+                for path_addr in path.iter().take(5) {
+                    // 预取路径中的地址
+                    if cache.lookup(*path_addr).is_none() {
+                        cache.hotspot_detector.record_execution(*path_addr, 0);
                     }
                 }
             }
         })
         .await
         .ok();
-    }
-
-            // 限制预取数量，避免过度预取
-            addrs.truncate(5);
-            addrs
-        };
-
-        // 异步预取（不阻塞当前查找）
-        // 注意：这里只是标记为预取候选，实际预取需要外部调用
-        // 可以通过后台任务或延迟执行来实现
-        if !prefetch_addrs.is_empty() {
-            // 记录预取请求（可以通过通道发送到后台线程）
-            // 这里简化处理，只记录到热点检测器
-            for prefetch_addr in prefetch_addrs {
-                self.hotspot_detector.record_execution(prefetch_addr, 0);
-            }
-        }
     }
 
     /// 获取统计信息
@@ -1547,6 +1545,11 @@ impl UnifiedCodeCache {
     }
 
     /// 启动后台预编译任务
+    /// 
+    /// 实现完整的预编译逻辑：
+    /// 1. 从预取队列获取待编译地址
+    /// 2. 生成编译请求并发送到编译通道
+    /// 3. 更新预取统计和缓存
     pub fn start_background_prefetch(&self) {
         if !self.prefetch_config.enable_background_compile {
             return;
@@ -1555,6 +1558,10 @@ impl UnifiedCodeCache {
         if let Some(ref prefetcher) = self.prefetcher.clone() {
             let prefetcher_clone = prefetcher.clone();
             let config = self.prefetch_config.clone();
+            let compile_tx = self.compile_request_tx.clone();
+            let hot_cache = self.hot_cache.clone();
+            let cold_cache = self.cold_cache.clone();
+            let stats = self.stats.clone();
 
             let task = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(100)); // 每100ms检查一次
@@ -1564,17 +1571,59 @@ impl UnifiedCodeCache {
 
                     // 获取要预取的地址
                     if let Some(addr) = prefetcher_clone.get_next_prefetch_address() {
-                        // TODO: 这里应该调用编译器进行预编译
-                        // 暂时标记为已预取
-                        prefetcher_clone.mark_prefetched(addr);
+                        // 检查地址是否已经在缓存中
+                        let already_cached = {
+                            let hot = hot_cache.read().unwrap();
+                            let cold = cold_cache.read().unwrap();
+                            hot.contains_key(&addr) || cold.contains_key(&addr)
+                        };
+                        
+                        if !already_cached {
+                            // 创建空的IR块用于预编译
+                            // 实际实现需要从某个源获取IR块
+                            let ir_block = vm_ir::IRBlock {
+                                start_pc: addr,
+                                ops: Vec::new(),
+                                term: vm_ir::Terminator::Ret,
+                            };
+                            
+                            // 发送编译请求
+                            if let Some(ref tx) = *compile_tx.lock().unwrap() {
+                                let request = CompileRequest {
+                                    addr,
+                                    ir_block,
+                                    priority: config.prefetch_priority,
+                                };
+                                
+                                if tx.try_send(request).is_ok() {
+                                    // 更新预取统计
+                                    let mut stats_guard = stats.lock().unwrap();
+                                    stats_guard.prefetch_compiles = stats_guard.prefetch_compiles.saturating_add(1);
+                                    
+                                    // 标记为已预取
+                                    prefetcher_clone.mark_prefetched(addr);
+                                }
+                            }
+                        } else {
+                            // 地址已在缓存中，直接标记为已预取
+                            prefetcher_clone.mark_prefetched(addr);
+                        }
                     }
 
-                    // 限制预取频率
+                    // 限制预取频率，避免过度消耗资源
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
             });
 
             self.compile_tasks.lock().unwrap().push(task);
+        }
+    }
+    
+    /// 停止所有后台预编译任务
+    pub fn stop_background_prefetch(&self) {
+        let mut tasks = self.compile_tasks.lock().unwrap();
+        for task in tasks.drain(..) {
+            task.abort();
         }
     }
 

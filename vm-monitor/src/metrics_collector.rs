@@ -381,6 +381,13 @@ pub struct MetricsCollector {
     
     // 执行时间详细统计（用于百分位数计算）
     execution_time_samples: Arc<RwLock<Vec<u64>>>,
+    
+    // 系统集成配置（用于动态获取TLB容量、GC统计等）
+    tlb_capacity: Arc<RwLock<usize>>,
+    objects_collected: Arc<AtomicU64>,
+    page_faults: Arc<AtomicU64>,
+    max_vcpu_count: Arc<RwLock<usize>>,
+    load_balancing_policy: Arc<RwLock<String>>,
 }
 
 impl MetricsCollector {
@@ -441,6 +448,13 @@ impl MetricsCollector {
             gc_time_samples: Arc::new(RwLock::new(Vec::new())),
             
             execution_time_samples: Arc::new(RwLock::new(Vec::new())),
+            
+            // 系统集成配置
+            tlb_capacity: Arc::new(RwLock::new(4096)), // 默认TLB容量
+            objects_collected: Arc::new(AtomicU64::new(0)),
+            page_faults: Arc::new(AtomicU64::new(0)),
+            max_vcpu_count: Arc::new(RwLock::new(8)), // 默认最大vCPU数
+            load_balancing_policy: Arc::new(RwLock::new("RoundRobin".to_string())),
         })
     }
 
@@ -577,7 +591,7 @@ impl MetricsCollector {
                 0.0
             },
             current_entries: *self.current_tlb_entries.read().await,
-            capacity: 4096, // TODO: 从TLB系统获取
+            capacity: *self.tlb_capacity.read().await,
             replacement_policy: "AdaptiveLru".to_string(),
             efficiency_score: self.calculate_tlb_efficiency().await,
             recent_hit_rate: self.calculate_recent_hit_rate().await,
@@ -610,7 +624,7 @@ impl MetricsCollector {
             },
             max_pause_time_ns: gc_pause_time_max,
             gc_rate: self.calculate_gc_rate(total_gc_cycles).await,
-            objects_collected: 0, // TODO: 从GC系统获取
+            objects_collected: self.objects_collected.load(Ordering::Relaxed),
             gc_time_p50_ns: gc_p50,
             gc_time_p95_ns: gc_p95,
             gc_time_p99_ns: gc_p99,
@@ -641,7 +655,7 @@ impl MetricsCollector {
             },
             allocation_rate: self.calculate_allocation_rate().await,
             deallocation_rate: self.calculate_deallocation_rate().await,
-            page_faults: 0, // TODO: 从MMU系统获取
+            page_faults: self.page_faults.load(Ordering::Relaxed),
         };
 
         // 并行指标
@@ -654,9 +668,9 @@ impl MetricsCollector {
                 0.0
             },
             active_vcpu_count: active_vcpus,
-            max_vcpu_count: 8, // TODO: 从系统配置获取
+            max_vcpu_count: *self.max_vcpu_count.read().await,
             efficiency_score: self.calculate_parallel_efficiency().await,
-            load_balancing_policy: "RoundRobin".to_string(), // TODO: 从系统获取
+            load_balancing_policy: self.load_balancing_policy.read().await.clone(),
             thread_safety_events: self.calculate_thread_safety_events().await,
             pending_queue_length: self.calculate_pending_queue_length().await,
         };
@@ -835,6 +849,59 @@ impl MetricsCollector {
     /// 更新编译缓存大小
     pub fn update_compilation_cache_size(&self, size: usize) {
         self.compilation_cache_size.store(size, Ordering::Relaxed);
+    }
+    
+    // ========== 系统集成配置方法 ==========
+    
+    /// 设置TLB容量（从TLB系统获取）
+    pub async fn set_tlb_capacity(&self, capacity: usize) {
+        let mut cap = self.tlb_capacity.write().await;
+        *cap = capacity;
+    }
+    
+    /// 记录GC回收的对象数
+    pub fn record_objects_collected(&self, count: u64) {
+        self.objects_collected.fetch_add(count, Ordering::Relaxed);
+    }
+    
+    /// 记录页面错误
+    pub fn record_page_fault(&self) {
+        self.page_faults.fetch_add(1, Ordering::Relaxed);
+    }
+    
+    /// 批量记录页面错误
+    pub fn record_page_faults(&self, count: u64) {
+        self.page_faults.fetch_add(count, Ordering::Relaxed);
+    }
+    
+    /// 设置最大vCPU数量（从系统配置获取）
+    pub async fn set_max_vcpu_count(&self, count: usize) {
+        let mut max_vcpus = self.max_vcpu_count.write().await;
+        *max_vcpus = count;
+    }
+    
+    /// 设置负载均衡策略（从系统获取）
+    pub async fn set_load_balancing_policy(&self, policy: String) {
+        let mut lb_policy = self.load_balancing_policy.write().await;
+        *lb_policy = policy;
+    }
+    
+    /// 配置系统集成参数（一次性设置多个）
+    pub async fn configure_system_integration(
+        &self,
+        tlb_capacity: Option<usize>,
+        max_vcpu_count: Option<usize>,
+        load_balancing_policy: Option<String>,
+    ) {
+        if let Some(cap) = tlb_capacity {
+            self.set_tlb_capacity(cap).await;
+        }
+        if let Some(count) = max_vcpu_count {
+            self.set_max_vcpu_count(count).await;
+        }
+        if let Some(policy) = load_balancing_policy {
+            self.set_load_balancing_policy(policy).await;
+        }
     }
 
     // 私有辅助方法
@@ -1265,6 +1332,13 @@ impl Clone for MetricsCollector {
             gc_time_samples: self.gc_time_samples.clone(),
             
             execution_time_samples: self.execution_time_samples.clone(),
+            
+            // 系统集成配置
+            tlb_capacity: self.tlb_capacity.clone(),
+            objects_collected: self.objects_collected.clone(),
+            page_faults: self.page_faults.clone(),
+            max_vcpu_count: self.max_vcpu_count.clone(),
+            load_balancing_policy: self.load_balancing_policy.clone(),
         }
     }
 }
