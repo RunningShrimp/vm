@@ -1,10 +1,9 @@
 //! 厂商扩展指令测试
 
-use vm_core::GuestAddr;
-use vm_frontend_arm64::apple_amx::{AmxDecoder, AmxInstruction, AmxPrecision};
-use vm_frontend_arm64::hisilicon_npu::{NpuDecoder, NpuInstruction};
-use vm_frontend_arm64::mediatek_apu::{ApuDecoder, ApuInstruction};
-use vm_frontend_arm64::qualcomm_hexagon::{HexagonDecoder, HexagonInstruction};
+use vm_frontend_arm64::{AmxDecoder, AmxInstruction, AmxPrecision};
+use vm_frontend_arm64::{NpuDecoder, NpuInstruction};
+use vm_frontend_arm64::{ApuDecoder, ApuInstruction};
+use vm_frontend_arm64::{HexagonDecoder, HexagonInstruction};
 
 #[test]
 fn test_amx_decode_ld() {
@@ -32,11 +31,13 @@ fn test_amx_decode_fma() {
     if let Ok(Some(AmxInstruction::AmxFma {
         tile_c,
         tile_a,
+        tile_b,
         precision,
     })) = result
     {
         assert_eq!(tile_c, 0);
         assert_eq!(tile_a, 1);
+        assert_eq!(tile_b, 2);
         assert_eq!(precision, AmxPrecision::Fp32);
     } else {
         panic!("Failed to decode AMX_FMA");
@@ -94,4 +95,3 @@ fn test_npu_decode_conv() {
         panic!("Failed to decode NPU_CONV");
     }
 }
-

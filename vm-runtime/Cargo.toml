@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-monitor = { path = "../vm-monitor", optional = true }
+security-sandbox = { path = "../security-sandbox" }
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.48", features = ["full"], optional = true }
 async-std = { version = "1.13", features = ["attributes"], optional = true }

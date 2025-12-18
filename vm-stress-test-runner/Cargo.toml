@@ -1,0 +1,31 @@
+[package]
+name = "vm-stress-test-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "stress_test_runner"
+path = "src/bin/stress_test_runner.rs"
+
+[dependencies]
+vm-cross-arch = { path = "../vm-cross-arch" }
+vm-core = { path = "../vm-core" }
+vm-engine-jit = { path = "../vm-engine-jit" }
+vm-mem = { path = "../vm-mem" }
+vm-ir = { path = "../vm-ir" }
+clap = { version = "4.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0.100"
+
+[features]
+default = []

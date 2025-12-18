@@ -1,0 +1,37 @@
+[package]
+name = "vm-desktop"
+version = "0.1.0"
+edition = "2021"
+authors = ["VM Development Team"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/vm"
+keywords = ["virtual-machine", "ui", "tauri", "desktop"]
+categories = ["gui"]
+
+[[bin]]
+name = "vm-desktop"
+path = "src-tauri/main.rs"
+
+[lib]
+name = "vm_desktop"
+path = "src/lib.rs"
+
+[dependencies]
+tauri = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["rt", "sync", "time"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+dirs = "5.0"
+log = "0.4"
+image = "0.25"
+rand = "0.8"
+vm-core = { path = "../vm-core" }
+vm-service = { path = "../vm-service" }
+
+[build-dependencies]
+tauri-build = "2.0"
+
+[features]
+default = []
+

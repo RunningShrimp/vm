@@ -3,7 +3,7 @@
 //! 提供统一的性能监控和统计功能
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// 设备性能统计
 #[derive(Debug, Clone)]

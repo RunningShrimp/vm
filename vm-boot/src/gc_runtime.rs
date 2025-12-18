@@ -4,7 +4,6 @@
 
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::time::Instant;
 
 /// GC 运行时管理器
 ///
@@ -86,35 +85,35 @@ impl vm_engine_jit::gc_trait::GcTrait for GcRuntime {
     fn should_trigger_gc(&self) -> bool {
         self.check_and_run_gc_step()
     }
-    
+
     fn run_gc_step(&self) -> (bool, usize) {
         // 简化实现：只检查是否触发，不执行实际GC
         (self.check_and_run_gc_step(), 0)
     }
-    
+
     fn start_gc(&self, _roots: &[u64]) -> Instant {
         Instant::now()
     }
-    
+
     fn finish_gc(&self, _cycle_start_time: Instant) {
         // 简化实现：无操作
     }
-    
+
     fn write_barrier(&self, _obj_addr: u64, _child_addr: u64) {
         // 简化实现：无操作
     }
-    
+
     fn get_stats(&self) -> Box<dyn vm_engine_jit::gc_trait::GcStats> {
         let stats = self.get_stats();
         Box::new(GcRuntimeStatsAdapter {
             cache_stats: stats,
         })
     }
-    
+
     fn update_heap_usage(&self, _used_bytes: u64) {
         // 简化实现：无操作
     }
-    
+
     fn full_gc_on_stop(&self) {
         self.full_gc_on_stop()
     }
@@ -130,12 +129,12 @@ impl vm_engine_jit::gc_trait::GcStats for GcRuntimeStatsAdapter {
     fn heap_used(&self) -> u64 {
         self.cache_stats.total_entries as u64 * 1024 // 假设每个条目1KB
     }
-    
+
     fn heap_usage_ratio(&self) -> f64 {
         let max_entries = 10000.0;
         (self.cache_stats.total_entries as f64 / max_entries).min(1.0)
     }
-    
+
     fn phase(&self) -> vm_engine_jit::gc_trait::GcPhase {
         vm_engine_jit::gc_trait::GcPhase::Idle
     }

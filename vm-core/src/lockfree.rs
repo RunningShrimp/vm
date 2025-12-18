@@ -8,132 +8,13 @@
 //! - `LockFreeQueue`: 无锁FIFO队列，适用于事件分发
 //! - `LockFreeCounter`: 无锁计数器，用于统计
 //! - `LockFreeStack`: 无锁栈，用于内存池
+//! - `LockFreeHashMap`: 无锁哈希表，用于键值存储
+//! - `LockFreeSharedState`: 无锁共享状态管理
 
-use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+// 重新导出vm-common中的无锁数据结构
+pub use vm_common::lockfree::*;
 
-/// 无锁FIFO队列
-///
-/// 基于环形缓冲区的无锁队列实现，支持多生产者多消费者场景。
-///
-/// # 特性
-/// - O(1) 入队和出队
-/// - 无全局锁
-/// - 预分配容量
-///
-/// 标识: 数据模型
-pub struct LockFreeQueue<T> {
-    buffer: Box<[UnsafeCell<Option<T>>]>,
-    head: AtomicUsize,
-    tail: AtomicUsize,
-    capacity: usize,
-}
-
-impl<T> LockFreeQueue<T> {
-    /// 创建指定容量的无锁队列
-    ///
-    /// # 参数
-    /// - `capacity`: 队列容量（应为 2 的幂次）
-    ///
-    /// # 返回
-    /// 新的无锁队列实例
-    pub fn new(capacity: usize) -> Self {
-        let capacity = capacity.next_power_of_two();
-        let mut buffer = Vec::with_capacity(capacity);
-        for _ in 0..capacity {
-            buffer.push(UnsafeCell::new(None));
-        }
-
-        Self {
-            buffer: buffer.into_boxed_slice(),
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
-            capacity,
-        }
-    }
-
-    /// 入队操作
-    ///
-    /// # 返回
-    /// - `Ok(())` 如果入队成功
-    /// - `Err(item)` 如果队列满
-    pub fn enqueue(&self, item: T) -> Result<(), T> {
-        loop {
-            let tail = self.tail.load(Ordering::Relaxed);
-            let next_tail = (tail + 1) % self.capacity;
-            let head = self.head.load(Ordering::Acquire);
-
-            if next_tail == head {
-                return Err(item);
-            }
-
-            // 尝试CAS操作更新tail
-            match self
-                .tail
-                .compare_exchange(tail, next_tail, Ordering::Release, Ordering::Relaxed)
-            {
-                Ok(_) => {
-                    // 安全地写入buffer（因为我们已经抢占了该位置）
-                    unsafe {
-                        *self.buffer[tail].get() = Some(item);
-                    }
-                    return Ok(());
-                }
-                Err(_) => {
-                    // CAS失败，重试
-                    continue;
-                }
-            }
-        }
-    }
-
-    /// 出队操作
-    ///
-    /// # 返回
-    /// - `Some(item)` 如果队列非空
-    /// - `None` 如果队列为空
-    pub fn dequeue(&self) -> Option<T> {
-        loop {
-            let head = self.head.load(Ordering::Relaxed);
-            let tail = self.tail.load(Ordering::Acquire);
-
-            if head == tail {
-                return None;
-            }
-
-            let next_head = (head + 1) % self.capacity;
-
-            // 尝试CAS操作更新head
-            match self
-                .head
-                .compare_exchange(head, next_head, Ordering::Release, Ordering::Relaxed)
-            {
-                Ok(_) => {
-                    // 安全地读取buffer
-                    unsafe {
-                        return (*self.buffer[head].get()).take();
-                    }
-                }
-                Err(_) => {
-                    // CAS失败，重试
-                    continue;
-                }
-            }
-        }
-    }
-
-    /// 检查队列是否为空
-    pub fn is_empty(&self) -> bool {
-        self.head.load(Ordering::Acquire) == self.tail.load(Ordering::Acquire)
-    }
-
-    /// 获取队列当前元素数量（近似值）
-    pub fn len(&self) -> usize {
-        let tail = self.tail.load(Ordering::Acquire);
-        let head = self.head.load(Ordering::Acquire);
-        (tail + self.capacity - head) % self.capacity
-    }
-}
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 无锁计数器
 ///
@@ -189,88 +70,9 @@ impl LockFreeCounter {
     }
 }
 
-/// 无锁栈
-///
-/// 用于内存池和对象池的无锁栈实现。
-///
-/// 标识: 数据模型
-pub struct LockFreeStack<T> {
-    data: Vec<T>,
-    top: AtomicUsize,
-    capacity: usize,
-}
-
-impl<T> LockFreeStack<T> {
-    /// 创建指定容量的无锁栈
-    pub fn new(capacity: usize) -> Self {
-        let data = Vec::with_capacity(capacity);
-        Self {
-            data,
-            top: AtomicUsize::new(0),
-            capacity,
-        }
-    }
-
-    /// 压栈操作
-    ///
-    /// # 返回
-    /// - `Ok(())` 如果压栈成功
-    /// - `Err(item)` 如果栈满
-    pub fn push(&mut self, item: T) -> Result<(), T> {
-        let top = self.top.load(Ordering::Relaxed);
-        if top >= self.capacity {
-            return Err(item);
-        }
-
-        // 注意: 这个实现假设只有单个线程修改，或需要更复杂的同步
-        if top < self.data.len() {
-            unsafe {
-                let ptr = self.data.as_mut_ptr().add(top);
-                *ptr = item;
-            }
-        } else if top == self.data.len() {
-            self.data.push(item);
-        }
-
-        self.top.store(top + 1, Ordering::Release);
-        Ok(())
-    }
-
-    /// 出栈操作
-    pub fn pop(&mut self) -> Option<T> {
-        let mut top = self.top.load(Ordering::Acquire);
-
-        loop {
-            if top == 0 {
-                return None;
-            }
-
-            let new_top = top - 1;
-            match self
-                .top
-                .compare_exchange(top, new_top, Ordering::Release, Ordering::Acquire)
-            {
-                Ok(_) => {
-                    return unsafe {
-                        let ptr = self.data.as_mut_ptr().add(new_top);
-                        Some(std::ptr::read(ptr))
-                    };
-                }
-                Err(actual) => {
-                    top = actual;
-                }
-            }
-        }
-    }
-
-    /// 检查栈是否为空
-    pub fn is_empty(&self) -> bool {
-        self.top.load(Ordering::Acquire) == 0
-    }
-
-    /// 获取栈的当前大小
-    pub fn len(&self) -> usize {
-        self.top.load(Ordering::Acquire)
+impl Default for LockFreeCounter {
+    fn default() -> Self {
+        Self::new(0)
     }
 }
 
@@ -279,20 +81,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
-
-    #[test]
-    fn test_lockfree_queue_basic() {
-        let queue: Arc<LockFreeQueue<i32>> = Arc::new(LockFreeQueue::new(8));
-
-        queue.enqueue(1).unwrap();
-        queue.enqueue(2).unwrap();
-        queue.enqueue(3).unwrap();
-
-        assert_eq!(queue.dequeue(), Some(1));
-        assert_eq!(queue.dequeue(), Some(2));
-        assert_eq!(queue.dequeue(), Some(3));
-        assert_eq!(queue.dequeue(), None);
-    }
 
     #[test]
     fn test_lockfree_counter() {
@@ -327,5 +115,71 @@ mod tests {
         assert_eq!(counter.get(), 151);
         counter.reset();
         assert_eq!(counter.get(), 0);
+    }
+
+    #[test]
+    fn test_lockfree_queue_basic() {
+        let queue: LockFreeQueue<i32> = LockFreeQueue::new();
+
+        queue.push(1).unwrap();
+        queue.push(2).unwrap();
+        queue.push(3).unwrap();
+
+        assert_eq!(queue.pop().unwrap(), 1);
+        assert_eq!(queue.pop().unwrap(), 2);
+        assert_eq!(queue.pop().unwrap(), 3);
+        assert!(queue.try_pop().is_none());
+    }
+
+    #[test]
+    fn test_lockfree_hashmap_basic() {
+        let map = LockFreeHashMap::new();
+
+        // 测试空表
+        assert!(map.is_empty());
+        assert_eq!(map.len(), 0);
+        assert!(map.get(&1).is_none());
+
+        // 测试插入
+        map.insert(1, "one").unwrap();
+        map.insert(2, "two").unwrap();
+        map.insert(3, "three").unwrap();
+
+        assert!(!map.is_empty());
+        assert_eq!(map.len(), 3);
+
+        // 测试获取
+        assert_eq!(map.get(&1), Some("one"));
+        assert_eq!(map.get(&2), Some("two"));
+        assert_eq!(map.get(&3), Some("three"));
+        assert!(map.get(&4).is_none());
+
+        // 测试删除
+        assert_eq!(map.remove(&2), Some("two"));
+        assert_eq!(map.get(&2), None);
+        assert_eq!(map.len(), 2);
+
+        // 测试包含键
+        assert!(map.contains_key(&1));
+        assert!(!map.contains_key(&2));
+    }
+
+    #[test]
+    fn test_lockfree_shared_state() {
+        let state = LockFreeSharedState::new(0);
+
+        // 测试读取
+        let snapshot = state.read();
+        assert_eq!(snapshot.data, 0);
+        assert_eq!(snapshot.version, StateVersion::new());
+
+        // 测试更新
+        let new_snapshot = state.update(|x| x + 1);
+        assert_eq!(new_snapshot.data, 1);
+        assert_eq!(new_snapshot.version.minor, 1);
+
+        // 验证状态已更新
+        let current_snapshot = state.read();
+        assert_eq!(current_snapshot.data, 1);
     }
 }

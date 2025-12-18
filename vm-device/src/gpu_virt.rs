@@ -13,7 +13,7 @@ pub struct GpuStats {
     pub total_memory_allocated: u64,
 }
 
-pub trait GpuBackend: Send {
+pub trait GpuBackend: Send + Sync {
     fn name(&self) -> &str;
     fn is_available(&self) -> bool;
     fn init(&mut self) -> Result<(), GpuVirtError>;

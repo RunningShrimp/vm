@@ -42,6 +42,7 @@
 //! ## 特性标志
 //!
 //! - `async-io`: 启用异步 IO 支持（使用 tokio）
+//! - `simple-devices`: 启用简化版设备实现（适用于快速原型和测试）
 
 // ============================================================
 // VirtIO 核心定义
@@ -91,10 +92,10 @@ pub mod dma;
 pub mod io_multiplexing;
 pub mod io_scheduler;
 pub mod mmap_io;
-#[cfg(test)]
-pub mod zero_copy_io;
 pub mod vhost_protocol;
 pub mod virtio_zerocopy;
+#[cfg(test)]
+pub mod zero_copy_io;
 pub mod zero_copy_optimizer;
 pub mod zerocopy; // 仅用于测试和基准测试
 
@@ -124,7 +125,20 @@ pub mod virgl;
 pub mod device_service;
 
 // ============================================================
+// 简化设备实现（需要 simple-devices 特性）
+// ============================================================
+#[cfg(feature = "simple-devices")]
+pub mod simple_devices;
+
+// ============================================================
 // 新的模块化组织（推荐使用）
 // ============================================================
 pub mod interrupt;
 pub mod virtio_devices;
+
+// ============================================================
+// 高级网络功能
+// ============================================================
+pub mod dpdk;
+pub mod sriov;
+pub mod network_qos;

@@ -3,41 +3,29 @@
 //! 实现VirtualMachineService，处理虚拟机的业务逻辑。
 //! 符合DDD贫血模型原则，将业务逻辑从实体类移至服务层。
 
+pub mod decoder_factory;
 mod execution;
-mod jit_config;
 mod kernel_loader;
 mod lifecycle;
 mod snapshot_manager;
 
-use log::{debug, error, info};
 use std::collections::HashMap;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
-};
-use std::thread;
-use tracing::{debug as tdebug, info as tinfo};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use vm_core::vm_state::VirtualMachineState;
-use vm_core::{
-    Decoder, ExecStats, ExecStatus, ExecutionEngine, GuestAddr, MemoryError, VmConfig, VmError,
-    VmResult, VmState,
-};
-use vm_engine_interpreter::{ExecInterruptAction, Interpreter};
-use vm_engine_jit::Jit;
-use vm_frontend_riscv64::RiscvDecoder;
-use vm_ir::{IRBlock, Terminator};
+use vm_core::{GuestAddr, MemoryError, VmConfig, VmError, VmResult, VmLifecycleState,
+}; // 恢复VmError导入，因为它在代码中被使用
+use vm_engine_interpreter::{Interpreter, ExecInterruptAction};
+use vm_engine_jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr};
 use vm_mem::SoftMmu;
 
-use crate::execution::{run_async, run_sync, ExecutionContext};
-use crate::jit_config::JitConfigManager;
-use crate::kernel_loader::{load_kernel, load_test_program};
-use crate::lifecycle::{pause, request_pause, request_resume, request_stop, reset, start, stop};
-use crate::snapshot_manager::{
-    create_snapshot, create_template, deserialize_state, list_snapshots, list_templates,
-    restore_snapshot, serialize_state,
-};
-
-/// 虚拟机服务
+use self::execution::{ExecutionContext, run_async, run_sync};
+use self::lifecycle::{request_pause, request_resume, request_stop};
+#[allow(unused_imports)]
+use self::snapshot_manager::{
+    create_template, deserialize_state, list_snapshots, list_templates,
+    serialize_state,
+};/// 虚拟机服务
 ///
 /// 负责处理虚拟机的业务逻辑，包括：
 /// - 内核加载
@@ -59,11 +47,11 @@ pub struct VirtualMachineService<B> {
     /// 中断策略
     irq_policy: Option<Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
     /// JIT代码池
-    code_pool: Option<Arc<Mutex<HashMap<GuestAddr, vm_engine_jit::CodePtr>>>>,
+    code_pool: Option<Arc<Mutex<HashMap<GuestAddr, CodePtr>>>>,
     /// 自适应快照（使用 Arc<Mutex> 支持内部可变性）
-    adaptive_snapshot: Arc<Mutex<Option<vm_engine_jit::AdaptiveThresholdStats>>>,
+    adaptive_snapshot: Arc<Mutex<Option<AdaptiveThresholdStats>>>,
     /// 自适应配置
-    adaptive_config: Option<vm_engine_jit::AdaptiveThresholdConfig>,
+    adaptive_config: Option<AdaptiveThresholdConfig>,
 }
 
 #[cfg(not(feature = "no_std"))]
@@ -94,18 +82,18 @@ impl<B: 'static> VirtualMachineService<B> {
     pub fn load_kernel(&self, data: &[u8], load_addr: GuestAddr) -> VmResult<()> {
         // 业务逻辑：验证内核数据
         if data.is_empty() {
-            return Err(VmError::InvalidArgument {
-                field: "kernel_data".to_string(),
+            return Err(VmError::Core(vm_core::CoreError::Config {
                 message: "Kernel data cannot be empty".to_string(),
-            });
+                path: Some("kernel_data".to_string()),
+            }));
         }
 
         // 业务逻辑：验证加载地址
-        if load_addr == 0 {
-            return Err(VmError::InvalidArgument {
-                field: "load_addr".to_string(),
+        if load_addr == vm_core::GuestAddr(0) {
+            return Err(VmError::Core(vm_core::CoreError::Config {
                 message: "Load address cannot be zero".to_string(),
-            });
+                path: Some("load_addr".to_string()),
+            }));
         }
 
         // 业务逻辑：检查虚拟机状态是否允许加载内核
@@ -115,319 +103,71 @@ impl<B: 'static> VirtualMachineService<B> {
             })
         })?;
 
-        if state.is_running() {
-            return Err(VmError::InvalidState {
+        if state.state() == VmLifecycleState::Running {
+            return Err(VmError::Core(vm_core::CoreError::InvalidState {
                 message: "Cannot load kernel while VM is running".to_string(),
                 current: "running".to_string(),
                 expected: "stopped".to_string(),
-            });
+            }));
         }
 
         let mmu = state.mmu();
         drop(state);
 
         // 调用基础设施层进行实际加载
-        self.load_kernel_infrastructure(mmu, data, load_addr)
-    }
-
-    /// 基础设施层：实际的内核加载实现
-    fn load_kernel_infrastructure(
-        &self,
-        mmu: Arc<Mutex<dyn vm_core::MMU>>,
-        data: &[u8],
-        load_addr: GuestAddr,
-    ) -> VmResult<()> {
-        use vm_core::MMU;
-        let mut mmu_guard = mmu.lock().map_err(|_| {
-            VmError::Memory(MemoryError::MmuLockFailed {
-                message: "Failed to acquire MMU lock".to_string(),
-            })
-        })?;
-
-        mmu_guard
-            .write_bulk(load_addr, data)
-            .map_err(|f| VmError::from(f))?;
-
-        Ok(())
-    }
+        kernel_loader::load_kernel(mmu, data, load_addr)
     }
 
     /// 从文件加载内核
     #[cfg(not(feature = "no_std"))]
     pub fn load_kernel_file(&self, path: &str, load_addr: GuestAddr) -> VmResult<()> {
-        use std::fs;
-        let data = fs::read(path).map_err(|e| VmError::Io(e.to_string()))?;
-        self.load_kernel(&data, load_addr)
+        kernel_loader::load_kernel_file(path, load_addr)
     }
 
     /// 启动 VM
     pub fn start(&self) -> VmResult<()> {
-        let mut state = self.state.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock state".to_string(),
-                module: "VirtualMachineService".to_string(),
-            })
-        })?;
-
-        if state.state() != VmState::Created && state.state() != VmState::Paused {
-            return Err(VmError::Core(vm_core::CoreError::Config {
-                message: "VM not in startable state".to_string(),
-                path: None,
-            }));
-        }
-
-        state.set_state(VmState::Running);
-        Ok(())
+        lifecycle::start(Arc::clone(&self.state))
     }
 
     /// 暂停 VM
     pub fn pause(&self) -> VmResult<()> {
-        let mut state = self.state.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock state".to_string(),
-                module: "VirtualMachineService".to_string(),
-            })
-        })?;
-
-        if state.state() != VmState::Running {
-            return Err(VmError::Core(vm_core::CoreError::Config {
-                message: "VM not running".to_string(),
-                path: None,
-            }));
-        }
-
-        state.set_state(VmState::Paused);
-        Ok(())
+        lifecycle::pause(Arc::clone(&self.state))
     }
 
     /// 停止 VM
     pub fn stop(&self) -> VmResult<()> {
-        let mut state = self.state.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock state".to_string(),
-                module: "VirtualMachineService".to_string(),
-            })
-        })?;
-
-        state.set_state(VmState::Stopped);
-        Ok(())
+        lifecycle::stop(Arc::clone(&self.state))
     }
 
     /// 重置 VM
     pub fn reset(&self) -> VmResult<()> {
-        let mut state = self.state.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock state".to_string(),
-                module: "VirtualMachineService".to_string(),
-            })
-        })?;
-
-        state.set_state(VmState::Created);
-
-        let mmu = state.mmu();
-        let mut mmu_guard = mmu.lock().map_err(|_| {
-            VmError::Memory(MemoryError::MmuLockFailed {
-                message: "Failed to acquire MMU lock".to_string(),
-            })
-        })?;
-
-        mmu_guard.flush_tlb();
-        Ok(())
+        lifecycle::reset(Arc::clone(&self.state))
     }
 
-    /// 创建快照（领域服务方法）
-    ///
-    /// 封装快照创建的业务逻辑，包括名称验证、状态检查等
+    /// 创建快照（调用模块函数）
     pub fn create_snapshot(&self, name: String, description: String) -> VmResult<String> {
-        // 业务逻辑：验证快照名称
-        if name.trim().is_empty() {
-            return Err(VmError::InvalidArgument {
-                field: "name".to_string(),
-                message: "Snapshot name cannot be empty".to_string(),
-            });
-        }
-
-        if name.len() > 100 {
-            return Err(VmError::InvalidArgument {
-                field: "name".to_string(),
-                message: "Snapshot name too long (max 100 characters)".to_string(),
-            });
-        }
-
-        // 业务逻辑：检查虚拟机状态
-        let state = self.state.lock().map_err(|_| {
-            VmError::Memory(MemoryError::MmuLockFailed {
-                message: "Failed to acquire state lock".to_string(),
-            })
-        })?;
-
-        if state.is_running() {
-            // 业务决策：运行中的VM可以创建快照，但需要暂停
-            info!("VM is running, pausing for snapshot creation");
-            drop(state);
-            self.request_pause()?;
-            // 等待暂停完成
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        } else {
-            drop(state);
-        }
-
-        // 调用基础设施层创建快照
-        self.create_snapshot_infrastructure(name, description)
-    }
-
-    /// 基础设施层：实际的快照创建实现
-    fn create_snapshot_infrastructure(&self, name: String, description: String) -> VmResult<String> {
-        use vm_core::{MemoryError, vm_state::VirtualMachineState};
-        use std::sync::{Arc, Mutex};
-
-        let state_guard = self.state.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock state".to_string(),
-                module: "SnapshotManager".to_string(),
-            })
-        })?;
-
-        let mmu = state_guard.mmu();
-        let mmu_guard = mmu.lock().map_err(|_| {
-            VmError::Memory(MemoryError::MmuLockFailed {
-                message: "Failed to acquire MMU lock".to_string(),
-            })
-        })?;
-
-        let memory_dump = mmu_guard.dump_memory();
-        let id = uuid::Uuid::new_v4().to_string();
-        let memory_dump_path = format!("/tmp/{}.memsnap", id);
-
-        // 基础设施：文件I/O
-        std::fs::write(&memory_dump_path, memory_dump).map_err(|e| VmError::Io(e.to_string()))?;
-
-        let snapshot_manager = state_guard.snapshot_manager();
-        let mut manager_guard = snapshot_manager.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock snapshot manager".to_string(),
-                module: "SnapshotManager".to_string(),
-            })
-        })?;
-
-        let snapshot_id = manager_guard.create_snapshot(name, description, memory_dump_path);
-        Ok(snapshot_id)
+        snapshot_manager::create_snapshot(Arc::clone(&self.state), name, description)
     }
 
     /// 异步创建快照
     #[cfg(feature = "async")]
-    pub async fn create_snapshot_async(&self, name: String, description: String) -> VmResult<String> {
+    pub async fn create_snapshot_async(
+        &self,
+        name: String,
+        description: String,
+    ) -> VmResult<String> {
         use crate::snapshot_manager::create_snapshot_async;
         // 注意：需要将同步Mutex转换为异步Mutex
         // 为了简化，这里使用spawn_blocking包装
         let state_clone = Arc::clone(&self.state);
-        tokio::task::spawn_blocking(move || {
-            create_snapshot(state_clone, name, description)
-        })
-        .await
-        .map_err(|e| VmError::Io(format!("Failed to create snapshot: {}", e)))?
+        tokio::task::spawn_blocking(move || create_snapshot(state_clone, name, description))
+            .await
+            .map_err(|e| VmError::Io(format!("Failed to create snapshot: {}", e)))?
     }
 
-    /// 恢复快照（领域服务方法）
-    ///
-    /// 封装快照恢复的业务逻辑，包括状态验证、安全检查等
+    /// 恢复快照（调用模块函数）
     pub fn restore_snapshot(&self, id: &str) -> VmResult<()> {
-        // 业务逻辑：验证快照ID
-        if id.trim().is_empty() {
-            return Err(VmError::InvalidArgument {
-                field: "snapshot_id".to_string(),
-                message: "Snapshot ID cannot be empty".to_string(),
-            });
-        }
-
-        // 业务逻辑：检查虚拟机状态
-        let state = self.state.lock().map_err(|_| {
-            VmError::Memory(MemoryError::MmuLockFailed {
-                message: "Failed to acquire state lock".to_string(),
-            })
-        })?;
-
-        if state.is_running() {
-            return Err(VmError::InvalidState {
-                message: "Cannot restore snapshot while VM is running".to_string(),
-                current: "running".to_string(),
-                expected: "stopped".to_string(),
-            });
-        }
-
-        // 业务逻辑：验证快照是否存在
-        let snapshot_manager = state.snapshot_manager();
-        let manager_guard = snapshot_manager.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock snapshot manager".to_string(),
-                module: "SnapshotManager".to_string(),
-            })
-        })?;
-
-        if !manager_guard.snapshot_exists(id) {
-            return Err(VmError::NotFound {
-                resource: "snapshot".to_string(),
-                id: id.to_string(),
-            });
-        }
-        drop(manager_guard);
-        drop(state);
-
-        // 业务逻辑：记录恢复前的状态（用于回滚）
-        info!("Starting snapshot restoration for ID: {}", id);
-
-        // 调用基础设施层恢复快照
-        self.restore_snapshot_infrastructure(id)?;
-
-        info!("Snapshot restoration completed successfully");
-        Ok(())
-    }
-
-    /// 基础设施层：实际的快照恢复实现
-    fn restore_snapshot_infrastructure(&self, id: &str) -> VmResult<()> {
-        use vm_core::{MemoryError, vm_state::VirtualMachineState};
-
-        let state_guard = self.state.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock state".to_string(),
-                module: "SnapshotManager".to_string(),
-            })
-        })?;
-
-        let snapshot_manager = state_guard.snapshot_manager();
-        let mut manager_guard = snapshot_manager.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock snapshot manager".to_string(),
-                module: "SnapshotManager".to_string(),
-            })
-        })?;
-
-        let snapshot = manager_guard.get_snapshot(id).ok_or_else(|| {
-            VmError::NotFound {
-                resource: "snapshot".to_string(),
-                id: id.to_string(),
-            }
-        })?;
-
-        // 基础设施：从文件加载内存转储
-        let memory_dump = std::fs::read(&snapshot.memory_dump_path)
-            .map_err(|e| VmError::Io(format!("Failed to read memory dump: {}", e)))?;
-
-        let mmu = state_guard.mmu();
-        let mut mmu_guard = mmu.lock().map_err(|_| {
-            VmError::Memory(MemoryError::MmuLockFailed {
-                message: "Failed to acquire MMU lock".to_string(),
-            })
-        })?;
-
-        // 基础设施：恢复内存状态
-        mmu_guard.restore_memory(&memory_dump).map_err(|e| {
-            VmError::Memory(MemoryError::RestoreFailed {
-                message: format!("Failed to restore memory: {}", e),
-            })
-        })?;
-
-        Ok(())
+        snapshot_manager::restore_snapshot(Arc::clone(&self.state), id)
     }
 
     /// 异步恢复快照
@@ -438,42 +178,18 @@ impl<B: 'static> VirtualMachineService<B> {
         // 为了简化，这里使用spawn_blocking包装
         let state_clone = Arc::clone(&self.state);
         let id_str = id.to_string();
-        tokio::task::spawn_blocking(move || {
-            restore_snapshot(state_clone, &id_str)
-        })
-        .await
-        .map_err(|e| VmError::Io(format!("Failed to restore snapshot: {}", e)))?
+        tokio::task::spawn_blocking(move || restore_snapshot(state_clone, &id_str))
+            .await
+            .map_err(|e| VmError::Io(format!("Failed to restore snapshot: {}", e)))?
     }
 
-    /// 列出所有快照
-    pub fn list_snapshots(&self) -> VmResult<Vec<vm_core::snapshot::Snapshot>> {
-        list_snapshots(Arc::clone(&self.state))
-    }
 
-    /// 创建模板
-    pub fn create_template(
-        &self,
-        name: String,
-        description: String,
-        base_snapshot_id: String,
-    ) -> VmResult<String> {
-        create_template(Arc::clone(&self.state), name, description, base_snapshot_id)
-    }
 
-    /// 列出所有模板
-    pub fn list_templates(&self) -> VmResult<Vec<vm_core::template::VmTemplate>> {
-        list_templates(Arc::clone(&self.state))
-    }
 
-    /// 序列化虚拟机状态以进行迁移
-    pub fn serialize_state(&self) -> VmResult<Vec<u8>> {
-        serialize_state(Arc::clone(&self.state))
-    }
 
-    /// 从序列化数据中反序列化并恢复虚拟机状态
-    pub fn deserialize_state(&self, data: &[u8]) -> VmResult<()> {
-        deserialize_state(Arc::clone(&self.state), data)
-    }
+
+
+
 
     /// 获取状态引用（用于只读访问）
     pub fn state(&self) -> Arc<Mutex<VirtualMachineState<B>>> {
@@ -485,11 +201,11 @@ impl<B: 'static> VirtualMachineService<B> {
     /// 加载一个简单的RISC-V测试程序，用于验证VM功能
     pub fn load_test_program(&self, code_base: GuestAddr) -> VmResult<()> {
         // 业务逻辑：验证地址
-        if code_base == 0 {
-            return Err(VmError::InvalidArgument {
-                field: "code_base".to_string(),
+        if code_base == vm_core::GuestAddr(0) {
+            return Err(VmError::Core(vm_core::CoreError::Config {
                 message: "Code base address cannot be zero".to_string(),
-            });
+                path: Some("code_base".to_string()),
+            }));
         }
 
         // 业务逻辑：生成测试程序代码
@@ -552,7 +268,7 @@ impl<B: 'static> VirtualMachineService<B> {
         // 基础设施：初始化数据段（如果需要）
         if data_base != 0 {
             // 初始化数据内存为0
-            mmu_guard.write(data_base, 0, 8)?;
+            mmu_guard.write(vm_core::GuestAddr(data_base), 0, 8)?
         }
 
         Ok(())
@@ -621,6 +337,38 @@ impl<B: 'static> VirtualMachineService<B> {
         request_resume(&self.pause_flag);
     }
 
+    /// 列出所有快照
+    pub fn list_snapshots(&self) -> VmResult<Vec<vm_core::snapshot::Snapshot>> {
+        snapshot_manager::list_snapshots(Arc::clone(&self.state))
+    }
+
+    /// 列出所有模板
+    pub fn list_templates(&self) -> VmResult<Vec<vm_core::template::VmTemplate>> {
+        snapshot_manager::list_templates(Arc::clone(&self.state))
+    }
+
+    /// 创建模板
+    pub fn create_template(
+        &self,
+        name: String,
+        description: String,
+        base_snapshot_id: String,
+    ) -> VmResult<String> {
+        snapshot_manager::create_template(Arc::clone(&self.state), name, description, base_snapshot_id)
+    }
+
+    /// 序列化虚拟机状态以进行迁移
+    pub fn serialize_state(&self) -> VmResult<Vec<u8>> {
+        snapshot_manager::serialize_state(Arc::clone(&self.state))
+    }
+
+    /// 从序列化数据中反序列化并恢复虚拟机状态
+    pub fn deserialize_state(&self, data: &[u8]) -> VmResult<()> {
+        snapshot_manager::deserialize_state(Arc::clone(&self.state), data)
+    }
+
+    
+
     /// 获取寄存器值
     pub fn get_reg(&self, idx: usize) -> VmResult<u64> {
         let state = self.state.lock().map_err(|_| {
@@ -647,7 +395,7 @@ impl<B: 'static> VirtualMachineService<B> {
     }
 
     /// 获取JIT热点统计
-    pub fn hot_stats(&self) -> Option<vm_engine_jit::AdaptiveThresholdStats> {
+    pub fn hot_stats(&self) -> Option<AdaptiveThresholdStats> {
         self.adaptive_snapshot
             .lock()
             .ok()
@@ -655,7 +403,7 @@ impl<B: 'static> VirtualMachineService<B> {
     }
 
     /// 设置JIT热点配置
-    pub fn set_hot_config(&mut self, cfg: vm_engine_jit::AdaptiveThresholdConfig) {
+    pub fn set_hot_config(&mut self, cfg: AdaptiveThresholdConfig) {
         self.adaptive_config = Some(cfg);
     }
 
@@ -664,22 +412,14 @@ impl<B: 'static> VirtualMachineService<B> {
         &mut self,
         min: u64,
         max: u64,
-        window: Option<usize>,
-        compile_w: Option<f64>,
-        benefit_w: Option<f64>,
+        _window: Option<usize>,
+        _compile_w: Option<f64>,
+        _benefit_w: Option<f64>,
     ) {
-        let mut cfg = vm_engine_jit::AdaptiveThresholdConfig::default();
-        cfg.min_threshold = min;
-        cfg.max_threshold = max;
-        if let Some(w) = window {
-            cfg.sample_window = w;
-        }
-        if let Some(w) = compile_w {
-            cfg.compile_time_weight = w;
-        }
-        if let Some(w) = benefit_w {
-            cfg.exec_benefit_weight = w;
-        }
+        let mut cfg = AdaptiveThresholdConfig::default();
+        cfg.cold_threshold = min;
+        cfg.hot_threshold = max;
+        // Note: window, compile_w, benefit_w are ignored in current AdaptiveThresholdConfig
         self.adaptive_config = Some(cfg);
     }
 
@@ -698,8 +438,8 @@ impl<B: 'static> VirtualMachineService<B> {
     pub fn hot_snapshot(
         &self,
     ) -> Option<(
-        vm_engine_jit::AdaptiveThresholdConfig,
-        vm_engine_jit::AdaptiveThresholdStats,
+        AdaptiveThresholdConfig,
+        AdaptiveThresholdStats,
     )> {
         let snapshot = self
             .adaptive_snapshot
@@ -716,9 +456,8 @@ impl<B: 'static> VirtualMachineService<B> {
     pub fn export_hot_snapshot_json(&self) -> Option<String> {
         self.hot_snapshot().map(|(cfg, stats)| {
             format!(
-                "{{\"min_threshold\":{},\"max_threshold\":{},\"sample_window\":{},\"compile_time_weight\":{},\"exec_benefit_weight\":{},\"compiled_hits\":{},\"interpreted_runs\":{},\"total_compiles\":{} }}",
-                0, 0, 0, 0.0f64, 0.0f64,
-                0, 0, 0,
+                "{{\"cold_threshold\":{},\"hot_threshold\":{},\"enable_adaptive\":{},\"execution_count\":{}}}",
+                cfg.cold_threshold, cfg.hot_threshold, cfg.enable_adaptive, stats.execution_count
             )
         })
     }
@@ -735,8 +474,9 @@ impl<B: 'static> VirtualMachineService<B> {
         })?;
 
         let mmu_arc = state.mmu();
-        let debug = state.config().debug_trace;
+        let debug = false; // VmConfig中没有debug_trace字段，使用默认值
         let vcpu_count = state.config().vcpu_count as usize;
+        let guest_arch = state.config().guest_arch;
         drop(state);
 
         // 基准 MMU 克隆，避免重复锁
@@ -747,25 +487,26 @@ impl<B: 'static> VirtualMachineService<B> {
                 })
             })?;
             let any_ref = mmu_guard.as_any();
-            let smmu = any_ref
+            any_ref
                 .downcast_ref::<SoftMmu>()
-                .ok_or_else(|| VmError::Memory(MemoryError::InvalidAddress(0)))?;
-            smmu.clone()
+                .ok_or_else(|| VmError::Memory(MemoryError::InvalidAddress(vm_core::GuestAddr(0))))?
+                .clone()
         };
 
         #[cfg(feature = "async")]
-        let coroutine_pool = None; // 同步执行不使用协程池
-        
+        let coroutine_scheduler = None; // 同步执行不使用协程调度器
+
         let ctx = ExecutionContext {
             run_flag: Arc::clone(&self.run_flag),
             pause_flag: Arc::clone(&self.pause_flag),
+            guest_arch,
             trap_handler: self.trap_handler.clone(),
             irq_policy: self.irq_policy.clone(),
             code_pool: self.code_pool.as_ref().cloned(),
             adaptive_snapshot: Arc::clone(&self.adaptive_snapshot),
             adaptive_config: self.adaptive_config.clone(),
             #[cfg(feature = "async")]
-            coroutine_pool,
+            coroutine_scheduler,
         };
 
         run_sync(&ctx, start_pc, base_mmu, debug, vcpu_count)
@@ -783,9 +524,10 @@ impl<B: 'static> VirtualMachineService<B> {
         })?;
 
         let mmu_arc = state.mmu();
-        let debug = state.config().debug_trace;
+        let debug = false; // VmConfig中没有debug_trace字段，使用默认值
         let vcpu_count = state.config().vcpu_count as usize;
         let exec_mode = state.config().exec_mode;
+        let guest_arch = state.config().guest_arch;
         drop(state);
 
         // 基准 MMU 克隆，避免重复锁
@@ -796,31 +538,37 @@ impl<B: 'static> VirtualMachineService<B> {
                 })
             })?;
             let any_ref = mmu_guard.as_any();
-            let smmu = any_ref
+            any_ref
                 .downcast_ref::<SoftMmu>()
-                .ok_or_else(|| VmError::Memory(MemoryError::InvalidAddress(0)))?;
-            smmu.clone()
+                .ok_or_else(|| VmError::Memory(MemoryError::InvalidAddress(vm_core::GuestAddr(0))))?
+                .clone()
         };
 
-        // 创建或获取协程池（用于优化多vCPU执行）
+        // 创建或获取协程调度器（用于优化多vCPU执行）
         #[cfg(feature = "async")]
-        let coroutine_pool = if vcpu_count > 1 {
-            // 为多vCPU场景创建协程池
-            Some(Arc::new(vm_runtime::CoroutinePool::new(vcpu_count * 2)))
+        let coroutine_scheduler = if vcpu_count > 1 {
+            // 为多vCPU场景创建协程调度器
+            Some(Arc::new(vm_runtime::CoroutineScheduler::new().map_err(|e| {
+                VmError::Core(vm_core::CoreError::Internal {
+                    message: format!("Failed to create coroutine scheduler: {}", e),
+                    module: "VirtualMachineService".to_string(),
+                })
+            })?))
         } else {
             None
         };
-        
+
         let ctx = ExecutionContext {
             run_flag: Arc::clone(&self.run_flag),
             pause_flag: Arc::clone(&self.pause_flag),
+            guest_arch,
             trap_handler: self.trap_handler.clone(),
             irq_policy: self.irq_policy.clone(),
             code_pool: self.code_pool.as_ref().cloned(),
             adaptive_snapshot: Arc::clone(&self.adaptive_snapshot),
             adaptive_config: self.adaptive_config.clone(),
             #[cfg(feature = "async")]
-            coroutine_pool,
+            coroutine_scheduler,
         };
 
         run_async(&ctx, start_pc, base_mmu, debug, vcpu_count, exec_mode).await

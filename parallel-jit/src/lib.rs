@@ -7,9 +7,9 @@
 //! - Error handling and fallback
 //! - Statistics tracking
 
-use std::sync::Arc;
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Result type for parallel JIT operations
@@ -180,7 +180,7 @@ pub struct ParallelJitConfig {
 impl Default for ParallelJitConfig {
     fn default() -> Self {
         Self {
-            num_workers: 4.min(8), // Conservative default
+            num_workers: 4, // Conservative default
             max_queue_size: 1000,
             compile_timeout_us: 5_000_000, // 5 seconds
             track_stats: true,
@@ -348,12 +348,12 @@ impl BackgroundCompiler {
     }
 
     /// Process next task (called by worker thread)
-    pub fn process_task(&self, worker_id: usize) -> Option<CompileResult> {
+    pub fn process_task(&self, _worker_id: usize) -> Option<CompileResult> {
         let task = self.queue.dequeue()?;
 
         // Simulate compilation
         let start = Instant::now();
-        let compile_time = std::cmp::min(100 + (task.block_id % 900) as u64, 1000);
+        let compile_time = std::cmp::min(100 + (task.block_id % 900), 1000);
         std::thread::sleep(std::time::Duration::from_micros(compile_time));
 
         let result = CompileResult {
@@ -373,17 +373,18 @@ impl BackgroundCompiler {
         self.queue.queue_length()
     }
 
+    /// Get active workers count
+    pub fn active_workers(&self) -> usize {
+        *self.active_workers.lock()
+    }
+
     /// Get result if available
     pub fn get_compiled_result(&self, block_id: u64) -> Option<CompileResult> {
         self.queue.get_result(block_id)
     }
 
     /// Wait for specific result
-    pub fn wait_for_result(
-        &self,
-        block_id: u64,
-        timeout_us: u64,
-    ) -> Option<CompileResult> {
+    pub fn wait_for_result(&self, block_id: u64, timeout_us: u64) -> Option<CompileResult> {
         let start = Instant::now();
         let timeout = std::time::Duration::from_micros(timeout_us);
 

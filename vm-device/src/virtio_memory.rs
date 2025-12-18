@@ -228,7 +228,7 @@ impl VirtioDevice for VirtioMemory {
                 if desc.flags & 0x1 == 0 {
                     // 可读
                     let mut data = vec![0u8; desc.len as usize];
-                    if mmu.read_bulk(desc.addr, &mut data).is_ok() {
+                    if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut data).is_ok() {
                         request_data.extend_from_slice(&data);
                     }
                 }

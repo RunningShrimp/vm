@@ -9,6 +9,7 @@
 use vm_cross_arch::{UnifiedExecutor, HostArch};
 use vm_core::{GuestArch, MMU, ExecutionEngine, Decoder};
 use vm_ir::IRBlock;
+use vm_ir::lift::ISA;
 use vm_mem::SoftMmu;
 
 /// 测试跨架构执行
@@ -162,7 +163,7 @@ fn test_cross_arch_aot() {
     println!("=== 测试跨架构AOT编译 ===");
     
     use aot_builder::{AotBuilder, CompilationOptions, CodegenMode};
-    use vm_ir_lift::ISA;
+    use vm_ir::lift::ISA;
     
     // 测试不同架构组合（仅测试直接代码生成模式，不依赖LLVM）
     let arch_combinations = vec![
@@ -297,11 +298,11 @@ fn create_test_code(arch: GuestArch) -> Vec<u8> {
     }
 }
 
-fn create_test_code_for_isa(isa: vm_ir_lift::ISA) -> Vec<u8> {
+fn create_test_code_for_isa(isa: ISA) -> Vec<u8> {
     match isa {
-        vm_ir_lift::ISA::X86_64 => create_test_code(GuestArch::X86_64),
-        vm_ir_lift::ISA::ARM64 => create_test_code(GuestArch::Arm64),
-        vm_ir_lift::ISA::RISCV64 => create_test_code(GuestArch::Riscv64),
+        ISA::X86_64 => create_test_code(GuestArch::X86_64),
+        ISA::ARM64 => create_test_code(GuestArch::Arm64),
+        ISA::RISCV64 => create_test_code(GuestArch::Riscv64),
     }
 }
 

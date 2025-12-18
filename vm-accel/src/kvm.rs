@@ -388,7 +388,12 @@ impl Accel for AccelKvm {
     }
 
     /// 处理I/O输入（端口I/O读取）
-    fn handle_io_in(&self, port: u16, data: &mut [u8], _mmu: &mut dyn MMU) -> Result<(), AccelError> {
+    fn handle_io_in(
+        &self,
+        port: u16,
+        data: &mut [u8],
+        _mmu: &mut dyn MMU,
+    ) -> Result<(), AccelError> {
         match port {
             0x3F8..=0x3FF | 0x2F8..=0x2FF | 0x60..=0x64 | 0x70..=0x71 | 0xCF8..=0xCFF => {
                 data.fill(0);
@@ -403,7 +408,12 @@ impl Accel for AccelKvm {
     }
 
     /// 处理MMIO读取（内存映射I/O读取）
-    fn handle_mmio_read(&self, addr: u64, data: &mut [u8], mmu: &mut dyn MMU) -> Result<(), AccelError> {
+    fn handle_mmio_read(
+        &self,
+        addr: u64,
+        data: &mut [u8],
+        mmu: &mut dyn MMU,
+    ) -> Result<(), AccelError> {
         let size = data.len() as u8;
         match mmu.read(addr, size) {
             Ok(value) => {
@@ -436,15 +446,19 @@ impl Accel for AccelKvm {
     }
 
     /// 处理MMIO写入（内存映射I/O写入）
-    fn handle_mmio_write(&self, addr: u64, data: &[u8], mmu: &mut dyn MMU) -> Result<(), AccelError> {
+    fn handle_mmio_write(
+        &self,
+        addr: u64,
+        data: &[u8],
+        mmu: &mut dyn MMU,
+    ) -> Result<(), AccelError> {
         let size = data.len() as u8;
         let value = match size {
             1 => data[0] as u64,
             2 => u16::from_le_bytes([data[0], data[1]]) as u64,
             4 => u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as u64,
             8 => u64::from_le_bytes([
-                data[0], data[1], data[2], data[3],
-                data[4], data[5], data[6], data[7],
+                data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
             ]),
             _ => {
                 let mut bytes = [0u8; 8];

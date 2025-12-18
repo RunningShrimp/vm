@@ -1,4 +1,6 @@
 use crate::{Fault, GuestAddr};
+
+// Re-export commonly used error types
 use std::backtrace::Backtrace;
 use std::error::Error;
 use std::fmt;
@@ -38,7 +40,7 @@ pub enum VmError {
 /// 核心系统错误
 ///
 /// 包含虚拟机核心系统的基础错误，如配置、状态、内部错误等。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CoreError {
     /// 配置错误
     Config {
@@ -46,6 +48,22 @@ pub enum CoreError {
         message: String,
         /// 配置项路径
         path: Option<String>,
+    },
+    /// 无效配置
+    InvalidConfig {
+        /// 错误描述
+        message: String,
+        /// 配置字段
+        field: String,
+    },
+    /// 无效状态
+    InvalidState {
+        /// 错误描述
+        message: String,
+        /// 当前状态
+        current: String,
+        /// 期望状态
+        expected: String,
     },
     /// 未支持功能
     NotSupported {
@@ -62,15 +80,6 @@ pub enum CoreError {
         position: Option<GuestAddr>,
         /// 模块名称
         module: String,
-    },
-    /// 无效状态
-    InvalidState {
-        /// 错误描述
-        message: String,
-        /// 当前状态
-        current: String,
-        /// 期望状态
-        expected: String,
     },
     /// 内部错误
     Internal {
@@ -102,12 +111,21 @@ pub enum CoreError {
         /// 操作类型
         operation: String,
     },
+    /// 无效参数
+    InvalidParameter {
+        /// 参数名称
+        name: String,
+        /// 参数值
+        value: String,
+        /// 错误描述
+        message: String,
+    },
 }
 
 /// 内存管理错误
 ///
 /// 包含所有与内存管理相关的错误，如访问违规、映射失败等。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MemoryError {
     /// 访问违规
     AccessViolation {
@@ -169,7 +187,7 @@ pub enum MemoryError {
 /// 执行引擎错误
 ///
 /// 包含执行引擎相关的错误，如指令错误、执行失败等。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionError {
     /// 故障/异常
     Fault(Fault),
@@ -211,7 +229,7 @@ pub enum ExecutionError {
 /// 设备模拟错误
 ///
 /// 包含所有设备模拟相关的错误。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DeviceError {
     /// 设备未找到
     NotFound {
@@ -262,7 +280,7 @@ pub enum DeviceError {
 /// 平台/加速器错误
 ///
 /// 包含平台特定的错误和硬件虚拟化相关的错误。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlatformError {
     /// 加速器不可用
     AcceleratorUnavailable {
@@ -351,6 +369,12 @@ impl fmt::Display for CoreError {
                 Some(p) => write!(f, "Configuration error at '{}': {}", p, message),
                 None => write!(f, "Configuration error: {}", message),
             },
+            CoreError::InvalidConfig { message, field } => {
+                write!(f, "Invalid configuration: {} (field: {})", message, field)
+            }
+            CoreError::InvalidState { message, current, expected } => {
+                write!(f, "Invalid state: {} (current: {}, expected: {})", message, current, expected)
+            }
             CoreError::NotSupported { feature, module } => {
                 write!(f, "Feature '{}' not supported in {}", feature, module)
             }
@@ -362,17 +386,6 @@ impl fmt::Display for CoreError {
                 Some(pos) => write!(f, "Decode error in {} at {:#x}: {}", module, pos, message),
                 None => write!(f, "Decode error in {}: {}", module, message),
             },
-            CoreError::InvalidState {
-                message,
-                current,
-                expected,
-            } => {
-                write!(
-                    f,
-                    "Invalid state: {}. Current: {}, Expected: {}",
-                    message, current, expected
-                )
-            }
             CoreError::Internal { message, module } => {
                 write!(f, "Internal error in {}: {}", module, message)
             }
@@ -392,6 +405,9 @@ impl fmt::Display for CoreError {
             }
             CoreError::Concurrency { message, operation } => {
                 write!(f, "Concurrency error during '{}': {}", operation, message)
+            }
+            CoreError::InvalidParameter { name, value, message } => {
+                write!(f, "Invalid parameter '{}='{}': {}", name, value, message)
             }
         }
     }
@@ -658,6 +674,23 @@ impl From<String> for VmError {
     }
 }
 
+impl PartialEq for VmError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (VmError::Core(a), VmError::Core(b)) => a == b,
+            (VmError::Memory(a), VmError::Memory(b)) => a == b,
+            (VmError::Execution(a), VmError::Execution(b)) => a == b,
+            (VmError::Device(a), VmError::Device(b)) => a == b,
+            (VmError::Platform(a), VmError::Platform(b)) => a == b,
+            (VmError::Io(a), VmError::Io(b)) => a == b,
+            (VmError::WithContext { error: a, context: ca, .. }, 
+             VmError::WithContext { error: b, context: cb, .. }) => a == b && ca == cb,
+            (VmError::Multiple(a), VmError::Multiple(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 impl From<&str> for VmError {
     fn from(s: &str) -> Self {
         VmError::Core(CoreError::Internal {
@@ -824,7 +857,7 @@ where
                 });
             }
             Err(error) if !error.is_retryable() => return Err(error),
-            Err(error) => {
+            Err(_error) => {
                 let delay = match &strategy {
                     ErrorRecoveryStrategy::Fixed { delay_ms, .. } => *delay_ms,
                     ErrorRecoveryStrategy::ExponentialBackoff {

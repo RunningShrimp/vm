@@ -1,5 +1,6 @@
 [workspace]
 members = [
+ "vm-common",
  "vm-codegen",
  "vm-core",
  "vm-interface",
@@ -10,7 +11,6 @@ members = [
  "vm-frontend-riscv64",
  "vm-engine-interpreter",
  "vm-engine-jit",
- "vm-engine-hybrid",  
  "vm-accel",
  "vm-device",
  "vm-simd",
@@ -18,7 +18,6 @@ members = [
  "vm-passthrough",
  "vm-boot",
  "vm-cli",
- "vm-tests",
  "vm-service",
  "vm-monitor",
  "vm-adaptive",       
@@ -26,9 +25,18 @@ members = [
  "vm-debug",
  "vm-runtime",
  "vm-plugin",
- "aot-builder",
- "vm-ir-lift",
  "vm-cross-arch",
+  "vm-encoding",
+  "vm-register",
+  "vm-memory-access",
+  "vm-instruction-patterns",
+  "vm-optimization",
+  "vm-error",
+  "vm-validation",
+  "vm-resource",
+  "vm-cross-arch-integration-tests",
+ "vm-stress-test-runner",
+ "vm-perf-regression-detector",
  "async-executor",
  "coroutine-scheduler",
  "perf-bench",
@@ -36,10 +44,13 @@ members = [
  "parallel-jit",
  "gc-optimizer",
  "memory-optimizer",
- "vm-simd-opt",
- "vm-device-enhanced",
+ 
  "ml-guided-compiler",
  "pgo-optimizer",
+ "security-sandbox",
+ "syscall-compat",
+ "distributed-executor",
+ "vm-desktop",
 ]
 resolver = "2"
 
@@ -57,3 +68,44 @@ documentation = "https://docs.rs/vm"
 readme = "README.md"
 keywords = ["virtual-machine", "emulator", "risc-v", "arm64", "jit"]
 categories = ["emulators", "virtualization"]
+
+[profile.dev]
+opt-level = 0
+debug = true
+debug-assertions = true
+overflow-checks = true
+lto = false
+incremental = true
+codegen-units = 256
+panic = "unwind"
+
+[profile.test]
+inherits = "dev"
+opt-level = 1
+debug = true
+debug-assertions = true
+overflow-checks = true
+lto = false
+incremental = true
+codegen-units = 256
+panic = "unwind"
+
+[profile.bench]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = "thin"
+incremental = false
+codegen-units = 1
+panic = "unwind"
+
+[profile.release]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = "thin"
+incremental = false
+codegen-units = 1
+panic = "unwind"

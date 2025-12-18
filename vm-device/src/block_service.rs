@@ -4,14 +4,13 @@
 //! VirtioBlock只包含数据，所有业务逻辑由BlockDeviceService处理
 //! 支持异步I/O操作，使用tokio::fs进行非阻塞文件访问
 
-use crate::block::{
-    BlockIoRequest, BlockIoResponse, BlockRequestHeader, BlockRequestType, BlockStatus, VirtioBlock,
-};
-use parking_lot::Mutex;
+use crate::block::{BlockRequestType, BlockStatus, VirtioBlock};
+use crate::mmu_util::MmuUtil;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::sync::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use vm_core::{GuestAddr, MMU, PlatformError, VmError};
 
@@ -25,8 +24,6 @@ pub struct BlockDeviceService {
     device: Arc<Mutex<VirtioBlock>>,
     /// 异步I/O请求发送端
     io_tx: Arc<Mutex<Option<mpsc::Sender<AsyncIoRequest>>>>,
-    /// 异步I/O响应接收端（用于同步方法等待异步结果）
-    io_rx: Arc<Mutex<Option<mpsc::Receiver<AsyncIoResponse>>>>,
     /// 文件路径（用于重新打开文件进行异步操作）
     file_path: Arc<Mutex<Option<String>>>,
 }
@@ -84,7 +81,6 @@ impl BlockDeviceService {
         Self {
             device: Arc::new(Mutex::new(device)),
             io_tx: Arc::new(Mutex::new(Some(io_tx))),
-            io_rx: Arc::new(Mutex::new(None)), // 不再需要，使用oneshot通道
             file_path: Arc::new(Mutex::new(None)),
         }
     }
@@ -122,6 +118,7 @@ impl BlockDeviceService {
         let (io_tx, io_rx) = mpsc::channel(IO_QUEUE_CAPACITY);
 
         // 启动异步IO处理任务
+        let file = Arc::new(Mutex::new(file));
         let io_handler_task = Self::spawn_io_handler(file, read_only, io_rx);
 
         // 在后台运行IO处理器
@@ -130,14 +127,13 @@ impl BlockDeviceService {
         Ok(Self {
             device: Arc::new(Mutex::new(device)),
             io_tx: Arc::new(Mutex::new(Some(io_tx))),
-            io_rx: Arc::new(Mutex::new(None)), // 不再需要，使用oneshot通道
             file_path: Arc::new(Mutex::new(Some(path_str))),
         })
     }
 
     /// 启动异步IO处理任务
     async fn spawn_io_handler(
-        mut file: File,
+        file: Arc<Mutex<File>>,
         read_only: bool,
         mut io_rx: mpsc::Receiver<AsyncIoRequest>,
     ) {
@@ -151,10 +147,18 @@ impl BlockDeviceService {
                 } => {
                     let offset = sector * 512;
 
-                    // 使用read_at进行真正的异步读取（不需要seek）
-                    let mut buf = vec![0u8; count as usize];
-                    let result = match file.read_at(&mut buf, offset).await {
-                        Ok(_) => Ok(buf),
+                    // 使用seek + read进行异步读取
+                    let file = Arc::clone(&file);
+                    let result = match async move {
+                        let mut file = file.lock().await;
+                        file.seek(std::io::SeekFrom::Start(offset)).await?;
+                        let mut buf = vec![0u8; count as usize];
+                        file.read_exact(&mut buf).await?;
+                        Ok::<Vec<u8>, std::io::Error>(buf)
+                    }
+                    .await
+                    {
+                        Ok(data) => Ok(data),
                         Err(e) => Err(format!("Read error: {}", e)),
                     };
                     let _ = response.send(result);
@@ -172,8 +176,16 @@ impl BlockDeviceService {
 
                     let offset = sector * 512;
 
-                    // 使用write_at进行真正的异步写入（不需要seek）
-                    let result = match file.write_at(&data, offset).await {
+                    // 使用seek + write进行异步写入
+                    let file = Arc::clone(&file);
+                    let result = match async move {
+                        let mut file = file.lock().await;
+                        file.seek(std::io::SeekFrom::Start(offset)).await?;
+                        file.write_all(&data).await?;
+                        Ok::<(), std::io::Error>(())
+                    }
+                    .await
+                    {
                         Ok(_) => Ok(()),
                         Err(e) => Err(format!("Write error: {}", e)),
                     };
@@ -183,7 +195,13 @@ impl BlockDeviceService {
                     req_id: _,
                     response,
                 } => {
-                    let result = match file.sync_all().await {
+                    let file = Arc::clone(&file);
+                    let result = match async move {
+                        let file = file.lock().await;
+                        file.sync_all().await
+                    }
+                    .await
+                    {
                         Ok(_) => Ok(()),
                         Err(e) => Err(format!("Flush error: {}", e)),
                     };
@@ -198,7 +216,7 @@ impl BlockDeviceService {
 
     /// 异步发送I/O请求
     pub async fn submit_io_request(&self, request: AsyncIoRequest) -> Result<(), VmError> {
-        let io_tx = self.io_tx.lock();
+        let io_tx = self.io_tx.lock().await;
         if let Some(tx) = io_tx.as_ref() {
             tx.send(request).await.map_err(|_| {
                 VmError::Core(vm_core::CoreError::Internal {
@@ -216,25 +234,33 @@ impl BlockDeviceService {
 
     /// 获取设备容量（扇区数）
     pub fn capacity(&self) -> u64 {
-        let device = self.device.lock();
-        device.capacity
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.device.lock())
+            .capacity
     }
 
     /// 获取扇区大小
     pub fn sector_size(&self) -> u32 {
-        let device = self.device.lock();
-        device.sector_size
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.device.lock())
+            .sector_size
     }
 
     /// 是否只读
     pub fn is_read_only(&self) -> bool {
-        let device = self.device.lock();
-        device.read_only
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.device.lock())
+            .read_only
     }
 
     /// 获取设备特性标志
     pub fn get_features(&self) -> u32 {
-        let device = self.device.lock();
+        let device = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.device.lock());
         let mut features = 0u32;
         features |= 1 << 6; // VIRTIO_BLK_F_BLK_SIZE
         features |= 1 << 9; // VIRTIO_BLK_F_FLUSH
@@ -254,11 +280,11 @@ impl BlockDeviceService {
         status_addr: GuestAddr,
     ) -> BlockStatus {
         // 1. 读取请求头
-        let req_type = match mmu.read(req_addr, 4) {
-            Ok(v) => v as u32,
+        let req_type = match mmu.read_u32(req_addr.0) {
+            Ok(v) => v,
             Err(_) => return BlockStatus::IoErr,
         };
-        let sector = match mmu.read(req_addr + 8, 8) {
+        let sector = match mmu.read_u64(req_addr.0 + 8) {
             Ok(v) => v,
             Err(_) => return BlockStatus::IoErr,
         };
@@ -290,32 +316,40 @@ impl BlockDeviceService {
         data_addr: GuestAddr,
         data_len: u32,
     ) -> BlockStatus {
-        let device = self.device.lock();
-
         // 验证扇区范围
+        // For sync functions, we need to use block_on to await the mutex lock
+        let device = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.device.lock());
         if sector + (data_len as u64) / 512 > device.capacity {
             return BlockStatus::IoErr;
         }
 
         // 如果有文件路径，使用异步I/O通道
-        if let Some(_file_path) = self.file_path.lock().as_ref() {
+        // For sync functions, we need to use block_on to await the mutex lock
+        let file_path = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.file_path.lock());
+        if let Some(_file_path) = file_path.as_ref() {
             // 使用tokio运行时执行异步操作
             let rt = tokio::runtime::Handle::try_current();
             let result = if let Ok(handle) = rt {
                 // 在异步上下文中
                 handle.block_on(async {
-                    self.handle_read_request_async_internal(sector, data_len).await
+                    self.handle_read_request_async_internal(sector, data_len)
+                        .await
                 })
             } else {
                 // 不在异步上下文中，创建新的运行时
                 match tokio::runtime::Runtime::new() {
                     Ok(rt) => rt.block_on(async {
-                        self.handle_read_request_async_internal(sector, data_len).await
+                        self.handle_read_request_async_internal(sector, data_len)
+                            .await
                     }),
                     Err(_) => return BlockStatus::IoErr,
                 }
             };
-            
+
             match result {
                 Ok(buffer) => {
                     // 将数据写入客户端内存
@@ -340,7 +374,7 @@ impl BlockDeviceService {
     ) -> Result<Vec<u8>, VmError> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static REQ_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-        
+
         let req_id = REQ_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let count = data_len;
 
@@ -349,17 +383,22 @@ impl BlockDeviceService {
 
         // 发送异步读取请求
         {
-            let io_tx = self.io_tx.lock();
+            let io_tx = self.io_tx.lock().await;
             if let Some(ref sender) = io_tx.as_ref() {
-                sender.send(AsyncIoRequest::Read {
-                    sector,
-                    count,
-                    req_id,
-                    response: tx,
-                }).await.map_err(|_| VmError::Core(vm_core::CoreError::Internal {
-                    message: "I/O request channel closed".to_string(),
-                    module: "block_service".to_string(),
-                }))?;
+                sender
+                    .send(AsyncIoRequest::Read {
+                        sector,
+                        count,
+                        req_id,
+                        response: tx,
+                    })
+                    .await
+                    .map_err(|_| {
+                        VmError::Core(vm_core::CoreError::Internal {
+                            message: "I/O request channel closed".to_string(),
+                            module: "block_service".to_string(),
+                        })
+                    })?;
             } else {
                 return Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "I/O channel not initialized".to_string(),
@@ -382,13 +421,16 @@ impl BlockDeviceService {
     /// 处理写请求（同步版本，内部使用异步I/O）
     fn handle_write_request(
         &self,
-        mmu: &dyn MMU,
+        mmu: &mut dyn MMU,
         sector: u64,
         data_addr: GuestAddr,
         data_len: u32,
     ) -> BlockStatus {
-        let device = self.device.lock();
-
+        // For sync functions, we need to use block_on to await the mutex lock
+        let device = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.device.lock());
+        
         // 检查只读状态
         if device.read_only {
             return BlockStatus::IoErr;
@@ -406,24 +448,30 @@ impl BlockDeviceService {
         }
 
         // 如果有文件路径，使用异步I/O通道
-        if let Some(_file_path) = self.file_path.lock().as_ref() {
+        // For sync functions, we need to use block_on to await the mutex lock
+        let file_path = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.file_path.lock());
+        if let Some(_file_path) = file_path.as_ref() {
             // 使用tokio运行时执行异步操作
             let rt = tokio::runtime::Handle::try_current();
             let result = if let Ok(handle) = rt {
                 // 在异步上下文中
                 handle.block_on(async {
-                    self.handle_write_request_async_internal(sector, buffer).await
+                    self.handle_write_request_async_internal(sector, buffer)
+                        .await
                 })
             } else {
                 // 不在异步上下文中，创建新的运行时
                 match tokio::runtime::Runtime::new() {
                     Ok(rt) => rt.block_on(async {
-                        self.handle_write_request_async_internal(sector, buffer).await
+                        self.handle_write_request_async_internal(sector, buffer)
+                            .await
                     }),
                     Err(_) => return BlockStatus::IoErr,
                 }
             };
-            
+
             match result {
                 Ok(_) => BlockStatus::Ok,
                 Err(_) => BlockStatus::IoErr,
@@ -442,7 +490,7 @@ impl BlockDeviceService {
     ) -> Result<(), VmError> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static REQ_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-        
+
         let req_id = REQ_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         // 创建oneshot通道用于接收响应
@@ -450,17 +498,22 @@ impl BlockDeviceService {
 
         // 发送异步写入请求
         {
-            let io_tx = self.io_tx.lock();
+            let io_tx = self.io_tx.lock().await;
             if let Some(ref sender) = io_tx.as_ref() {
-                sender.send(AsyncIoRequest::Write {
-                    sector,
-                    data: Arc::new(data),
-                    req_id,
-                    response: tx,
-                }).await.map_err(|_| VmError::Core(vm_core::CoreError::Internal {
-                    message: "I/O request channel closed".to_string(),
-                    module: "block_service".to_string(),
-                }))?;
+                sender
+                    .send(AsyncIoRequest::Write {
+                        sector,
+                        data: Arc::new(data),
+                        req_id,
+                        response: tx,
+                    })
+                    .await
+                    .map_err(|_| {
+                        VmError::Core(vm_core::CoreError::Internal {
+                            message: "I/O request channel closed".to_string(),
+                            module: "block_service".to_string(),
+                        })
+                    })?;
             } else {
                 return Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "I/O channel not initialized".to_string(),
@@ -482,31 +535,35 @@ impl BlockDeviceService {
 
     /// 处理刷新请求（同步版本，内部使用异步I/O）
     fn handle_flush_request(&self) -> BlockStatus {
-        let device = self.device.lock();
-
+        // For sync functions, we need to use block_on to await the mutex lock
+        let device = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.device.lock());
         if device.read_only {
             return BlockStatus::Ok; // 只读设备无需刷新
         }
 
         // 如果有文件路径，使用异步I/O通道
-        if let Some(_file_path) = self.file_path.lock().as_ref() {
+        // For sync functions, we need to use block_on to await the mutex lock
+        let file_path = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.file_path.lock());
+        if let Some(_file_path) = file_path.as_ref() {
             // 使用tokio运行时执行异步操作
             let rt = tokio::runtime::Handle::try_current();
             let result = if let Ok(handle) = rt {
                 // 在异步上下文中
-                handle.block_on(async {
-                    self.handle_flush_request_async_internal().await
-                })
+                handle.block_on(async { self.handle_flush_request_async_internal().await })
             } else {
                 // 不在异步上下文中，创建新的运行时
                 match tokio::runtime::Runtime::new() {
-                    Ok(rt) => rt.block_on(async {
-                        self.handle_flush_request_async_internal().await
-                    }),
+                    Ok(rt) => {
+                        rt.block_on(async { self.handle_flush_request_async_internal().await })
+                    }
                     Err(_) => return BlockStatus::IoErr,
                 }
             };
-            
+
             match result {
                 Ok(_) => BlockStatus::Ok,
                 Err(_) => BlockStatus::IoErr,
@@ -521,7 +578,7 @@ impl BlockDeviceService {
     async fn handle_flush_request_async_internal(&self) -> Result<(), VmError> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static REQ_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-        
+
         let req_id = REQ_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         // 创建oneshot通道用于接收响应
@@ -529,15 +586,20 @@ impl BlockDeviceService {
 
         // 发送异步刷新请求
         {
-            let io_tx = self.io_tx.lock();
+            let io_tx = self.io_tx.lock().await;
             if let Some(ref sender) = io_tx.as_ref() {
-                sender.send(AsyncIoRequest::Flush {
-                    req_id,
-                    response: tx,
-                }).await.map_err(|_| VmError::Core(vm_core::CoreError::Internal {
-                    message: "I/O request channel closed".to_string(),
-                    module: "block_service".to_string(),
-                }))?;
+                sender
+                    .send(AsyncIoRequest::Flush {
+                        req_id,
+                        response: tx,
+                    })
+                    .await
+                    .map_err(|_| {
+                        VmError::Core(vm_core::CoreError::Internal {
+                            message: "I/O request channel closed".to_string(),
+                            module: "block_service".to_string(),
+                        })
+                    })?;
             } else {
                 return Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "I/O channel not initialized".to_string(),
@@ -574,8 +636,8 @@ impl BlockDeviceService {
         status_addr: GuestAddr,
     ) -> BlockStatus {
         // 1. 读取请求头
-        let req_type = match mmu.read(req_addr, 4) {
-            Ok(v) => v as u32,
+        let req_type = match mmu.read_u32(req_addr.0) {
+            Ok(v) => v,
             Err(_) => return BlockStatus::IoErr,
         };
         let sector = match mmu.read(req_addr + 8, 8) {
@@ -616,7 +678,7 @@ impl BlockDeviceService {
         data_addr: GuestAddr,
         data_len: u32,
     ) -> BlockStatus {
-        let device = self.device.lock();
+        let device = self.device.lock().await;
 
         // 验证扇区范围
         if sector + (data_len as u64) / 512 > device.capacity {
@@ -641,12 +703,12 @@ impl BlockDeviceService {
     /// 异步处理写请求
     async fn handle_write_request_async(
         &self,
-        mmu: &dyn MMU,
+        mmu: &mut dyn MMU,
         sector: u64,
         data_addr: GuestAddr,
         data_len: u32,
     ) -> BlockStatus {
-        let device = self.device.lock();
+        let device = self.device.lock().await;
 
         // 检查只读状态
         if device.read_only {
@@ -672,7 +734,7 @@ impl BlockDeviceService {
 
     /// 异步处理刷新请求
     async fn handle_flush_request_async(&self) -> BlockStatus {
-        let device = self.device.lock();
+        let device = self.device.lock().await;
 
         if device.read_only {
             return BlockStatus::Ok; // 只读设备无需刷新

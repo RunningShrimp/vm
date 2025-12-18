@@ -142,7 +142,7 @@ impl HotplugManager {
         }
 
         // 4KB 对齐
-        *next_addr = (new_next + 0xFFF) & !0xFFF;
+        *next_addr = GuestAddr((new_next + 0xFFF) & !0xFFF);
 
         Ok(addr)
     }
@@ -186,18 +186,11 @@ impl HotplugManager {
         }
 
         // 如果没有指定地址，自动分配
-        if info.base_addr == 0 {
+        if info.base_addr == GuestAddr(0) {
             info.base_addr = self.allocate_addr(info.size)?;
         } else {
-            for device in devices.values() {
-                let dev_start = device.info.base_addr;
-                let dev_end = dev_start + device.info.size;
-                let new_start = info.base_addr;
-                let new_end = info.base_addr + info.size;
-                if new_start < dev_end && new_end > dev_start {
-                    return Err(HotplugError::AddressConflict(info.base_addr));
-                }
-            }
+            // 使用现有的地址冲突检查方法
+            self.check_address_conflict(info.base_addr, info.size)?;
         }
 
         log::info!(

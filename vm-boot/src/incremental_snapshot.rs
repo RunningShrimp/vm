@@ -199,6 +199,16 @@ impl IncrementalSnapshotManager {
         self.dirty_pages.insert(page_addr, PageState::Dirty);
     }
 
+    /// 标记页为干净页
+    pub fn mark_clean(&mut self, page_addr: u64) {
+        self.dirty_pages.insert(page_addr, PageState::Clean);
+    }
+
+    /// 清除页状态（标记为干净）
+    pub fn clear_page_state(&mut self, page_addr: u64) {
+        self.dirty_pages.remove(&page_addr);
+    }
+
     /// 创建增量快照（优化版：支持压缩和批量写入）
     pub fn create_snapshot(
         &mut self,
@@ -212,10 +222,10 @@ impl IncrementalSnapshotManager {
         // 保存内存快照
         let snapshot_size = if parent_id.is_none() {
             // 全量快照
-            self.save_full_snapshot_optimized(&snapshot_id, memory)?
+            self.save_full_snapshot(&snapshot_id, memory)?
         } else {
             // 增量快照：只保存脏页
-            self.save_incremental_snapshot_optimized(&snapshot_id, memory)?
+            self.save_incremental_snapshot(&snapshot_id, memory)?
         };
 
         let created_at = std::time::SystemTime::now()
@@ -299,9 +309,8 @@ impl IncrementalSnapshotManager {
     }
 
     /// 保存全量快照（兼容旧版本）
-    fn save_full_snapshot(&self, snapshot_id: &str, memory: &[u8]) -> io::Result<()> {
-        self.save_full_snapshot_optimized(snapshot_id, memory)?;
-        Ok(())
+    fn save_full_snapshot(&self, snapshot_id: &str, memory: &[u8]) -> io::Result<u64> {
+        self.save_full_snapshot_optimized(snapshot_id, memory)
     }
 
     /// 保存增量快照（优化版：批量写入和压缩）
@@ -351,9 +360,8 @@ impl IncrementalSnapshotManager {
     }
 
     /// 保存增量快照（兼容旧版本）
-    fn save_incremental_snapshot(&self, snapshot_id: &str, memory: &[u8]) -> io::Result<()> {
-        self.save_incremental_snapshot_optimized(snapshot_id, memory)?;
-        Ok(())
+    fn save_incremental_snapshot(&self, snapshot_id: &str, memory: &[u8]) -> io::Result<u64> {
+        self.save_incremental_snapshot_optimized(snapshot_id, memory)
     }
 
     /// 恢复快照（优化版：使用索引和批量读取）
@@ -398,14 +406,15 @@ impl IncrementalSnapshotManager {
         &self,
         reader: &mut BufReader<File>,
         memory: &mut [u8],
-        metadata: &SnapshotMetadata,
+        _metadata: &SnapshotMetadata,
     ) -> io::Result<()> {
         let mut dirty_count_bytes = [0u8; 8];
         reader.read_exact(&mut dirty_count_bytes)?;
         let dirty_count = u64::from_le_bytes(dirty_count_bytes) as usize;
 
         // 批量读取脏页
-        let mut batch_buffer = vec![0u8; self.config.page_size + 8]; // 页地址 + 页数据
+        // 注意：当前实现直接读取到目标内存，未使用批量缓冲区
+        // let _batch_buffer = vec![0u8; self.config.page_size + 8]; // 页地址 + 页数据
 
         for _ in 0..dirty_count {
             // 读取页地址

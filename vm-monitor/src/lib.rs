@@ -18,19 +18,24 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 
 pub mod vendor_metrics;
-pub use vendor_metrics::{PerformanceAnalyzer as VendorPerformanceAnalyzer, VendorMetricsCollector};
+pub use vendor_metrics::{
+    PerformanceAnalyzer as VendorPerformanceAnalyzer, VendorMetricsCollector,
+};
 
 pub mod performance_analyzer;
 pub use performance_analyzer::PerformanceAnalyzer;
 
 pub mod metrics_collector;
-pub use metrics_collector::{MetricsCollector, SystemMetrics, JitMetrics, TlbMetrics, MemoryMetrics, GcMetrics, ParallelMetrics, SystemOverallMetrics};
+pub use metrics_collector::{
+    GcMetrics, JitMetrics, MemoryMetrics, MetricsCollector, ParallelMetrics, SystemMetrics,
+    SystemOverallMetrics, TlbMetrics,
+};
 
-pub mod dashboard;
 pub mod alerts;
+pub mod dashboard;
 pub mod export;
 
-pub use alerts::{Alert, AlertManager, AlertType, AlertLevel};
+pub use alerts::{Alert, AlertLevel, AlertManager, AlertType};
 
 /// 性能快照
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,13 +77,11 @@ impl Default for AlertThresholds {
 }
 
 /// 仪表板配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DashboardConfig {
     /// 服务器配置
     pub server: ServerConfig,
 }
-
 
 /// 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,9 +310,7 @@ impl PerformanceMonitor {
         };
 
         let mut metrics = self.metrics.write().unwrap();
-        let points = metrics
-            .entry(name.to_string())
-            .or_default();
+        let points = metrics.entry(name.to_string()).or_default();
 
         points.push_back(point);
 
@@ -332,13 +333,15 @@ impl PerformanceMonitor {
                 .iter()
                 .filter(|p| {
                     if let Some(start) = start_time
-                        && p.timestamp < start {
-                            return false;
-                        }
+                        && p.timestamp < start
+                    {
+                        return false;
+                    }
                     if let Some(end) = end_time
-                        && p.timestamp > end {
-                            return false;
-                        }
+                        && p.timestamp > end
+                    {
+                        return false;
+                    }
                     true
                 })
                 .cloned()
@@ -533,13 +536,15 @@ impl PerformanceMonitor {
     fn check_alert_condition(&self, condition: &str, value: f64) -> bool {
         // 简单的条件解析器，支持: value > 80, value < 10 等
         if let Some(gt_pos) = condition.find(">")
-            && let Ok(threshold) = condition[gt_pos + 1..].trim().parse::<f64>() {
-                return value > threshold;
-            }
+            && let Ok(threshold) = condition[gt_pos + 1..].trim().parse::<f64>()
+        {
+            return value > threshold;
+        }
         if let Some(lt_pos) = condition.find("<")
-            && let Ok(threshold) = condition[lt_pos + 1..].trim().parse::<f64>() {
-                return value < threshold;
-            }
+            && let Ok(threshold) = condition[lt_pos + 1..].trim().parse::<f64>()
+        {
+            return value < threshold;
+        }
         false
     }
 
@@ -576,13 +581,15 @@ impl PerformanceMonitor {
     /// 解析阈值
     fn parse_threshold(&self, condition: &str) -> f64 {
         if let Some(gt_pos) = condition.find(">")
-            && let Ok(threshold) = condition[gt_pos + 1..].trim().parse::<f64>() {
-                return threshold;
-            }
+            && let Ok(threshold) = condition[gt_pos + 1..].trim().parse::<f64>()
+        {
+            return threshold;
+        }
         if let Some(lt_pos) = condition.find("<")
-            && let Ok(threshold) = condition[lt_pos + 1..].trim().parse::<f64>() {
-                return threshold;
-            }
+            && let Ok(threshold) = condition[lt_pos + 1..].trim().parse::<f64>()
+        {
+            return threshold;
+        }
         0.0
     }
 

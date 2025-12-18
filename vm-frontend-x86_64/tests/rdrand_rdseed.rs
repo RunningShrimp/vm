@@ -241,4 +241,3 @@ fn test_rdseed_ir_generation() {
     });
     assert!(has_seed_access, "IR should access random seed region");
 }
-

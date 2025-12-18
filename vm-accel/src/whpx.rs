@@ -149,10 +149,10 @@ impl WhpxVcpu {
             register_values[3].Reg64 = regs.gpr[3]; // RBX
             register_values[4].Reg64 = regs.gpr[6]; // RSI
             register_values[5].Reg64 = regs.gpr[7]; // RDI
-            register_values[6].Reg64 = regs.fp;    // RBP (使用fp字段)
-            register_values[7].Reg64 = regs.sp;     // RSP (使用sp字段)
-            register_values[8].Reg64 = regs.pc;     // RIP (使用pc字段)
-            register_values[9].Reg64 = regs.gpr[8];  // R8
+            register_values[6].Reg64 = regs.fp; // RBP (使用fp字段)
+            register_values[7].Reg64 = regs.sp; // RSP (使用sp字段)
+            register_values[8].Reg64 = regs.pc; // RIP (使用pc字段)
+            register_values[9].Reg64 = regs.gpr[8]; // R8
             register_values[10].Reg64 = regs.gpr[9]; // R9
             register_values[11].Reg64 = regs.gpr[10]; // R10
             register_values[12].Reg64 = regs.gpr[11]; // R11
@@ -168,9 +168,7 @@ impl WhpxVcpu {
                 &register_names,
                 &register_values,
             )
-            .map_err(|e| {
-                AccelError::PlatformError(format!("Failed to set registers: {:?}", e))
-            })?;
+            .map_err(|e| AccelError::PlatformError(format!("Failed to set registers: {:?}", e)))?;
 
             Ok(())
         }
@@ -229,7 +227,11 @@ impl WhpxVcpu {
                     Ok(())
                 }
                 _ => {
-                    log::warn!("vCPU {} unhandled exit reason: {}", self.index, exit_context.ExitReason);
+                    log::warn!(
+                        "vCPU {} unhandled exit reason: {}",
+                        self.index,
+                        exit_context.ExitReason
+                    );
                     Ok(())
                 }
             }

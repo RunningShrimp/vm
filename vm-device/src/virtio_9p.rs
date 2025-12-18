@@ -6,7 +6,7 @@ use crate::virtio::{Queue, VirtioDevice};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use vm_core::{MMU, VmError};
+use vm_core::{GuestAddr, MMU};
 
 /// 9P文件系统标签
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -89,7 +89,7 @@ impl Virtio9P {
             if desc.flags & 0x1 == 0 {
                 // 可读
                 let mut data = vec![0u8; desc.len as usize];
-                if mmu.read_bulk(desc.addr, &mut data).is_ok() {
+                if mmu.read_bulk(GuestAddr(desc.addr), &mut data).is_ok() {
                     request_data.extend_from_slice(&data);
                 }
             }
@@ -121,8 +121,15 @@ impl Virtio9P {
     }
 
     /// 处理TVERSION请求
-    fn handle_tversion(&mut self, _mmu: &mut dyn MMU, _data: &[u8], _tag: u16) -> u32 {
-        // 简化实现：返回版本信息
+    fn handle_tversion(&mut self, _mmu: &mut dyn MMU, data: &[u8], _tag: u16) -> u32 {
+        // TVERSION请求格式：message_type(1) + tag(2) + msize(4) + version string
+        if data.len() >= 7 {
+            let client_msize = u32::from_le_bytes([data[3], data[4], data[5], data[6]]);
+            // 使用较小的消息大小作为协商结果
+            self.max_message_size = std::cmp::min(self.max_message_size, client_msize);
+            log::debug!("9P: TVersion negotiated msize: {}", self.max_message_size);
+        }
+        // 返回版本响应长度（简化）
         0
     }
 

@@ -2,14 +2,15 @@
 //!
 //! 提供异步版本的MMU接口，使用tokio异步运行时优化I/O操作
 
-use std::sync::Arc;
 use std::collections::HashMap;
-use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MMU, VmError};
+use std::sync::Arc;
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MMU};
+use vm_core::error::VmError;
 
 #[cfg(feature = "async")]
-use tokio::sync::Mutex as AsyncMutex;
-#[cfg(feature = "async")]
 use parking_lot::RwLock as AsyncRwLock;
+#[cfg(feature = "async")]
+use tokio::sync::Mutex as AsyncMutex;
 
 #[cfg(feature = "async")]
 use async_trait::async_trait;
@@ -127,12 +128,12 @@ impl AsyncMMU for AsyncMmuWrapper {
     ) -> Result<Vec<GuestPhysAddr>, VmError> {
         let mut mmu = self.inner.lock().await;
         let mut results = Vec::with_capacity(vas.len());
-        
+
         for &(va, access) in vas {
             let pa = mmu.translate(va, access)?;
             results.push(pa);
         }
-        
+
         Ok(results)
     }
 }
@@ -193,6 +194,7 @@ impl AsyncTlbLookup {
                     AccessType::Read => 1 << 1,
                     AccessType::Write => 1 << 2,
                     AccessType::Exec => 1 << 3,
+                    AccessType::Atomic => (1 << 1) | (1 << 2), // Atomic operations need both R and W bits
                 };
                 if (flags & required) != 0 {
                     return Some((ppn, flags));
@@ -293,7 +295,7 @@ impl AsyncPageTableWalker {
     /// 异步页表遍历
     ///
     /// 先查缓存，如果未命中则进行页表遍历
-    /// 
+    ///
     /// 注意：此方法需要AsyncMMU trait实现
     pub async fn walk_async(
         &self,
@@ -344,23 +346,23 @@ impl AsyncPageTableWalker {
 #[cfg(feature = "async")]
 pub mod async_file_io {
     use std::path::Path;
-    use vm_core::{AccessType, VmError};
+    use vm_core::error::VmError;
 
     /// 异步读取文件到内存
     pub async fn read_file_to_memory<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, VmError> {
         use tokio::io::AsyncReadExt;
         let mut file = tokio::fs::File::open(path).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Read 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Read,
             })
         })?;
 
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Read 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Read,
             })
         })?;
 
@@ -371,22 +373,22 @@ pub mod async_file_io {
     pub async fn write_memory_to_file<P: AsRef<Path>>(path: P, data: &[u8]) -> Result<(), VmError> {
         use tokio::io::AsyncWriteExt;
         let mut file = tokio::fs::File::create(path).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Read 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Read,
             })
         })?;
         file.write_all(data).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Write 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Write,
             })
         })?;
 
         file.sync_all().await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Write 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Write,
             })
         })?;
 
@@ -401,9 +403,9 @@ pub mod async_file_io {
     ) -> Result<Vec<u8>, VmError> {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
         let mut file = tokio::fs::File::open(path).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Read 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Read,
             })
         })?;
 
@@ -411,17 +413,17 @@ pub mod async_file_io {
         file.seek(tokio::io::SeekFrom::Start(offset))
             .await
             .map_err(|_e| {
-                VmError::from(vm_core::Fault::AccessViolation { 
-                    addr: 0, 
-                    access: AccessType::Read 
+                VmError::from(vm_core::Fault::AccessViolation {
+                    addr: 0,
+                    access: AccessType::Read,
                 })
             })?;
 
         let mut buffer = vec![0u8; size];
         file.read_exact(&mut buffer).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Read 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Read,
             })
         })?;
 
@@ -439,9 +441,9 @@ pub mod async_file_io {
             .open(path)
             .await
             .map_err(|_e| {
-                VmError::from(vm_core::Fault::AccessViolation { 
-                    addr: 0, 
-                    access: AccessType::Write 
+                VmError::from(vm_core::Fault::AccessViolation {
+                    addr: 0,
+                    access: AccessType::Write,
                 })
             })?;
 
@@ -450,16 +452,16 @@ pub mod async_file_io {
         file.seek(tokio::io::SeekFrom::Start(offset))
             .await
             .map_err(|_e| {
-                VmError::from(vm_core::Fault::AccessViolation { 
-                    addr: 0, 
-                    access: AccessType::Read 
+                VmError::from(vm_core::Fault::AccessViolation {
+                    addr: 0,
+                    access: AccessType::Read,
                 })
             })?;
 
         file.write_all(data).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation { 
-                addr: 0, 
-                access: AccessType::Write 
+            VmError::from(vm_core::Fault::AccessViolation {
+                addr: 0,
+                access: AccessType::Write,
             })
         })?;
 
@@ -494,27 +496,27 @@ mod tests {
     #[tokio::test]
     async fn test_async_mmu_bulk_translate() {
         use crate::SoftMmu;
-        
+
         // 创建SoftMMU实例
         let mut soft_mmu = SoftMmu::new(1024 * 1024, false);
-        
+
         // 测试Bare模式下的批量地址转换
         let async_mmu = AsyncMmuWrapper::new(Box::new(soft_mmu));
-        
+
         // 创建测试用的虚拟地址和访问类型
         let vas = vec![
             (0x1000, vm_core::AccessType::Read),
             (0x2000, vm_core::AccessType::Write),
             (0x3000, vm_core::AccessType::Exec),
         ];
-        
+
         // 执行批量地址转换
         let results = async_mmu.translate_bulk_async(&vas).await;
         assert!(results.is_ok());
-        
+
         let pas = results.unwrap();
         assert_eq!(pas.len(), vas.len());
-        
+
         // 在Bare模式下，虚拟地址应该等于物理地址
         for (i, pa) in pas.iter().enumerate() {
             assert_eq!(*pa, vas[i].0);
@@ -526,16 +528,15 @@ mod tests {
     //     // 创建临时文件（需要tempfile依赖）
     //     // let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
     //     // let temp_path = temp_file.path().to_str().unwrap().to_string();
-        
+
     //     // // 写入测试数据
     //     // let test_data = b"Hello, async file I/O!";
     //     // super::async_file_io::write_memory_to_file(temp_path.clone(), test_data).await
     //     //     .expect("Failed to write to file");
-        
+
     //     // // 读取测试数据
     //     // let read_data = super::async_file_io::read_file_to_memory(temp_path.clone()).await
     //     //     .expect("Failed to read from file");
     //     // assert_eq!(read_data, test_data);
     // }
-    }
 }

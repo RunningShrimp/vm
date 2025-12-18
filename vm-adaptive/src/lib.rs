@@ -13,10 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use vm_core::{ExecutionEngine, VmError};
-use vm_monitor::{MetricPoint, MetricType, PerformanceMonitor};
+use vm_monitor::PerformanceMonitor;
 
 /// 自适应优化器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -358,28 +357,28 @@ impl AdaptiveOptimizer {
     fn identify_bottlenecks(&self, metrics: &HashMap<String, f64>) -> Vec<String> {
         let mut bottlenecks = Vec::new();
 
-        if let Some(cpu_usage) = metrics.get("cpu_usage") {
-            if *cpu_usage > 90.0 {
-                bottlenecks.push("High CPU usage".to_string());
-            }
+        if let Some(cpu_usage) = metrics.get("cpu_usage")
+            && *cpu_usage > 90.0
+        {
+            bottlenecks.push("High CPU usage".to_string());
         }
 
-        if let Some(memory_usage) = metrics.get("memory_usage") {
-            if *memory_usage > 85.0 {
-                bottlenecks.push("High memory usage".to_string());
-            }
+        if let Some(memory_usage) = metrics.get("memory_usage")
+            && *memory_usage > 85.0
+        {
+            bottlenecks.push("High memory usage".to_string());
         }
 
-        if let Some(tlb_hit_rate) = metrics.get("tlb_hit_rate") {
-            if *tlb_hit_rate < 0.8 {
-                bottlenecks.push("Low TLB hit rate".to_string());
-            }
+        if let Some(tlb_hit_rate) = metrics.get("tlb_hit_rate")
+            && *tlb_hit_rate < 0.8
+        {
+            bottlenecks.push("Low TLB hit rate".to_string());
         }
 
-        if let Some(jit_compile_time) = metrics.get("jit_compile_time") {
-            if *jit_compile_time > 5000.0 {
-                bottlenecks.push("High JIT compilation time".to_string());
-            }
+        if let Some(jit_compile_time) = metrics.get("jit_compile_time")
+            && *jit_compile_time > 5000.0
+        {
+            bottlenecks.push("High JIT compilation time".to_string());
         }
 
         bottlenecks
@@ -420,12 +419,11 @@ impl AdaptiveOptimizer {
         }
 
         // 基于具体指标的建议
-        if let Some(tlb_hit_rate) = metrics.get("tlb_hit_rate") {
-            if *tlb_hit_rate < 0.85 {
-                opportunities.push(
-                    "Improve TLB performance through better memory access patterns".to_string(),
-                );
-            }
+        if let Some(tlb_hit_rate) = metrics.get("tlb_hit_rate")
+            && *tlb_hit_rate < 0.85
+        {
+            opportunities
+                .push("Improve TLB performance through better memory access patterns".to_string());
         }
 
         opportunities
@@ -720,6 +718,7 @@ impl Default for PerformanceHistorySummary {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use vm_monitor::MonitorConfig;
 
     #[tokio::test]
     async fn test_adaptive_optimizer_creation() {

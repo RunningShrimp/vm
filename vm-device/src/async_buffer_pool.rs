@@ -214,7 +214,7 @@ impl AsyncBufferPool {
 
     /// 同步获取缓冲区（如果立即可用）
     pub fn try_acquire(&self) -> Option<PoolBuffer> {
-        if let Ok(permit) = self.semaphore.try_acquire() {
+        if let Ok(_) = self.semaphore.try_acquire() {
             let mut available = self.available.lock();
             if let Some(buf) = available.pop_front() {
                 let mut stats = self.stats.lock();

@@ -144,7 +144,7 @@ impl AffinityMask {
 
 /// vCPU 线程配置
 #[derive(Clone, Debug)]
-pub struct vCPUThreadConfig {
+pub struct VCPUThreadConfig {
     /// vCPU 编号
     pub vcpu_id: usize,
     /// 物理 CPU 亲和性
@@ -157,7 +157,7 @@ pub struct vCPUThreadConfig {
     pub enable_ht: bool,
 }
 
-impl vCPUThreadConfig {
+impl VCPUThreadConfig {
     pub fn new(vcpu_id: usize, total_cpus: usize) -> Self {
         Self {
             vcpu_id,
@@ -185,12 +185,12 @@ impl vCPUThreadConfig {
 }
 
 /// vCPU 亲和性管理器
-pub struct vCPUAffinityManager {
+pub struct VCPUAffinityManager {
     topology: Arc<CPUTopology>,
-    vcpu_configs: Arc<std::sync::RwLock<HashMap<usize, vCPUThreadConfig>>>,
+    vcpu_configs: Arc<std::sync::RwLock<HashMap<usize, VCPUThreadConfig>>>,
 }
 
-impl vCPUAffinityManager {
+impl VCPUAffinityManager {
     pub fn new() -> Self {
         Self {
             topology: Arc::new(CPUTopology::detect()),
@@ -213,7 +213,7 @@ impl vCPUAffinityManager {
             let cpu_idx = vcpu_id % node_cpus.len();
             let pinned_cpu = node_cpus[cpu_idx];
 
-            let mut config = vCPUThreadConfig::new(vcpu_id, self.topology.total_cpus);
+            let mut config = VCPUThreadConfig::new(vcpu_id, self.topology.total_cpus);
             config.set_affinity(&[pinned_cpu]);
             config.set_numa_node(node);
             config.set_priority(10);
@@ -225,7 +225,7 @@ impl vCPUAffinityManager {
     }
 
     /// 获取 vCPU 配置
-    pub fn get_vcpu_config(&self, vcpu_id: usize) -> Option<vCPUThreadConfig> {
+    pub fn get_vcpu_config(&self, vcpu_id: usize) -> Option<VCPUThreadConfig> {
         self.vcpu_configs.read().unwrap().get(&vcpu_id).cloned()
     }
 
@@ -255,7 +255,7 @@ impl vCPUAffinityManager {
     }
 }
 
-impl Default for vCPUAffinityManager {
+impl Default for VCPUAffinityManager {
     fn default() -> Self {
         Self::new()
     }
@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_vcpu_affinity_config() {
-        let mut config = vCPUThreadConfig::new(0, 8);
+        let mut config = VCPUThreadConfig::new(0, 8);
         config.set_affinity(&[0, 1]);
         config.set_numa_node(0);
 
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_vcpu_affinity_manager() {
-        let manager = vCPUAffinityManager::new();
+        let manager = VCPUAffinityManager::new();
         manager.configure_vcpu_affinity(4).unwrap();
 
         for i in 0..4 {
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_diagnostic_reports() {
-        let manager = vCPUAffinityManager::new();
+        let manager = VCPUAffinityManager::new();
         manager.configure_vcpu_affinity(2).unwrap();
         let report = manager.diagnostic_report();
 

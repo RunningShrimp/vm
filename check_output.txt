@@ -1,0 +1,314 @@
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `test` profile
+    Checking vm-osal v0.1.0 (/Users/didi/Desktop/vm/vm-osal)
+    Checking vm-passthrough v0.1.0 (/Users/didi/Desktop/vm/vm-passthrough)
+warning: function `is_harmonyos` is never used
+  --> vm-osal/src/lib.rs:70:4
+   |
+70 | fn is_harmonyos() -> bool {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `config_path` is never read
+   --> vm-passthrough/src/pcie.rs:231:5
+    |
+229 | pub struct PciConfigSpace {
+    |            -------------- field in this struct
+230 |     _address: PciAddress,
+231 |     config_path: PathBuf,
+    |     ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-osal` (lib) generated 1 warning
+warning: `vm-passthrough` (lib) generated 1 warning
+    Checking vm-device v0.1.0 (/Users/didi/Desktop/vm/vm-device)
+warning: unnecessary parentheses around block return value
+  --> vm-device/src/async_block_device.rs:38:9
+   |
+38 |         (total_bytes as f64 / 1024.0 / 1024.0) // 简化计算，实际需要时间信息
+   |         ^                                    ^
+   |
+   = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
+help: remove these parentheses
+   |
+38 -         (total_bytes as f64 / 1024.0 / 1024.0) // 简化计算，实际需要时间信息
+38 +         total_bytes as f64 / 1024.0 / 1024.0 // 简化计算，实际需要时间信息
+   |
+
+warning: unused import: `crate::mmu_util::MmuUtil`
+ --> vm-device/src/block.rs:6:5
+  |
+6 | use crate::mmu_util::MmuUtil;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::path::Path`
+ --> vm-device/src/block.rs:7:5
+  |
+7 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `Arc` and `Mutex`
+ --> vm-device/src/block.rs:8:17
+  |
+8 | use std::sync::{Arc, Mutex};
+  |                 ^^^  ^^^^^
+
+warning: unused import: `tokio::fs::File`
+ --> vm-device/src/block.rs:9:5
+  |
+9 | use tokio::fs::File;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `AsyncReadExt`, `AsyncSeekExt`, and `AsyncWriteExt`
+  --> vm-device/src/block.rs:10:17
+   |
+10 | use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+   |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::sync::mpsc`
+  --> vm-device/src/block.rs:11:5
+   |
+11 | use tokio::sync::mpsc;
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `MMU`, `PlatformError`, and `VmError`
+  --> vm-device/src/block.rs:12:26
+   |
+12 | use vm_core::{GuestAddr, MMU, PlatformError, VmError};
+   |                          ^^^  ^^^^^^^^^^^^^  ^^^^^^^
+
+warning: unused import: `vm_mem::SoftMmu`
+  --> vm-device/src/block.rs:13:5
+   |
+13 | use vm_mem::SoftMmu;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `BlockIoRequest`, `BlockIoResponse`, and `BlockRequestHeader`
+ --> vm-device/src/block_service.rs:8:5
+  |
+8 |     BlockIoRequest, BlockIoResponse, BlockRequestHeader, BlockRequestType, BlockStatus, VirtioBlock,
+  |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_9p.rs:9:31
+  |
+9 | use vm_core::{GuestAddr, MMU, VmError};
+  |                               ^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_balloon.rs:7:20
+  |
+7 | use vm_core::{MMU, VmError};
+  |                    ^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_crypto.rs:8:20
+  |
+8 | use vm_core::{MMU, VmError};
+  |                    ^^^^^^^
+
+warning: unused import: `Duration`
+ --> vm-device/src/virtio_performance.rs:6:17
+  |
+6 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: unused imports: `Arc` and `Mutex`
+ --> vm-device/src/virtio_rng.rs:6:17
+  |
+6 | use std::sync::{Arc, Mutex};
+  |                 ^^^  ^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_rng.rs:7:20
+  |
+7 | use vm_core::{MMU, VmError};
+  |                    ^^^^^^^
+
+warning: unused import: `Duration`
+ --> vm-device/src/virtio_watchdog.rs:7:17
+  |
+7 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: unused import: `Duration`
+  --> vm-device/src/io_multiplexing.rs:14:17
+   |
+14 | use std::time::{Duration, Instant};
+   |                 ^^^^^^^^
+
+warning: unused import: `crate::mmu_util::MmuUtil`
+ --> vm-device/src/zero_copy_optimizer.rs:5:5
+  |
+5 | use crate::mmu_util::MmuUtil;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+  --> vm-device/src/zerocopy.rs:12:5
+   |
+12 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused import: `std::slice`
+  --> vm-device/src/dpdk.rs:10:5
+   |
+10 | use std::slice;
+   |     ^^^^^^^^^^
+
+warning: unused import: `GuestAddr`
+  --> vm-device/src/dpdk.rs:11:34
+   |
+11 | use vm_core::{VmError, VmResult, GuestAddr, GuestPhysAddr, DeviceError, MMU, MmioDevice};
+   |                                  ^^^^^^^^^
+
+warning: unused import: `AtomicU32`
+ --> vm-device/src/sriov.rs:3:36
+  |
+3 | use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, AtomicBool, Ordering};
+  |                                    ^^^^^^^^^
+
+warning: unused import: `Duration`
+ --> vm-device/src/network_qos.rs:4:17
+  |
+4 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+error[E0308]: mismatched types
+    --> vm-device/src/async_block_device.rs:290:49
+     |
+ 290 |                 tokio::io::AsyncWriteExt::flush(&file)
+     |                 ------------------------------- ^^^^^ types differ in mutability
+     |                 |
+     |                 arguments to this function are incorrect
+     |
+     = note: expected mutable reference `&mut _`
+                        found reference `&tokio::fs::File`
+note: method defined here
+    --> /Users/didi/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/tokio-1.48.0/src/io/util/async_write_ext.rs:1281:12
+     |
+1281 |         fn flush(&mut self) -> Flush<'_, Self>
+     |            ^^^^^
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:225:13
+    |
+225 |         let mut io_tx = self.io_tx.lock().await;
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:394:17
+    |
+394 |             let mut io_tx = self.io_tx.lock().await;
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:514:17
+    |
+514 |             let mut io_tx = self.io_tx.lock().await;
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:604:17
+    |
+604 |             let mut io_tx = self.io_tx.lock().await;
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `permit`
+   --> vm-device/src/async_buffer_pool.rs:217:19
+    |
+217 |         if let Ok(permit) = self.semaphore.try_acquire() {
+    |                   ^^^^^^ help: if this is intentional, prefix it with an underscore: `_permit`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `mmio`
+   --> vm-device/src/block.rs:190:18
+    |
+190 | pub fn mmio_read(mmio: &VirtioBlockMmio, _offset: u64, _size: u8) -> u64 {
+    |                  ^^^^ help: if this is intentional, prefix it with an underscore: `_mmio`
+
+warning: unused variable: `mmio`
+   --> vm-device/src/block.rs:195:19
+    |
+195 | pub fn mmio_write(mmio: &mut VirtioBlockMmio, _offset: u64, _val: u64, _size: u8) {
+    |                   ^^^^ help: if this is intentional, prefix it with an underscore: `_mmio`
+
+warning: unused variable: `device`
+   --> vm-device/src/block_service.rs:325:13
+    |
+325 |         let device = self.device.lock();
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `device`
+   --> vm-device/src/block_service.rs:437:13
+    |
+437 |         let device = self.device.lock();
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `device`
+   --> vm-device/src/block_service.rs:551:13
+    |
+551 |         let device = self.device.lock();
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `mmu`
+   --> vm-device/src/virtio_crypto.rs:187:33
+    |
+187 |     fn execute_crypto_op(&self, mmu: &mut dyn MMU, request: &CryptoRequest) -> u32 {
+    |                                 ^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+
+warning: unused variable: `max_concurrent_requests`
+   --> vm-device/src/io_scheduler.rs:195:30
+    |
+195 |     pub fn with_batch_config(max_concurrent_requests: usize, batch_config: BatchConfig) -> Self {
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_max_concurrent_requests`
+
+warning: unused variable: `device_handlers`
+   --> vm-device/src/io_scheduler.rs:214:13
+    |
+214 |         let device_handlers = Arc::clone(&self.device_handlers);
+    |             ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_device_handlers`
+
+warning: unused variable: `e`
+   --> vm-device/src/sriov.rs:349:67
+    |
+349 |         let config_bytes = bincode::serialize(vf_config).map_err(|e| {
+    |                                                                   ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `queue`
+   --> vm-device/src/network_qos.rs:895:25
+    |
+895 |             if let Some(queue) = self.queues.get(&tc_config.tc_id) {
+    |                         ^^^^^ help: if this is intentional, prefix it with an underscore: `_queue`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:906:13
+    |
+906 |         let mut stats = self.stats.lock().unwrap();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `queue`
+    --> vm-device/src/network_qos.rs:1199:48
+     |
+1199 |     fn should_drop(&self, _packet: &QosPacket, queue: &QosQueue) -> VmResult<bool> {
+     |                                                ^^^^^ help: if this is intentional, prefix it with an underscore: `_queue`
+
+For more information about this error, try `rustc --explain E0308`.
+warning: `vm-device` (lib) generated 41 warnings
+error: could not compile `vm-device` (lib) due to 1 previous error; 41 warnings emitted

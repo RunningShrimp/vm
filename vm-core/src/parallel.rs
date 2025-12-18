@@ -10,15 +10,21 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "async")]
-/// 协程池trait（避免循环依赖）
-pub trait CoroutinePool: Send + Sync {
+/// 协程调度器trait（避免循环依赖）
+pub trait CoroutineScheduler: Send + Sync {
     /// 提交协程任务
-    async fn spawn<F>(&self, task: F) -> Result<tokio::task::JoinHandle<()>, String>
+    fn spawn<F>(&self, priority: crate::Priority, task: F) -> std::sync::Arc<crate::Coroutine>
     where
-        F: std::future::Future<Output = ()> + Send + 'static;
+        F: Fn() + Send + Sync + 'static;
+
+    /// 启动调度器
+    fn start(&self) -> std::io::Result<()>;
+
+    /// 停止调度器
+    fn stop(&self);
 
     /// 等待所有协程完成
-    async fn join_all(&self) -> Result<(), String>;
+    fn join_all(&self);
 }
 
 /// 分片MMU管理器
@@ -114,9 +120,9 @@ pub struct MultiVcpuExecutor<B> {
     sharded_mmu: Arc<ShardedMmu>,
     /// 并发统计
     stats: Arc<RwLock<ConcurrencyStats>>,
-    /// 协程池（可选，用于管理协程资源）
+    /// 协程调度器（可选，用于管理协程资源）
     #[cfg(feature = "async")]
-    coroutine_pool: Option<Arc<dyn CoroutinePool + Send + Sync>>,
+    coroutine_scheduler: Option<Arc<dyn CoroutineScheduler + Send + Sync>>,
     /// 配置
     config: ParallelExecutorConfig,
 }
@@ -173,7 +179,7 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
             sharded_mmu,
             stats: Arc::new(RwLock::new(ConcurrencyStats::default())),
             #[cfg(feature = "async")]
-            coroutine_pool: None,
+            coroutine_scheduler: None,
             config,
         }
     }
@@ -202,7 +208,7 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
             sharded_mmu,
             stats: Arc::new(RwLock::new(ConcurrencyStats::default())),
             #[cfg(feature = "async")]
-            coroutine_pool: None,
+            coroutine_scheduler: None,
             config: ParallelExecutorConfig::default(),
         }
     }
@@ -331,18 +337,18 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
         self.stats.read().clone()
     }
 
-    /// 设置协程池
+    /// 设置协程调度器
     ///
-    /// 设置协程池后，run_parallel_async将优先使用协程池执行任务
+    /// 设置协程调度器后，run_parallel_async将优先使用协程调度器执行任务
     #[cfg(feature = "async")]
-    pub fn set_coroutine_pool<P: CoroutinePool + 'static>(&mut self, pool: Arc<P>) {
-        self.coroutine_pool = Some(pool as Arc<dyn CoroutinePool + Send + Sync>);
+    pub fn set_coroutine_scheduler<S: CoroutineScheduler + 'static>(&mut self, scheduler: Arc<S>) {
+        self.coroutine_scheduler = Some(scheduler as Arc<dyn CoroutineScheduler + Send + Sync>);
     }
-    
-    /// 获取协程池（如果已设置）
+
+    /// 获取协程调度器（如果已设置）
     #[cfg(feature = "async")]
-    pub fn get_coroutine_pool(&self) -> Option<&Arc<dyn CoroutinePool + Send + Sync>> {
-        self.coroutine_pool.as_ref()
+    pub fn get_coroutine_scheduler(&self) -> Option<&Arc<dyn CoroutineScheduler + Send + Sync>> {
+        self.coroutine_scheduler.as_ref()
     }
 
     /// 创建默认协程池
@@ -358,15 +364,15 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
     /// 异步并行运行所有 vCPU（使用协程）
     ///
     /// 使用async/await协程替代线程，减少上下文切换开销
-    /// 优先使用协程池管理协程资源，提高资源利用率
-    /// 如果没有设置协程池，回退到tokio::spawn
+    /// 优先使用协程调度器管理协程资源，提高资源利用率
+    /// 如果没有设置协程调度器，回退到tokio::spawn
     #[cfg(feature = "async")]
     pub async fn run_parallel_async(&self, blocks: &[B]) -> Result<Vec<ExecResult>, VmError> {
-        // 如果设置了协程池，优先使用协程池
-        if let Some(pool) = &self.coroutine_pool {
-            return self.run_parallel_with_pool(blocks, pool.as_ref()).await;
+        // 如果设置了协程调度器，优先使用协程调度器
+        if let Some(scheduler) = &self.coroutine_scheduler {
+            return self.run_parallel_with_scheduler(blocks, scheduler.as_ref());
         }
-        
+
         // 否则使用tokio::spawn（向后兼容）
         use tokio::sync::Mutex as AsyncMutex;
 
@@ -477,19 +483,19 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
         Ok(final_results)
     }
 
-    /// 使用协程池并行运行所有 vCPU
+    /// 使用协程调度器并行运行所有 vCPU
     ///
-    /// 使用协程池管理协程资源，提高资源利用率
+    /// 使用协程调度器管理协程资源，提高资源利用率
     ///
-    /// 注意：此方法需要外部提供协程池，避免循环依赖
+    /// 注意：此方法需要外部提供协程调度器，避免循环依赖
     #[cfg(feature = "async")]
-    pub async fn run_parallel_with_pool<P>(
+    pub fn run_parallel_with_scheduler<S>(
         &self,
         blocks: &[B],
-        pool: &P,
+        scheduler: &S,
     ) -> Result<Vec<crate::ExecResult>, VmError>
     where
-        P: CoroutinePool + Send + Sync,
+        S: CoroutineScheduler + Send + Sync,
     {
         #[cfg(feature = "async")]
         use tokio::sync::Mutex as AsyncMutex;
@@ -502,17 +508,18 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
             }));
         }
 
-        let results = Arc::new(AsyncMutex::new(Vec::with_capacity(self.vcpus.len())));
+        let results = Arc::new(parking_lot::Mutex::new(Vec::with_capacity(self.vcpus.len())));
+        let task_handles = Arc::new(parking_lot::Mutex::new(Vec::new()));
 
-        // 使用协程池提交任务
+        // 使用协程调度器提交任务
         for (_vcpu_id, (vcpu, block)) in self.vcpus.iter().zip(blocks.iter()).enumerate() {
             let vcpu_clone: Arc<Mutex<Box<dyn ExecutionEngine<B>>>> = Arc::clone(vcpu);
             let sharded_mmu_clone: Arc<ShardedMmu> = Arc::clone(&self.sharded_mmu);
-            let results_clone: Arc<AsyncMutex<Vec<ExecResult>>> = Arc::clone(&results);
+            let results_clone: Arc<parking_lot::Mutex<Vec<ExecResult>>> = Arc::clone(&results);
             let stats_clone: Arc<RwLock<ConcurrencyStats>> = Arc::clone(&self.stats);
             let block_clone = block.clone();
 
-            let task = async move {
+            let task = move || {
                 let start_time = std::time::Instant::now();
 
                 // 执行 vCPU
@@ -528,15 +535,18 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
 
                 // 使用spawn_blocking执行阻塞操作
                 #[cfg(feature = "async")]
-                let result = tokio::task::spawn_blocking(move || {
-                    vcpu_guard.run(&mut mmu_adapter, &block_clone)
-                })
-                .await
-                .unwrap_or_else(|_| ExecResult {
-                    status: crate::ExecStatus::Ok,
-                    stats: crate::ExecStats::default(),
-                    next_pc: 0,
-                });
+                let result = {
+                    let handle = std::thread::spawn(move || {
+                        vcpu_guard.run(&mut mmu_adapter, &block_clone)
+                    });
+                    
+                    // 等待任务完成
+                    handle.join().unwrap_or_else(|_| ExecResult {
+                        status: crate::ExecStatus::Ok,
+                        stats: crate::ExecStats::default(),
+                        next_pc: 0,
+                    })
+                };
 
                 let elapsed = start_time.elapsed();
                 {
@@ -549,29 +559,30 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
                     }
                 }
 
-                let mut results_guard = results_clone.lock().await;
-                results_guard.push(result);
+                results_clone.lock().push(result);
             };
 
-            // 使用协程池提交任务
-            if let Err(e) = pool.spawn(task).await {
-                return Err(VmError::Core(CoreError::Internal {
-                    message: format!("Failed to spawn coroutine: {}", e),
-                    module: "MultiVcpuExecutor".to_string(),
-                }));
-            }
+            // 使用协程调度器提交任务
+            let handle = scheduler.spawn(crate::Priority::Medium, task);
+            task_handles.lock().push(handle);
+        }
+
+        // 启动调度器
+        if let Err(e) = scheduler.start() {
+            return Err(VmError::Core(CoreError::Internal {
+                message: format!("Failed to start scheduler: {}", e),
+                module: "MultiVcpuExecutor".to_string(),
+            }));
         }
 
         // 等待所有协程完成
-        pool.join_all()
-            .await
-            .map_err(|e| VmError::Core(CoreError::Internal {
-                message: format!("Failed to join coroutines: {}", e),
-                module: "MultiVcpuExecutor".to_string(),
-            }))?;
+        scheduler.join_all();
+
+        // 停止调度器
+        scheduler.stop();
 
         // 获取结果
-        let results_guard = results.lock().await;
+        let results_guard = results.lock();
         // 手动克隆每个 ExecResult
         let mut final_results = Vec::new();
         for result in results_guard.iter() {

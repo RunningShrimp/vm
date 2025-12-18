@@ -1,0 +1,25 @@
+[package]
+name = "vm-cross-arch-integration-tests"
+version = "0.1.0"
+edition = "2021"
+authors = ["VM Development Team"]
+license = "MIT OR Apache-2.0"
+description = "Cross-architecture integration tests for the VM project"
+
+[dependencies]
+vm-cross-arch = { path = "../vm-cross-arch" }
+vm-core = { path = "../vm-core" }
+vm-engine-jit = { path = "../vm-engine-jit" }
+vm-mem = { path = "../vm-mem" }
+vm-ir = { path = "../vm-ir" }
+
+clap = { version = "4.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+[[bin]]
+name = "cross_arch_integration_test_runner"
+path = "src/bin/cross_arch_integration_test_runner.rs"

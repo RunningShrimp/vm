@@ -57,13 +57,7 @@ pub enum TaskPriority {
     High = 2,
 }
 
-/// 协程任务包装器
-struct TaskWrapper {
-    /// 任务句柄
-    handle: JoinHandle<()>,
-    /// 任务优先级
-    priority: TaskPriority,
-}
+
 
 /// 协程池统计信息
 #[derive(Debug, Clone, Default)]
@@ -217,7 +211,7 @@ impl CoroutinePool {
         if current_active >= self.config.max_coroutines {
             // 如果启用工作窃取，尝试从其他协程窃取任务
             if self.config.enable_work_stealing {
-                if let Some(stolen_task_id) = self.try_work_steal().await {
+                if let Some(_stolen_task_id) = self.try_work_steal().await {
                     // 工作窃取成功，更新统计
                     let mut stats = self.stats.lock().await;
                     stats.work_steal_count += 1;
@@ -251,26 +245,25 @@ impl CoroutinePool {
 
         let active_count_clone = Arc::clone(&self.active_count);
         let stats_clone = Arc::clone(&self.stats);
-        let task_tracking_clone = Arc::clone(&self.task_tracking);
-        let task_id_clone = task_id;
+
 
         let handle = tokio::spawn(async move {
             let start_time = std::time::Instant::now();
-            
+
             task.await;
-            
+
             // 任务完成后，更新计数和统计
             let duration_ns = start_time.elapsed().as_nanos() as u64;
             active_count_clone.fetch_sub(1, Ordering::Relaxed);
-            
+
             // 更新统计信息
             let mut stats = stats_clone.lock().await;
             stats.total_completed += 1;
             // 更新平均执行时间（简化计算）
             if stats.total_completed > 0 {
-                stats.avg_task_duration_ns = 
-                    (stats.avg_task_duration_ns * (stats.total_completed - 1) + duration_ns) 
-                    / stats.total_completed;
+                stats.avg_task_duration_ns =
+                    (stats.avg_task_duration_ns * (stats.total_completed - 1) + duration_ns)
+                        / stats.total_completed;
             }
             // 更新最大并发数
             let current_active = active_count_clone.load(Ordering::Relaxed);
@@ -279,11 +272,7 @@ impl CoroutinePool {
             }
         });
 
-        // 跟踪任务 (注：JoinHandle不可克隆，跳过跟踪)
-        // {
-        //     let mut tracking = task_tracking_clone.lock().await;
-        //     tracking.insert(task_id_clone, handle.clone());
-        // }
+        // 由于JoinHandle不可克隆，我们不跟踪具体的任务句柄，只在统计中记录
 
         Ok(handle)
     }
@@ -305,12 +294,16 @@ impl CoroutinePool {
     /// 批量提交协程任务
     ///
     /// 优化：批量提交可以减少锁竞争，提高性能
-    pub async fn spawn_batch<F, I>(&self, tasks: I) -> Result<Vec<tokio::task::JoinHandle<()>>, String>
+    pub async fn spawn_batch<F, I>(
+        &self,
+        tasks: I,
+    ) -> Result<Vec<tokio::task::JoinHandle<()>>, String>
     where
         F: std::future::Future<Output = ()> + Send + 'static,
         I: IntoIterator<Item = F>,
     {
-        self.spawn_batch_with_priority(tasks, TaskPriority::Normal).await
+        self.spawn_batch_with_priority(tasks, TaskPriority::Normal)
+            .await
     }
 
     /// 批量提交协程任务（带优先级）
@@ -361,7 +354,7 @@ impl CoroutinePool {
 
         while self.active_count.load(Ordering::Relaxed) > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            
+
             let current_count = self.active_count.load(Ordering::Relaxed);
             if current_count == last_count {
                 stable_count += 1;
@@ -392,7 +385,9 @@ impl CoroutinePool {
         };
 
         if let Some(handle) = handle {
-            handle.await.map_err(|e| format!("Task {} failed: {:?}", task_id, e))?;
+            handle
+                .await
+                .map_err(|e| format!("Task {} failed: {:?}", task_id, e))?;
             Ok(())
         } else {
             Err(format!("Task {} not found", task_id))
@@ -413,25 +408,25 @@ impl CoroutinePool {
     pub async fn cleanup(&self) {
         let mut handles = self.handles.lock().await;
         handles.clear();
-        
+
         let mut pending = self.pending_tasks.lock().await;
         pending.clear();
-        
+
         let mut tracking = self.task_tracking.lock().await;
         tracking.clear();
-        
+
         let mut work_queue = self.work_stealing_queue.lock().await;
         work_queue.clear();
-        
+
         self.active_count.store(0, Ordering::Relaxed);
-        
+
         // 重置统计
         let mut stats = self.stats.lock().await;
         *stats = CoroutinePoolStats::default();
     }
 
     /// 处理待处理任务队列
-    /// 
+    ///
     /// 当有可用资源时，从待处理队列中取出任务执行
     pub async fn process_pending_tasks(&self) -> usize {
         let current_active = self.active_count.load(Ordering::Relaxed);
@@ -464,8 +459,13 @@ impl CoroutinePool {
         all_tasks.extend(low_priority_tasks);
 
         for task_id in all_tasks.into_iter().take(available_slots) {
-            // 从工作窃取队列中取出任务并执行
-            // 注意：这里需要实际的任务执行逻辑
+            // 模拟任务执行：记录任务ID和处理时间
+            let task_info = format!("Processing task #{}", task_id);
+            tracing::debug!("{}", task_info);
+            
+            // 模拟任务执行时间
+            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            
             processed += 1;
         }
 

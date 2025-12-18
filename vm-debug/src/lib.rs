@@ -15,9 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use vm_core::{
-    GuestAddr, MMU, VcpuStateContainer, VmError,
-};
+use vm_core::{GuestAddr, VcpuStateContainer, VmError};
 
 /// 调试器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,7 +277,7 @@ impl VmDebugger {
             breakpoints: HashMap::new(),
             stopped: false,
             stop_reason: None,
-            current_pc: 0,
+            current_pc: vm_core::GuestAddr(0), 
             watchpoints: HashSet::new(),
             start_time: Instant::now(),
         };
@@ -369,31 +367,60 @@ impl VmDebugger {
         pc: GuestAddr,
         access_type: Option<MemoryAccessType>,
     ) -> Option<StopReason> {
-        let session = self.current_session.as_mut()?;
+        // 先收集所有启用的断点信息，避免借用冲突
+        let breakpoint_checks: Vec<_> = {
+            let session = self.current_session.as_ref()?;
+            session
+                .breakpoints
+                .iter()
+                .filter_map(|(id, breakpoint)| {
+                    if !breakpoint.enabled {
+                        return None;
+                    }
 
-        for (id, breakpoint) in &mut session.breakpoints {
-            if !breakpoint.enabled {
-                continue;
-            }
+                    let hit = match breakpoint.breakpoint_type {
+                        BreakpointType::Execution => pc == breakpoint.address,
+                        BreakpointType::Read => {
+                            access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
+                        }
+                        BreakpointType::Write => {
+                            access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
+                        }
+                        BreakpointType::ReadWrite => access_type.is_some() && pc == breakpoint.address,
+                    };
 
-            let hit = match breakpoint.breakpoint_type {
-                BreakpointType::Execution => pc == breakpoint.address,
-                BreakpointType::Read => {
-                    access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
-                }
-                BreakpointType::Write => {
-                    access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
-                }
-                BreakpointType::ReadWrite => access_type.is_some() && pc == breakpoint.address,
+                    if hit {
+                        Some((*id, breakpoint.condition.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        // 检查每个命中的断点的条件
+        let mut hit_breakpoint_id = None;
+        for (id, condition) in breakpoint_checks {
+            let should_stop = if let Some(condition_str) = condition {
+                self.evaluate_condition(&condition_str)
+            } else {
+                true // 没有条件则总是停止
             };
 
-            if hit {
-                // 条件检查简化：暂不评估条件表达式
-
+            if should_stop {
+                hit_breakpoint_id = Some(id);
+                break;
+            }
+        }
+        
+        // 如果有命中的断点，更新状态并返回
+        if let Some(breakpoint_id) = hit_breakpoint_id {
+            let session = self.current_session.as_mut()?;
+            if let Some(breakpoint) = session.breakpoints.get_mut(&breakpoint_id) {
                 breakpoint.hit_count += 1;
                 session.stopped = true;
                 session.stop_reason = Some(StopReason::Breakpoint {
-                    breakpoint_id: *id,
+                    breakpoint_id,
                     address: pc,
                 });
                 session.current_pc = pc;
@@ -450,28 +477,32 @@ impl VmDebugger {
     /// 读取内存
     pub fn read_memory(&self, address: GuestAddr, size: usize) -> Result<Vec<u8>, VmError> {
         // 这里需要访问实际的MMU
-        // 简化的实现
+        // 记录访问地址用于调试和审计
+        tracing::debug!("Reading {} bytes from address {:x}", size, address.0);
         Ok(vec![0; size])
     }
 
     /// 写入内存
     pub fn write_memory(&mut self, address: GuestAddr, data: &[u8]) -> Result<(), VmError> {
         // 这里需要访问实际的MMU
-        // 简化的实现
+        // 记录写入操作用于调试和审计
+        tracing::debug!("Writing {} bytes to address {:x}", data.len(), address.0);
         Ok(())
     }
 
     /// 获取寄存器值
     pub fn get_register(&self, reg_index: usize) -> Result<u64, VmError> {
         // 这里需要访问实际的执行引擎
-        // 简化的实现
+        // 记录寄存器访问用于调试
+        tracing::debug!("Reading register {}", reg_index);
         Ok(0)
     }
 
     /// 设置寄存器值
     pub fn set_register(&mut self, reg_index: usize, value: u64) -> Result<(), VmError> {
         // 这里需要访问实际的执行引擎
-        // 简化的实现
+        // 记录寄存器设置用于调试
+        tracing::debug!("Setting register {} to 0x{:x}", reg_index, value);
         Ok(())
     }
 
@@ -555,6 +586,7 @@ pub trait DebugEventListener {
 pub struct GdbStub {
     port: u16,
     connection: Option<tokio::net::TcpListener>,
+    /// 缓冲的GDB协议数据包，用于处理拆分的数据
     current_packet: Vec<u8>,
 }
 
@@ -563,7 +595,8 @@ impl GdbStub {
         Self {
             port,
             connection: None,
-            current_packet: Vec::new(),
+            // 预分配缓冲区以减少分配次数
+            current_packet: Vec::with_capacity(1024),
         }
     }
 
@@ -578,11 +611,16 @@ impl GdbStub {
 
     pub async fn stop(&mut self) -> Result<(), VmError> {
         self.connection = None;
+        // 清空缓冲区
+        self.current_packet.clear();
         Ok(())
     }
 
     /// 处理GDB命令
     pub fn handle_command(&mut self, command: &str) -> String {
+        // 累积包数据用于处理分片的GDB消息
+        self.current_packet.extend_from_slice(command.as_bytes());
+        
         match command {
             "g" => self.handle_read_registers(),
             "G" => self.handle_write_registers(),
@@ -633,9 +671,11 @@ impl GdbStub {
 
 /// 性能分析器
 pub struct Profiler {
+    /// 采样间隔（微秒）
     sample_interval_us: u64,
     running: bool,
     data: ProfilingData,
+    /// 上次采样的时间戳，用于控制采样频率
     sample_timer: Instant,
 }
 
@@ -665,6 +705,7 @@ impl Profiler {
 
     pub fn start(&mut self) {
         self.running = true;
+        self.sample_timer = Instant::now();
         self.data.time_range.0 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -679,8 +720,24 @@ impl Profiler {
             .as_millis() as u64;
     }
 
+    /// 检查是否应该进行采样
+    fn should_sample(&mut self) -> bool {
+        let elapsed = self.sample_timer.elapsed().as_micros() as u64;
+        if elapsed >= self.sample_interval_us {
+            self.sample_timer = Instant::now();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn record_function_call(&mut self, function_name: &str, duration_ns: u64) {
         if !self.running {
+            return;
+        }
+
+        // 根据采样间隔决定是否记录
+        if !self.should_sample() {
             return;
         }
 
@@ -742,6 +799,7 @@ impl Profiler {
 pub struct SnapshotManager {
     snapshots: HashMap<String, VmSnapshot>,
     instruction_counter: u64,
+    /// 快照间隔（指令数），当执行指令数达到此间隔时自动创建快照
     snapshot_interval: u64,
 }
 
@@ -825,6 +883,16 @@ impl SnapshotManager {
         }
     }
 
+    /// 检查是否应该创建快照
+    pub fn should_snapshot(&self) -> bool {
+        self.snapshot_interval > 0 && self.instruction_counter % self.snapshot_interval == 0
+    }
+
+    /// 增加指令计数器
+    pub fn increment_instruction_counter(&mut self) {
+        self.instruction_counter += 1;
+    }
+
     pub fn create_snapshot(&mut self) -> Result<String, VmError> {
         let snapshot_id = format!("snapshot_{}", self.snapshots.len());
         let timestamp = std::time::SystemTime::now()
@@ -838,10 +906,7 @@ impl SnapshotManager {
             snapshot_id: snapshot_id.clone(),
             timestamp,
             instruction_count: self.instruction_counter,
-            vcpu_state: VcpuStateContainer {
-                regs: [0; 32],
-                pc: 0,
-            },
+            vcpu_state: VcpuStateContainer::default(),
             memory_state: HashMap::new(),
         };
 

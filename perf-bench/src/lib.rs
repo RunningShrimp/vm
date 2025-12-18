@@ -103,8 +103,11 @@ impl Metrics {
     pub fn to_csv(&self) -> String {
         let mut result = format!(
             "{},{:.2},{},{:.2},{:.2}",
-            self.name, self.total_time_ms, self.operations, 
-            self.throughput_ops_per_ms, self.latency_us
+            self.name,
+            self.total_time_ms,
+            self.operations,
+            self.throughput_ops_per_ms,
+            self.latency_us
         );
 
         for (key, value) in &self.custom_metrics {
@@ -210,7 +213,11 @@ impl BenchmarkSuite {
             "Summary: {}/{} passed ({})",
             passed,
             total,
-            if self.all_passed() { "✓ PASS" } else { "✗ FAIL" }
+            if self.all_passed() {
+                "✓ PASS"
+            } else {
+                "✗ FAIL"
+            }
         );
         println!("Failed: {}", failed);
         println!("Total time: {:.2} s", elapsed);
@@ -277,7 +284,7 @@ impl AotBenchmark {
         std::thread::sleep(std::time::Duration::from_millis(200));
         let elapsed_ms = timer.elapsed_ms();
 
-        let total_size_kb = (self.module_count as u32) * self.avg_module_size_kb;
+        let total_size_kb = self.module_count * self.avg_module_size_kb;
         let mut metric = Metrics::new("AOT", elapsed_ms, self.module_count as u64);
         metric.add_custom_metric("binary_size_kb", total_size_kb as f64);
         metric.add_custom_metric("modules", self.module_count as f64);
@@ -311,6 +318,7 @@ impl GcBenchmark {
 
         let ops = (self.allocation_rate * 100) as u64;
         let mut metric = Metrics::new("Garbage Collection", elapsed_ms, ops);
+        metric.add_custom_metric("heap_size_mb", self.heap_size_mb as f64);
         metric.add_custom_metric("pause_time_ms", 12.3);
         metric.add_custom_metric("live_object_ratio_%", 42.3);
         metric.add_custom_metric("collection_rate_mb_per_s", 456.7);

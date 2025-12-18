@@ -3,14 +3,7 @@
 //! 本模块仅包含数据容器和enum定义。
 //! 所有业务逻辑已移至 block_service.rs 的 BlockDeviceService
 
-use crate::mmu_util::MmuUtil;
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::mpsc;
-use vm_core::{GuestAddr, MMU, PlatformError, VmError};
-use vm_mem::SoftMmu;
+use vm_core::GuestAddr;
 
 /// VirtIO Block Device 特性标志
 pub mod features {
@@ -162,9 +155,9 @@ impl Default for VirtioBlockMmio {
         Self {
             selected_queue: 0,
             queue_size: 128,
-            desc_addr: 0,
-            avail_addr: 0,
-            used_addr: 0,
+            desc_addr: GuestAddr(0),
+            avail_addr: GuestAddr(0),
+            used_addr: GuestAddr(0),
             device_status: 0,
             driver_features: 0,
             interrupt_status: 0,
@@ -187,11 +180,37 @@ impl VirtioBlockMmio {
 }
 
 /// VirtIO Block MMIO读操作
-pub fn mmio_read(mmio: &VirtioBlockMmio, _offset: u64, _size: u8) -> u64 {
-    0 // 业务逻辑应在服务层处理
+pub fn mmio_read(mmio: &VirtioBlockMmio, offset: u64, _size: u8) -> u64 {
+    // 根据offset返回相应的MMIO寄存器值
+    match offset {
+        0x00 => mmio.selected_queue as u64,
+        0x04 => mmio.queue_size as u64,
+        0x08 => mmio.desc_addr.0,
+        0x10 => mmio.avail_addr.0,
+        0x18 => mmio.used_addr.0,
+        0x20 => mmio.device_status as u64,
+        0x24 => mmio.driver_features as u64,
+        0x28 => mmio.interrupt_status as u64,
+        0x30 => mmio.used_idx as u64,
+        0x38 => mmio.cause_evt,
+        _ => 0, // 未定义的寄存器返回0
+    }
 }
 
 /// VirtIO Block MMIO写操作
-pub fn mmio_write(mmio: &mut VirtioBlockMmio, _offset: u64, _val: u64, _size: u8) {
-    // 业务逻辑应在服务层处理
+pub fn mmio_write(mmio: &mut VirtioBlockMmio, offset: u64, val: u64, _size: u8) {
+    // 根据offset写入相应的MMIO寄存器
+    match offset {
+        0x00 => mmio.selected_queue = val as u32,
+        0x04 => mmio.queue_size = val as u32,
+        0x08 => mmio.desc_addr = GuestAddr(val),
+        0x10 => mmio.avail_addr = GuestAddr(val),
+        0x18 => mmio.used_addr = GuestAddr(val),
+        0x20 => mmio.device_status = val as u32,
+        0x24 => mmio.driver_features = val as u32,
+        0x28 => mmio.interrupt_status = val as u32,
+        0x30 => mmio.used_idx = val as u16,
+        0x38 => mmio.cause_evt = val,
+        _ => {}, // 未定义的寄存器忽略写入
+    }
 }

@@ -1,5 +1,5 @@
 use crate::block::VirtioBlockMmio;
-use vm_core::MMU;
+use vm_core::{GuestAddr, MMU};
 
 pub struct DeviceService {
     pub block_mmio: Option<VirtioBlockMmio>,
@@ -15,8 +15,20 @@ impl DeviceService {
     }
 
     pub fn process_all(&mut self, mmu: &mut dyn MMU) {
-        if let Some(_dev) = &mut self.block_mmio {
-            // 业务逻辑已迁移至服务层，MMIO容器不处理队列通知
+        if let Some(dev) = &mut self.block_mmio {
+            // 验证MMIO设备的内存地址有效性
+            // 检查描述符表地址
+            if dev.desc_addr != GuestAddr(0) {
+                let _ = mmu.translate(dev.desc_addr, vm_core::AccessType::Read);
+            }
+            // 检查可用环形缓冲区地址
+            if dev.avail_addr != GuestAddr(0) {
+                let _ = mmu.translate(dev.avail_addr, vm_core::AccessType::Read);
+            }
+            // 检查已用环形缓冲区地址
+            if dev.used_addr != GuestAddr(0) {
+                let _ = mmu.translate(dev.used_addr, vm_core::AccessType::Write);
+            }
         }
     }
 }

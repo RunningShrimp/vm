@@ -373,3 +373,110 @@ mod interrupt_handling {
         assert!(ic.get_pending().is_some());
     }
 }
+#[cfg(test)]
+mod virtio_gpu_device {
+    /// VirtIO GPU设备模拟器
+    struct VirtioGpuDevice {
+        resolution: (u32, u32),
+        framebuffer: Vec<u32>,
+        device_status: u32,
+        capabilities: u32,
+    }
+
+    impl VirtioGpuDevice {
+        fn new(width: u32, height: u32) -> Self {
+            Self {
+                resolution: (width, height),
+                framebuffer: vec![0; (width * height) as usize],
+                device_status: 0,
+                capabilities: 0x00000001, // 支持基本绘图命令
+            }
+        }
+
+        fn set_resolution(&mut self, width: u32, height: u32) -> bool {
+            self.resolution = (width, height);
+            self.framebuffer = vec![0; (width * height) as usize];
+            true
+        }
+
+        fn draw_pixel(&mut self, x: u32, y: u32, color: u32) -> bool {
+            if x < self.resolution.0 && y < self.resolution.1 {
+                let index = (y * self.resolution.0 + x) as usize;
+                self.framebuffer[index] = color;
+                true
+            } else {
+                false
+            }
+        }
+
+        fn draw_rectangle(&mut self, x: u32, y: u32, width: u32, height: u32, color: u32) -> bool {
+            if x + width > self.resolution.0 || y + height > self.resolution.1 {
+                return false;
+            }
+
+            for row in y..y + height {
+                for col in x..x + width {
+                    let index = (row * self.resolution.0 + col) as usize;
+                    self.framebuffer[index] = color;
+                }
+            }
+            true
+        }
+
+        fn get_pixel(&self, x: u32, y: u32) -> Option<u32> {
+            if x < self.resolution.0 && y < self.resolution.1 {
+                let index = (y * self.resolution.0 + x) as usize;
+                Some(self.framebuffer[index])
+            } else {
+                None
+            }
+        }
+
+        fn get_framebuffer(&self) -> &[u32] {
+            &self.framebuffer
+        }
+    }
+
+    #[test]
+    fn test_gpu_device_creation() {
+        let device = VirtioGpuDevice::new(1024, 768);
+        assert_eq!(device.resolution, (1024, 768));
+        assert_eq!(device.framebuffer.len(), (1024 * 768) as usize);
+    }
+
+    #[test]
+    fn test_gpu_draw_pixel() {
+        let mut device = VirtioGpuDevice::new(800, 600);
+        assert!(device.draw_pixel(100, 200, 0x00FF00));
+        assert_eq!(device.get_pixel(100, 200), Some(0x00FF00));
+    }
+
+    #[test]
+    fn test_gpu_draw_rectangle() {
+        let mut device = VirtioGpuDevice::new(800, 600);
+        assert!(device.draw_rectangle(10, 20, 50, 30, 0xFF0000));
+        
+        // 检查矩形内的像素
+        assert_eq!(device.get_pixel(10, 20), Some(0xFF0000));
+        assert_eq!(device.get_pixel(59, 49), Some(0xFF0000));
+        
+        // 检查矩形外的像素
+        assert_eq!(device.get_pixel(9, 19), Some(0x000000));
+    }
+
+    #[test]
+    fn test_gpu_resolution_change() {
+        let mut device = VirtioGpuDevice::new(800, 600);
+        assert!(device.set_resolution(1920, 1080));
+        assert_eq!(device.resolution, (1920, 1080));
+        assert_eq!(device.framebuffer.len(), (1920 * 1080) as usize);
+    }
+
+    #[test]
+    fn test_gpu_boundary_check() {
+        let mut device = VirtioGpuDevice::new(100, 100);
+        // 超出边界的绘制应该失败
+        assert!(!device.draw_pixel(150, 200, 0x0000FF));
+        assert!(!device.draw_rectangle(50, 50, 100, 100, 0xFFFFFF));
+    }
+}

@@ -5,8 +5,7 @@
 use crate::Interpreter;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tokio::task;
-use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, GuestAddr, MMU, VmError};
+use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, MMU, VmError};
 use vm_ir::IRBlock;
 
 /// 异步执行统计信息
@@ -83,28 +82,28 @@ impl AsyncExecutionContext {
 /// 异步执行引擎trait
 pub trait AsyncExecutor: Send {
     /// 异步执行单个IR块
-    async fn execute_block_async(
+    fn execute_block_async(
         &mut self,
         mmu: &mut dyn MMU,
         block: &IRBlock,
-    ) -> Result<ExecResult, String>;
+    ) -> impl std::future::Future<Output = Result<ExecResult, String>> + Send;
 
     /// 异步执行多个步骤（带yield）
-    async fn run_steps_async(
+    fn run_steps_async(
         &mut self,
         mmu: &mut dyn MMU,
         block: &IRBlock,
         max_steps: u64,
         yield_interval: u64,
-    ) -> Result<ExecResult, String>;
+    ) -> impl std::future::Future<Output = Result<ExecResult, String>> + Send;
 
     /// 异步执行直到完成或中断
-    async fn run_until_fault_async(
+    fn run_until_fault_async(
         &mut self,
         mmu: &mut dyn MMU,
         block: &IRBlock,
         max_steps: u64,
-    ) -> Result<ExecResult, String>;
+    ) -> impl std::future::Future<Output = Result<ExecResult, String>> + Send;
 }
 
 /// 为Interpreter实现异步执行
@@ -123,7 +122,7 @@ impl AsyncExecutor for Interpreter {
 
     async fn run_steps_async(
         &mut self,
-        mmu: &mut dyn MMU,
+        _mmu: &mut dyn MMU,
         block: &IRBlock,
         max_steps: u64,
         yield_interval: u64,
@@ -203,8 +202,10 @@ impl AsyncExecutor for Interpreter {
                 tlb_misses: 0,
                 jit_compiles: 0,
                 jit_compile_time_ns: 0,
+                exec_time_ns: 0,
+                mem_accesses: 0,
             },
-            next_pc: 0, // 暂时使用 0，实际应该从 Interpreter 获取
+            next_pc: vm_core::GuestAddr(0), // 暂时使用 0，实际应该从 Interpreter 获取
         })
     }
 
@@ -225,8 +226,6 @@ impl AsyncExecutor for Interpreter {
 pub struct AsyncMultiVcpuExecutor {
     /// 虚拟CPU列表
     vcpus: Vec<Arc<Mutex<Interpreter>>>,
-    /// 并发任务数限制
-    max_concurrent: usize,
     /// 执行统计
     pub stats: Arc<Mutex<MultiVcpuStats>>,
 }
@@ -256,7 +255,6 @@ impl AsyncMultiVcpuExecutor {
 
         Self {
             vcpus,
-            max_concurrent: vcpu_count,
             stats: Arc::new(Mutex::new(MultiVcpuStats::default())),
         }
     }
@@ -269,9 +267,9 @@ impl AsyncMultiVcpuExecutor {
     /// 异步执行所有vCPU
     pub async fn run_all_vcpus_async(
         &self,
-        mmu_ref: Arc<Mutex<dyn MMU>>,
+        mmu_ref: Arc<Mutex<dyn MMU + Send>>,
         block: Arc<IRBlock>,
-        max_steps: u64,
+        _max_steps: u64,
     ) -> Result<Vec<ExecResult>, String> {
         let start_time = std::time::Instant::now();
         let mut handles = vec![];
@@ -302,12 +300,11 @@ impl AsyncMultiVcpuExecutor {
                 });
 
                 let result = result.unwrap_or_else(|e| ExecResult {
-                    status: ExecStatus::Fault(VmError::Core(vm_core::CoreError::Internal {
-                        message: e,
-                        module: "async_executor".to_string(),
-                    })),
+                    status: ExecStatus::Fault(vm_core::ExecutionError::Halted {
+                        reason: e,
+                    }),
                     stats: ExecStats::default(),
-                    next_pc: 0,
+                    next_pc: vm_core::GuestAddr(0),
                 });
 
                 let elapsed = start.elapsed().as_micros() as u64;
@@ -372,51 +369,57 @@ impl MockMMU {
     }
 }
 
-impl vm_core::MMU for MockMMU {
+impl vm_core::AddressTranslator for MockMMU {
     fn translate(
         &mut self,
-        va: GuestAddr,
-        _access: vm_core::AccessType,
+        va: vm_core::GuestAddr,
+        _access: vm_core::AccessType
     ) -> Result<vm_core::GuestPhysAddr, VmError> {
-        Ok(va) // 无翻译
+        Ok(vm_core::GuestPhysAddr::from(va)) // 无翻译
     }
-
-    fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
-        Ok(0)
-    }
-
-    fn read(&self, _pa: GuestAddr, _size: u8) -> Result<u64, VmError> {
-        Ok(0)
-    }
-
-    fn write(&mut self, _pa: GuestAddr, _val: u64, _size: u8) -> Result<(), VmError> {
-        Ok(())
-    }
-
-    fn map_mmio(&mut self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
-        // Mock implementation
-    }
-
+    
     fn flush_tlb(&mut self) {
         // Mock implementation
     }
+}
 
+impl vm_core::MemoryAccess for MockMMU {
+    fn read(&self, _pa: vm_core::GuestAddr, _size: u8) -> Result<u64, VmError> {
+        Ok(0)
+    }
+    
+    fn write(&mut self, _pa: vm_core::GuestAddr, _val: u64, _size: u8) -> Result<(), VmError> {
+        Ok(())
+    }
+    
+    fn fetch_insn(&self, _pc: vm_core::GuestAddr) -> Result<u64, VmError> {
+        Ok(0)
+    }
+    
     fn memory_size(&self) -> usize {
-        4096 * 1024 // 4MB
+        0
     }
-
+    
     fn dump_memory(&self) -> Vec<u8> {
-        vec![]
+        Vec::new()
     }
-
+    
     fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
         Ok(())
     }
+}
 
+impl vm_core::MmioManager for MockMMU {
+    fn map_mmio(&self, _base: vm_core::GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
+        // Mock implementation
+    }
+}
+
+impl vm_core::MmuAsAny for MockMMU {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-
+    
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }

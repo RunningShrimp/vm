@@ -3,8 +3,7 @@
 //! 提供硬件随机数生成器功能
 
 use crate::virtio::{Queue, VirtioDevice};
-use std::sync::{Arc, Mutex};
-use vm_core::{MMU, VmError};
+use vm_core::MMU;
 
 /// VirtIO RNG 设备
 pub struct VirtioRng {
@@ -82,7 +81,7 @@ impl VirtioDevice for VirtioRng {
                     let len = desc.len as usize;
                     let random_bytes = self.generate_random_bytes(len);
 
-                    if mmu.write_bulk(desc.addr, &random_bytes).is_ok() {
+                    if mmu.write_bulk(vm_core::GuestAddr(desc.addr), &random_bytes).is_ok() {
                         total_written += len;
                     }
                 }

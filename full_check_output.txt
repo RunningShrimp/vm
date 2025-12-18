@@ -1,0 +1,1152 @@
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `test` profile
+warning: variable does not need to be mutable
+   --> vm-common/src/lockfree/state_management.rs:283:55
+    |
+283 |     pub fn update_shard<F>(&self, shard_index: usize, mut updater: F) -> Option<StateSnapshot<T>>
+    |                                                       ----^^^^^^^
+    |                                                       |
+    |                                                       help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `old_data`
+   --> vm-common/src/lockfree/state_management.rs:469:54
+    |
+469 |         let new_snapshot = self.shared_state.update(|old_data| {
+    |                                                      ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_old_data`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `old_data`
+   --> vm-common/src/lockfree/state_management.rs:500:58
+    |
+500 |             let new_snapshot = self.shared_state.update(|old_data| {
+    |                                                          ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_old_data`
+
+warning: field `worker_id` is never read
+   --> vm-common/src/lockfree/queue.rs:428:5
+    |
+422 | pub struct WorkStealingQueue<T> {
+    |            ----------------- field in this struct
+...
+428 |     worker_id: usize,
+    |     ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `version` is never read
+  --> vm-common/src/lockfree/state_management.rs:92:5
+   |
+88 | pub struct LockFreeSharedState<T: Send + Sync> {
+   |            ------------------- field in this struct
+...
+92 |     version: AtomicU64,
+   |     ^^^^^^^
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/queue.rs:126:29
+    |
+126 | ...                   Box::from_raw(head);
+    |                       ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+126 |                             let _ = Box::from_raw(head);
+    |                             +++++++
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/queue.rs:179:17
+    |
+179 |                 Box::from_raw(head);
+    |                 ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+179 |                 let _ = Box::from_raw(head);
+    |                 +++++++
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:114:22
+    |
+114 |             unsafe { Box::from_raw(new_node) };
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+114 |             unsafe { let _ = Box::from_raw(new_node); };
+    |                      +++++++                        +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:168:30
+    |
+168 |                     unsafe { Box::from_raw(target) };
+    |                              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+168 |                     unsafe { let _ = Box::from_raw(target); };
+    |                              +++++++                      +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:181:30
+    |
+181 |                     unsafe { Box::from_raw(target) };
+    |                              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+181 |                     unsafe { let _ = Box::from_raw(target); };
+    |                              +++++++                      +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:217:26
+    |
+217 |                 unsafe { Box::from_raw(head) };
+    |                          ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+217 |                 unsafe { let _ = Box::from_raw(head); };
+    |                          +++++++                    +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:310:26
+    |
+310 |                 unsafe { Box::from_raw(head) };
+    |                          ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+310 |                 unsafe { let _ = Box::from_raw(head); };
+    |                          +++++++                    +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:155:26
+    |
+155 |                 unsafe { Box::from_raw(old_ptr) };
+    |                          ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+155 |                 unsafe { let _ = Box::from_raw(old_ptr); };
+    |                          +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:161:22
+    |
+161 |             unsafe { Box::from_raw(new_ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+161 |             unsafe { let _ = Box::from_raw(new_ptr); };
+    |                      +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:198:26
+    |
+198 |                 unsafe { Box::from_raw(old_ptr) };
+    |                          ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+198 |                 unsafe { let _ = Box::from_raw(old_ptr); };
+    |                          +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:204:22
+    |
+204 |             unsafe { Box::from_raw(new_ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+204 |             unsafe { let _ = Box::from_raw(new_ptr); };
+    |                      +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:222:22
+    |
+222 |             unsafe { Box::from_raw(ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+222 |             unsafe { let _ = Box::from_raw(ptr); };
+    |                      +++++++                   +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:384:18
+    |
+384 |         unsafe { Box::from_raw(old_ptr) };
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+384 |         unsafe { let _ = Box::from_raw(old_ptr); };
+    |                  +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:394:22
+    |
+394 |             unsafe { Box::from_raw(ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+394 |             unsafe { let _ = Box::from_raw(ptr); };
+    |                      +++++++                   +
+
+warning: `vm-common` (lib) generated 19 warnings (run `cargo fix --lib -p vm-common` to apply 1 suggestion)
+warning: unused variable: `addr`
+   --> vm-core/src/lib.rs:346:42
+    |
+346 |     fn invalidate_reservation(&mut self, addr: GuestAddr, size: u8) {
+    |                                          ^^^^ help: if this is intentional, prefix it with an underscore: `_addr`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `size`
+   --> vm-core/src/lib.rs:346:59
+    |
+346 |     fn invalidate_reservation(&mut self, addr: GuestAddr, size: u8) {
+    |                                                           ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: field `buffer` is never read
+  --> vm-core/src/gdb.rs:74:5
+   |
+72 | pub struct GdbConnection {
+   |            ------------- field in this struct
+73 |     stream: TcpStream,
+74 |     buffer: Vec<u8>,
+   |     ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-core` (lib) generated 3 warnings
+    Checking vm-mem v0.1.0 (/Users/didi/Desktop/vm/vm-mem)
+warning: unused import: `std::collections::VecDeque`
+ --> vm-mem/src/lib.rs:7:5
+  |
+7 | use std::collections::VecDeque;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ExecutionError`
+  --> vm-mem/src/lib.rs:14:27
+   |
+14 | use vm_core::{AccessType, ExecutionError, Fault, GuestAddr, GuestPhysAddr, MMU, MmioDevice, TlbEntry, VmError, 
+   |                           ^^^^^^^^^^^^^^
+
+warning: private item shadows public glob re-export
+  --> vm-mem/src/lib.rs:14:93
+   |
+14 | use vm_core::{AccessType, ExecutionError, Fault, GuestAddr, GuestPhysAddr, MMU, MmioDevice, TlbEntry, VmError, 
+   |                                                                                             ^^^^^^^^
+   |
+note: the name `TlbEntry` in the type namespace is supposed to be publicly re-exported here
+  --> vm-mem/src/lib.rs:37:5
+   |
+37 |     asm_opt::*,
+   |     ^^^^^^^^^^
+note: but the private item here shadows it
+  --> vm-mem/src/lib.rs:14:93
+   |
+14 | use vm_core::{AccessType, ExecutionError, Fault, GuestAddr, GuestPhysAddr, MMU, MmioDevice, TlbEntry, VmError, 
+   |                                                                                             ^^^^^^^^
+   = note: `#[warn(hidden_glob_reexports)]` on by default
+
+warning: unused import: `AtomicBool`
+ --> vm-mem/src/optimization/lockless_optimizations.rs:7:25
+  |
+7 | use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+  |                         ^^^^^^^^^^
+
+warning: unused import: `HostAddr`
+ --> vm-mem/src/optimization/advanced/prefetch.rs:5:24
+  |
+5 | use crate::{GuestAddr, HostAddr, VmError};
+  |                        ^^^^^^^^
+
+warning: unused import: `Fault`
+ --> vm-mem/src/optimization/advanced/prefetch.rs:7:27
+  |
+7 | use vm_core::{AccessType, Fault};
+  |                           ^^^^^
+
+warning: unused import: `HostAddr`
+ --> vm-mem/src/optimization/advanced/batch.rs:5:24
+  |
+5 | use crate::{GuestAddr, HostAddr, VmError};
+  |                        ^^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/optimization/advanced/batch.rs:6:15
+  |
+6 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::error::MemoryError`
+ --> vm-mem/src/optimization/advanced/batch.rs:7:5
+  |
+7 | use vm_core::error::MemoryError;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `HostAddr`
+ --> vm-mem/src/optimization/advanced/cache_friendly.rs:5:24
+  |
+5 | use crate::{GuestAddr, HostAddr, VmError};
+  |                        ^^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/optimization/advanced/cache_friendly.rs:6:15
+  |
+6 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `std::arch::aarch64::*`
+ --> vm-mem/src/optimization/advanced/simd_opt.rs:9:5
+  |
+9 | use std::arch::aarch64::*;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `HostAddr`
+ --> vm-mem/src/tlb/tlb.rs:8:24
+  |
+8 | use crate::{GuestAddr, HostAddr};
+  |                        ^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> vm-mem/src/tlb/tlb_concurrent.rs:22:5
+   |
+22 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AtomicUsize`
+  --> vm-mem/src/tlb/tlb_concurrent.rs:23:36
+   |
+23 | use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+   |                                    ^^^^^^^^^^^
+
+warning: unused imports: `Mutex` and `RwLock`
+  --> vm-mem/src/tlb/tlb_concurrent.rs:24:22
+   |
+24 | use std::sync::{Arc, Mutex, RwLock};
+   |                      ^^^^^  ^^^^^^
+
+warning: unused imports: `Duration` and `Instant`
+  --> vm-mem/src/tlb/tlb_concurrent.rs:25:17
+   |
+25 | use std::time::{Duration, Instant};
+   |                 ^^^^^^^^  ^^^^^^^
+
+warning: unused imports: `GuestAddr` and `GuestPhysAddr`
+  --> vm-mem/src/tlb/tlb_concurrent.rs:26:27
+   |
+26 | use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbEntry, TlbManager};
+   |                           ^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `GuestPhysAddr`
+ --> vm-mem/src/tlb/tlb_manager.rs:6:38
+  |
+6 | use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbEntry};
+  |                                      ^^^^^^^^^^^^^
+
+warning: unused imports: `GuestAddr` and `GuestPhysAddr`
+  --> vm-mem/src/tlb/tlb_optimized.rs:30:27
+   |
+30 | use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbEntry, TlbManager};
+   |                           ^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-mem/src/tlb/per_cpu_tlb.rs:5:24
+  |
+5 | use crate::{GuestAddr, VmError};
+  |                        ^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/tlb/per_cpu_tlb.rs:7:15
+  |
+7 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::error::MemoryError`
+ --> vm-mem/src/tlb/per_cpu_tlb.rs:8:5
+  |
+8 | use vm_core::error::MemoryError;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+  --> vm-mem/src/tlb/per_cpu_tlb.rs:10:5
+   |
+10 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused imports: `PageTableFlags` and `PageWalkResult`
+ --> vm-mem/src/tlb/tlb_sync.rs:7:18
+  |
+7 | use crate::mmu::{PageWalkResult, PageTableFlags};
+  |                  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused imports: `PerCpuTlbEntry` and `PerCpuTlbStatsSnapshot`
+ --> vm-mem/src/tlb/tlb_sync.rs:8:49
+  |
+8 | use crate::tlb::per_cpu_tlb::{PerCpuTlbManager, PerCpuTlbEntry, PerCpuTlbStatsSnapshot};
+  |                                                 ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/tlb/tlb_sync.rs:9:15
+  |
+9 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::error::MemoryError`
+  --> vm-mem/src/tlb/tlb_sync.rs:10:5
+   |
+10 | use vm_core::error::MemoryError;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PageTableFlags` and `PageWalkResult`
+ --> vm-mem/src/tlb/tlb_flush.rs:6:18
+  |
+6 | use crate::mmu::{PageWalkResult, PageTableFlags};
+  |                  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused imports: `PerCpuTlbEntry` and `PerCpuTlbStatsSnapshot`
+ --> vm-mem/src/tlb/tlb_flush.rs:7:49
+  |
+7 | use crate::tlb::per_cpu_tlb::{PerCpuTlbManager, PerCpuTlbEntry, PerCpuTlbStatsSnapshot};
+  |                                                 ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/tlb/tlb_flush.rs:8:15
+  |
+8 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::error::MemoryError`
+ --> vm-mem/src/tlb/tlb_flush.rs:9:5
+  |
+9 | use vm_core::error::MemoryError;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AtomicU64` and `Ordering`
+  --> vm-mem/src/tlb/unified_tlb.rs:29:25
+   |
+29 | use std::sync::atomic::{AtomicU64, Ordering};
+   |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `ConcurrentTlbManager`
+ --> vm-mem/src/unified_mmu.rs:7:26
+  |
+7 |     ConcurrentTlbConfig, ConcurrentTlbManager, ConcurrentTlbManagerAdapter,
+  |                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `MemoryError as CoreMemoryError`
+  --> vm-mem/src/unified_mmu.rs:19:22
+   |
+19 | use vm_core::error::{MemoryError as CoreMemoryError, VmError};
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `HostAddr`
+ --> vm-mem/src/mmu.rs:5:24
+  |
+5 | use crate::{GuestAddr, HostAddr};
+  |                        ^^^^^^^^
+
+warning: unused import: `MemoryError`
+ --> vm-mem/src/mmu.rs:7:22
+  |
+7 | use vm_core::error::{MemoryError, VmError};
+  |                      ^^^^^^^^^^^
+
+warning: unused import: `super::*`
+  --> vm-mem/src/mmu.rs:11:9
+   |
+11 |     use super::*;
+   |         ^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> vm-mem/src/mmu.rs:95:5
+   |
+95 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: `(dyn PageTableWalker + 'static)` cannot be shared between threads safely
+   --> vm-mem/src/lib.rs:847:28
+    |
+847 | impl AddressTranslator for SoftMmu {
+    |                            ^^^^^^^ `(dyn PageTableWalker + 'static)` cannot be shared between threads safely
+    |
+    = help: the trait `Sync` is not implemented for `(dyn PageTableWalker + 'static)`
+    = note: required for `Unique<(dyn PageTableWalker + 'static)>` to implement `Sync`
+note: required because it appears within the type `Box<(dyn PageTableWalker + 'static)>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/boxed.rs:231:12
+    |
+231 | pub struct Box<
+    |            ^^^
+note: required because it appears within the type `Option<Box<(dyn PageTableWalker + 'static)>>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:594:10
+    |
+594 | pub enum Option<T> {
+    |          ^^^^^^
+note: required because it appears within the type `SoftMmu`
+   --> vm-mem/src/lib.rs:549:12
+    |
+549 | pub struct SoftMmu {
+    |            ^^^^^^^
+note: required by a bound in `AddressTranslator`
+   --> /Users/didi/Desktop/vm/vm-core/src/mmu_traits.rs:10:37
+    |
+ 10 | pub trait AddressTranslator: Send + Sync {
+    |                                     ^^^^ required by this bound in `AddressTranslator`
+
+error[E0277]: `(dyn PageTableWalker + 'static)` cannot be sent between threads safely
+   --> vm-mem/src/lib.rs:847:28
+    |
+847 | impl AddressTranslator for SoftMmu {
+    |                            ^^^^^^^ `(dyn PageTableWalker + 'static)` cannot be sent between threads safely
+    |
+    = help: the trait `Send` is not implemented for `(dyn PageTableWalker + 'static)`
+    = note: required for `Unique<(dyn PageTableWalker + 'static)>` to implement `Send`
+note: required because it appears within the type `Box<(dyn PageTableWalker + 'static)>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/boxed.rs:231:12
+    |
+231 | pub struct Box<
+    |            ^^^
+note: required because it appears within the type `Option<Box<(dyn PageTableWalker + 'static)>>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:594:10
+    |
+594 | pub enum Option<T> {
+    |          ^^^^^^
+note: required because it appears within the type `SoftMmu`
+   --> vm-mem/src/lib.rs:549:12
+    |
+549 | pub struct SoftMmu {
+    |            ^^^^^^^
+note: required by a bound in `AddressTranslator`
+   --> /Users/didi/Desktop/vm/vm-core/src/mmu_traits.rs:10:30
+    |
+ 10 | pub trait AddressTranslator: Send + Sync {
+    |                              ^^^^ required by this bound in `AddressTranslator`
+
+error[E0277]: `(dyn MmioDevice + 'static)` cannot be sent between threads safely
+   --> vm-mem/src/lib.rs:847:28
+    |
+847 | impl AddressTranslator for SoftMmu {
+    |                            ^^^^^^^ `(dyn MmioDevice + 'static)` cannot be sent between threads safely
+    |
+    = help: the trait `Send` is not implemented for `(dyn MmioDevice + 'static)`
+    = note: required for `Unique<(dyn MmioDevice + 'static)>` to implement `Send`
+note: required because it appears within the type `Box<(dyn MmioDevice + 'static)>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/boxed.rs:231:12
+    |
+231 | pub struct Box<
+    |            ^^^
+    = note: required for `parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Box<(dyn MmioDevice + 'static)>>` to implement `Sync`
+    = note: 1 redundant requirement hidden
+    = note: required for `Arc<parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Box<(dyn MmioDevice + 'static)>>>` to implement `Send`
+note: required because it appears within the type `MmioRegion`
+   --> vm-mem/src/lib.rs:204:8
+    |
+204 | struct MmioRegion {
+    |        ^^^^^^^^^^
+note: required because it appears within the type `PhantomData<MmioRegion>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/marker.rs:822:12
+    |
+822 | pub struct PhantomData<T: PointeeSized>;
+    |            ^^^^^^^^^^^
+note: required because it appears within the type `alloc::raw_vec::RawVec<MmioRegion>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/raw_vec/mod.rs:74:19
+    |
+ 74 | pub(crate) struct RawVec<T, A: Allocator = Global> {
+    |                   ^^^^^^
+note: required because it appears within the type `Vec<MmioRegion>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/vec/mod.rs:434:12
+    |
+434 | pub struct Vec<T, #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator = Global> {
+    |            ^^^
+    = note: required for `parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Vec<MmioRegion>>` to implement `Sync`
+note: required because it appears within the type `PhysicalMemory`
+   --> vm-mem/src/lib.rs:217:12
+    |
+217 | pub struct PhysicalMemory {
+    |            ^^^^^^^^^^^^^^
+    = note: required for `Arc<PhysicalMemory>` to implement `Sync`
+note: required because it appears within the type `SoftMmu`
+   --> vm-mem/src/lib.rs:549:12
+    |
+549 | pub struct SoftMmu {
+    |            ^^^^^^^
+note: required by a bound in `AddressTranslator`
+   --> /Users/didi/Desktop/vm/vm-core/src/mmu_traits.rs:10:37
+    |
+ 10 | pub trait AddressTranslator: Send + Sync {
+    |                                     ^^^^ required by this bound in `AddressTranslator`
+
+error[E0277]: `(dyn MmioDevice + 'static)` cannot be shared between threads safely
+   --> vm-mem/src/lib.rs:847:28
+    |
+847 | impl AddressTranslator for SoftMmu {
+    |                            ^^^^^^^ `(dyn MmioDevice + 'static)` cannot be shared between threads safely
+    |
+    = help: the trait `Sync` is not implemented for `(dyn MmioDevice + 'static)`
+    = note: required for `Unique<(dyn MmioDevice + 'static)>` to implement `Sync`
+note: required because it appears within the type `Box<(dyn MmioDevice + 'static)>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/boxed.rs:231:12
+    |
+231 | pub struct Box<
+    |            ^^^
+    = note: required for `parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Box<(dyn MmioDevice + 'static)>>` to implement `Sync`
+    = note: required for `Arc<parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Box<(dyn MmioDevice + 'static)>>>` to implement `Send`
+note: required because it appears within the type `MmioRegion`
+   --> vm-mem/src/lib.rs:204:8
+    |
+204 | struct MmioRegion {
+    |        ^^^^^^^^^^
+note: required because it appears within the type `PhantomData<MmioRegion>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/marker.rs:822:12
+    |
+822 | pub struct PhantomData<T: PointeeSized>;
+    |            ^^^^^^^^^^^
+note: required because it appears within the type `alloc::raw_vec::RawVec<MmioRegion>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/raw_vec/mod.rs:74:19
+    |
+ 74 | pub(crate) struct RawVec<T, A: Allocator = Global> {
+    |                   ^^^^^^
+note: required because it appears within the type `Vec<MmioRegion>`
+   --> /Users/didi/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/alloc/src/vec/mod.rs:434:12
+    |
+434 | pub struct Vec<T, #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator = Global> {
+    |            ^^^
+    = note: required for `parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Vec<MmioRegion>>` to implement `Sync`
+note: required because it appears within the type `PhysicalMemory`
+   --> vm-mem/src/lib.rs:217:12
+    |
+217 | pub struct PhysicalMemory {
+    |            ^^^^^^^^^^^^^^
+    = note: required for `Arc<PhysicalMemory>` to implement `Sync`
+note: required because it appears within the type `SoftMmu`
+   --> vm-mem/src/lib.rs:549:12
+    |
+549 | pub struct SoftMmu {
+    |            ^^^^^^^
+note: required by a bound in `AddressTranslator`
+   --> /Users/didi/Desktop/vm/vm-core/src/mmu_traits.rs:10:37
+    |
+ 10 | pub trait AddressTranslator: Send + Sync {
+    |                                     ^^^^ required by this bound in `AddressTranslator`
+
+error[E0308]: mismatched types
+   --> vm-mem/src/optimization/advanced/prefetch.rs:391:32
+    |
+391 |                 gva: GuestAddr(page_base),
+    |                      --------- ^^^^^^^^^ expected `u64`, found `GuestAddr`
+    |                      |
+    |                      arguments to this struct are incorrect
+    |
+note: tuple struct defined here
+   --> /Users/didi/Desktop/vm/vm-core/src/lib.rs:56:12
+    |
+ 56 | pub struct GuestAddr(pub u64);
+    |            ^^^^^^^^^
+
+error[E0308]: mismatched types
+   --> vm-mem/src/optimization/advanced/prefetch.rs:392:22
+    |
+392 |                 gpa: page_walk_result.gpa & !(4096 - 1),
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `GuestAddr`, found `u64`
+    |
+help: try wrapping the expression in `vm_core::GuestAddr`
+    |
+392 |                 gpa: vm_core::GuestAddr(page_walk_result.gpa & !(4096 - 1)),
+    |                      +++++++++++++++++++                                  +
+
+error[E0308]: mismatched types
+   --> vm-mem/src/optimization/advanced/prefetch.rs:594:36
+    |
+594 |                     gva: GuestAddr(page_base),
+    |                          --------- ^^^^^^^^^ expected `u64`, found `GuestAddr`
+    |                          |
+    |                          arguments to this struct are incorrect
+    |
+note: tuple struct defined here
+   --> /Users/didi/Desktop/vm/vm-core/src/lib.rs:56:12
+    |
+ 56 | pub struct GuestAddr(pub u64);
+    |            ^^^^^^^^^
+
+warning: unreachable expression
+  --> vm-mem/src/optimization/advanced/cache_friendly.rs:91:13
+   |
+87 |                 return CopyStrategy::Simd128;
+   |                 ---------------------------- any code following this expression is unreachable
+...
+91 |             CopyStrategy::WordByWord
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable expression
+   --> vm-mem/src/optimization/advanced/cache_friendly.rs:415:9
+    |
+411 |             unsafe { return self.copy_simd128_arm(src, dst, size); }
+    |                      -------------------------------------------- any code following this expression is unreachable
+...
+415 |         unsafe { self.copy_word_by_word(src, dst, size); }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable expression
+
+error[E0599]: no method named `wrapping_sub` found for struct `GuestAddr` in the current scope
+   --> vm-mem/src/unified_mmu.rs:197:33
+    |
+197 |         let step = current_addr.wrapping_sub(last_addr);
+    |                                 ^^^^^^^^^^^^ method not found in `GuestAddr`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+197 |         let step = current_addr.0.wrapping_sub(last_addr);
+    |                                 ++
+
+error[E0599]: no method named `wrapping_add` found for struct `GuestAddr` in the current scope
+   --> vm-mem/src/unified_mmu.rs:201:47
+    |
+201 |             let predicted_addr = current_addr.wrapping_add(step);
+    |                                               ^^^^^^^^^^^^ method not found in `GuestAddr`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+201 |             let predicted_addr = current_addr.0.wrapping_add(step);
+    |                                               ++
+
+warning: use of deprecated field `unified_mmu::UnifiedMmuConfig::multilevel_tlb_config`: 使用unified_tlb_config替代
+   --> vm-mem/src/unified_mmu.rs:383:13
+    |
+383 |             multilevel_tlb_config: MultiLevelTlbConfig::default(),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated field `unified_mmu::UnifiedMmuConfig::concurrent_tlb_config`: 使用unified_tlb_config替代
+   --> vm-mem/src/unified_mmu.rs:384:13
+    |
+384 |             concurrent_tlb_config: ConcurrentTlbConfig::default(),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+   --> vm-mem/src/unified_mmu.rs:579:30
+    |
+579 |             page_table_base: 0,
+    |                              ^ expected `GuestPhysAddr`, found integer
+    |
+help: try wrapping the expression in `vm_core::GuestPhysAddr`
+    |
+579 |             page_table_base: vm_core::GuestPhysAddr(0),
+    |                              +++++++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-mem/src/unified_mmu.rs:617:32
+    |
+617 |         self.page_table_base = ppn << PAGE_SHIFT;
+    |         --------------------   ^^^^^^^^^^^^^^^^^ expected `GuestPhysAddr`, found `u64`
+    |         |
+    |         expected due to the type of this binding
+    |
+help: try wrapping the expression in `vm_core::GuestPhysAddr`
+    |
+617 |         self.page_table_base = vm_core::GuestPhysAddr(ppn << PAGE_SHIFT);
+    |                                +++++++++++++++++++++++                 +
+
+error[E0308]: mismatched types
+   --> vm-mem/src/unified_mmu.rs:679:25
+    |
+679 |         let vpn = va >> PAGE_SHIFT;
+    |                         ^^^^^^^^^^ expected `u32`, found `u64`
+    |
+help: you can convert `va` from `u32` to `u64`, matching the type of `PAGE_SHIFT`
+    |
+679 |         let vpn = u64::from(va) >> PAGE_SHIFT;
+    |                   ++++++++++  +
+
+error[E0609]: no field `phys_addr` on type `vm_core::TlbEntry`
+   --> vm-mem/src/unified_mmu.rs:706:29
+    |
+706 |             let ppn = entry.phys_addr >> PAGE_SHIFT;
+    |                             ^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `vpn`, `ppn`, `flags`, `asid`
+
+error[E0599]: no variant or associated item named `Exec` found for enum `AccessType` in the current scope
+   --> vm-mem/src/unified_mmu.rs:713:29
+    |
+713 |                 AccessType::Exec => pte_flags::X,
+    |                             ^^^^ variant or associated item not found in `AccessType`
+
+error[E0559]: variant `vm_core::Fault::PageFault` has no field named `access`
+   --> vm-mem/src/unified_mmu.rs:720:21
+    |
+720 |                     access,
+    |                     ^^^^^^ `vm_core::Fault::PageFault` does not have this field
+    |
+    = note: available fields are: `access_type`, `is_write`, `is_user`
+
+error[E0061]: this method takes 3 arguments but 4 arguments were supplied
+   --> vm-mem/src/unified_mmu.rs:752:37
+    |
+752 |                 let result = walker.walk(va, access, asid, self as &mut dyn MMU);
+    |                                     ^^^^ --                -------------------- unexpected argument #4 of type `&mut dyn vm_core::MMU`
+    |                                          |
+    |                                          expected `GuestAddr`, found `u64`
+    |
+note: method defined here
+   --> /Users/didi/Desktop/vm/vm-core/src/lib.rs:408:8
+    |
+408 |     fn walk(&self, addr: GuestAddr, access: AccessType, asid: u16) -> Result<GuestPhysAddr, VmError>;
+    |        ^^^^
+help: try wrapping the expression in `vm_core::GuestAddr`
+    |
+752 |                 let result = walker.walk(vm_core::GuestAddr(va), access, asid, self as &mut dyn MMU);
+    |                                          +++++++++++++++++++  +
+help: remove the extra argument
+    |
+752 -                 let result = walker.walk(va, access, asid, self as &mut dyn MMU);
+752 +                 let result = walker.walk(/* GuestAddr */, access, asid);
+    |
+
+error[E0308]: mismatched types
+   --> vm-mem/src/unified_mmu.rs:759:58
+    |
+759 |                 let pa = self.page_table_walk_with_cache(va, access)?;
+    |                               -------------------------- ^^ expected `GuestAddr`, found `u64`
+    |                               |
+    |                               arguments to this method are incorrect
+    |
+note: method defined here
+   --> vm-mem/src/unified_mmu.rs:905:8
+    |
+905 |     fn page_table_walk_with_cache(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+906 |         &self,
+907 |         va: GuestAddr,
+    |         -------------
+help: try wrapping the expression in `vm_core::GuestAddr`
+    |
+759 |                 let pa = self.page_table_walk_with_cache(vm_core::GuestAddr(va), access)?;
+    |                                                          +++++++++++++++++++  +
+
+error[E0308]: `match` arms have incompatible types
+   --> vm-mem/src/unified_mmu.rs:760:17
+    |
+749 |           let (pa, flags) = match self.page_table_walker.take() {
+    |  ___________________________-
+750 | |             Some(mut walker) => {
+751 | |                 // 临时移出walker，避免双重借用
+752 | |                 let result = walker.walk(va, access, asid, self as &mut dyn MMU);
+...   |
+755 | |                 result
+    | |                 ------ this is found to be of type `Result<GuestPhysAddr, CoreVmError>`
+...   |
+760 | |                 Ok((pa, pte_flags::R | pte_flags::W | pte_flags::X))
+    | |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<GuestPhysAddr, CoreVmError>`, found `Result<(GuestPhysAddr, u64), _>`
+761 | |             }
+762 | |         }?;
+    | |_________- `match` arms have incompatible types
+    |
+    = note: expected enum `Result<GuestPhysAddr, CoreVmError>`
+               found enum `Result<(GuestPhysAddr, u64), _>`
+
+error[E0599]: no variant or associated item named `Exec` found for enum `AccessType` in the current scope
+   --> vm-mem/src/unified_mmu.rs:777:25
+    |
+777 |             AccessType::Exec => pte_flags::X,
+    |                         ^^^^ variant or associated item not found in `AccessType`
+
+error[E0308]: mismatched types
+   --> vm-mem/src/unified_mmu.rs:783:23
+    |
+783 |                 addr: va,
+    |                       ^^ expected `GuestAddr`, found `u64`
+    |
+help: try wrapping the expression in `vm_core::GuestAddr`
+    |
+783 |                 addr: vm_core::GuestAddr(va),
+    |                       +++++++++++++++++++  +
+
+error[E0559]: variant `vm_core::Fault::PageFault` has no field named `access`
+   --> vm-mem/src/unified_mmu.rs:784:17
+    |
+784 |                 access,
+    |                 ^^^^^^ `vm_core::Fault::PageFault` does not have this field
+    |
+    = note: available fields are: `access_type`, `is_write`, `is_user`
+
+error[E0308]: mismatched types
+   --> vm-mem/src/unified_mmu.rs:799:46
+    |
+799 |             prefetcher.write().record_access(va);
+    |                                ------------- ^^ expected `GuestAddr`, found `u64`
+    |                                |
+    |                                arguments to this method are incorrect
+    |
+note: method defined here
+   --> vm-mem/src/unified_mmu.rs:178:12
+    |
+178 |     pub fn record_access(&mut self, addr: GuestAddr) {
+    |            ^^^^^^^^^^^^^            ---------------
+help: try wrapping the expression in `vm_core::GuestAddr`
+    |
+799 |             prefetcher.write().record_access(vm_core::GuestAddr(va));
+    |                                              +++++++++++++++++++  +
+
+error[E0308]: mismatched types
+    --> vm-mem/src/unified_mmu.rs:1034:30
+     |
+1034 |         self.check_alignment(pa, size)?;
+     |              --------------- ^^ expected `GuestAddr`, found `GuestPhysAddr`
+     |              |
+     |              arguments to this method are incorrect
+     |
+note: method defined here
+    --> vm-mem/src/unified_mmu.rs:978:8
+     |
+ 978 |     fn check_alignment(&self, pa: GuestAddr, size: u8) -> Result<(), VmError> {
+     |        ^^^^^^^^^^^^^^^        -------------
+help: call `Into::into` on this expression to convert `GuestPhysAddr` into `GuestAddr`
+     |
+1034 |         self.check_alignment(pa.into(), size)?;
+     |                                +++++++
+
+error[E0605]: non-primitive cast: `GuestPhysAddr` as `usize`
+    --> vm-mem/src/unified_mmu.rs:1033:20
+     |
+1033 |         let addr = pa as usize;
+     |                    ^^^^^^^^^^^ an `as` expression can only be used to convert between primitive types or to coerce to a specific trait object
+
+error[E0308]: mismatched types
+   --> vm-mem/src/lib.rs:864:30
+    |
+864 |         self.itlb.flush_page(va);
+    |                   ---------- ^^ expected `u64`, found `GuestAddr`
+    |                   |
+    |                   arguments to this method are incorrect
+    |
+note: method defined here
+   --> vm-mem/src/lib.rs:185:8
+    |
+185 |     fn flush_page(&mut self, vpn: u64) {
+    |        ^^^^^^^^^^            --------
+
+error[E0308]: mismatched types
+   --> vm-mem/src/lib.rs:865:30
+    |
+865 |         self.dtlb.flush_page(va);
+    |                   ---------- ^^ expected `u64`, found `GuestAddr`
+    |                   |
+    |                   arguments to this method are incorrect
+    |
+note: method defined here
+   --> vm-mem/src/lib.rs:185:8
+    |
+185 |     fn flush_page(&mut self, vpn: u64) {
+    |        ^^^^^^^^^^            --------
+
+warning: unused variable: `i`
+   --> vm-mem/src/memory/memory_pool.rs:381:14
+    |
+381 |         for (i, pool) in self.tlb_pools.iter().enumerate() {
+    |              ^
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+help: if this is intentional, prefix it with an underscore
+    |
+381 |         for (_i, pool) in self.tlb_pools.iter().enumerate() {
+    |              +
+help: you might have meant to pattern match on the similarly named constant `SHARD_COUNT`
+    |
+381 -         for (i, pool) in self.tlb_pools.iter().enumerate() {
+381 +         for (SHARD_COUNT, pool) in self.tlb_pools.iter().enumerate() {
+    |
+
+warning: unused variable: `i`
+   --> vm-mem/src/memory/memory_pool.rs:385:14
+    |
+385 |         for (i, pool) in self.pte_pools.iter().enumerate() {
+    |              ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+385 |         for (_i, pool) in self.pte_pools.iter().enumerate() {
+    |              +
+help: you might have meant to pattern match on the similarly named constant `SHARD_COUNT`
+    |
+385 -         for (i, pool) in self.pte_pools.iter().enumerate() {
+385 +         for (SHARD_COUNT, pool) in self.pte_pools.iter().enumerate() {
+    |
+
+warning: unused variable: `offset`
+  --> vm-mem/src/memory/page_table_walker.rs:82:13
+   |
+82 |         let offset = addr & (PAGE_SIZE - 1);
+   |             ^^^^^^
+   |
+help: if this is intentional, prefix it with an underscore
+   |
+82 |         let _offset = addr & (PAGE_SIZE - 1);
+   |             +
+help: you might have meant to pattern match on the similarly named constant `PAGE_SIZE_1G`
+   |
+82 -         let offset = addr & (PAGE_SIZE - 1);
+82 +         let mmu::PAGE_SIZE_1G = addr & (PAGE_SIZE - 1);
+   |
+
+warning: value assigned to `pte_addr` is never read
+  --> vm-mem/src/memory/page_table_walker.rs:88:13
+   |
+88 |             pte_addr = pte_addr + vpn[level as usize] * PTE_SIZE;
+   |             ^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `access`
+  --> vm-mem/src/memory/page_table_walker.rs:64:37
+   |
+64 |     fn walk(&self, addr: GuestAddr, access: AccessType, asid: u16) -> Result<GuestPhysAddr, VmError> {
+   |                                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_access`
+
+warning: unused variable: `asid`
+  --> vm-mem/src/memory/page_table_walker.rs:64:57
+   |
+64 |     fn walk(&self, addr: GuestAddr, access: AccessType, asid: u16) -> Result<GuestPhysAddr, VmError> {
+   |                                                         ^^^^ help: if this is intentional, prefix it with an underscore: `_asid`
+
+warning: variable does not need to be mutable
+  --> vm-mem/src/memory/page_table_walker.rs:85:13
+   |
+85 |         let mut level = 3i32;
+   |             ----^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `second_size`
+   --> vm-mem/src/optimization/advanced/batch.rs:333:25
+    |
+333 |                     let second_size = size - first_size;
+    |                         ^^^^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+333 |                     let _second_size = size - first_size;
+    |                         +
+help: you might have meant to pattern match on the similarly named constant `SHARD_COUNT`
+    |
+333 -                     let second_size = size - first_size;
+333 +                     let SHARD_COUNT = size - first_size;
+    |
+
+error[E0004]: non-exhaustive patterns: `CopyStrategy::Adaptive` not covered
+   --> vm-mem/src/optimization/advanced/cache_friendly.rs:304:15
+    |
+304 |         match strategy {
+    |               ^^^^^^^^ pattern `CopyStrategy::Adaptive` not covered
+    |
+note: `CopyStrategy` defined here
+   --> vm-mem/src/optimization/advanced/cache_friendly.rs:13:10
+    |
+ 13 | pub enum CopyStrategy {
+    |          ^^^^^^^^^^^^
+...
+ 25 |     Adaptive,
+    |     -------- not covered
+    = note: the matched value is of type `CopyStrategy`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+    |
+324 ~             },
+325 +             CopyStrategy::Adaptive => todo!()
+    |
+
+warning[E0133]: call to unsafe function `optimization::advanced::cache_friendly::FastMemoryCopier::copy_byte_by_byte` is unsafe and requires unsafe block
+   --> vm-mem/src/optimization/advanced/cache_friendly.rs:307:17
+    |
+307 |                 self.copy_byte_by_byte(src, dst, size);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+note: an unsafe function restricts its caller, but its body is safe by default
+   --> vm-mem/src/optimization/advanced/cache_friendly.rs:279:5
+    |
+279 |     pub unsafe fn copy_memory(&self, src: *const u8, dst: *mut u8, size: usize) -> Result<(), VmError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(unsafe_op_in_unsafe_fn)]` (part of `#[warn(rust_2024_compatibility)]`) on by default
+
+warning: unused variable: `cutoff_time`
+   --> vm-mem/src/tlb/tlb_flush.rs:247:13
+    |
+247 |         let cutoff_time = oldest_time + Duration::from_secs(60); // 1分钟
+    |             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_cutoff_time`
+
+warning: unused variable: `stride`
+   --> vm-mem/src/tlb/tlb_flush.rs:729:38
+    |
+729 |             AccessPattern::Strided { stride } => {
+    |                                      ^^^^^^ help: try ignoring the field: `stride: _`
+
+warning: unused variable: `hot_pages`
+   --> vm-mem/src/tlb/tlb_flush.rs:714:9
+    |
+714 |         hot_pages: &[(GuestAddr, u16, u64)],
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_hot_pages`
+
+warning: unused variable: `asid`
+   --> vm-mem/src/unified_mmu.rs:639:35
+    |
+639 |     fn flush_asid_tlbs(&mut self, asid: u16) {
+    |                                   ^^^^ help: if this is intentional, prefix it with an underscore: `_asid`
+
+warning: unused variable: `size`
+   --> vm-mem/src/lib.rs:876:47
+    |
+876 |     fn is_accessible(&self, vaddr: GuestAddr, size: usize) -> bool {
+    |                                               ^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+876 |     fn is_accessible(&self, vaddr: GuestAddr, _size: usize) -> bool {
+    |                                               +
+help: you might have meant to pattern match on the similarly named constant `SHARD_COUNT`
+    |
+876 -     fn is_accessible(&self, vaddr: GuestAddr, size: usize) -> bool {
+876 +     fn is_accessible(&self, vaddr: GuestAddr, SHARD_COUNT: usize) -> bool {
+    |
+
+warning: variable does not need to be mutable
+   --> vm-mem/src/lib.rs:933:29
+    |
+933 |                         let mut temp_buf = [0u8; 1];
+    |                             ----^^^^^^^^
+    |                             |
+    |                             help: remove this `mut`
+
+Some errors have detailed explanations: E0004, E0061, E0133, E0277, E0308, E0559, E0599, E0605, E0609.
+For more information about an error, try `rustc --explain E0004`.
+warning: `vm-mem` (lib) generated 58 warnings
+error: could not compile `vm-mem` (lib) due to 27 previous errors; 58 warnings emitted

@@ -2,9 +2,9 @@
 //!
 //! GMP风格的协程调度器实现,支持work stealing和负载均衡
 
+use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 /// 协程ID
 pub type CoroutineId = u64;
@@ -258,7 +258,7 @@ impl Scheduler {
         }
 
         let vcpu = &mut self.vcpus[vcpu_id as usize];
-        
+
         // 先尝试本地队列
         if let Some(coro) = vcpu.dequeue() {
             return Some(coro);
@@ -325,12 +325,9 @@ impl Scheduler {
 
         let loads: Vec<usize> = self.vcpus.iter().map(|v| v.queue_length()).collect();
         let avg = loads.iter().sum::<usize>() as f64 / loads.len() as f64;
-        let variance = loads
-            .iter()
-            .map(|&l| (l as f64 - avg).powi(2))
-            .sum::<f64>()
-            / loads.len() as f64;
-        
+        let variance =
+            loads.iter().map(|&l| (l as f64 - avg).powi(2)).sum::<f64>() / loads.len() as f64;
+
         variance.sqrt()
     }
 
@@ -371,10 +368,10 @@ mod tests {
     #[test]
     fn test_coroutine_state_transitions() {
         let mut coro = Coroutine::new(1);
-        
+
         coro.mark_ready();
         assert_eq!(coro.state, CoroutineState::Ready);
-        
+
         coro.mark_running();
         assert_eq!(coro.state, CoroutineState::Running);
     }
@@ -391,10 +388,10 @@ mod tests {
     fn test_vcpu_enqueue_dequeue() {
         let mut vcpu = VCPU::new(0);
         let coro = Coroutine::new(1);
-        
+
         vcpu.enqueue(coro.clone());
         assert_eq!(vcpu.queue_length(), 1);
-        
+
         let dequeued = vcpu.dequeue();
         assert!(dequeued.is_some());
         assert_eq!(dequeued.unwrap().id, 1);
@@ -412,7 +409,7 @@ mod tests {
         let scheduler = Scheduler::new(4);
         let coro1 = scheduler.create_coroutine();
         let coro2 = scheduler.create_coroutine();
-        
+
         assert_eq!(coro1.id, 0);
         assert_eq!(coro2.id, 1);
     }
@@ -421,10 +418,10 @@ mod tests {
     fn test_scheduler_submit_and_steal() {
         let mut scheduler = Scheduler::new(4);
         let coro = scheduler.create_coroutine();
-        
+
         scheduler.submit_coroutine(coro);
         assert_eq!(scheduler.global_queue_length(), 1);
-        
+
         let stolen = scheduler.next_coroutine(0);
         assert!(stolen.is_some());
         assert_eq!(scheduler.global_queue_length(), 0);
@@ -434,10 +431,10 @@ mod tests {
     fn test_vcpu_assignment() {
         let mut scheduler = Scheduler::new(4);
         let coro = scheduler.create_coroutine();
-        
+
         let result = scheduler.assign_to_vcpu(0, coro);
         assert!(result.is_ok());
-        
+
         let next = scheduler.next_coroutine(0);
         assert!(next.is_some());
     }
@@ -446,14 +443,14 @@ mod tests {
     fn test_work_stealing() {
         let mut scheduler = Scheduler::new(2);
         scheduler.set_work_stealing(true);
-        
+
         // 给vCPU0分配协程
         let coro1 = scheduler.create_coroutine();
         let coro2 = scheduler.create_coroutine();
-        
+
         let _ = scheduler.assign_to_vcpu(0, coro1);
         let _ = scheduler.assign_to_vcpu(0, coro2);
-        
+
         // vCPU1从vCPU0窃取
         let stolen = scheduler.try_steal_work(1);
         assert!(stolen.is_some());
@@ -464,25 +461,25 @@ mod tests {
         let mut vcpu = VCPU::new(0);
         vcpu.record_busy_time(100);
         vcpu.record_idle_time(50);
-        
+
         let stats = &vcpu.stats;
         assert_eq!(stats.busy_time_us, 100);
         assert_eq!(stats.idle_time_us, 50);
-        
+
         let utilization = stats.utilization();
-        assert!((utilization - 2.0/3.0).abs() < 0.01);
+        assert!((utilization - 2.0 / 3.0).abs() < 0.01);
     }
 
     #[test]
     fn test_load_imbalance_calculation() {
         let mut scheduler = Scheduler::new(4);
-        
+
         // 不均衡的负载
         let _ = scheduler.assign_to_vcpu(0, scheduler.create_coroutine());
         let _ = scheduler.assign_to_vcpu(0, scheduler.create_coroutine());
         let _ = scheduler.assign_to_vcpu(0, scheduler.create_coroutine());
         let _ = scheduler.assign_to_vcpu(1, scheduler.create_coroutine());
-        
+
         let imbalance = scheduler.calculate_load_imbalance();
         assert!(imbalance > 0.0);
     }
@@ -490,12 +487,12 @@ mod tests {
     #[test]
     fn test_scheduler_stats() {
         let scheduler = Scheduler::new(4);
-        
+
         for _ in 0..5 {
             let coro = scheduler.create_coroutine();
             scheduler.submit_coroutine(coro);
         }
-        
+
         let stats = scheduler.get_stats();
         assert_eq!(stats.vcpu_count, 4);
         assert_eq!(stats.total_coroutines_created, 5);

@@ -267,7 +267,7 @@ impl Device for VirtualDevice {
         &self.io_regions
     }
 
-    fn handle_read(&mut self, offset: u64, size: usize) -> Result<u64, VmError> {
+    fn handle_read(&mut self, offset: u64, _size: usize) -> Result<u64, VmError> {
         self.update_access();
         // 默认实现：返回0
         if offset >= self.config.size {
@@ -280,7 +280,7 @@ impl Device for VirtualDevice {
         Ok(0)
     }
 
-    fn handle_write(&mut self, offset: u64, _value: u64, size: usize) -> Result<(), VmError> {
+    fn handle_write(&mut self, offset: u64, _value: u64, _size: usize) -> Result<(), VmError> {
         self.update_access();
         if offset >= self.config.size {
             return Err(VmError::Device(vm_core::DeviceError::IoFailed {

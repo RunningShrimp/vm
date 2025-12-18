@@ -439,21 +439,26 @@ impl Accel for AccelKvm {
                 log::warn!("Unhandled I/O OUT port: 0x{:x}, data: {:?}", port, data);
             }
         }
-        
+
         Ok(())
     }
 
     /// 处理MMIO读取（内存映射I/O读取）
-    fn handle_mmio_read(&self, addr: u64, data: &mut [u8], mmu: &mut dyn MMU) -> Result<(), AccelError> {
+    fn handle_mmio_read(
+        &self,
+        addr: u64,
+        data: &mut [u8],
+        mmu: &mut dyn MMU,
+    ) -> Result<(), AccelError> {
         // MMIO地址通过MMU路由到相应设备
         // 常见MMIO地址范围：
         // 0x0200_0000-0x0200_1000: CLINT (Core Local Interruptor)
         // 0x0C00_0000-0x1000_0000: PLIC (Platform Level Interrupt Controller)
         // 0x1000_0000-0x1000_2000: VirtIO设备
-        
+
         // 根据地址范围确定访问大小
         let size = data.len() as u8;
-        
+
         // 通过MMU读取MMIO地址
         match mmu.read(addr, size) {
             Ok(value) => {
@@ -487,7 +492,12 @@ impl Accel for AccelKvm {
                         data[..copy_len].copy_from_slice(&bytes[..copy_len]);
                     }
                 }
-                log::trace!("MMIO read from 0x{:x}, size {}, value 0x{:x}", addr, size, value);
+                log::trace!(
+                    "MMIO read from 0x{:x}, size {}, value 0x{:x}",
+                    addr,
+                    size,
+                    value
+                );
                 Ok(())
             }
             Err(e) => {
@@ -497,16 +507,22 @@ impl Accel for AccelKvm {
                 Err(VmError::Platform(PlatformError::MemoryAccessFailed(format!(
                     "MMIO read failed: {:?}",
                     e
-                ))).into())
+                )))
+                .into())
             }
         }
     }
 
     /// 处理MMIO写入（内存映射I/O写入）
-    fn handle_mmio_write(&self, addr: u64, data: &[u8], mmu: &mut dyn MMU) -> Result<(), AccelError> {
+    fn handle_mmio_write(
+        &self,
+        addr: u64,
+        data: &[u8],
+        mmu: &mut dyn MMU,
+    ) -> Result<(), AccelError> {
         // MMIO地址通过MMU路由到相应设备
         let size = data.len() as u8;
-        
+
         // 将data缓冲区转换为u64值
         let value = match size {
             1 => data[0] as u64,
@@ -535,11 +551,16 @@ impl Accel for AccelKvm {
                 u64::from_le_bytes(bytes)
             }
         };
-        
+
         // 通过MMU写入MMIO地址
         match mmu.write(addr, value, size) {
             Ok(_) => {
-                log::trace!("MMIO write to 0x{:x}, size {}, value 0x{:x}", addr, size, value);
+                log::trace!(
+                    "MMIO write to 0x{:x}, size {}, value 0x{:x}",
+                    addr,
+                    size,
+                    value
+                );
                 Ok(())
             }
             Err(e) => {
@@ -547,13 +568,19 @@ impl Accel for AccelKvm {
                 Err(VmError::Platform(PlatformError::MemoryAccessFailed(format!(
                     "MMIO write failed: {:?}",
                     e
-                ))).into())
+                )))
+                .into())
             }
         }
     }
 
     /// 处理I/O输入（端口I/O读取）
-    fn handle_io_in(&self, port: u16, data: &mut [u8], mmu: &mut dyn MMU) -> Result<(), AccelError> {
+    fn handle_io_in(
+        &self,
+        port: u16,
+        data: &mut [u8],
+        mmu: &mut dyn MMU,
+    ) -> Result<(), AccelError> {
         // 根据端口号路由到相应设备
         // 常见端口映射：
         // 0x3F8-0x3FF: COM1 (串口)
@@ -561,7 +588,7 @@ impl Accel for AccelKvm {
         // 0x60-0x64: 键盘控制器
         // 0x70-0x71: RTC
         // 0xCF8-0xCFF: PCI配置空间
-        
+
         match port {
             0x3F8..=0x3FF => {
                 // COM1 串口 - 读取数据
@@ -595,7 +622,7 @@ impl Accel for AccelKvm {
                 data.fill(0);
             }
         }
-        
+
         Ok(())
     }
 

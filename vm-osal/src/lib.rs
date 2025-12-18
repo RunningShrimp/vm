@@ -25,6 +25,10 @@ pub fn barrier_full() {
 pub fn host_os() -> &'static str {
     #[cfg(target_os = "linux")]
     {
+        // HarmonyOS 基于 Linux 内核，可通过系统属性检测
+        if is_harmonyos() {
+            return "harmonyos";
+        }
         return "linux";
     }
     #[cfg(target_os = "macos")]
@@ -43,32 +47,27 @@ pub fn host_os() -> &'static str {
     {
         return "ios";
     }
-    // HarmonyOS 基于 Linux 内核，可通过系统属性检测
-    #[cfg(target_os = "linux")]
-    {
-        if is_harmonyos() {
-            return "harmonyos";
-        }
-    }
     #[allow(unreachable_code)]
     "unknown"
 }
 
 /// 检测是否为 HarmonyOS
-#[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn is_harmonyos() -> bool {
-    use std::fs;
-    // 检查 /etc/os-release 或系统属性
-    if let Ok(content) = fs::read_to_string("/etc/os-release") {
-        return content.to_lowercase().contains("harmonyos")
-            || content.to_lowercase().contains("openharmony");
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        // 检查 /etc/os-release 或系统属性
+        if let Ok(content) = fs::read_to_string("/etc/os-release") {
+            return content.to_lowercase().contains("harmonyos")
+                || content.to_lowercase().contains("openharmony");
+        }
+        false
     }
-    false
-}
-
-#[cfg(not(target_os = "linux"))]
-fn is_harmonyos() -> bool {
-    false
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
 }
 
 pub fn host_arch() -> &'static str {
@@ -337,16 +336,12 @@ impl MappedMemory {
 
     /// 作为切片访问
     pub unsafe fn as_slice(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(self.ptr, self.size)
-        }
+        unsafe { std::slice::from_raw_parts(self.ptr, self.size) }
     }
 
     /// 作为可变切片访问
     pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
-        unsafe {
-            std::slice::from_raw_parts_mut(self.ptr, self.size)
-        }
+        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size) }
     }
 }
 

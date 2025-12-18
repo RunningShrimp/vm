@@ -12,6 +12,7 @@ use std::ptr;
 // Hypervisor.framework FFI 绑定
 #[cfg(target_os = "macos")]
 #[link(name = "Hypervisor", kind = "framework")]
+#[allow(dead_code)]
 unsafe extern "C" {
     // VM 管理
     fn hv_vm_create(config: *mut std::ffi::c_void) -> i32;
@@ -44,26 +45,36 @@ unsafe extern "C" {
 
 // HV 返回码
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_SUCCESS: i32 = 0;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_ERROR: i32 = 0xfae94001u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_BUSY: i32 = 0xfae94002u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_BAD_ARGUMENT: i32 = 0xfae94003u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_NO_RESOURCES: i32 = 0xfae94005u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_NO_DEVICE: i32 = 0xfae94006u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_UNSUPPORTED: i32 = 0xfae9400fu32 as i32;
 
 // 内存权限标志
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_MEMORY_READ: u64 = 1 << 0;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_MEMORY_WRITE: u64 = 1 << 1;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_MEMORY_EXEC: u64 = 1 << 2;
 
 // x86_64 寄存器定义
@@ -105,6 +116,7 @@ mod arm_regs {
 }
 
 /// HVF vCPU
+#[allow(dead_code)]
 pub struct HvfVcpu {
     #[cfg(target_os = "macos")]
     id: u32,
@@ -112,6 +124,7 @@ pub struct HvfVcpu {
     _id: u32,
 }
 
+#[allow(dead_code)]
 impl HvfVcpu {
     #[cfg(target_os = "macos")]
     pub fn new(_id: u32) -> Result<Self, AccelError> {
@@ -119,12 +132,10 @@ impl HvfVcpu {
         let ret = unsafe { hv_vcpu_create(&mut vcpu_id, ptr::null_mut(), ptr::null_mut()) };
 
         if ret != HV_SUCCESS {
-            return Err(vm_core::VmError::Platform(
-                vm_core::PlatformError::ResourceAllocationFailed(format!(
-                    "hv_vcpu_create failed: 0x{:x}",
-                    ret
-                )),
-            ));
+            return Err(vm_core::VmError::Core(vm_core::CoreError::Internal {
+                message: format!("hv_vcpu_create failed: 0x{:x}", ret),
+                module: "vm-accel".to_string(),
+            }));
         }
 
         Ok(Self { id: vcpu_id })
@@ -253,9 +264,10 @@ impl HvfVcpu {
         let ret = unsafe { hv_vcpu_run(self.id) };
 
         if ret != HV_SUCCESS {
-            return Err(vm_core::VmError::Platform(
-                vm_core::PlatformError::ExecutionFailed(format!("hv_vcpu_run failed: 0x{:x}", ret)),
-            ));
+            return Err(vm_core::VmError::Core(vm_core::CoreError::Internal {
+                message: format!("hv_vcpu_run failed: 0x{:x}", ret),
+                module: "vm-accel".to_string(),
+            }));
         }
 
         Ok(())
@@ -279,12 +291,14 @@ impl Drop for HvfVcpu {
 }
 
 /// HVF 加速器
+#[allow(dead_code)]
 pub struct AccelHvf {
     vcpus: Vec<HvfVcpu>,
     memory_regions: HashMap<u64, u64>, // gpa -> size
     initialized: bool,
 }
 
+#[allow(dead_code)]
 impl AccelHvf {
     pub fn new() -> Self {
         Self {
@@ -353,12 +367,10 @@ impl Accel for AccelHvf {
                 unsafe { hv_vm_map(hva as *const std::ffi::c_void, gpa, size as usize, hv_flags) };
 
             if ret != HV_SUCCESS {
-                return Err(vm_core::VmError::Platform(
-                    vm_core::PlatformError::MemoryMappingFailed(format!(
-                        "hv_vm_map failed: 0x{:x}",
-                        ret
-                    )),
-                ));
+                return Err(vm_core::VmError::Core(vm_core::CoreError::Internal {
+                    message: format!("hv_vm_map failed: 0x{:x}", ret),
+                    module: "vm-accel".to_string(),
+                }));
             }
 
             self.memory_regions.insert(gpa, size);
@@ -380,12 +392,10 @@ impl Accel for AccelHvf {
             let ret = unsafe { hv_vm_unmap(gpa, size as usize) };
 
             if ret != HV_SUCCESS {
-                return Err(vm_core::VmError::Platform(
-                    vm_core::PlatformError::MemoryMappingFailed(format!(
-                        "hv_vm_unmap failed: 0x{:x}",
-                        ret
-                    )),
-                ));
+                return Err(vm_core::VmError::Core(vm_core::CoreError::Internal {
+                    message: format!("hv_vm_unmap failed: 0x{:x}", ret),
+                    module: "vm-accel".to_string(),
+                }));
             }
 
             self.memory_regions.remove(&gpa);
@@ -403,10 +413,10 @@ impl Accel for AccelHvf {
 
     fn run_vcpu(&mut self, vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
         let vcpu = self.vcpus.get_mut(vcpu_id as usize).ok_or_else(|| {
-            vm_core::VmError::Platform(vm_core::PlatformError::InvalidParameter(format!(
-                "vcpu_id {}",
-                vcpu_id
-            )))
+            vm_core::VmError::Core(vm_core::CoreError::Internal {
+                message: format!("Invalid vcpu_id: {}", vcpu_id),
+                module: "vm-accel".to_string(),
+            })
         })?;
 
         vcpu.run()
@@ -414,20 +424,20 @@ impl Accel for AccelHvf {
 
     fn get_regs(&self, vcpu_id: u32) -> Result<GuestRegs, AccelError> {
         let vcpu = self.vcpus.get(vcpu_id as usize).ok_or_else(|| {
-            vm_core::VmError::Platform(vm_core::PlatformError::InvalidParameter(format!(
-                "vcpu_id {}",
-                vcpu_id
-            )))
+            vm_core::VmError::Core(vm_core::CoreError::Internal {
+                message: format!("Invalid vcpu_id: {}", vcpu_id),
+                module: "vm-accel".to_string(),
+            })
         })?;
         vcpu.get_regs()
     }
 
     fn set_regs(&mut self, vcpu_id: u32, regs: &GuestRegs) -> Result<(), AccelError> {
         let vcpu = self.vcpus.get_mut(vcpu_id as usize).ok_or_else(|| {
-            vm_core::VmError::Platform(vm_core::PlatformError::InvalidParameter(format!(
-                "vcpu_id {}",
-                vcpu_id
-            )))
+            vm_core::VmError::Core(vm_core::CoreError::Internal {
+                message: format!("Invalid vcpu_id: {}", vcpu_id),
+                module: "vm-accel".to_string(),
+            })
         })?;
         vcpu.set_regs(regs)
     }
@@ -473,6 +483,8 @@ mod tests {
 }
 use crate::event::{AccelEvent, AccelEventSource};
 use std::time::Instant;
+
+#[allow(dead_code)]
 pub struct AccelHvfTimer {
     pub last: Instant,
 }

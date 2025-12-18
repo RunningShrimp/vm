@@ -202,7 +202,8 @@ pub fn detect() -> CpuFeatures {
 // 统一加速器接口
 // ============================================================================
 
-use vm_core::{GuestRegs, MMU, PlatformError, VmError};
+use vm_core::{GuestRegs, MMU, VmError, ExecutionError};
+use vm_core::error::{CoreError, MemoryError};
 
 /// 加速器错误类型别名
 ///
@@ -214,43 +215,86 @@ impl From<AccelLegacyError> for VmError {
     fn from(err: AccelLegacyError) -> Self {
         match err {
             AccelLegacyError::NotAvailable(msg) => {
-                VmError::Platform(PlatformError::HardwareUnavailable(msg))
+                VmError::Core(CoreError::NotSupported { 
+                    feature: msg,
+                    module: "vm-accel".to_string(),
+                })
             }
             AccelLegacyError::NotInitialized(msg) => {
-                VmError::Platform(PlatformError::InitializationFailed(msg))
+                VmError::Core(CoreError::InvalidState { 
+                    message: msg,
+                    current: "not_initialized".to_string(),
+                    expected: "initialized".to_string(),
+                })
             }
             AccelLegacyError::InitFailed(msg) => {
-                VmError::Platform(PlatformError::InitializationFailed(msg))
+                VmError::Core(CoreError::Internal { 
+                    message: msg,
+                    module: "vm-accel".to_string(),
+                })
             }
             AccelLegacyError::CreateVmFailed(msg) => {
-                VmError::Platform(PlatformError::ResourceAllocationFailed(msg))
+                VmError::Core(CoreError::Internal { 
+                    message: msg,
+                    module: "vm-accel".to_string(),
+                })
             }
             AccelLegacyError::CreateVcpuFailed(msg) => {
-                VmError::Platform(PlatformError::ResourceAllocationFailed(msg))
+                VmError::Core(CoreError::Internal { 
+                    message: msg,
+                    module: "vm-accel".to_string(),
+                })
             }
             AccelLegacyError::MapMemoryFailed(msg) => {
-                VmError::Platform(PlatformError::MemoryMappingFailed(msg))
+                VmError::Memory(MemoryError::MappingFailed { 
+                    message: msg,
+                    src: None,
+                    dst: None,
+                })
             }
             AccelLegacyError::UnmapMemoryFailed(msg) => {
-                VmError::Platform(PlatformError::MemoryMappingFailed(msg))
+                VmError::Memory(MemoryError::MappingFailed { 
+                    message: msg,
+                    src: None,
+                    dst: None,
+                })
             }
             AccelLegacyError::RunFailed(msg) => {
-                VmError::Platform(PlatformError::ExecutionFailed(msg))
+                VmError::Execution(ExecutionError::Halted { 
+                    reason: msg,
+                })
             }
             AccelLegacyError::GetRegsFailed(msg) => {
-                VmError::Platform(PlatformError::AccessDenied(msg))
+                VmError::Execution(ExecutionError::FetchFailed { 
+                    pc: vm_core::GuestAddr(0),
+                    message: msg,
+                })
             }
             AccelLegacyError::SetRegsFailed(msg) => {
-                VmError::Platform(PlatformError::AccessDenied(msg))
+                VmError::Execution(ExecutionError::FetchFailed { 
+                    pc: vm_core::GuestAddr(0),
+                    message: msg,
+                })
             }
-            AccelLegacyError::InvalidVcpuId(id) => VmError::Platform(
-                PlatformError::InvalidParameter(format!("Invalid vCPU ID: {}", id)),
-            ),
-            AccelLegacyError::InvalidAddress(msg) => VmError::Platform(
-                PlatformError::InvalidParameter(format!("Invalid address: {}", msg)),
-            ),
+            AccelLegacyError::AccessDenied(msg) => {
+                VmError::Core(CoreError::NotSupported { 
+                    feature: msg,
+                    module: "vm-accel".to_string(),
+                })
+            }
+            AccelLegacyError::InvalidVcpuId(id) => VmError::Core(CoreError::InvalidParameter { 
+                name: "vcpu_id".to_string(),
+                value: format!("{}", id),
+                message: "Invalid vCPU ID".to_string(),
+            }),
+            AccelLegacyError::InvalidAddress(msg) => VmError::Memory(MemoryError::InvalidAddress(
+                vm_core::GuestAddr(msg.parse().unwrap_or(0))
+            )),
             AccelLegacyError::NotSupported(msg) => {
-                VmError::Platform(PlatformError::UnsupportedOperation(msg))
+                VmError::Core(CoreError::NotSupported { 
+                    feature: msg,
+                    module: "vm-accel".to_string(),
+                })
             }
         }
     }
@@ -283,6 +327,9 @@ pub enum AccelLegacyError {
     /// vCPU 运行失败
     #[error("Failed to run vCPU: {0}")]
     RunFailed(String),
+    /// 访问被拒绝
+    #[error("Access denied: {0}")]
+    AccessDenied(String),
     /// 获取寄存器失败
     #[error("Failed to get registers: {0}")]
     GetRegsFailed(String),
@@ -423,7 +470,7 @@ pub enum VmExitReason {
 ///     AccelKind::None => println!("No acceleration"),
 /// }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AccelKind {
     /// 无硬件加速
     None,
@@ -461,6 +508,7 @@ impl AccelKind {
             return AccelKind::Whpx;
         }
 
+        #[allow(unreachable_code)]
         AccelKind::None
     }
 }
@@ -474,14 +522,16 @@ pub use numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer}
 pub struct NoAccel;
 impl Accel for NoAccel {
     fn init(&mut self) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::HardwareUnavailable(
-            "No accelerator available".to_string(),
-        )))
+        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+            feature: "No accelerator available".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
     fn create_vcpu(&mut self, _id: u32) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "No accelerator".to_string(),
-        )))
+        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+            feature: "No accelerator".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
     fn map_memory(
         &mut self,
@@ -490,29 +540,34 @@ impl Accel for NoAccel {
         _size: u64,
         _flags: u32,
     ) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "No accelerator".to_string(),
-        )))
+        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+            feature: "No accelerator".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
     fn unmap_memory(&mut self, _gpa: u64, _size: u64) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "No accelerator".to_string(),
-        )))
+        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+            feature: "No accelerator".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
     fn run_vcpu(&mut self, _vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "No accelerator".to_string(),
-        )))
+        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+            feature: "No accelerator".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
     fn get_regs(&self, _vcpu_id: u32) -> Result<GuestRegs, AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "No accelerator".to_string(),
-        )))
+        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+            feature: "No accelerator".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
     fn set_regs(&mut self, _vcpu_id: u32, _regs: &GuestRegs) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "No accelerator".to_string(),
-        )))
+        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+            feature: "No accelerator".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
     fn name(&self) -> &str {
         "None"

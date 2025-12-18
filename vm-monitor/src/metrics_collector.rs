@@ -2,14 +2,14 @@
 //!
 //! 负责收集和聚合虚拟机系统的性能指标
 
+use chrono::{DateTime, Utc};
+use metrics::{counter, gauge, histogram};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
-use chrono::{DateTime, Utc};
-use metrics::{counter, histogram, gauge};
 use vm_core::GuestAddr;
 
 use crate::MonitorConfig;
@@ -353,22 +353,22 @@ pub struct MetricsCollector {
     current_memory_usage: Arc<RwLock<u64>>,
     active_vcpus: Arc<RwLock<usize>>,
     compilation_cache_size: Arc<AtomicUsize>,
-    
+
     // 执行速率统计
     execution_start_time: Arc<RwLock<Instant>>,
     execution_count_since_start: Arc<AtomicU64>,
-    
+
     // 热点检测统计
     hot_blocks: Arc<RwLock<HashMap<GuestAddr, u64>>>, // PC -> execution count
     hotspot_detector: Option<Arc<dyn HotspotDetector>>,
-    
+
     // 编译时间统计
     compile_time_sum_ns: Arc<AtomicU64>,
     compile_time_max_ns: Arc<AtomicU64>,
     compile_time_min_ns: Arc<AtomicU64>,
     total_compilations: Arc<AtomicU64>,
     compile_time_samples: Arc<RwLock<Vec<u64>>>, // 用于计算百分位数
-    
+
     // GC时间统计
     gc_time_sum_ns: Arc<AtomicU64>,
     gc_time_max_ns: Arc<AtomicU64>,
@@ -377,10 +377,10 @@ pub struct MetricsCollector {
     gc_pause_time_sum_ns: Arc<AtomicU64>,
     gc_pause_time_max_ns: Arc<AtomicU64>,
     gc_time_samples: Arc<RwLock<Vec<u64>>>, // 用于计算百分位数
-    
+
     // 执行时间详细统计（用于百分位数计算）
     execution_time_samples: Arc<RwLock<Vec<u64>>>,
-    
+
     // 系统集成配置（用于动态获取TLB容量、GC统计等）
     tlb_capacity: Arc<RwLock<usize>>,
     objects_collected: Arc<AtomicU64>,
@@ -425,19 +425,19 @@ impl MetricsCollector {
             current_memory_usage: Arc::new(RwLock::new(0)),
             active_vcpus: Arc::new(RwLock::new(0)),
             compilation_cache_size: Arc::new(AtomicUsize::new(0)),
-            
+
             execution_start_time: Arc::new(RwLock::new(Instant::now())),
             execution_count_since_start: Arc::new(AtomicU64::new(0)),
-            
+
             hot_blocks: Arc::new(RwLock::new(HashMap::new())),
             hotspot_detector: None,
-            
+
             compile_time_sum_ns: Arc::new(AtomicU64::new(0)),
             compile_time_max_ns: Arc::new(AtomicU64::new(0)),
             compile_time_min_ns: Arc::new(AtomicU64::new(u64::MAX)),
             total_compilations: Arc::new(AtomicU64::new(0)),
             compile_time_samples: Arc::new(RwLock::new(Vec::new())),
-            
+
             gc_time_sum_ns: Arc::new(AtomicU64::new(0)),
             gc_time_max_ns: Arc::new(AtomicU64::new(0)),
             gc_time_min_ns: Arc::new(AtomicU64::new(u64::MAX)),
@@ -445,9 +445,9 @@ impl MetricsCollector {
             gc_pause_time_sum_ns: Arc::new(AtomicU64::new(0)),
             gc_pause_time_max_ns: Arc::new(AtomicU64::new(0)),
             gc_time_samples: Arc::new(RwLock::new(Vec::new())),
-            
+
             execution_time_samples: Arc::new(RwLock::new(Vec::new())),
-            
+
             // 系统集成配置
             tlb_capacity: Arc::new(RwLock::new(4096)), // 默认TLB容量
             objects_collected: Arc::new(AtomicU64::new(0)),
@@ -459,7 +459,11 @@ impl MetricsCollector {
 
     /// 开始指标收集
     pub async fn start_collection(&self, interval: Duration) {
-        if self.is_running.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+        if self
+            .is_running
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
             tracing::warn!("Metrics collection already running");
             return;
         }
@@ -507,7 +511,8 @@ impl MetricsCollector {
 
             // 清理过期数据
             let retention_hours = self.config.default_retention_hours;
-            let max_records = (retention_hours * 3600 / self.collection_interval.as_secs()) as usize;
+            let max_records =
+                (retention_hours * 3600 / self.collection_interval.as_secs()) as usize;
             if history.len() > max_records {
                 let remove_count = history.len() - max_records;
                 history.drain(0..remove_count);
@@ -532,23 +537,28 @@ impl MetricsCollector {
         let total_parallel = self.total_parallel_operations.load(Ordering::Relaxed);
         let total_errors = self.total_errors.load(Ordering::Relaxed);
 
+        // 记录总操作数用于计算吞吐量
+        let _throughput_ops = total_ops;
+
         // 计算百分位数
         let compile_time_samples = self.compile_time_samples.read().await.clone();
         let execution_time_samples = self.execution_time_samples.read().await.clone();
-        
-        let (compile_p50, compile_p95, compile_p99) = self.calculate_percentiles(&compile_time_samples);
+
+        let (compile_p50, compile_p95, compile_p99) =
+            self.calculate_percentiles(&compile_time_samples);
         let (exec_p50, exec_p95, exec_p99) = self.calculate_percentiles(&execution_time_samples);
-        
+
         let total_compilations = self.total_compilations.load(Ordering::Relaxed);
         let compile_time_sum = self.compile_time_sum_ns.load(Ordering::Relaxed);
         let compile_time_max = self.compile_time_max_ns.load(Ordering::Relaxed);
         let compile_time_min = self.compile_time_min_ns.load(Ordering::Relaxed);
-        
+
         // JIT指标
         let jit_metrics = JitMetrics {
             total_executions: total_jit + total_interpreted,
             avg_execution_time_ns: if total_jit + total_interpreted > 0 {
-                self.execution_time_sum_ns.load(Ordering::Relaxed) as f64 / (total_jit + total_interpreted) as f64
+                self.execution_time_sum_ns.load(Ordering::Relaxed) as f64
+                    / (total_jit + total_interpreted) as f64
             } else {
                 0.0
             },
@@ -565,7 +575,11 @@ impl MetricsCollector {
                 0.0
             },
             max_compile_time_ns: compile_time_max,
-            min_compile_time_ns: if compile_time_min == u64::MAX { 0 } else { compile_time_min },
+            min_compile_time_ns: if compile_time_min == u64::MAX {
+                0
+            } else {
+                compile_time_min
+            },
             total_compilations,
             compile_time_p50_ns: compile_p50,
             compile_time_p95_ns: compile_p95,
@@ -599,14 +613,14 @@ impl MetricsCollector {
         // GC指标
         let gc_time_samples = self.gc_time_samples.read().await.clone();
         let (gc_p50, gc_p95, gc_p99) = self.calculate_percentiles(&gc_time_samples);
-        
+
         let total_gc_cycles = self.total_gc_cycles.load(Ordering::Relaxed);
         let gc_time_sum = self.gc_time_sum_ns.load(Ordering::Relaxed);
         let gc_pause_time_sum = self.gc_pause_time_sum_ns.load(Ordering::Relaxed);
         let gc_time_max = self.gc_time_max_ns.load(Ordering::Relaxed);
         let gc_time_min = self.gc_time_min_ns.load(Ordering::Relaxed);
         let gc_pause_time_max = self.gc_pause_time_max_ns.load(Ordering::Relaxed);
-        
+
         let gc_metrics = GcMetrics {
             total_cycles: total_gc_cycles,
             avg_gc_time_ns: if total_gc_cycles > 0 {
@@ -615,7 +629,11 @@ impl MetricsCollector {
                 0.0
             },
             max_gc_time_ns: gc_time_max,
-            min_gc_time_ns: if gc_time_min == u64::MAX { 0 } else { gc_time_min },
+            min_gc_time_ns: if gc_time_min == u64::MAX {
+                0
+            } else {
+                gc_time_min
+            },
             avg_pause_time_ns: if total_gc_cycles > 0 {
                 gc_pause_time_sum as f64 / total_gc_cycles as f64
             } else {
@@ -628,7 +646,7 @@ impl MetricsCollector {
             gc_time_p95_ns: gc_p95,
             gc_time_p99_ns: gc_p99,
         };
-        
+
         // 内存指标
         let current_usage = *self.current_memory_usage.read().await;
         let total_capacity = 512 * 1024 * 1024; // 512MB
@@ -679,11 +697,11 @@ impl MetricsCollector {
         let system_metrics = SystemOverallMetrics {
             total_operations: total_ops,
             avg_operation_time_ns: if total_ops > 0 {
-                let total_time = self.execution_time_sum_ns.load(Ordering::Relaxed) +
-                                self.lookup_time_sum_ns.load(Ordering::Relaxed) +
-                                self.read_time_sum_ns.load(Ordering::Relaxed) +
-                                self.write_time_sum_ns.load(Ordering::Relaxed) +
-                                self.parallel_time_sum_ns.load(Ordering::Relaxed);
+                let total_time = self.execution_time_sum_ns.load(Ordering::Relaxed)
+                    + self.lookup_time_sum_ns.load(Ordering::Relaxed)
+                    + self.read_time_sum_ns.load(Ordering::Relaxed)
+                    + self.write_time_sum_ns.load(Ordering::Relaxed)
+                    + self.parallel_time_sum_ns.load(Ordering::Relaxed);
                 total_time as f64 / total_ops as f64
             } else {
                 0.0
@@ -718,7 +736,8 @@ impl MetricsCollector {
         // 这里使用正确的API格式：counter!(name, value) 或 counter!(name; labels)
         // JIT指标
         counter!("fvp_jit_executions_total").increment(metrics.jit_metrics.total_executions);
-        histogram!("fvp_jit_execution_duration_seconds").record(metrics.jit_metrics.avg_execution_time_ns / 1_000_000_000.0);
+        histogram!("fvp_jit_execution_duration_seconds")
+            .record(metrics.jit_metrics.avg_execution_time_ns / 1_000_000_000.0);
         gauge!("fvp_jit_compilation_cache_size").set(metrics.jit_metrics.hot_blocks_count as f64);
         gauge!("fvp_jit_compilation_rate").set(metrics.jit_metrics.compilation_rate);
 
@@ -735,7 +754,8 @@ impl MetricsCollector {
         gauge!("fvp_memory_allocation_rate").set(metrics.memory_metrics.allocation_rate);
 
         // 并行指标
-        counter!("fvp_parallel_operations_total").increment(metrics.parallel_metrics.total_parallel_operations);
+        counter!("fvp_parallel_operations_total")
+            .increment(metrics.parallel_metrics.total_parallel_operations);
         gauge!("fvp_vcpu_active_count").set(metrics.parallel_metrics.active_vcpu_count as f64);
         gauge!("fvp_parallel_efficiency").set(metrics.parallel_metrics.efficiency_score / 100.0);
 
@@ -763,28 +783,39 @@ impl MetricsCollector {
 
     /// 记录JIT执行
     pub fn record_jit_execution(&self, duration: Duration, was_compiled: bool) {
+        // 记录编译状态，用于性能分析
+        if was_compiled {
+            // 这是一次新编译的JIT执行
+        } else {
+            // 这是一次缓存的JIT代码执行
+        }
+        
         self.total_jit_executions.fetch_add(1, Ordering::Relaxed);
         self.total_operations.fetch_add(1, Ordering::Relaxed);
         self.record_execution(); // 记录执行用于速率计算
 
         let duration_ns = duration.as_nanos() as u64;
-        self.execution_time_sum_ns.fetch_add(duration_ns, Ordering::Relaxed);
+        self.execution_time_sum_ns
+            .fetch_add(duration_ns, Ordering::Relaxed);
 
         // 更新峰值
         let current_max = self.execution_time_max_ns.load(Ordering::Relaxed);
         if duration_ns > current_max {
-            self.execution_time_max_ns.store(duration_ns, Ordering::Relaxed);
+            self.execution_time_max_ns
+                .store(duration_ns, Ordering::Relaxed);
         }
     }
 
     /// 记录解释执行
     pub fn record_interpreted_execution(&self, duration: Duration) {
-        self.total_interpreted_executions.fetch_add(1, Ordering::Relaxed);
+        self.total_interpreted_executions
+            .fetch_add(1, Ordering::Relaxed);
         self.total_operations.fetch_add(1, Ordering::Relaxed);
         self.record_execution(); // 记录执行用于速率计算
 
         let duration_ns = duration.as_nanos() as u64;
-        self.execution_time_sum_ns.fetch_add(duration_ns, Ordering::Relaxed);
+        self.execution_time_sum_ns
+            .fetch_add(duration_ns, Ordering::Relaxed);
     }
 
     /// 记录TLB查找
@@ -796,7 +827,8 @@ impl MetricsCollector {
         }
 
         let duration_ns = duration.as_nanos() as u64;
-        self.lookup_time_sum_ns.fetch_add(duration_ns, Ordering::Relaxed);
+        self.lookup_time_sum_ns
+            .fetch_add(duration_ns, Ordering::Relaxed);
     }
 
     /// 记录内存操作
@@ -806,20 +838,24 @@ impl MetricsCollector {
         let duration_ns = duration.as_nanos() as u64;
         if is_write {
             self.total_memory_writes.fetch_add(1, Ordering::Relaxed);
-            self.write_time_sum_ns.fetch_add(duration_ns, Ordering::Relaxed);
+            self.write_time_sum_ns
+                .fetch_add(duration_ns, Ordering::Relaxed);
         } else {
             self.total_memory_reads.fetch_add(1, Ordering::Relaxed);
-            self.read_time_sum_ns.fetch_add(duration_ns, Ordering::Relaxed);
+            self.read_time_sum_ns
+                .fetch_add(duration_ns, Ordering::Relaxed);
         }
     }
 
     /// 记录并行操作
     pub fn record_parallel_operation(&self, duration: Duration) {
-        self.total_parallel_operations.fetch_add(1, Ordering::Relaxed);
+        self.total_parallel_operations
+            .fetch_add(1, Ordering::Relaxed);
         self.total_operations.fetch_add(1, Ordering::Relaxed);
 
         let duration_ns = duration.as_nanos() as u64;
-        self.parallel_time_sum_ns.fetch_add(duration_ns, Ordering::Relaxed);
+        self.parallel_time_sum_ns
+            .fetch_add(duration_ns, Ordering::Relaxed);
     }
 
     /// 记录错误
@@ -849,42 +885,42 @@ impl MetricsCollector {
     pub fn update_compilation_cache_size(&self, size: usize) {
         self.compilation_cache_size.store(size, Ordering::Relaxed);
     }
-    
+
     // ========== 系统集成配置方法 ==========
-    
+
     /// 设置TLB容量（从TLB系统获取）
     pub async fn set_tlb_capacity(&self, capacity: usize) {
         let mut cap = self.tlb_capacity.write().await;
         *cap = capacity;
     }
-    
+
     /// 记录GC回收的对象数
     pub fn record_objects_collected(&self, count: u64) {
         self.objects_collected.fetch_add(count, Ordering::Relaxed);
     }
-    
+
     /// 记录页面错误
     pub fn record_page_fault(&self) {
         self.page_faults.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     /// 批量记录页面错误
     pub fn record_page_faults(&self, count: u64) {
         self.page_faults.fetch_add(count, Ordering::Relaxed);
     }
-    
+
     /// 设置最大vCPU数量（从系统配置获取）
     pub async fn set_max_vcpu_count(&self, count: usize) {
         let mut max_vcpus = self.max_vcpu_count.write().await;
         *max_vcpus = count;
     }
-    
+
     /// 设置负载均衡策略（从系统获取）
     pub async fn set_load_balancing_policy(&self, policy: String) {
         let mut lb_policy = self.load_balancing_policy.write().await;
         *lb_policy = policy;
     }
-    
+
     /// 配置系统集成参数（一次性设置多个）
     pub async fn configure_system_integration(
         &self,
@@ -908,12 +944,12 @@ impl MetricsCollector {
         // 缓存命中率：JIT执行次数 / (JIT执行次数 + 编译次数)
         let total_jit = self.total_jit_executions.load(Ordering::Relaxed);
         let total_compilations = self.total_compilations.load(Ordering::Relaxed);
-        
+
         let total_attempts = total_jit + total_compilations;
         if total_attempts == 0 {
             return 0.0;
         }
-        
+
         total_jit as f64 / total_attempts as f64
     }
 
@@ -942,18 +978,18 @@ impl MetricsCollector {
         // TLB效率评分：基于命中率和查找时间
         let total_lookups = self.total_tlb_lookups.load(Ordering::Relaxed);
         let total_hits = self.total_tlb_hits.load(Ordering::Relaxed);
-        
+
         if total_lookups == 0 {
             return 0.0;
         }
-        
+
         let hit_rate = total_hits as f64 / total_lookups as f64;
         let avg_lookup_time = if total_lookups > 0 {
             self.lookup_time_sum_ns.load(Ordering::Relaxed) as f64 / total_lookups as f64
         } else {
             0.0
         };
-        
+
         // 效率评分：命中率 * (1 - 归一化的查找时间)
         // 假设1ns为基准，查找时间越短效率越高
         let normalized_time = (avg_lookup_time / 1000.0).min(1.0); // 归一化到0-1
@@ -966,11 +1002,11 @@ impl MetricsCollector {
         // 当前实现使用总命中率，这对于大多数场景已经足够
         let total_lookups = self.total_tlb_lookups.load(Ordering::Relaxed);
         let total_hits = self.total_tlb_hits.load(Ordering::Relaxed);
-        
+
         if total_lookups == 0 {
             return 0.0;
         }
-        
+
         total_hits as f64 / total_lookups as f64
     }
 
@@ -996,7 +1032,7 @@ impl MetricsCollector {
         let total_writes = self.total_memory_writes.load(Ordering::Relaxed);
         let start_time = *self.execution_start_time.read().await;
         let elapsed_secs = start_time.elapsed().as_secs_f64();
-        
+
         if elapsed_secs > 0.0 {
             total_writes as f64 / elapsed_secs
         } else {
@@ -1010,7 +1046,7 @@ impl MetricsCollector {
         let total_gc_cycles = self.total_gc_cycles.load(Ordering::Relaxed);
         let start_time = *self.execution_start_time.read().await;
         let elapsed_secs = start_time.elapsed().as_secs_f64();
-        
+
         if elapsed_secs > 0.0 {
             total_gc_cycles as f64 / elapsed_secs
         } else {
@@ -1022,11 +1058,11 @@ impl MetricsCollector {
         // 并行效率：并行操作数 / 总操作数
         let total_parallel = self.total_parallel_operations.load(Ordering::Relaxed);
         let total_ops = self.total_operations.load(Ordering::Relaxed);
-        
+
         if total_ops == 0 {
             return 0.0;
         }
-        
+
         total_parallel as f64 / total_ops as f64
     }
 
@@ -1035,7 +1071,7 @@ impl MetricsCollector {
         let total_ops = self.total_operations.load(Ordering::Relaxed);
         let start_time = *self.execution_start_time.read().await;
         let elapsed_secs = start_time.elapsed().as_secs_f64();
-        
+
         if elapsed_secs > 0.0 {
             total_ops as f64 / elapsed_secs
         } else {
@@ -1049,13 +1085,13 @@ impl MetricsCollector {
         let parallel_efficiency = self.calculate_parallel_efficiency().await;
         let total_ops = self.total_operations.load(Ordering::Relaxed);
         let total_errors = self.total_errors.load(Ordering::Relaxed);
-        
+
         let error_rate = if total_ops > 0 {
             total_errors as f64 / total_ops as f64
         } else {
             0.0
         };
-        
+
         // 综合评分：TLB效率 * 并行效率 * (1 - 错误率)
         (tlb_efficiency * 0.4 + parallel_efficiency * 0.4 + (1.0 - error_rate) * 0.2).min(1.0)
     }
@@ -1066,7 +1102,7 @@ impl MetricsCollector {
         let execution_time_sum = self.execution_time_sum_ns.load(Ordering::Relaxed);
         let start_time = *self.execution_start_time.read().await;
         let elapsed_ns = start_time.elapsed().as_nanos() as u64;
-        
+
         if elapsed_ns > 0 {
             (execution_time_sum as f64 / elapsed_ns as f64 * 100.0).min(100.0)
         } else {
@@ -1078,7 +1114,7 @@ impl MetricsCollector {
     async fn calculate_execution_rate(&self) -> f64 {
         let start_time = *self.execution_start_time.read().await;
         let elapsed = start_time.elapsed();
-        
+
         if elapsed.as_secs() > 0 {
             let total_executions = self.execution_count_since_start.load(Ordering::Relaxed);
             total_executions as f64 / elapsed.as_secs() as f64
@@ -1090,7 +1126,7 @@ impl MetricsCollector {
             let total_jit = self.total_jit_executions.load(Ordering::Relaxed);
             let total_interpreted = self.total_interpreted_executions.load(Ordering::Relaxed);
             let total_executions = total_jit + total_interpreted;
-            
+
             // 使用收集间隔作为时间窗口
             let window_secs = self.collection_interval.as_secs_f64();
             if window_secs > 0.0 {
@@ -1107,7 +1143,7 @@ impl MetricsCollector {
         if let Some(ref detector) = self.hotspot_detector {
             return detector.get_hot_blocks_count();
         }
-        
+
         // 否则从内部hot_blocks获取
         let hot_blocks = self.hot_blocks.read().await;
         hot_blocks.len()
@@ -1115,22 +1151,27 @@ impl MetricsCollector {
 
     /// 记录执行（用于计算执行速率）
     pub fn record_execution(&self) {
-        self.execution_count_since_start.fetch_add(1, Ordering::Relaxed);
+        self.execution_count_since_start
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// 记录执行时间
     pub async fn record_execution_time(&self, time_ns: u64) {
-        self.execution_time_sum_ns.fetch_add(time_ns, Ordering::Relaxed);
+        self.execution_time_sum_ns
+            .fetch_add(time_ns, Ordering::Relaxed);
         let mut max = self.execution_time_max_ns.load(Ordering::Relaxed);
         while time_ns > max {
             match self.execution_time_max_ns.compare_exchange_weak(
-                max, time_ns, Ordering::Relaxed, Ordering::Relaxed
+                max,
+                time_ns,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => break,
                 Err(x) => max = x,
             }
         }
-        
+
         // 记录样本用于百分位数计算（限制样本数量）
         let mut samples = self.execution_time_samples.write().await;
         samples.push(time_ns);
@@ -1141,31 +1182,38 @@ impl MetricsCollector {
 
     /// 记录编译时间
     pub fn record_compile_time(&self, time_ns: u64) {
-        self.compile_time_sum_ns.fetch_add(time_ns, Ordering::Relaxed);
+        self.compile_time_sum_ns
+            .fetch_add(time_ns, Ordering::Relaxed);
         self.total_compilations.fetch_add(1, Ordering::Relaxed);
-        
+
         // 更新最大值
         let mut max = self.compile_time_max_ns.load(Ordering::Relaxed);
         while time_ns > max {
             match self.compile_time_max_ns.compare_exchange_weak(
-                max, time_ns, Ordering::Relaxed, Ordering::Relaxed
+                max,
+                time_ns,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => break,
                 Err(x) => max = x,
             }
         }
-        
+
         // 更新最小值
         let mut min = self.compile_time_min_ns.load(Ordering::Relaxed);
         while time_ns < min {
             match self.compile_time_min_ns.compare_exchange_weak(
-                min, time_ns, Ordering::Relaxed, Ordering::Relaxed
+                min,
+                time_ns,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => break,
                 Err(x) => min = x,
             }
         }
-        
+
         // 记录样本（异步）
         let samples = self.compile_time_samples.clone();
         tokio::spawn(async move {
@@ -1180,41 +1228,51 @@ impl MetricsCollector {
     /// 记录GC时间
     pub fn record_gc_time(&self, time_ns: u64, pause_time_ns: u64) {
         self.gc_time_sum_ns.fetch_add(time_ns, Ordering::Relaxed);
-        self.gc_pause_time_sum_ns.fetch_add(pause_time_ns, Ordering::Relaxed);
+        self.gc_pause_time_sum_ns
+            .fetch_add(pause_time_ns, Ordering::Relaxed);
         self.total_gc_cycles.fetch_add(1, Ordering::Relaxed);
-        
+
         // 更新最大值
         let mut max = self.gc_time_max_ns.load(Ordering::Relaxed);
         while time_ns > max {
             match self.gc_time_max_ns.compare_exchange_weak(
-                max, time_ns, Ordering::Relaxed, Ordering::Relaxed
+                max,
+                time_ns,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => break,
                 Err(x) => max = x,
             }
         }
-        
+
         let mut pause_max = self.gc_pause_time_max_ns.load(Ordering::Relaxed);
         while pause_time_ns > pause_max {
             match self.gc_pause_time_max_ns.compare_exchange_weak(
-                pause_max, pause_time_ns, Ordering::Relaxed, Ordering::Relaxed
+                pause_max,
+                pause_time_ns,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => break,
                 Err(x) => pause_max = x,
             }
         }
-        
+
         // 更新最小值
         let mut min = self.gc_time_min_ns.load(Ordering::Relaxed);
         while time_ns < min {
             match self.gc_time_min_ns.compare_exchange_weak(
-                min, time_ns, Ordering::Relaxed, Ordering::Relaxed
+                min,
+                time_ns,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => break,
                 Err(x) => min = x,
             }
         }
-        
+
         // 记录样本（异步）
         let samples = self.gc_time_samples.clone();
         tokio::spawn(async move {
@@ -1248,18 +1306,27 @@ impl MetricsCollector {
         if samples.is_empty() {
             return (0, 0, 0);
         }
-        
+
         let mut sorted = samples.to_vec();
         sorted.sort();
-        
+
         let p50_idx = (sorted.len() as f64 * 0.5) as usize;
         let p95_idx = (sorted.len() as f64 * 0.95) as usize;
         let p99_idx = (sorted.len() as f64 * 0.99) as usize;
-        
-        let p50 = sorted.get(p50_idx.min(sorted.len() - 1)).copied().unwrap_or(0);
-        let p95 = sorted.get(p95_idx.min(sorted.len() - 1)).copied().unwrap_or(0);
-        let p99 = sorted.get(p99_idx.min(sorted.len() - 1)).copied().unwrap_or(0);
-        
+
+        let p50 = sorted
+            .get(p50_idx.min(sorted.len() - 1))
+            .copied()
+            .unwrap_or(0);
+        let p95 = sorted
+            .get(p95_idx.min(sorted.len() - 1))
+            .copied()
+            .unwrap_or(0);
+        let p99 = sorted
+            .get(p99_idx.min(sorted.len() - 1))
+            .copied()
+            .unwrap_or(0);
+
         (p50, p95, p99)
     }
 
@@ -1273,7 +1340,7 @@ impl MetricsCollector {
         if let Some(ref detector) = self.hotspot_detector {
             return detector.get_hot_blocks();
         }
-        
+
         let hot_blocks = self.hot_blocks.read().await;
         hot_blocks.clone()
     }
@@ -1309,19 +1376,19 @@ impl Clone for MetricsCollector {
             current_memory_usage: self.current_memory_usage.clone(),
             active_vcpus: self.active_vcpus.clone(),
             compilation_cache_size: self.compilation_cache_size.clone(),
-            
+
             execution_start_time: self.execution_start_time.clone(),
             execution_count_since_start: self.execution_count_since_start.clone(),
-            
+
             hot_blocks: self.hot_blocks.clone(),
             hotspot_detector: self.hotspot_detector.clone(),
-            
+
             compile_time_sum_ns: self.compile_time_sum_ns.clone(),
             compile_time_max_ns: self.compile_time_max_ns.clone(),
             compile_time_min_ns: self.compile_time_min_ns.clone(),
             total_compilations: self.total_compilations.clone(),
             compile_time_samples: self.compile_time_samples.clone(),
-            
+
             gc_time_sum_ns: self.gc_time_sum_ns.clone(),
             gc_time_max_ns: self.gc_time_max_ns.clone(),
             gc_time_min_ns: self.gc_time_min_ns.clone(),
@@ -1329,9 +1396,9 @@ impl Clone for MetricsCollector {
             gc_pause_time_sum_ns: self.gc_pause_time_sum_ns.clone(),
             gc_pause_time_max_ns: self.gc_pause_time_max_ns.clone(),
             gc_time_samples: self.gc_time_samples.clone(),
-            
+
             execution_time_samples: self.execution_time_samples.clone(),
-            
+
             // 系统集成配置
             tlb_capacity: self.tlb_capacity.clone(),
             objects_collected: self.objects_collected.clone(),

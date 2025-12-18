@@ -2,13 +2,19 @@
 //!
 //! 实现跨架构指令转换的核心逻辑
 
-use super::{
-    ArchEncoder, Architecture, Arm64Encoder, RegisterMapper, Riscv64Encoder, TargetInstruction,
-    TranslationResult, TranslationStats, X86_64Encoder,
+use super::{ArchEncoder, Architecture, Arm64Encoder, Riscv64Encoder, SmartRegisterMapper, 
+    TargetInstruction, TranslationResult, X86_64Encoder, TranslationStats,
+    CrossArchBlockCache, CacheReplacementPolicy, OptimizedRegisterMapper,
+    InstructionParallelizer, ResourceRequirements, MemoryAlignmentOptimizer,
+    Endianness, EndiannessConversionStrategy, IROptimizer, TargetSpecificOptimizer, AdaptiveOptimizer,
+    block_cache::CacheStats, memory_alignment_optimizer::MemoryOptimizationStats,
 };
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use vm_core::{GuestAddr, VmError};
-use vm_ir::{IRBlock, IROp, Terminator};
+use vm_ir::{IRBlock, Terminator, RegId};
+pub use vm_ir::IROp;
 
 /// 源架构类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,6 +30,16 @@ impl From<SourceArch> for Architecture {
             SourceArch::X86_64 => Architecture::X86_64,
             SourceArch::ARM64 => Architecture::ARM64,
             SourceArch::RISCV64 => Architecture::RISCV64,
+        }
+    }
+}
+
+impl From<Architecture> for SourceArch {
+    fn from(arch: Architecture) -> Self {
+        match arch {
+            Architecture::X86_64 => SourceArch::X86_64,
+            Architecture::ARM64 => SourceArch::ARM64,
+            Architecture::RISCV64 => SourceArch::RISCV64,
         }
     }
 }
@@ -46,9 +62,21 @@ impl From<TargetArch> for Architecture {
     }
 }
 
+impl From<Architecture> for TargetArch {
+    fn from(arch: Architecture) -> Self {
+        match arch {
+            Architecture::X86_64 => TargetArch::X86_64,
+            Architecture::ARM64 => TargetArch::ARM64,
+            Architecture::RISCV64 => TargetArch::RISCV64,
+        }
+    }
+}
+
 /// 转换错误类型
 #[derive(Error, Debug)]
 pub enum TranslationError {
+    #[error("字符串错误: {0}")]
+    StringError(String),
     #[error("不支持的IR操作: {op}")]
     UnsupportedOperation { op: String },
 
@@ -61,6 +89,9 @@ pub enum TranslationError {
     #[error("寄存器映射失败: {reason}")]
     RegisterMappingFailed { reason: String },
 
+    #[error("寄存器分配失败: {0}")]
+    RegisterAllocationFailed(String),
+
     #[error("编码错误: {message}")]
     EncodingError { message: String },
 
@@ -70,6 +101,13 @@ pub enum TranslationError {
         target: Architecture,
     },
 }
+
+impl From<String> for TranslationError {
+    fn from(s: String) -> Self {
+        TranslationError::StringError(s)
+    }
+}
+
 
 impl From<TranslationError> for VmError {
     fn from(err: TranslationError) -> Self {
@@ -87,12 +125,125 @@ pub struct ArchTranslator {
     source_arch: Architecture,
     target_arch: Architecture,
     encoder: Box<dyn ArchEncoder>,
-    register_mapper: RegisterMapper,
+    register_mapper: SmartRegisterMapper,
+    /// 优化的寄存器映射器
+    optimized_mapper: Option<OptimizedRegisterMapper>,
+    /// 块级翻译缓存
+    block_cache: Option<Arc<Mutex<CrossArchBlockCache>>>,
+    /// 是否使用优化寄存器分配
+    use_optimized_allocation: bool,
+    /// 内存对齐和端序优化器
+    memory_optimizer: Option<MemoryAlignmentOptimizer>,
+    /// IR优化器
+    ir_optimizer: Option<IROptimizer>,
+    /// 目标特定优化器
+    target_optimizer: Option<TargetSpecificOptimizer>,
+    /// 自适应优化器
+    adaptive_optimizer: Option<AdaptiveOptimizer>,
 }
 
 impl ArchTranslator {
     /// 创建新的架构转换器
     pub fn new(source_arch: SourceArch, target_arch: TargetArch) -> Self {
+        Self::with_cache(source_arch, target_arch, None)
+    }
+    
+    /// 创建带有块级缓存的架构转换器
+    pub fn with_cache(
+        source_arch: SourceArch, 
+        target_arch: TargetArch,
+        cache_size: Option<usize>
+    ) -> Self {
+        Self::with_cache_and_optimization(source_arch, target_arch, cache_size, false)
+    }
+    
+    /// 创建带有块级缓存和优化寄存器分配的架构转换器
+    pub fn with_cache_and_optimization(
+        source_arch: SourceArch, 
+        target_arch: TargetArch,
+        cache_size: Option<usize>,
+        use_optimized_allocation: bool,
+    ) -> Self {
+        Self::with_cache_optimization_and_memory(
+            source_arch, 
+            target_arch,
+            cache_size,
+            use_optimized_allocation,
+            true, // 默认启用内存优化
+        )
+    }
+    
+    /// 创建带有块级缓存、优化寄存器分配和内存优化的架构转换器
+    pub fn with_cache_optimization_and_memory(
+        source_arch: SourceArch, 
+        target_arch: TargetArch,
+        cache_size: Option<usize>,
+        use_optimized_allocation: bool,
+        use_memory_optimization: bool,
+    ) -> Self {
+        Self::with_cache_optimization_memory_and_ir(
+            source_arch, 
+            target_arch,
+            cache_size,
+            use_optimized_allocation,
+            use_memory_optimization,
+            true, // 默认启用IR优化
+        )
+    }
+    
+    /// 创建带有块级缓存、优化寄存器分配、内存优化和IR优化的架构转换器
+    pub fn with_cache_optimization_memory_and_ir(
+        source_arch: SourceArch, 
+        target_arch: TargetArch,
+        cache_size: Option<usize>,
+        use_optimized_allocation: bool,
+        use_memory_optimization: bool,
+        use_ir_optimization: bool,
+    ) -> Self {
+        Self::with_cache_optimization_memory_ir_and_target(
+            source_arch, 
+            target_arch,
+            cache_size,
+            use_optimized_allocation,
+            use_memory_optimization,
+            use_ir_optimization,
+            true, // 默认启用目标特定优化
+        )
+    }
+    
+    /// 创建带有块级缓存、优化寄存器分配、内存优化、IR优化和目标特定优化的架构转换器
+    pub fn with_cache_optimization_memory_ir_and_target(
+        source_arch: SourceArch, 
+        target_arch: TargetArch,
+        cache_size: Option<usize>,
+        use_optimized_allocation: bool,
+        use_memory_optimization: bool,
+        use_ir_optimization: bool,
+        use_target_optimization: bool,
+    ) -> Self {
+        Self::with_all_optimizations(
+            source_arch, 
+            target_arch,
+            cache_size,
+            use_optimized_allocation,
+            use_memory_optimization,
+            use_ir_optimization,
+            use_target_optimization,
+            true, // 默认启用自适应优化
+        )
+    }
+    
+    /// 创建带有所有优化器的架构转换器
+    pub fn with_all_optimizations(
+        source_arch: SourceArch, 
+        target_arch: TargetArch,
+        cache_size: Option<usize>,
+        use_optimized_allocation: bool,
+        use_memory_optimization: bool,
+        use_ir_optimization: bool,
+        use_target_optimization: bool,
+        use_adaptive_optimization: bool,
+    ) -> Self {
         let source: Architecture = source_arch.into();
         let target: Architecture = target_arch.into();
 
@@ -103,14 +254,88 @@ impl ArchTranslator {
             Architecture::RISCV64 => Box::new(Riscv64Encoder),
         };
 
-        // 创建寄存器映射器
-        let register_mapper = RegisterMapper::new(source, target);
+        // 创建智能寄存器映射器
+        let register_mapper = SmartRegisterMapper::new(target);
+        
+        // 创建优化寄存器映射器（如果启用）
+        let optimized_mapper = if use_optimized_allocation {
+            Some(OptimizedRegisterMapper::new(target))
+        } else {
+            None
+        };
+        
+        // 创建块级缓存（如果指定了大小）
+        let block_cache = cache_size.map(|size| {
+            Arc::new(Mutex::new(CrossArchBlockCache::new(
+                size, 
+                CacheReplacementPolicy::LRU
+            )))
+        });
+        
+        // 创建内存对齐和端序优化器
+        let memory_optimizer = if use_memory_optimization {
+            // 确定源和目标架构的端序
+            let source_endianness = match source {
+                Architecture::X86_64 => Endianness::LittleEndian,
+                Architecture::ARM64 => Endianness::LittleEndian, // ARM64可以是小端或大端，但通常是小端
+                Architecture::RISCV64 => Endianness::LittleEndian, // RISC-V默认小端
+            };
+            
+            let target_endianness = match target {
+                Architecture::X86_64 => Endianness::LittleEndian,
+                Architecture::ARM64 => Endianness::LittleEndian,
+                Architecture::RISCV64 => Endianness::LittleEndian,
+            };
+            
+            // 选择端序转换策略
+            let conversion_strategy = if source_endianness == target_endianness {
+                EndiannessConversionStrategy::None
+            } else {
+                EndiannessConversionStrategy::Hybrid
+            };
+            
+            Some(MemoryAlignmentOptimizer::new(
+                source_endianness,
+                target_endianness,
+                conversion_strategy,
+            ))
+        } else {
+            None
+        };
+        
+        // 创建IR优化器
+        let ir_optimizer = if use_ir_optimization {
+            Some(IROptimizer::new())
+        } else {
+            None
+        };
+        
+        // 创建目标特定优化器
+        let target_optimizer = if use_target_optimization {
+            Some(TargetSpecificOptimizer::new(target))
+        } else {
+            None
+        };
+        
+        // 创建自适应优化器
+        let adaptive_optimizer = if use_adaptive_optimization {
+            Some(AdaptiveOptimizer::new())
+        } else {
+            None
+        };
 
         Self {
-            source_arch: source,
-            target_arch: target,
+            source_arch: source_arch.into(),
+            target_arch: target_arch.into(),
             encoder,
             register_mapper,
+            optimized_mapper,
+            block_cache,
+            use_optimized_allocation,
+            memory_optimizer,
+            ir_optimizer,
+            target_optimizer,
+            adaptive_optimizer,
         }
     }
 
@@ -119,14 +344,102 @@ impl ArchTranslator {
         &mut self,
         block: &IRBlock,
     ) -> Result<TranslationResult, TranslationError> {
+        // 如果有缓存，尝试从缓存获取
+        if let Some(ref cache) = self.block_cache {
+            // 先克隆缓存引用，避免可变/不可变借用冲突
+            let cache = cache.clone();
+            
+            // 现在可以安全地调用get_or_translate，因为self.block_cache的不可变借用已经结束
+            if let Ok(cached_result) = cache.lock().unwrap().get_or_translate(self, block) {
+                return Ok(cached_result);
+            }
+        }
+        
+        // 缓存未命中或无缓存，执行正常翻译流程
+        self.translate_block_internal(block)
+    }
+    
+    /// 内部翻译方法，不使用缓存
+    pub fn translate_block_internal(
+        &mut self,
+        block: &IRBlock,
+    ) -> Result<TranslationResult, TranslationError> {
         let mut instructions = Vec::new();
         let mut stats = TranslationStats::default();
 
-        // 重置临时寄存器分配器
-        self.register_mapper.reset_temps();
+        // 重置寄存器映射器
+        self.register_mapper.reset();
+        
+        // 如果使用优化分配器，也重置它
+        if let Some(ref mut optimized_mapper) = self.optimized_mapper {
+            optimized_mapper.reset();
+        }
+        
+        // 应用IR优化
+        let mut optimized_ops = if let Some(ref mut ir_optimizer) = self.ir_optimizer {
+            ir_optimizer.optimize(&block.ops)
+        } else {
+            block.ops.clone()
+        };
+        
+        // 应用目标特定优化
+        if let Some(ref mut target_optimizer) = self.target_optimizer {
+            optimized_ops = target_optimizer.optimize(&optimized_ops);
+        }
+        
+        // 应用自适应优化
+        if let Some(ref mut adaptive_optimizer) = self.adaptive_optimizer {
+            optimized_ops = adaptive_optimizer.optimize(&optimized_ops, block.start_pc.0);
+        }
 
-        // 转换每个IR操作
-        for op in &block.ops {
+        // 根据是否使用优化分配器选择不同的路径
+        if self.use_optimized_allocation {
+            // 使用优化寄存器分配
+            if let Some(ref mut optimized_mapper) = self.optimized_mapper {
+                // 执行优化的寄存器分配
+                if let Err(e) = optimized_mapper.allocate_registers(&optimized_ops) {
+                    // 如果优化分配失败，回退到简单映射
+                    eprintln!("Optimized register allocation failed: {}, falling back to simple mapping", e);
+                    
+                    // 使用标准分配器
+                    let live_ranges = self.analyze_live_ranges(block);
+                    if let Err(e) = self.register_mapper.allocate_registers(&live_ranges) {
+                        return Err(TranslationError::RegisterAllocationFailed(e));
+                    }
+                } else {
+                    // 优化分配成功，获取优化统计
+                    let opt_stats = optimized_mapper.get_optimization_stats();
+                    stats.copies_eliminated = opt_stats.copies_eliminated;
+                    stats.registers_reused = opt_stats.registers_reused;
+                }
+            }
+        } else {
+            // 使用标准寄存器分配
+            let live_ranges = self.analyze_live_ranges(block);
+            if let Err(e) = self.register_mapper.allocate_registers(&live_ranges) {
+                return Err(TranslationError::RegisterAllocationFailed(e));
+            }
+        }
+
+        // 创建指令并行化器
+        let mut parallelizer = InstructionParallelizer::new(
+            ResourceRequirements::for_architecture(self.target_arch)
+        );
+        
+        // 分析指令并行性并重新排序
+        let mut parallel_ops = parallelizer.optimize_instruction_sequence(&optimized_ops)?;
+        
+        // 应用内存对齐和端序优化
+        if let Some(ref mut memory_optimizer) = self.memory_optimizer {
+            // 分析内存访问模式并优化
+            parallel_ops = memory_optimizer.optimize_for_pattern(&parallel_ops);
+            
+            // 进一步优化内存操作序列
+            parallel_ops = memory_optimizer.optimize_memory_sequence(&parallel_ops);
+        }
+        
+        // 转换每个优化后的IR操作
+        for op in &parallel_ops {
             stats.ir_ops_translated += 1;
 
             // 映射寄存器
@@ -147,10 +460,126 @@ impl ArchTranslator {
         let term_insns = self.translate_terminator(&block.term, block.start_pc)?;
         instructions.extend(term_insns);
 
+        // 更新统计信息
+        let allocation_stats = self.register_mapper.get_stats();
+        stats.register_mappings = allocation_stats.total_mappings;
+
         Ok(TranslationResult {
             instructions,
             stats,
         })
+    }
+
+    /// 分析IR块中的寄存器活跃范围
+    fn analyze_live_ranges(&self, block: &IRBlock) -> Vec<(vm_ir::RegId, (usize, usize))> {
+        use std::collections::HashMap;
+        
+        let mut def_points: HashMap<vm_ir::RegId, usize> = HashMap::new();
+        let mut use_points: HashMap<vm_ir::RegId, usize> = HashMap::new();
+        let mut live_ranges = Vec::new();
+        
+        // 第一遍：收集定义和使用点
+        for (idx, op) in block.ops.iter().enumerate() {
+            self.collect_reg_defs_uses(op, idx, &mut def_points, &mut use_points);
+        }
+        
+        // 构建活跃范围
+        for (reg, &def_idx) in &def_points {
+            let use_idx = use_points.get(reg).unwrap_or(&def_idx);
+            let start = def_idx.min(*use_idx);
+            let end = def_idx.max(*use_idx);
+            live_ranges.push((*reg, (start, end)));
+        }
+        
+        live_ranges
+    }
+
+    /// 收集IR操作中的寄存器定义和使用点
+    fn collect_reg_defs_uses(
+        &self,
+        op: &vm_ir::IROp,
+        idx: usize,
+        def_points: &mut HashMap<vm_ir::RegId, usize>,
+        use_points: &mut HashMap<vm_ir::RegId, usize>,
+    ) {
+        match op {
+            vm_ir::IROp::Add { dst, src1, src2 } => {
+                def_points.entry(*dst).or_insert(idx);
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Sub { dst, src1, src2 } => {
+                def_points.entry(*dst).or_insert(idx);
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::AddImm { dst, src, .. } => {
+                def_points.entry(*dst).or_insert(idx);
+                use_points.entry(*src).or_insert(idx);
+            }
+            vm_ir::IROp::MovImm { dst, .. } => {
+                def_points.entry(*dst).or_insert(idx);
+            }
+            vm_ir::IROp::Load { dst, base, .. } => {
+                def_points.entry(*dst).or_insert(idx);
+                use_points.entry(*base).or_insert(idx);
+            }
+            vm_ir::IROp::Store { src, base, .. } => {
+                use_points.entry(*src).or_insert(idx);
+                use_points.entry(*base).or_insert(idx);
+            }
+            vm_ir::IROp::Mul { dst, src1, src2, .. } => {
+                def_points.entry(*dst).or_insert(idx);
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Div { dst, src1, src2, signed: _ } => {
+                def_points.entry(*dst).or_insert(idx);
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Beq { src1, src2, .. } => {
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Bne { src1, src2, .. } => {
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Blt { src1, src2, .. } => {
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Bge { src1, src2, .. } => {
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Bltu { src1, src2, .. } => {
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            vm_ir::IROp::Bgeu { src1, src2, .. } => {
+                use_points.entry(*src1).or_insert(idx);
+                use_points.entry(*src2).or_insert(idx);
+            }
+            // 跳转指令在Terminator中，不在IROp中
+            _ => {
+                // 对于其他操作类型，暂时不处理
+            }
+        }
+    }
+
+    /// 映射源寄存器到目标寄存器
+    pub fn map_register(&self, source_reg: RegId) -> RegId {
+        // 如果使用优化分配器，优先使用它
+        if self.use_optimized_allocation {
+            if let Some(ref optimized_mapper) = self.optimized_mapper {
+                return optimized_mapper.map_register(source_reg);
+            }
+        }
+        
+        // 回退到标准映射器
+        self.register_mapper.map_register(source_reg)
     }
 
     /// 映射IR操作中的寄存器
@@ -175,6 +604,7 @@ impl ArchTranslator {
                 dst: self.register_mapper.map_register(*dst),
                 imm: *imm,
             }),
+
             IROp::Load {
                 dst,
                 base,
@@ -201,6 +631,48 @@ impl ArchTranslator {
                 size: *size,
                 flags: *flags,
             }),
+            IROp::Mul { dst, src1, src2 } => Ok(IROp::Mul {
+                dst: self.register_mapper.map_register(*dst),
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+            }),
+            IROp::Div { dst, src1, src2, signed } => Ok(IROp::Div {
+                dst: self.register_mapper.map_register(*dst),
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+                signed: *signed,
+            }),
+            IROp::Beq { src1, src2, target } => Ok(IROp::Beq {
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+                target: *target,
+            }),
+            IROp::Bne { src1, src2, target } => Ok(IROp::Bne {
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+                target: *target,
+            }),
+            IROp::Blt { src1, src2, target } => Ok(IROp::Blt {
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+                target: *target,
+            }),
+            IROp::Bge { src1, src2, target } => Ok(IROp::Bge {
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+                target: *target,
+            }),
+            IROp::Bltu { src1, src2, target } => Ok(IROp::Bltu {
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+                target: *target,
+            }),
+            IROp::Bgeu { src1, src2, target } => Ok(IROp::Bgeu {
+                src1: self.register_mapper.map_register(*src1),
+                src2: self.register_mapper.map_register(*src2),
+                target: *target,
+            }),
+            // Jmp, CondJmp, and Call are in Terminator, not IROp
             // SIMD操作
             IROp::VecAdd {
                 dst,
@@ -310,498 +782,6 @@ impl ArchTranslator {
                 expected: self.register_mapper.map_register(*expected),
                 new: self.register_mapper.map_register(*new),
                 size: *size,
-            }),
-            IROp::AtomicLoadReserve {
-                dst,
-                base,
-                offset,
-                size,
-                flags,
-            } => Ok(IROp::AtomicLoadReserve {
-                dst: self.register_mapper.map_register(*dst),
-                base: self.register_mapper.map_register(*base),
-                offset: *offset,
-                size: *size,
-                flags: *flags,
-            }),
-            IROp::AtomicStoreCond {
-                src,
-                base,
-                offset,
-                size,
-                dst_flag,
-                flags,
-            } => Ok(IROp::AtomicStoreCond {
-                src: self.register_mapper.map_register(*src),
-                base: self.register_mapper.map_register(*base),
-                offset: *offset,
-                size: *size,
-                dst_flag: self.register_mapper.map_register(*dst_flag),
-                flags: *flags,
-            }),
-            // SIMD饱和运算
-            IROp::VecAddSat {
-                dst,
-                src1,
-                src2,
-                element_size,
-                signed,
-            } => Ok(IROp::VecAddSat {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                element_size: *element_size,
-                signed: *signed,
-            }),
-            IROp::VecSubSat {
-                dst,
-                src1,
-                src2,
-                element_size,
-                signed,
-            } => Ok(IROp::VecSubSat {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                element_size: *element_size,
-                signed: *signed,
-            }),
-            // 浮点融合乘加
-            IROp::Fmadd {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::Fmadd {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            IROp::Fmsub {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::Fmsub {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            IROp::Fnmadd {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::Fnmadd {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            IROp::Fnmsub {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::Fnmsub {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            IROp::FmaddS {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::FmaddS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            IROp::FmsubS {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::FmsubS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            IROp::FnmaddS {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::FnmaddS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            IROp::FnmsubS {
-                dst,
-                src1,
-                src2,
-                src3,
-            } => Ok(IROp::FnmsubS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                src3: self.register_mapper.map_register(*src3),
-            }),
-            // 浮点比较
-            IROp::Feq { dst, src1, src2 } => Ok(IROp::Feq {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::Flt { dst, src1, src2 } => Ok(IROp::Flt {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::Fle { dst, src1, src2 } => Ok(IROp::Fle {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FeqS { dst, src1, src2 } => Ok(IROp::FeqS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FltS { dst, src1, src2 } => Ok(IROp::FltS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FleS { dst, src1, src2 } => Ok(IROp::FleS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            // 浮点最小/最大
-            IROp::Fmin { dst, src1, src2 } => Ok(IROp::Fmin {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::Fmax { dst, src1, src2 } => Ok(IROp::Fmax {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FminS { dst, src1, src2 } => Ok(IROp::FminS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FmaxS { dst, src1, src2 } => Ok(IROp::FmaxS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            // 浮点绝对值/取反
-            IROp::Fabs { dst, src } => Ok(IROp::Fabs {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fneg { dst, src } => Ok(IROp::Fneg {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::FabsS { dst, src } => Ok(IROp::FabsS {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::FnegS { dst, src } => Ok(IROp::FnegS {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            // 浮点转换
-            IROp::Fcvtws { dst, src } => Ok(IROp::Fcvtws {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtsw { dst, src } => Ok(IROp::Fcvtsw {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtld { dst, src } => Ok(IROp::Fcvtld {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtdl { dst, src } => Ok(IROp::Fcvtdl {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtsd { dst, src } => Ok(IROp::Fcvtsd {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtds { dst, src } => Ok(IROp::Fcvtds {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            // 浮点加载/存储
-            IROp::Fload {
-                dst,
-                base,
-                offset,
-                size,
-                ..
-            } => Ok(IROp::Fload {
-                dst: self.register_mapper.map_register(*dst),
-                base: self.register_mapper.map_register(*base),
-                offset: *offset,
-                size: *size,
-            }),
-            IROp::Fstore {
-                src,
-                base,
-                offset,
-                size,
-                ..
-            } => Ok(IROp::Fstore {
-                src: self.register_mapper.map_register(*src),
-                base: self.register_mapper.map_register(*base),
-                offset: *offset,
-                size: *size,
-            }),
-            // SIMD饱和乘法
-            IROp::VecMulSat {
-                dst,
-                src1,
-                src2,
-                element_size,
-                signed,
-            } => Ok(IROp::VecMulSat {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-                element_size: *element_size,
-                signed: *signed,
-            }),
-            // 浮点符号操作
-            IROp::Fsgnj { dst, src1, src2 } => Ok(IROp::Fsgnj {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::Fsgnjn { dst, src1, src2 } => Ok(IROp::Fsgnjn {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::Fsgnjx { dst, src1, src2 } => Ok(IROp::Fsgnjx {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FsgnjS { dst, src1, src2 } => Ok(IROp::FsgnjS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FsgnjnS { dst, src1, src2 } => Ok(IROp::FsgnjnS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            IROp::FsgnjxS { dst, src1, src2 } => Ok(IROp::FsgnjxS {
-                dst: self.register_mapper.map_register(*dst),
-                src1: self.register_mapper.map_register(*src1),
-                src2: self.register_mapper.map_register(*src2),
-            }),
-            // 浮点分类
-            IROp::Fclass { dst, src } => Ok(IROp::Fclass {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::FclassS { dst, src } => Ok(IROp::FclassS {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            // 浮点寄存器移动
-            IROp::FmvXW { dst, src } => Ok(IROp::FmvXW {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::FmvWX { dst, src } => Ok(IROp::FmvWX {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::FmvXD { dst, src } => Ok(IROp::FmvXD {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::FmvDX { dst, src } => Ok(IROp::FmvDX {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            // 更多浮点转换
-            IROp::Fcvtwus { dst, src } => Ok(IROp::Fcvtwus {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtlus { dst, src } => Ok(IROp::Fcvtlus {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtswu { dst, src } => Ok(IROp::Fcvtswu {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtslu { dst, src } => Ok(IROp::Fcvtslu {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtwd { dst, src } => Ok(IROp::Fcvtwd {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtwud { dst, src } => Ok(IROp::Fcvtwud {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtlud { dst, src } => Ok(IROp::Fcvtlud {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtdw { dst, src } => Ok(IROp::Fcvtdw {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtdwu { dst, src } => Ok(IROp::Fcvtdwu {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtdl { dst, src } => Ok(IROp::Fcvtdl {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            IROp::Fcvtdlu { dst, src } => Ok(IROp::Fcvtdlu {
-                dst: self.register_mapper.map_register(*dst),
-                src: self.register_mapper.map_register(*src),
-            }),
-            // 大向量操作
-            IROp::Vec128Add {
-                dst_lo,
-                dst_hi,
-                src1_lo,
-                src1_hi,
-                src2_lo,
-                src2_hi,
-                element_size,
-                signed,
-            } => Ok(IROp::Vec128Add {
-                dst_lo: self.register_mapper.map_register(*dst_lo),
-                dst_hi: self.register_mapper.map_register(*dst_hi),
-                src1_lo: self.register_mapper.map_register(*src1_lo),
-                src1_hi: self.register_mapper.map_register(*src1_hi),
-                src2_lo: self.register_mapper.map_register(*src2_lo),
-                src2_hi: self.register_mapper.map_register(*src2_hi),
-                element_size: *element_size,
-                signed: *signed,
-            }),
-            IROp::Vec256Add {
-                dst0,
-                dst1,
-                dst2,
-                dst3,
-                src10,
-                src11,
-                src12,
-                src13,
-                src20,
-                src21,
-                src22,
-                src23,
-                element_size,
-                signed,
-            } => Ok(IROp::Vec256Add {
-                dst0: self.register_mapper.map_register(*dst0),
-                dst1: self.register_mapper.map_register(*dst1),
-                dst2: self.register_mapper.map_register(*dst2),
-                dst3: self.register_mapper.map_register(*dst3),
-                src10: self.register_mapper.map_register(*src10),
-                src11: self.register_mapper.map_register(*src11),
-                src12: self.register_mapper.map_register(*src12),
-                src13: self.register_mapper.map_register(*src13),
-                src20: self.register_mapper.map_register(*src20),
-                src21: self.register_mapper.map_register(*src21),
-                src22: self.register_mapper.map_register(*src22),
-                src23: self.register_mapper.map_register(*src23),
-                element_size: *element_size,
-                signed: *signed,
-            }),
-            IROp::Vec256Sub {
-                dst0,
-                dst1,
-                dst2,
-                dst3,
-                src10,
-                src11,
-                src12,
-                src13,
-                src20,
-                src21,
-                src22,
-                src23,
-                element_size,
-                signed,
-            } => Ok(IROp::Vec256Sub {
-                dst0: self.register_mapper.map_register(*dst0),
-                dst1: self.register_mapper.map_register(*dst1),
-                dst2: self.register_mapper.map_register(*dst2),
-                dst3: self.register_mapper.map_register(*dst3),
-                src10: self.register_mapper.map_register(*src10),
-                src11: self.register_mapper.map_register(*src11),
-                src12: self.register_mapper.map_register(*src12),
-                src13: self.register_mapper.map_register(*src13),
-                src20: self.register_mapper.map_register(*src20),
-                src21: self.register_mapper.map_register(*src21),
-                src22: self.register_mapper.map_register(*src22),
-                src23: self.register_mapper.map_register(*src23),
-                element_size: *element_size,
-                signed: *signed,
-            }),
-            IROp::Vec256Mul {
-                dst0,
-                dst1,
-                dst2,
-                dst3,
-                src10,
-                src11,
-                src12,
-                src13,
-                src20,
-                src21,
-                src22,
-                src23,
-                element_size,
-                signed,
-            } => Ok(IROp::Vec256Mul {
-                dst0: self.register_mapper.map_register(*dst0),
-                dst1: self.register_mapper.map_register(*dst1),
-                dst2: self.register_mapper.map_register(*dst2),
-                dst3: self.register_mapper.map_register(*dst3),
-                src10: self.register_mapper.map_register(*src10),
-                src11: self.register_mapper.map_register(*src11),
-                src12: self.register_mapper.map_register(*src12),
-                src13: self.register_mapper.map_register(*src13),
-                src20: self.register_mapper.map_register(*src20),
-                src21: self.register_mapper.map_register(*src21),
-                src22: self.register_mapper.map_register(*src22),
-                src23: self.register_mapper.map_register(*src23),
-                element_size: *element_size,
-                signed: *signed,
             }),
             _ => {
                 // 对于未实现的操作，尝试通用映射
@@ -1067,6 +1047,56 @@ impl ArchTranslator {
     pub fn target_arch(&self) -> Architecture {
         self.target_arch
     }
+    
+    /// 获取缓存统计信息
+    pub fn cache_stats(&self) -> Option<CacheStats> {
+        self.block_cache.as_ref().map(|cache| {
+            cache.lock().unwrap().stats().clone()
+        })
+    }
+    
+    /// 清空缓存
+    pub fn clear_cache(&self) {
+        if let Some(ref cache) = self.block_cache {
+            cache.lock().unwrap().clear();
+        }
+    }
+    
+    /// 设置缓存大小
+    pub fn set_cache_size(&self, size: usize) {
+        if let Some(ref cache) = self.block_cache {
+            cache.lock().unwrap().set_max_size(size);
+        }
+    }
+    
+    /// 获取优化统计信息
+    pub fn get_optimization_stats(&self) -> Option<&crate::optimized_register_allocator::OptimizationStats> {
+        if self.use_optimized_allocation {
+            self.optimized_mapper.as_ref().map(|mapper| mapper.get_optimization_stats())
+        } else {
+            None
+        }
+    }
+    
+    /// 获取内存优化统计信息
+    pub fn get_memory_optimization_stats(&self) -> Option<&MemoryOptimizationStats> {
+        self.memory_optimizer.as_ref().map(|optimizer| optimizer.get_stats())
+    }
+    
+    /// 获取IR优化统计信息
+    pub fn get_ir_optimization_stats(&self) -> Option<&super::IROptimizationStats> {
+        self.ir_optimizer.as_ref().map(|optimizer| optimizer.get_stats())
+    }
+    
+    /// 获取目标特定优化统计信息
+    pub fn get_target_optimization_stats(&self) -> Option<&super::TargetOptimizationStats> {
+        self.target_optimizer.as_ref().map(|optimizer: &TargetSpecificOptimizer| optimizer.get_stats())
+    }
+    
+    /// 获取自适应优化统计信息
+    pub fn get_adaptive_optimization_stats(&self) -> Option<&super::AdaptiveOptimizationStats> {
+        self.adaptive_optimizer.as_ref().map(|optimizer| optimizer.get_stats())
+    }
 }
 
 #[cfg(test)]
@@ -1079,6 +1109,15 @@ mod tests {
         let translator = ArchTranslator::new(SourceArch::X86_64, TargetArch::ARM64);
         assert_eq!(translator.source_arch(), Architecture::X86_64);
         assert_eq!(translator.target_arch(), Architecture::ARM64);
+        assert!(translator.cache_stats().is_none()); // 默认无缓存
+    }
+    
+    #[test]
+    fn test_translator_with_cache() {
+        let translator = ArchTranslator::with_cache(SourceArch::X86_64, TargetArch::ARM64, Some(100));
+        assert_eq!(translator.source_arch(), Architecture::X86_64);
+        assert_eq!(translator.target_arch(), Architecture::ARM64);
+        assert!(translator.cache_stats().is_some()); // 有缓存
     }
 
     #[test]
@@ -1095,5 +1134,176 @@ mod tests {
 
         let result = translator.translate_block(&block);
         assert!(result.is_ok());
+    }
+    
+    #[test]
+    fn test_cached_translation() {
+        let mut translator = ArchTranslator::with_cache(SourceArch::X86_64, TargetArch::ARM64, Some(10));
+        let mut builder = IRBuilder::new(0x1000);
+        builder.push(IROp::Add {
+            dst: 0,
+            src1: 1,
+            src2: 2,
+        });
+        builder.set_term(Terminator::Ret);
+        let block = builder.build();
+
+        // 第一次翻译，应该缓存未命中
+        let result1 = translator.translate_block(&block);
+        assert!(result1.is_ok());
+        let stats1 = translator.cache_stats().unwrap();
+        assert_eq!(stats1.misses, 1);
+        assert_eq!(stats1.hits, 0);
+        
+        // 第二次翻译相同块，应该缓存命中
+        let result2 = translator.translate_block(&block);
+        assert!(result2.is_ok());
+        let stats2 = translator.cache_stats().unwrap();
+        assert_eq!(stats2.misses, 1); // 未命中次数不变
+        assert_eq!(stats2.hits, 1); // 命中次数增加
+    }
+    
+    #[test]
+    fn test_optimized_register_allocation() {
+        let mut translator = ArchTranslator::with_cache_and_optimization(
+            SourceArch::X86_64, 
+            TargetArch::ARM64, 
+            Some(10), 
+            true
+        );
+        let mut builder = IRBuilder::new(0x1000);
+        builder.push(IROp::Const { dst: 0, value: 42 });
+        builder.push(IROp::Mov { dst: 1, src: 0 });
+        builder.push(IROp::Add { dst: 2, src1: 1, src2: 0 });
+        builder.set_term(Terminator::Ret);
+        let block = builder.build();
+
+        // 翻译块
+        let result = translator.translate_block(&block);
+        assert!(result.is_ok());
+        
+        // 检查优化统计
+        let opt_stats = translator.get_optimization_stats().unwrap();
+        assert!(opt_stats.total_copies > 0); // 应该检测到拷贝
+    }
+    
+    #[test]
+    fn test_memory_alignment_optimization() {
+        let mut translator = ArchTranslator::with_cache_optimization_and_memory(
+            SourceArch::X86_64, 
+            TargetArch::ARM64, 
+            Some(10), 
+            true,
+            true
+        );
+        let mut builder = IRBuilder::new(0x1000);
+        
+        // 创建一系列内存访问操作
+        builder.push(IROp::Load { dst: 1, base: 0, offset: 0, size: 4, flags: 0 });
+        builder.push(IROp::Load { dst: 2, base: 0, offset: 4, size: 4, flags: 0 });
+        builder.push(IROp::Load { dst: 3, base: 0, offset: 8, size: 4, flags: 0 });
+        builder.push(IROp::Load { dst: 4, base: 0, offset: 12, size: 4, flags: 0 });
+        builder.set_term(Terminator::Ret);
+        let block = builder.build();
+
+        // 翻译块
+        let result = translator.translate_block(&block);
+        assert!(result.is_ok());
+        
+        // 检查内存优化统计
+        let mem_stats = translator.get_memory_optimization_stats().unwrap();
+        assert!(mem_stats.alignment_optimizations > 0); // 应该有对齐优化
+    }
+    
+    #[test]
+    fn test_ir_optimization() {
+        let mut translator = ArchTranslator::with_cache_optimization_memory_and_ir(
+            SourceArch::X86_64, 
+            TargetArch::ARM64, 
+            Some(10), 
+            true,
+            true,
+            true
+        );
+        let mut builder = IRBuilder::new(0x1000);
+        
+        // 创建一系列可优化的IR操作
+        builder.push(IROp::Const { dst: 1, value: 10 });
+        builder.push(IROp::Const { dst: 2, value: 20 });
+        builder.push(IROp::Add { dst: 3, src1: 1, src2: 2 }); // 应该被常量折叠
+        builder.push(IROp::Mul { dst: 4, src1: 3, src2: 8 }); // 应该被强度削弱
+        builder.set_term(Terminator::Ret);
+        let block = builder.build();
+
+        // 翻译块
+        let result = translator.translate_block(&block);
+        assert!(result.is_ok());
+        
+        // 检查IR优化统计
+        let ir_stats = translator.get_ir_optimization_stats().unwrap();
+        assert!(ir_stats.constant_folds > 0); // 应该有常量折叠
+        assert!(ir_stats.strength_reductions > 0); // 应该有强度削弱
+    }
+    
+    #[test]
+    fn test_target_specific_optimization() {
+        let mut translator = ArchTranslator::with_cache_optimization_memory_ir_and_target(
+            SourceArch::X86_64, 
+            TargetArch::ARM64, 
+            Some(10), 
+            true,
+            true,
+            true,
+            true
+        );
+        let mut builder = IRBuilder::new(0x1000);
+        
+        // 创建一系列可优化的IR操作
+        builder.push(IROp::Const { dst: 1, value: 10 });
+        builder.push(IROp::Const { dst: 2, value: 20 });
+        builder.push(IROp::Add { dst: 3, src1: 1, src2: 2 });
+        builder.push(IROp::Mul { dst: 4, src1: 3, src2: 8 }); // 应该被目标特定优化
+        builder.set_term(Terminator::Ret);
+        let block = builder.build();
+
+        // 翻译块
+        let result = translator.translate_block(&block);
+        assert!(result.is_ok());
+        
+        // 检查目标特定优化统计
+        let target_stats = translator.get_target_optimization_stats().unwrap();
+        assert!(target_stats.instruction_schedules > 0); // 应该有指令调度
+        assert!(target_stats.pipeline_optimizations > 0); // 应该有流水线优化
+    }
+    
+    #[test]
+    fn test_adaptive_optimization() {
+        let mut translator = ArchTranslator::with_all_optimizations(
+            SourceArch::X86_64, 
+            TargetArch::ARM64, 
+            Some(10), 
+            true,
+            true,
+            true,
+            true,
+            true
+        );
+        let mut builder = IRBuilder::new(0x1000);
+        
+        // 创建一系列可优化的IR操作
+        builder.push(IROp::Const { dst: 1, value: 10 });
+        builder.push(IROp::Add { dst: 2, src1: 1, src2: 1 });
+        builder.push(IROp::Mul { dst: 3, src1: 2, src2: 8 });
+        builder.set_term(Terminator::Ret);
+        let block = builder.build();
+
+        // 翻译块
+        let result = translator.translate_block(&block);
+        assert!(result.is_ok());
+        
+        // 检查自适应优化统计
+        let adaptive_stats = translator.get_adaptive_optimization_stats().unwrap();
+        assert!(adaptive_stats.hotspot_detections >= 0); // 应该有热点检测
+        assert!(adaptive_stats.optimization_time_ms > 0); // 应该有优化时间
     }
 }

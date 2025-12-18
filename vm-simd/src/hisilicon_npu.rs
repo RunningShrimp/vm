@@ -44,4 +44,3 @@ impl Default for NpuExecutor {
         Self::new()
     }
 }
-

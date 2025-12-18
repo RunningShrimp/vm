@@ -41,7 +41,7 @@ impl Default for SandboxConfig {
         Self {
             enabled: true,
             memory_limit: Some(256 * 1024 * 1024), // 256MB
-            cpu_time_limit: Some(60),               // 60秒
+            cpu_time_limit: Some(60),              // 60秒
             filesystem_restricted: true,
             network_restricted: true,
             allowed_paths: HashSet::new(),
@@ -173,16 +173,14 @@ impl SecurityManager {
     /// 检查内存使用限制
     pub fn check_memory_limit(&self, current_usage: u64) -> Result<(), VmError> {
         if let Some(limit) = self.sandbox_config.memory_limit
-            && current_usage > limit {
-                return Err(VmError::Core(vm_core::CoreError::InvalidState {
-                    message: format!(
-                        "Memory limit exceeded: {} > {}",
-                        current_usage, limit
-                    ),
-                    current: "exceeded".to_string(),
-                    expected: "within_limit".to_string(),
-                }));
-            }
+            && current_usage > limit
+        {
+            return Err(VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Memory limit exceeded: {} > {}", current_usage, limit),
+                current: "exceeded".to_string(),
+                expected: "within_limit".to_string(),
+            }));
+        }
         Ok(())
     }
 
@@ -257,5 +255,3 @@ impl PluginResourceMonitor {
         self.cpu_time.write().unwrap().remove(plugin_id);
     }
 }
-
-

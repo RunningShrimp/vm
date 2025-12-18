@@ -2,8 +2,8 @@
 //!
 //! 提供与VM服务集成的便捷接口
 
-use super::{AutoExecutor, CrossArchConfig, HostArch, VmConfigExt, create_auto_vm_config};
-use vm_core::{ExecMode, GuestArch, MMU, VmConfig, VmError};
+use super::{AutoExecutor, CrossArchConfig, create_auto_vm_config};
+use vm_core::{ExecMode, GuestAddr, GuestArch, MemoryAccess, VmConfig, VmError};
 use vm_ir::IRBlock;
 use vm_mem::SoftMmu;
 
@@ -42,7 +42,7 @@ impl CrossArchVmBuilder {
     pub fn build(self) -> Result<CrossArchVm, VmError> {
         // 创建VM配置
         let (mut vm_config, cross_config) =
-            super::create_auto_vm_config(self.guest_arch, self.memory_size)?;
+            create_auto_vm_config(self.guest_arch, self.memory_size)?;
 
         // 应用执行模式（如果指定）
         if let Some(mode) = self.exec_mode {
@@ -90,13 +90,13 @@ impl CrossArchVm {
 
     /// 执行代码
     pub fn execute(&mut self, pc: u64) -> Result<vm_core::ExecResult, VmError> {
-        self.executor.execute_block(&mut self.mmu, pc)
+        self.executor.execute_block(&mut self.mmu, GuestAddr(pc))
     }
 
     /// 加载代码到内存
     pub fn load_code(&mut self, addr: u64, code: &[u8]) -> Result<(), VmError> {
         for (i, byte) in code.iter().enumerate() {
-            self.mmu.write(addr + i as u64, *byte as u64, 1)?;
+            self.mmu.write(GuestAddr(addr + i as u64), *byte as u64, 1)?;
         }
         Ok(())
     }

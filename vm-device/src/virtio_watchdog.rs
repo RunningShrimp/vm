@@ -4,7 +4,7 @@
 
 use crate::virtio::{Queue, VirtioDevice};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use vm_core::{MMU, VmError};
 
 /// 看门狗动作
@@ -145,7 +145,7 @@ impl VirtioDevice for VirtioWatchdog {
                 if desc.flags & 0x1 == 0 {
                     // 可读
                     let mut data = vec![0u8; desc.len as usize];
-                    if mmu.read_bulk(desc.addr, &mut data).is_ok() {
+                    if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut data).is_ok() {
                         request_data.extend_from_slice(&data);
                     }
                 }

@@ -1,7 +1,9 @@
 //! Guest 寄存器定义
 
+use serde::{Deserialize, Serialize};
+
 /// Guest 通用寄存器
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GuestRegs {
     /// 程序计数器 (PC/RIP/EIP)
     pub pc: u64,

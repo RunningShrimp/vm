@@ -56,4 +56,3 @@ fn test_validate_and_fix() {
 
     assert_eq!(fixed_config.memory_size, validator.min_memory_size);
 }
-

@@ -19,9 +19,7 @@ pub use dependency::DependencyResolver;
 pub use plugin_manager::{
     PluginChannel, PluginChannelHandle, PluginHealth, PluginManager, PluginMessage,
 };
-pub use security::{
-    PermissionPolicy, PluginResourceMonitor, SandboxConfig, SecurityManager,
-};
+pub use security::{PermissionPolicy, PluginResourceMonitor, SandboxConfig, SecurityManager};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -278,7 +276,7 @@ pub struct PluginStatus {
 ///
 /// 提供插件间的事件发布和订阅机制。
 pub struct PluginEventBus {
-    subscribers: HashMap<String, Vec<Box<dyn Fn(&PluginEvent) + Send + Sync>>>,
+    subscribers: HashMap<String, Vec<Box<dyn FnMut(&PluginEvent) + Send + Sync>>>,
     /// 事件统计
     stats: EventBusStats,
 }
@@ -311,13 +309,17 @@ impl PluginEventBus {
     /// 发布事件
     pub fn publish(&mut self, event: &PluginEvent) {
         let event_type = event.event_type();
-        
+
         // 更新统计
         self.stats.total_published += 1;
-        *self.stats.events_by_type.entry(event_type.clone()).or_insert(0) += 1;
+        *self
+            .stats
+            .events_by_type
+            .entry(event_type.clone())
+            .or_insert(0) += 1;
 
         // 通知订阅者
-        if let Some(subscribers) = self.subscribers.get(&event_type) {
+        if let Some(subscribers) = self.subscribers.get_mut(&event_type) {
             for subscriber in subscribers {
                 subscriber(event);
             }
@@ -327,13 +329,13 @@ impl PluginEventBus {
     /// 订阅事件
     pub fn subscribe<F>(&mut self, event_type: &str, callback: F)
     where
-        F: Fn(&PluginEvent) + Send + Sync + 'static,
+        F: FnMut(&PluginEvent) + Send + Sync + 'static,
     {
         self.subscribers
             .entry(event_type.to_string())
             .or_default()
             .push(Box::new(callback));
-        
+
         // 更新统计
         self.stats.total_subscribers = self.subscribers.values().map(|v| v.len()).sum();
     }
@@ -341,7 +343,7 @@ impl PluginEventBus {
     /// 取消订阅
     pub fn unsubscribe(&mut self, event_type: &str) {
         self.subscribers.remove(event_type);
-        
+
         // 更新统计
         self.stats.total_subscribers = self.subscribers.values().map(|v| v.len()).sum();
     }
@@ -459,7 +461,7 @@ mod tests {
     #[test]
     fn test_plugin_manager_creation() {
         let manager = PluginManager::new("test_vm".to_string());
-        assert_eq!(manager.loaded_plugins.len(), 0);
+        assert_eq!(manager.get_all_plugins().len(), 0);
     }
 
     #[test]
@@ -594,8 +596,13 @@ mod tests {
         let mut received_events = Vec::new();
 
         // 订阅事件
-        event_bus.subscribe("test", |event| {
-            received_events.push(event.clone());
+        // Use Arc and Mutex to handle shared mutable state in the closure
+        use std::sync::{Arc, Mutex};
+        let received_events = Arc::new(Mutex::new(Vec::new()));
+        let cloned_events = received_events.clone();
+
+        event_bus.subscribe("test", move |event| {
+            cloned_events.lock().unwrap().push(event.clone());
         });
 
         // 发布事件
@@ -605,8 +612,8 @@ mod tests {
         event_bus.publish(&event);
 
         // 检查事件是否被接收
-        assert_eq!(received_events.len(), 1);
-        match &received_events[0] {
+        assert_eq!(received_events.lock().unwrap().len(), 1);
+        match &received_events.lock().unwrap()[0] {
             PluginEvent::VmStarted { vm_id } => assert_eq!(vm_id, "test_vm"),
             _ => panic!("Unexpected event type"),
         }

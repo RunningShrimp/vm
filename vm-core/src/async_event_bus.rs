@@ -9,11 +9,10 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::time::Duration;
 
+use std::time::SystemTime;
 #[cfg(feature = "async")]
 use tokio::time::sleep;
-use std::time::SystemTime;
 
 #[cfg(feature = "async")]
 use tokio::sync::mpsc;
@@ -217,7 +216,7 @@ impl AsyncEventBus {
                     } else {
                         batch_size
                     };
-                    
+
                     let adaptive_interval = if current_rate > 10000 {
                         // 高负载时缩短间隔
                         batch_interval / 2
@@ -237,14 +236,15 @@ impl AsyncEventBus {
                     if should_process {
                         // 更新处理速率
                         let batch_len = batch.len() as u64;
-                        let elapsed_ms = last_batch_time.elapsed()
+                        let elapsed_ms = last_batch_time
+                            .elapsed()
                             .unwrap_or(Duration::ZERO)
                             .as_millis() as u64;
                         if elapsed_ms > 0 {
                             let rate = (batch_len * 1000) / elapsed_ms;
                             processing_rate.store(rate, Ordering::Relaxed);
                         }
-                        
+
                         // 处理批次
                         for queued_event in batch.drain(..) {
                             match sync_bus.publish(queued_event.event.clone()) {

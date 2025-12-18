@@ -2,9 +2,9 @@
 //!
 //! 提供自动检测host/guest架构并选择合适的解码器和执行引擎的功能
 
-use super::{CrossArchConfig, CrossArchStrategy, HostArch};
+use super::{CrossArchConfig, CrossArchStrategy};
 use std::fmt;
-use vm_core::{Decoder, ExecMode, ExecutionEngine, GuestAddr, GuestArch, MMU, VmConfig, VmError};
+use vm_core::{ExecMode, ExecutionEngine, GuestAddr, GuestArch, MMU, VmError};
 use vm_engine_interpreter::Interpreter;
 use vm_ir::IRBlock;
 
@@ -55,13 +55,13 @@ impl AutoExecutor {
         let exec_mode = exec_mode.unwrap_or_else(|| config.recommended_exec_mode());
         let engine: Box<dyn ExecutionEngine<IRBlock>> = match exec_mode {
             ExecMode::Interpreter => Box::new(Interpreter::new()),
-            ExecMode::Jit | ExecMode::Hybrid => {
+            ExecMode::JIT => {
                 // 注意：需要启用vm-engine-jit模块
                 // 由于jit feature可能未启用，总是回退到解释器
                 // 实际使用时可以通过feature启用JIT
                 Box::new(Interpreter::new())
             }
-            ExecMode::Accelerated => {
+            ExecMode::HardwareAssisted => {
                 if config.strategy == CrossArchStrategy::Native {
                     // 同架构可以使用硬件加速
                     println!("✅ 使用硬件加速（同架构）");

@@ -186,7 +186,7 @@ impl DecoderPipeline {
                 )
                 .map_err(|_| {
                     VmError::from(Fault::InvalidOpcode {
-                        pc: 0,
+                        pc: vm_core::GuestAddr(0),
                         opcode: opcode_info.opcode_byte as u32,
                     })
                 })?;
@@ -204,7 +204,7 @@ impl DecoderPipeline {
                 )
                 .map_err(|_| {
                     VmError::from(Fault::InvalidOpcode {
-                        pc: 0,
+                        pc: vm_core::GuestAddr(0),
                         opcode: opcode_info.opcode_byte as u32,
                     })
                 })?;
@@ -222,7 +222,7 @@ impl DecoderPipeline {
                 )
                 .map_err(|_| {
                     VmError::from(Fault::InvalidOpcode {
-                        pc: 0,
+                        pc: vm_core::GuestAddr(0),
                         opcode: opcode_info.opcode_byte as u32,
                     })
                 })?;
@@ -241,7 +241,8 @@ impl DecoderPipeline {
         };
 
         let op1 = self
-            .operands.first()
+            .operands
+            .first()
             .cloned()
             .unwrap_or(super::operand_decode::Operand::None);
         let op2 = self

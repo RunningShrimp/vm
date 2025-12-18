@@ -34,13 +34,14 @@
 //! ```
 
 mod decode_cache;
+pub mod lift;
 
 pub use decode_cache::DecodeCache;
 use vm_core::GuestAddr;
 
 pub type RegId = u32;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AtomicOp {
     Add,
     Sub,
@@ -58,7 +59,7 @@ pub enum AtomicOp {
     Swap,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct MemFlags {
     pub volatile: bool,
     pub atomic: bool,
@@ -68,8 +69,7 @@ pub struct MemFlags {
     pub order: MemOrder,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Hash)]
 pub enum MemOrder {
     #[default]
     None,
@@ -79,8 +79,7 @@ pub enum MemOrder {
     SeqCst,
 }
 
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IROp {
     Nop,
 
@@ -160,6 +159,10 @@ pub enum IROp {
         dst: RegId,
         src: RegId,
         imm: i64,
+    },
+    Mov {
+        dst: RegId,
+        src: RegId,
     },
     MovImm {
         dst: RegId,
@@ -867,7 +870,7 @@ pub enum IROp {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub enum Terminator {
     Ret,
     Jmp {
@@ -894,7 +897,7 @@ pub enum Terminator {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IRBlock {
     pub start_pc: GuestAddr,
     pub ops: Vec<IROp>,

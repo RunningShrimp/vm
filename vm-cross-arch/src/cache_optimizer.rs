@@ -3,25 +3,19 @@
 //! 提供智能缓存策略以提高跨架构执行性能
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+
 use std::time::{Duration, Instant};
 use vm_core::GuestAddr;
 
 /// 缓存条目
 #[derive(Debug, Clone)]
 struct CacheEntry {
-    /// 代码地址
-    pc: GuestAddr,
     /// 编译后的代码
     code: Vec<u8>,
     /// 访问次数
     access_count: u64,
     /// 最后访问时间
     last_access: Instant,
-    /// 编译时间
-    compile_time: Duration,
-    /// 执行次数
-    execution_count: u64,
 }
 
 /// 缓存策略
@@ -148,7 +142,7 @@ impl CacheOptimizer {
     }
 
     /// 插入缓存
-    pub fn insert(&mut self, pc: GuestAddr, code: Vec<u8>, compile_time: Duration) {
+    pub fn insert(&mut self, pc: GuestAddr, code: Vec<u8>, _compile_time: Duration) {
         let code_size = code.len();
 
         // 检查是否需要驱逐
@@ -157,12 +151,9 @@ impl CacheOptimizer {
         }
 
         let entry = CacheEntry {
-            pc,
             code: code.clone(),
             access_count: 1,
             last_access: Instant::now(),
-            compile_time,
-            execution_count: 0,
         };
 
         // 根据策略选择缓存位置

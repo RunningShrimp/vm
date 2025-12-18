@@ -2,13 +2,11 @@
 //!
 //! 实现 GVA -> GPA -> HVA 的两级地址转换
 
-use crate::{GuestAddr, HostAddr};
-use vm_core::{AccessType, Fault, MemoryError, VmError};
+use crate::GuestAddr;
+use vm_core::{AccessType, Fault, VmError};
 
 /// 大页支持
 pub mod hugepage {
-    use super::*;
-
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum HugePageSize {
         Size2M,
@@ -91,7 +89,6 @@ pub mod hugepage {
         }
     }
 }
-use std::collections::HashMap;
 
 /// 页面大小
 pub const PAGE_SIZE_4K: u64 = 4096;
@@ -276,33 +273,37 @@ impl SoftwareMmu {
 
         // PML4
         let pml4_addr = (cr3 & !0xFFF) + pml4_index * 8;
-        let pml4e = self.read_pte(pml4_addr)?;
+        let pml4e = self.read_pte(GuestAddr(pml4_addr))?;
         let pml4_flags = PageTableFlags::from_x86_64_entry(pml4e);
 
         if !pml4_flags.present {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // PDPT
         let pdpt_addr = (pml4e & !0xFFF) + pdpt_index * 8;
-        let pdpte = self.read_pte(pdpt_addr)?;
+        let pdpte = self.read_pte(GuestAddr(pdpt_addr))?;
         let pdpt_flags = PageTableFlags::from_x86_64_entry(pdpte);
 
         if !pdpt_flags.present {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // 检查 1GB 大页
         if pdpt_flags.huge_page {
-            let gpa = (pdpte & !0x3FFFFFFF) | (gva & 0x3FFFFFFF);
+            let gpa_val = (pdpte & !0x3FFFFFFF) | (gva & 0x3FFFFFFF);
             return Ok(PageWalkResult {
-                gpa,
+                gpa: GuestAddr(gpa_val),
                 page_size: PAGE_SIZE_1G,
                 flags: pdpt_flags,
             });
@@ -310,21 +311,23 @@ impl SoftwareMmu {
 
         // PD
         let pd_addr = (pdpte & !0xFFF) + pd_index * 8;
-        let pde = self.read_pte(pd_addr)?;
+        let pde = self.read_pte(GuestAddr(pd_addr))?;
         let pd_flags = PageTableFlags::from_x86_64_entry(pde);
 
         if !pd_flags.present {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // 检查 2MB 大页
         if pd_flags.huge_page {
-            let gpa = (pde & !0x1FFFFF) | (gva & 0x1FFFFF);
+            let gpa_val = (pde & !0x1FFFFF) | (gva & 0x1FFFFF);
             return Ok(PageWalkResult {
-                gpa,
+                gpa: GuestAddr(gpa_val),
                 page_size: PAGE_SIZE_2M,
                 flags: pd_flags,
             });
@@ -332,20 +335,22 @@ impl SoftwareMmu {
 
         // PT
         let pt_addr = (pde & !0xFFF) + pt_index * 8;
-        let pte = self.read_pte(pt_addr)?;
+        let pte = self.read_pte(GuestAddr(pt_addr))?;
         let pt_flags = PageTableFlags::from_x86_64_entry(pte);
 
         if !pt_flags.present {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // 4KB 页
-        let gpa = (pte & !0xFFF) | offset;
+        let gpa_val = (pte & !0xFFF) | offset;
         Ok(PageWalkResult {
-            gpa,
+            gpa: GuestAddr(gpa_val),
             page_size: PAGE_SIZE_4K,
             flags: pt_flags,
         })
@@ -362,31 +367,35 @@ impl SoftwareMmu {
 
         // L0
         let l0_addr = (ttbr & !0xFFF) + l0_index * 8;
-        let l0e = self.read_pte(l0_addr)?;
+        let l0e = self.read_pte(GuestAddr(l0_addr))?;
 
         if l0e & 0x1 == 0 {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // L1
         let l1_addr = (l0e & !0xFFF) + l1_index * 8;
-        let l1e = self.read_pte(l1_addr)?;
+        let l1e = self.read_pte(GuestAddr(l1_addr))?;
 
         if l1e & 0x1 == 0 {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // 检查块描述符 (1GB)
         if l1e & 0x3 == 0x1 {
-            let gpa = (l1e & !0x3FFFFFFF) | (gva & 0x3FFFFFFF);
+            let gpa_val = (l1e & !0x3FFFFFFF) | (gva & 0x3FFFFFFF);
             return Ok(PageWalkResult {
-                gpa,
+                gpa: GuestAddr(gpa_val),
                 page_size: PAGE_SIZE_1G,
                 flags: PageTableFlags::default(),
             });
@@ -394,20 +403,22 @@ impl SoftwareMmu {
 
         // L2
         let l2_addr = (l1e & !0xFFF) + l2_index * 8;
-        let l2e = self.read_pte(l2_addr)?;
+        let l2e = self.read_pte(GuestAddr(l2_addr))?;
 
         if l2e & 0x1 == 0 {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // 检查块描述符 (2MB)
         if l2e & 0x3 == 0x1 {
-            let gpa = (l2e & !0x1FFFFF) | (gva & 0x1FFFFF);
+            let gpa_val = (l2e & !0x1FFFFF) | (gva & 0x1FFFFF);
             return Ok(PageWalkResult {
-                gpa,
+                gpa: GuestAddr(gpa_val),
                 page_size: PAGE_SIZE_2M,
                 flags: PageTableFlags::default(),
             });
@@ -415,18 +426,20 @@ impl SoftwareMmu {
 
         // L3
         let l3_addr = (l2e & !0xFFF) + l3_index * 8;
-        let l3e = self.read_pte(l3_addr)?;
+        let l3e = self.read_pte(GuestAddr(l3_addr))?;
 
         if l3e & 0x3 != 0x3 {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
-        let gpa = (l3e & !0xFFF) | offset;
+        let gpa_val = (l3e & !0xFFF) | offset;
         Ok(PageWalkResult {
-            gpa,
+            gpa: GuestAddr(gpa_val),
             page_size: PAGE_SIZE_4K,
             flags: PageTableFlags::default(),
         })
@@ -445,21 +458,23 @@ impl SoftwareMmu {
 
         // Level 2
         let l2_addr = root_addr + vpn2 * 8;
-        let l2e = self.read_pte(l2_addr)?;
+        let l2e = self.read_pte(GuestAddr(l2_addr))?;
 
         if l2e & 0x1 == 0 {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // 检查是否是叶子节点 (1GB 大页)
         if (l2e & 0xE) != 0 {
             let ppn = (l2e >> 10) & 0xFFFFFFFFFFF;
-            let gpa = (ppn << 12) | (gva & 0x3FFFFFFF);
+            let gpa_val = (ppn << 12) | (gva & 0x3FFFFFFF);
             return Ok(PageWalkResult {
-                gpa,
+                gpa: GuestAddr(gpa_val),
                 page_size: PAGE_SIZE_1G,
                 flags: PageTableFlags::default(),
             });
@@ -468,21 +483,23 @@ impl SoftwareMmu {
         // Level 1
         let l1_ppn = (l2e >> 10) & 0xFFFFFFFFFFF;
         let l1_addr = (l1_ppn << 12) + vpn1 * 8;
-        let l1e = self.read_pte(l1_addr)?;
+        let l1e = self.read_pte(GuestAddr(l1_addr))?;
 
         if l1e & 0x1 == 0 {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         // 检查是否是叶子节点 (2MB 大页)
         if (l1e & 0xE) != 0 {
             let ppn = (l1e >> 10) & 0xFFFFFFFFFFF;
-            let gpa = (ppn << 12) | (gva & 0x1FFFFF);
+            let gpa_val = (ppn << 12) | (gva & 0x1FFFFF);
             return Ok(PageWalkResult {
-                gpa,
+                gpa: GuestAddr(gpa_val),
                 page_size: PAGE_SIZE_2M,
                 flags: PageTableFlags::default(),
             });
@@ -491,19 +508,21 @@ impl SoftwareMmu {
         // Level 0
         let l0_ppn = (l1e >> 10) & 0xFFFFFFFFFFF;
         let l0_addr = (l0_ppn << 12) + vpn0 * 8;
-        let l0e = self.read_pte(l0_addr)?;
+        let l0e = self.read_pte(GuestAddr(l0_addr))?;
 
         if (l0e & 0x1) == 0 || (l0e & 0xE) == 0 {
             return Err(VmError::from(Fault::PageFault {
                 addr: gva,
-                access: AccessType::Read,
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             }));
         }
 
         let ppn = (l0e >> 10) & 0xFFFFFFFFFFF;
-        let gpa = (ppn << 12) | offset;
+        let gpa_val = (ppn << 12) | offset;
         Ok(PageWalkResult {
-            gpa,
+            gpa: GuestAddr(gpa_val),
             page_size: PAGE_SIZE_4K,
             flags: PageTableFlags::default(),
         })

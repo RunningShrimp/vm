@@ -2,8 +2,8 @@
 //!
 //! 提供全面的 NUMA 感知内存分配、vCPU 调度和数据局部性优化
 
-use crate::vcpu_affinity::{CPUTopology, NUMAAwareAllocator, vCPUAffinityManager};
-use std::collections::{HashMap, HashSet, VecDeque};
+use crate::vcpu_affinity::{CPUTopology, NUMAAwareAllocator, VCPUAffinityManager};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -67,8 +67,8 @@ pub enum MemoryAllocationStrategy {
 pub struct NUMAOptimizer {
     /// CPU 拓扑信息
     topology: Arc<CPUTopology>,
-    /// 亲和性管理器
-    affinity_manager: Arc<vCPUAffinityManager>,
+    /// vCPU 亲和性管理器
+    affinity_manager: Arc<VCPUAffinityManager>,
     /// 基础内存分配器
     memory_allocator: Arc<RwLock<NUMAAwareAllocator>>,
     /// 节点统计信息
@@ -87,7 +87,7 @@ impl NUMAOptimizer {
     /// 创建新的 NUMA 优化器
     pub fn new(
         topology: Arc<CPUTopology>,
-        affinity_manager: Arc<vCPUAffinityManager>,
+        affinity_manager: Arc<VCPUAffinityManager>,
         memory_per_node: u64,
     ) -> Self {
         let memory_allocator = Arc::new(RwLock::new(NUMAAwareAllocator::new(
@@ -142,16 +142,21 @@ impl NUMAOptimizer {
         Ok((address, node_id))
     }
 
+    /// 获取亲和性管理器的引用
+    pub fn affinity_manager(&self) -> &Arc<VCPUAffinityManager> {
+        &self.affinity_manager
+    }
+
     /// 释放内存
-    pub fn free_memory(&self, node_id: usize, size: u64) -> Result<(), String> {
-        let mut allocator = self.memory_allocator.write().unwrap();
+    pub fn free_memory(&self, _node_id: usize, _size: u64) -> Result<(), String> {
+        let mut _allocator = self.memory_allocator.write().unwrap();
         // 简化实现：假设释放总是成功
         // 实际实现需要跟踪分配的内存块
         Ok(())
     }
 
     /// 选择负载均衡节点
-    fn select_load_balanced_node(&self, size: u64) -> Result<usize, String> {
+    fn select_load_balanced_node(&self, _size: u64) -> Result<usize, String> {
         let stats = self.node_stats.read().unwrap();
         let allocator = self.memory_allocator.read().unwrap();
 
@@ -176,7 +181,7 @@ impl NUMAOptimizer {
     }
 
     /// 选择带宽优化节点
-    fn select_bandwidth_optimized_node(&self, size: u64) -> Result<usize, String> {
+    fn select_bandwidth_optimized_node(&self, _size: u64) -> Result<usize, String> {
         let stats = self.node_stats.read().unwrap();
         let allocator = self.memory_allocator.read().unwrap();
 
@@ -293,7 +298,7 @@ impl NUMAOptimizer {
     }
 
     /// 记录内存访问模式
-    pub fn record_memory_access(&self, accessing_cpu: usize, target_node: usize, size: usize) {
+    pub fn record_memory_access(&self, accessing_cpu: usize, target_node: usize, _size: usize) {
         let accessing_node = self
             .topology
             .cpu_to_node
@@ -343,7 +348,7 @@ impl NUMAOptimizer {
         vcpu_count: usize,
     ) -> Result<HashMap<usize, usize>, String> {
         let mut placement = HashMap::new();
-        let stats = self.node_stats.read().unwrap();
+        let _stats = self.node_stats.read().unwrap();
 
         // 简单的轮询放置策略
         for vcpu_id in 0..vcpu_count {
@@ -482,7 +487,7 @@ mod tests {
     #[test]
     fn test_numa_optimizer_creation() {
         let topology = Arc::new(CPUTopology::detect());
-        let affinity_manager = Arc::new(vCPUAffinityManager::new());
+        let affinity_manager = Arc::new(VCPUAffinityManager::new());
         let optimizer = NUMAOptimizer::new(topology, affinity_manager, 1024 * 1024 * 1024);
 
         assert_eq!(
@@ -494,7 +499,7 @@ mod tests {
     #[test]
     fn test_memory_allocation() {
         let topology = Arc::new(CPUTopology::detect());
-        let affinity_manager = Arc::new(vCPUAffinityManager::new());
+        let affinity_manager = Arc::new(VCPUAffinityManager::new());
         let optimizer = NUMAOptimizer::new(topology, affinity_manager, 1024 * 1024 * 1024);
 
         let result = optimizer.allocate_memory(100 * 1024 * 1024, Some(0));
@@ -507,7 +512,7 @@ mod tests {
     #[test]
     fn test_node_stats_tracking() {
         let topology = Arc::new(CPUTopology::detect());
-        let affinity_manager = Arc::new(vCPUAffinityManager::new());
+        let affinity_manager = Arc::new(VCPUAffinityManager::new());
         let optimizer = NUMAOptimizer::new(topology, affinity_manager, 1024 * 1024 * 1024);
 
         optimizer.record_memory_access(0, 0, 4096); // 本地访问
@@ -525,7 +530,7 @@ mod tests {
     #[test]
     fn test_optimization_suggestions() {
         let topology = Arc::new(CPUTopology::detect());
-        let affinity_manager = Arc::new(vCPUAffinityManager::new());
+        let affinity_manager = Arc::new(VCPUAffinityManager::new());
         let optimizer = NUMAOptimizer::new(topology, affinity_manager, 1024 * 1024 * 1024);
 
         // 强制设置高负载状态来测试建议
@@ -543,7 +548,7 @@ mod tests {
     #[test]
     fn test_diagnostic_report() {
         let topology = Arc::new(CPUTopology::detect());
-        let affinity_manager = Arc::new(vCPUAffinityManager::new());
+        let affinity_manager = Arc::new(VCPUAffinityManager::new());
         let optimizer = NUMAOptimizer::new(topology, affinity_manager, 1024 * 1024 * 1024);
 
         let report = optimizer.diagnostic_report();

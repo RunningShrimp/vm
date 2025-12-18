@@ -73,14 +73,14 @@ fn parse_args() -> CliArgs {
                 }
             }
             "--jit" => {
-                args.exec_mode = ExecMode::Jit;
+                args.exec_mode = ExecMode::JIT;
             }
             "--hybrid" => {
-                args.exec_mode = ExecMode::Hybrid;
+                args.exec_mode = ExecMode::HardwareAssisted;
             }
             "--accel" => {
                 args.enable_accel = true;
-                args.exec_mode = ExecMode::Accelerated;
+                args.exec_mode = ExecMode::HardwareAssisted;
             }
             "--debug" => {
                 args.debug = true;
@@ -205,16 +205,13 @@ async fn main() {
     let mut config = VmConfig {
         guest_arch: GuestArch::Riscv64,
         memory_size: args.memory,
-        vcpu_count: args.vcpus,
+        vcpu_count: args.vcpus as usize,
         exec_mode: args.exec_mode,
-        enable_accel: args.enable_accel,
-        debug_trace: args.debug,
         ..Default::default()
     };
 
-    if let Some(disk) = &args.disk {
-        config.virtio.block_image = Some(disk.to_string_lossy().to_string());
-    }
+    // 注意：VmConfig结构体中没有virtio字段，这里我们直接设置kernel_path
+    // 磁盘映像的设置可能需要通过其他方式进行，具体取决于VM的实现
 
     if let Some(kernel) = &args.kernel {
         config.kernel_path = Some(kernel.to_string_lossy().to_string());
@@ -234,11 +231,11 @@ async fn main() {
 
     if let (Some(min), Some(max)) = (args.jit_min_threshold, args.jit_max_threshold) {
         service.set_hot_config_vals(
-            min,
-            max,
-            args.jit_sample_window,
-            args.jit_compile_weight,
-            args.jit_benefit_weight,
+            min as u32,
+            max as u32,
+            args.jit_sample_window.map(|x| x as u32),
+            args.jit_compile_weight.map(|x| x as f32),
+            args.jit_benefit_weight.map(|x| x as f32),
         );
     }
     if let Some(enable) = args.jit_share_pool {

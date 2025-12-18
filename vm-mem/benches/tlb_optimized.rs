@@ -8,8 +8,8 @@ use std::thread;
 use std::time::Duration;
 use vm_core::{AccessType, MMU};
 use vm_mem::{
-    ConcurrentTlbConfig, MmuOptimizationStrategy, MultiLevelTlbConfig, UnifiedMmuConfig,
-    UnifiedMmu, SoftMmu,
+    ConcurrentTlbConfig, MmuOptimizationStrategy, MultiLevelTlbConfig, SoftMmu, UnifiedMmu,
+    UnifiedMmuConfig,
 };
 
 /// 基准测试：原始TLB vs 多级TLB
@@ -240,8 +240,7 @@ fn bench_prefetch_effectiveness(c: &mut Criterion) {
         prefetch_window: 8,
         ..Default::default()
     };
-    let mut mmu_with_prefetch =
-        UnifiedMmu::new(64 * 1024 * 1024, false, config_with_prefetch);
+    let mut mmu_with_prefetch = UnifiedMmu::new(64 * 1024 * 1024, false, config_with_prefetch);
 
     // 顺序访问模式测试
     group.bench_function("no_prefetch_sequential", |b| {

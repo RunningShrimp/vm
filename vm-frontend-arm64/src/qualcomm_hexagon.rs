@@ -80,7 +80,7 @@ impl HexagonDecoder {
     /// 简化实现：检测 Hexagon 指令模式
     /// 格式：bits [31:28] = 0b1110 表示 Hexagon 指令
     ///       bits [27:24] = 操作码
-    pub fn decode(&self, insn: u32, pc: GuestAddr) -> Result<Option<HexagonInstruction>, VmError> {
+    pub fn decode(&self, insn: u32, _pc: GuestAddr) -> Result<Option<HexagonInstruction>, VmError> {
         // 检查是否为 Hexagon 指令（简化检测）
         // bits [31:28] = 0b1110 表示 Hexagon DSP 指令
         if (insn >> 28) & 0xF == 0xE {
@@ -88,7 +88,7 @@ impl HexagonDecoder {
             let dst = (insn >> 16) & 0x1F;
             let src1 = (insn >> 8) & 0x1F;
             let src2 = insn & 0x1F;
-            let imm = ((insn & 0xFF) as i8) as i64;
+            let _imm = ((insn & 0xFF) as i8) as i64; // 仅在某些指令中使用
 
             match opcode {
                 0x0 => {
@@ -96,7 +96,7 @@ impl HexagonDecoder {
                     Ok(Some(HexagonInstruction::HexLd {
                         dst: dst as RegId,
                         base: src1 as RegId,
-                        offset: imm,
+                        offset: _imm,
                         size: ((src2 & 0x3) + 1) as u8, // 1-4 bytes
                     }))
                 }
@@ -105,7 +105,7 @@ impl HexagonDecoder {
                     Ok(Some(HexagonInstruction::HexSt {
                         src: dst as RegId,
                         base: src1 as RegId,
-                        offset: imm,
+                        offset: _imm,
                         size: ((src2 & 0x3) + 1) as u8,
                     }))
                 }
@@ -173,7 +173,7 @@ impl HexagonDecoder {
                 offset,
                 size,
             } => {
-                let dst_reg = reg_file.alloc_temp();
+                let dst_reg = reg_file.write(*dst as usize);
                 builder.push(IROp::Load {
                     dst: dst_reg,
                     base: *base,
@@ -286,4 +286,3 @@ mod tests {
         }
     }
 }
-

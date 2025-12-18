@@ -6,9 +6,9 @@
 //! - NUMA-aware allocation
 //! - Batch operation support
 
-use std::sync::Arc;
 use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Result type for memory operations
@@ -230,6 +230,12 @@ pub struct ParallelPageTable {
     cache: Arc<RwLock<Vec<PageTableEntry>>>,
 }
 
+impl Default for ParallelPageTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ParallelPageTable {
     /// Create new page table
     pub fn new() -> Self {
@@ -319,7 +325,7 @@ impl NumaAllocator {
             .enumerate()
             .min_by_key(|(_, u)| *u)
             .map(|(i, _)| i)
-            .ok_or_else(|| MemoryError::InvalidAddress { addr: 0 })?;
+            .ok_or(MemoryError::InvalidAddress { addr: 0 })?;
 
         // Check capacity
         if usage[best_node] + size > self.config.mem_per_node {
@@ -370,7 +376,7 @@ pub struct MemoryOptimizer {
     /// TLB with prefetching
     tlb: Arc<AsyncPrefetchingTlb>,
     /// Page table
-    page_table: Arc<ParallelPageTable>,
+    _page_table: Arc<ParallelPageTable>,
     /// NUMA allocator
     numa: Arc<NumaAllocator>,
 }
@@ -380,7 +386,7 @@ impl MemoryOptimizer {
     pub fn new(config: NumaConfig) -> Self {
         Self {
             tlb: Arc::new(AsyncPrefetchingTlb::new(true)),
-            page_table: Arc::new(ParallelPageTable::new()),
+            _page_table: Arc::new(ParallelPageTable::new()),
             numa: Arc::new(NumaAllocator::new(config)),
         }
     }

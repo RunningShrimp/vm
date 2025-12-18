@@ -10,7 +10,7 @@ pub enum ConfigValidationError {
     /// 内存大小无效
     InvalidMemorySize { size: usize, min: usize, max: usize },
     /// vCPU数量无效
-    InvalidVcpuCount { count: u32, min: u32, max: u32 },
+    InvalidVcpuCount { count: usize, min: usize, max: usize },
     /// 架构不支持
     UnsupportedArchitecture { arch: GuestArch },
     /// 执行模式与架构不兼容
@@ -43,9 +43,9 @@ pub struct ConfigValidator {
     /// 最大内存大小（字节）
     pub max_memory_size: usize,
     /// 最小vCPU数量
-    pub min_vcpu_count: u32,
+    pub min_vcpu_count: usize,
     /// 最大vCPU数量
-    pub max_vcpu_count: u32,
+    pub max_vcpu_count: usize,
     /// 支持的架构列表
     pub supported_architectures: Vec<GuestArch>,
 }
@@ -53,7 +53,7 @@ pub struct ConfigValidator {
 impl Default for ConfigValidator {
     fn default() -> Self {
         Self {
-            min_memory_size: 1024 * 1024,          // 1MB
+            min_memory_size: 1024 * 1024,              // 1MB
             max_memory_size: 256 * 1024 * 1024 * 1024, // 256GB
             min_vcpu_count: 1,
             max_vcpu_count: 256,
@@ -124,10 +124,7 @@ impl ConfigValidator {
             self.validate_file_path(initrd_path, "initrd_path")?;
         }
 
-        // 验证块设备镜像路径（如果提供）
-        if let Some(ref block_image) = config.virtio.block_image {
-            self.validate_file_path(block_image, "block_image")?;
-        }
+        // 块设备镜像路径验证已移除，因为VmConfig中没有virtio字段
 
         // 验证配置一致性
         self.validate_config_consistency(config)?;
@@ -141,8 +138,8 @@ impl ConfigValidator {
         mode: ExecMode,
         arch: GuestArch,
     ) -> Result<(), ConfigValidationError> {
-        // Accelerated模式需要特定架构支持
-        if matches!(mode, ExecMode::Accelerated) {
+        // HardwareAssisted模式需要特定架构支持
+        if matches!(mode, ExecMode::HardwareAssisted) {
             // 这里可以根据实际支持的架构进行调整
             match arch {
                 GuestArch::Riscv64 | GuestArch::Arm64 | GuestArch::X86_64 => {
@@ -184,26 +181,8 @@ impl ConfigValidator {
     }
 
     /// 验证配置一致性
-    fn validate_config_consistency(&self, config: &VmConfig) -> Result<(), ConfigValidationError> {
-        // 检查：如果启用了硬件加速，但执行模式不是Accelerated
-        if config.enable_accel && !matches!(config.exec_mode, ExecMode::Accelerated) {
-            return Err(ConfigValidationError::ConfigConflict {
-                field1: "enable_accel".to_string(),
-                field2: "exec_mode".to_string(),
-                reason: "Hardware acceleration enabled but exec_mode is not Accelerated"
-                    .to_string(),
-            });
-        }
-
-        // 检查：JIT阈值合理性
-        if config.jit_threshold == 0 {
-            return Err(ConfigValidationError::ConfigConflict {
-                field1: "jit_threshold".to_string(),
-                field2: "exec_mode".to_string(),
-                reason: "JIT threshold cannot be zero".to_string(),
-            });
-        }
-
+    fn validate_config_consistency(&self, _config: &VmConfig) -> Result<(), ConfigValidationError> {
+        // VmConfig中没有enable_accel和jit_threshold字段，所以简化验证
         Ok(())
     }
 
@@ -286,4 +265,3 @@ mod tests {
         assert_eq!(fixed_config.memory_size, validator.min_memory_size);
     }
 }
-

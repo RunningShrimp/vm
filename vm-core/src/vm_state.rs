@@ -1,11 +1,11 @@
 //! 虚拟机状态数据结构
-//!
+//! 
 //! 定义虚拟机的纯数据结构，符合DDD贫血模型原则。
 //! 所有业务逻辑应位于服务层（VirtualMachineService）。
 
-use crate::snapshot;
+use crate::snapshot_legacy;
 use crate::template;
-use crate::{ExecStats, ExecutionEngine, MMU, VmConfig, VmState};
+use crate::{ExecStats, ExecutionEngine, MMU, VmConfig, VmLifecycleState};
 use std::sync::{Arc, Mutex};
 
 /// 虚拟机状态容器
@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 pub struct VirtualMachineState<B> {
     /// 配置
     pub config: VmConfig,
-    /// 状态
-    pub state: VmState,
+    /// 生命周期状态
+    pub state: VmLifecycleState,
     /// MMU（共享访问）
     pub mmu: Arc<Mutex<Box<dyn MMU>>>,
     /// vCPU 列表
@@ -25,7 +25,7 @@ pub struct VirtualMachineState<B> {
     /// 执行统计
     pub stats: ExecStats,
     /// 快照管理器
-    pub snapshot_manager: Arc<Mutex<snapshot::SnapshotMetadataManager>>,
+    pub snapshot_manager: Arc<Mutex<snapshot_legacy::SnapshotMetadataManager>>,
     /// 模板管理器
     pub template_manager: Arc<Mutex<template::TemplateManager>>,
 }
@@ -36,11 +36,11 @@ impl<B: 'static> VirtualMachineState<B> {
     pub fn new(config: VmConfig, mmu: Box<dyn MMU>) -> Self {
         Self {
             config,
-            state: VmState::Created,
+            state: VmLifecycleState::Created,
             mmu: Arc::new(Mutex::new(mmu)),
             vcpus: Vec::new(),
             stats: ExecStats::default(),
-            snapshot_manager: Arc::new(Mutex::new(snapshot::SnapshotMetadataManager::new())),
+            snapshot_manager: Arc::new(Mutex::new(snapshot_legacy::SnapshotMetadataManager::new())),
             template_manager: Arc::new(Mutex::new(template::TemplateManager::new())),
         }
     }
@@ -60,13 +60,13 @@ impl<B: 'static> VirtualMachineState<B> {
         &self.config
     }
 
-    /// 获取 VM 状态
-    pub fn state(&self) -> VmState {
-        self.state
+    /// 获取 VM 生命周期状态
+    pub fn state(&self) -> VmLifecycleState {
+        self.state.clone()
     }
 
-    /// 设置 VM 状态
-    pub fn set_state(&mut self, state: VmState) {
+    /// 设置 VM 生命周期状态
+    pub fn set_state(&mut self, state: VmLifecycleState) {
         self.state = state;
     }
 
@@ -76,12 +76,27 @@ impl<B: 'static> VirtualMachineState<B> {
     }
 
     /// 获取快照管理器
-    pub fn snapshot_manager(&self) -> Arc<Mutex<snapshot::SnapshotMetadataManager>> {
+    pub fn snapshot_manager(&self) -> Arc<Mutex<snapshot_legacy::SnapshotMetadataManager>> {
         Arc::clone(&self.snapshot_manager)
     }
 
     /// 获取模板管理器
     pub fn template_manager(&self) -> Arc<Mutex<template::TemplateManager>> {
         Arc::clone(&self.template_manager)
+    }
+}
+
+#[cfg(not(feature = "no_std"))]
+impl<B: 'static> Clone for VirtualMachineState<B> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            state: self.state.clone(),
+            mmu: Arc::clone(&self.mmu),
+            vcpus: self.vcpus.clone(),
+            stats: self.stats.clone(),
+            snapshot_manager: Arc::clone(&self.snapshot_manager),
+            template_manager: Arc::clone(&self.template_manager),
+        }
     }
 }

@@ -47,9 +47,10 @@ impl PlatformInfo {
     fn get_os_version() -> String {
         use std::process::Command;
         if let Ok(output) = Command::new("sw_vers").arg("-productVersion").output()
-            && let Ok(version) = String::from_utf8(output.stdout) {
-                return format!("macOS {}", version.trim());
-            }
+            && let Ok(version) = String::from_utf8(output.stdout)
+        {
+            return format!("macOS {}", version.trim());
+        }
         "macOS".to_string()
     }
 
@@ -116,9 +117,10 @@ impl PlatformInfo {
         use std::process::Command;
         if let Ok(output) = Command::new("sysctl").arg("-n").arg("hw.memsize").output()
             && let Ok(mem_str) = String::from_utf8(output.stdout)
-                && let Ok(mem) = mem_str.trim().parse::<u64>() {
-                    return mem;
-                }
+            && let Ok(mem) = mem_str.trim().parse::<u64>()
+        {
+            return mem;
+        }
         0
     }
 

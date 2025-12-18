@@ -5,7 +5,7 @@
 use crate::virtio::{Queue, VirtioDevice};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use vm_core::{MMU, VmError};
+use vm_core::{GuestAddr, MMU};
 
 /// 加密算法类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -123,30 +123,22 @@ impl VirtioCrypto {
         for desc in &chain.descs {
             if desc.flags & 0x1 == 0 {
                 // 可读
-                let mut data = vec![0u8; desc.len as usize];
-                if mmu.read_bulk(desc.addr, &mut data).is_ok() {
+                let read_len = std::cmp::min(desc.len, self.max_segment_size);
+                let mut data = vec![0u8; read_len as usize];
+                if mmu.read_bulk(GuestAddr(desc.addr), &mut data).is_ok() {
                     request_data.extend_from_slice(&data);
                 }
             }
         }
 
-        if request_data.len() < 16 {
+        if request_data.len() < 8 {
             return 0;
         }
 
-        // 解析请求（简化实现）
-        let request_id = u64::from_le_bytes([
-            request_data[0],
-            request_data[1],
-            request_data[2],
-            request_data[3],
-            request_data[4],
-            request_data[5],
-            request_data[6],
-            request_data[7],
-        ]);
-        let op_code = request_data[8];
-        let algorithm_code = request_data[9];
+        // 使用内部生成的请求ID
+        let request_id = self.allocate_request_id();
+        let op_code = request_data[0];
+        let algorithm_code = request_data[1];
 
         // 创建请求对象
         let request = CryptoRequest {
@@ -185,21 +177,64 @@ impl VirtioCrypto {
 
     /// 执行加密操作
     fn execute_crypto_op(&self, mmu: &mut dyn MMU, request: &CryptoRequest) -> u32 {
-        // 简化实现：在实际系统中，这里应该调用硬件加速器或软件加密库
-        // 这里我们只是模拟操作，返回输出长度
-
+        // 实际使用mmu访问guest内存中的数据
+        let mut input_buffer = vec![0u8; request.input_len as usize];
+        
+        // 从guest内存读取输入数据
+        if let Err(_) = mmu.read_bulk(GuestAddr(request.input_addr), &mut input_buffer) {
+            return 0;
+        }
+        
+        // 读取密钥（如果有）
+        let mut key_buffer = vec![];
+        if let (Some(key_addr), Some(key_len)) = (request.key_addr, request.key_len) {
+            key_buffer.resize(key_len as usize, 0);
+            if let Err(_) = mmu.read_bulk(GuestAddr(key_addr), &mut key_buffer) {
+                return 0;
+            }
+        }
+        
+        // 读取IV（如果有）
+        let mut iv_buffer = vec![];
+        if let (Some(iv_addr), Some(iv_len)) = (request.iv_addr, request.iv_len) {
+            iv_buffer.resize(iv_len as usize, 0);
+            if let Err(_) = mmu.read_bulk(GuestAddr(iv_addr), &mut iv_buffer) {
+                return 0;
+            }
+        }
+        
+        // 根据操作类型处理数据
         match request.op {
             CryptoOp::Encrypt | CryptoOp::Decrypt => {
-                // 对称加密/解密：输出长度通常等于输入长度（对于块加密）
+                // 对称加密/解密：在实际系统中，这里应该调用加密库
+                // 这里简化处理，将输入数据复制到输出地址
+                let output_buffer = input_buffer.clone();
+                
+                // 将结果写入guest内存
+                if let Err(_) = mmu.write_bulk(GuestAddr(request.output_addr), &output_buffer) {
+                    return 0;
+                }
+                
                 request.input_len
             }
             CryptoOp::Hash => {
-                // 哈希：输出长度取决于算法
-                match request.algorithm {
+                // 哈希操作：在实际系统中，这里应该计算哈希值
+                // 这里简化处理，根据算法返回固定长度的结果
+                let hash_len = match request.algorithm {
                     CryptoAlgorithm::Sha256 => 32,
                     CryptoAlgorithm::Sha512 => 64,
                     _ => 0,
+                };
+                
+                if hash_len > 0 {
+                    let hash_result = vec![0u8; hash_len];
+                    // 将哈希结果写入guest内存
+                    if let Err(_) = mmu.write_bulk(GuestAddr(request.output_addr), &hash_result) {
+                        return 0;
+                    }
                 }
+                
+                hash_len as u32
             }
             _ => 0,
         }

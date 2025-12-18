@@ -4,7 +4,8 @@
 
 use super::{Accel, AccelError};
 use std::collections::HashMap;
-use vm_core::{GuestRegs, MMU, PlatformError, VmError};
+use vm_core::{GuestRegs, MMU, VmError};
+use vm_core::error::CoreError;
 
 #[cfg(target_os = "macos")]
 use std::ptr;
@@ -12,6 +13,7 @@ use std::ptr;
 // Hypervisor.framework FFI 绑定
 #[cfg(target_os = "macos")]
 #[link(name = "Hypervisor", kind = "framework")]
+#[allow(dead_code)]
 unsafe extern "C" {
     // VM 管理
     fn hv_vm_create(config: *mut std::ffi::c_void) -> i32;
@@ -46,16 +48,22 @@ unsafe extern "C" {
 #[cfg(target_os = "macos")]
 const HV_SUCCESS: i32 = 0;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_ERROR: i32 = 0xfae94001u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_BUSY: i32 = 0xfae94002u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_BAD_ARGUMENT: i32 = 0xfae94003u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_NO_RESOURCES: i32 = 0xfae94005u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_NO_DEVICE: i32 = 0xfae94006u32 as i32;
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 const HV_UNSUPPORTED: i32 = 0xfae9400fu32 as i32;
 
 // 内存权限标志
@@ -119,9 +127,10 @@ impl HvfVcpu {
         let ret = unsafe { hv_vcpu_create(&mut vcpu_id, ptr::null_mut(), ptr::null_mut()) };
 
         if ret != HV_SUCCESS {
-            return Err(VmError::Platform(PlatformError::ResourceAllocationFailed(
-                format!("hv_vcpu_create failed: 0x{:x}", ret),
-            )));
+            return Err(VmError::Core(CoreError::Internal {
+                message: format!("hv_vcpu_create failed: 0x{:x}", ret),
+                module: "vm-accel".to_string(),
+            }));
         }
 
         Ok(Self { id: vcpu_id })
@@ -184,9 +193,10 @@ impl HvfVcpu {
 
     #[cfg(not(target_os = "macos"))]
     pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "HVF not available on this platform".to_string(),
-        )))
+        Err(VmError::Core(CoreError::NotSupported {
+            feature: "HVF get_regs".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
 
     /// 设置寄存器
@@ -239,9 +249,10 @@ impl HvfVcpu {
 
     #[cfg(not(target_os = "macos"))]
     pub fn set_regs(&mut self, _regs: &GuestRegs) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "HVF not available on this platform".to_string(),
-        )))
+        Err(VmError::Core(CoreError::NotSupported {
+            feature: "HVF set_regs".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
 
     /// 运行 vCPU
@@ -250,10 +261,10 @@ impl HvfVcpu {
         let ret = unsafe { hv_vcpu_run(self.id) };
 
         if ret != HV_SUCCESS {
-            return Err(VmError::Platform(PlatformError::ExecutionFailed(format!(
-                "hv_vcpu_run failed: 0x{:x}",
-                ret
-            ))));
+            return Err(VmError::Core(CoreError::Internal {
+                message: format!("hv_vcpu_run failed: 0x{:x}", ret),
+                module: "vm-accel".to_string(),
+            }));
         }
 
         Ok(())
@@ -261,9 +272,10 @@ impl HvfVcpu {
 
     #[cfg(not(target_os = "macos"))]
     pub fn run(&mut self) -> Result<(), AccelError> {
-        Err(VmError::Platform(PlatformError::UnsupportedOperation(
-            "HVF not available on this platform".to_string(),
-        )))
+        Err(VmError::Core(CoreError::NotSupported {
+            feature: "HVF run".to_string(),
+            module: "vm-accel".to_string(),
+        }))
     }
 }
 
@@ -326,9 +338,10 @@ impl Accel for AccelHvf {
 
         #[cfg(not(target_os = "macos"))]
         {
-            Err(VmError::Platform(PlatformError::UnsupportedOperation(
-                "HVF only available on macOS".to_string(),
-            )))
+            Err(VmError::Core(CoreError::NotSupported {
+                feature: "HVF initialization".to_string(),
+                module: "vm-accel".to_string(),
+            }))
         }
     }
 
@@ -351,9 +364,10 @@ impl Accel for AccelHvf {
                 unsafe { hv_vm_map(hva as *const std::ffi::c_void, gpa, size as usize, hv_flags) };
 
             if ret != HV_SUCCESS {
-                return Err(VmError::Platform(PlatformError::MemoryMappingFailed(
-                    format!("hv_vm_map failed: 0x{:x}", ret),
-                )));
+                return Err(VmError::Core(CoreError::Internal {
+                    message: format!("hv_vm_map failed: 0x{:x}", ret),
+                    module: "vm-accel".to_string(),
+                }));
             }
 
             self.memory_regions.insert(gpa, size);
@@ -363,9 +377,10 @@ impl Accel for AccelHvf {
 
         #[cfg(not(target_os = "macos"))]
         {
-            Err(VmError::Platform(PlatformError::UnsupportedOperation(
-                "HVF not available on this platform".to_string(),
-            )))
+            Err(VmError::Core(CoreError::NotSupported {
+                feature: "HVF memory mapping".to_string(),
+                module: "vm-accel".to_string(),
+            }))
         }
     }
 
@@ -375,9 +390,10 @@ impl Accel for AccelHvf {
             let ret = unsafe { hv_vm_unmap(gpa, size as usize) };
 
             if ret != HV_SUCCESS {
-                return Err(VmError::Platform(PlatformError::MemoryMappingFailed(
-                    format!("hv_vm_unmap failed: 0x{:x}", ret),
-                )));
+                return Err(VmError::Core(CoreError::Internal {
+                    message: format!("hv_vm_unmap failed: 0x{:x}", ret),
+                    module: "vm-accel".to_string(),
+                }));
             }
 
             self.memory_regions.remove(&gpa);
@@ -387,18 +403,20 @@ impl Accel for AccelHvf {
 
         #[cfg(not(target_os = "macos"))]
         {
-            Err(VmError::Platform(PlatformError::UnsupportedOperation(
-                "HVF not available on this platform".to_string(),
-            )))
+            Err(VmError::Core(CoreError::NotSupported {
+                feature: "HVF memory unmapping".to_string(),
+                module: "vm-accel".to_string(),
+            }))
         }
     }
 
     fn run_vcpu(&mut self, vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
         let vcpu = self.vcpus.get_mut(vcpu_id as usize).ok_or_else(|| {
-            VmError::Platform(PlatformError::InvalidParameter(format!(
-                "Invalid vCPU ID: {}",
-                vcpu_id
-            )))
+            VmError::Core(CoreError::InvalidParameter {
+                name: "vcpu_id".to_string(),
+                value: format!("{}", vcpu_id),
+                message: "Invalid vCPU ID".to_string(),
+            })
         })?;
 
         vcpu.run()
@@ -406,20 +424,22 @@ impl Accel for AccelHvf {
 
     fn get_regs(&self, vcpu_id: u32) -> Result<GuestRegs, AccelError> {
         let vcpu = self.vcpus.get(vcpu_id as usize).ok_or_else(|| {
-            VmError::Platform(PlatformError::InvalidParameter(format!(
-                "Invalid vCPU ID: {}",
-                vcpu_id
-            )))
+            VmError::Core(CoreError::InvalidParameter {
+                name: "vcpu_id".to_string(),
+                value: format!("{}", vcpu_id),
+                message: "Invalid vCPU ID".to_string(),
+            })
         })?;
         vcpu.get_regs()
     }
 
     fn set_regs(&mut self, vcpu_id: u32, regs: &GuestRegs) -> Result<(), AccelError> {
         let vcpu = self.vcpus.get_mut(vcpu_id as usize).ok_or_else(|| {
-            VmError::Platform(PlatformError::InvalidParameter(format!(
-                "Invalid vCPU ID: {}",
-                vcpu_id
-            )))
+            VmError::Core(CoreError::InvalidParameter {
+                name: "vcpu_id".to_string(),
+                value: format!("{}", vcpu_id),
+                message: "Invalid vCPU ID".to_string(),
+            })
         })?;
         vcpu.set_regs(regs)
     }

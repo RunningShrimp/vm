@@ -6,10 +6,9 @@
 //! - Adaptive quota management
 //! - Statistics and monitoring
 
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
-use std::sync::Arc;
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 /// Result type for GC operations
@@ -117,9 +116,7 @@ impl GcStats {
 
 /// Lock-free write barrier
 pub struct LockFreeWriteBarrier {
-    /// Dirty set using atomic operations
-    dirty_set: Arc<parking_lot::RwLock<Vec<u64>>>,
-    /// Write count
+    /// Write count - single atomic counter for minimal overhead
     write_count: Arc<AtomicU64>,
 }
 
@@ -127,26 +124,32 @@ impl LockFreeWriteBarrier {
     /// Create new lock-free write barrier
     pub fn new() -> Self {
         Self {
-            dirty_set: Arc::new(parking_lot::RwLock::new(Vec::new())),
             write_count: Arc::new(AtomicU64::new(0)),
         }
     }
+}
 
+impl Default for LockFreeWriteBarrier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LockFreeWriteBarrier {
     /// Record write (minimal overhead)
     pub fn record_write(&self, _addr: u64) {
         // Atomic operation - no locks, ultra-fast
         self.write_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Get dirty addresses
+    /// Get dirty addresses - returns empty vector for this implementation
     pub fn get_dirty_set(&self) -> Vec<u64> {
-        self.dirty_set.read().clone()
+        Vec::new()
     }
 
     /// Clear after collection
     pub fn clear(&self) {
-        self.dirty_set.write().clear();
-        self.write_count.store(0, Ordering::Release);
+        self.write_count.store(0, Ordering::Relaxed);
     }
 
     /// Overhead in microseconds (estimated)
@@ -163,7 +166,7 @@ pub struct ParallelMarker {
     /// Local queues for each worker
     work_queues: Arc<RwLock<Vec<Vec<u64>>>>,
     /// Current phase
-    phase: Arc<AtomicBool>,
+    _phase: Arc<AtomicBool>,
 }
 
 impl ParallelMarker {
@@ -177,7 +180,7 @@ impl ParallelMarker {
         Self {
             marked: Arc::new(RwLock::new(Vec::new())),
             work_queues: Arc::new(RwLock::new(queues)),
-            phase: Arc::new(AtomicBool::new(false)),
+            _phase: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -302,7 +305,7 @@ pub struct OptimizedGc {
     /// Statistics
     stats: Arc<RwLock<GcStats>>,
     /// Barrier type
-    barrier_type: WriteBarrierType,
+    _barrier_type: WriteBarrierType,
 }
 
 impl OptimizedGc {
@@ -313,7 +316,7 @@ impl OptimizedGc {
             marker: Arc::new(ParallelMarker::new(num_workers)),
             quota: Arc::new(AdaptiveQuota::new(target_pause_us)),
             stats: Arc::new(RwLock::new(GcStats::default())),
-            barrier_type,
+            _barrier_type: barrier_type,
         }
     }
 
@@ -327,7 +330,7 @@ impl OptimizedGc {
         let start = Instant::now();
 
         // Mark phase
-        let marked = self.marker.process_marks();
+        let _marked = self.marker.process_marks();
 
         // Update stats
         let pause_us = start.elapsed().as_micros() as u64;
@@ -358,7 +361,7 @@ impl OptimizedGc {
         let start = Instant::now();
 
         // Full marking
-        let marked = self.marker.process_marks();
+        let _marked = self.marker.process_marks();
 
         // Sweeping phase (simulate)
         std::thread::sleep(std::time::Duration::from_micros(100));
@@ -550,9 +553,12 @@ mod tests {
         let gc_sliced = OptimizedGc::new(4, 10_000, WriteBarrierType::Sliced);
         let gc_satb = OptimizedGc::new(4, 10_000, WriteBarrierType::SnapshotAtTheBeginning);
 
-        assert_eq!(gc_atomic.barrier_type, WriteBarrierType::Atomic);
-        assert_eq!(gc_sliced.barrier_type, WriteBarrierType::Sliced);
-        assert_eq!(gc_satb.barrier_type, WriteBarrierType::SnapshotAtTheBeginning);
+        assert_eq!(gc_atomic._barrier_type, WriteBarrierType::Atomic);
+        assert_eq!(gc_sliced._barrier_type, WriteBarrierType::Sliced);
+        assert_eq!(
+            gc_satb._barrier_type,
+            WriteBarrierType::SnapshotAtTheBeginning
+        );
     }
 
     #[test]

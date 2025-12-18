@@ -9,8 +9,6 @@ use vm_ir::RegId;
 ///
 /// 负责在不同架构之间映射寄存器编号
 pub struct RegisterMapper {
-    source_arch: Architecture,
-    target_arch: Architecture,
     /// 寄存器映射表：源寄存器ID -> 目标寄存器ID
     mapping: Vec<Option<RegId>>,
     /// 临时寄存器池（用于复杂操作）
@@ -40,8 +38,6 @@ impl RegisterMapper {
             .collect();
 
         Self {
-            source_arch,
-            target_arch,
             mapping,
             temp_regs,
             next_temp: 0,

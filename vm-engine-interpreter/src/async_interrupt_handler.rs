@@ -133,8 +133,6 @@ pub struct AsyncInterruptQueue {
     queue: Arc<parking_lot::Mutex<BinaryHeap<Interrupt>>>,
     /// 异步通道发送端
     tx: mpsc::UnboundedSender<Interrupt>,
-    /// 异步通道接收端
-    rx: Arc<parking_lot::Mutex<mpsc::UnboundedReceiver<Interrupt>>>,
     /// 注册的中断处理器
     handlers: Arc<RwLock<Vec<(InterruptType, Box<dyn Fn(Interrupt) + Send + Sync>)>>>,
     /// 统计信息
@@ -157,12 +155,11 @@ pub struct InterruptStats {
 impl AsyncInterruptQueue {
     /// 创建新的异步中断队列
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::unbounded_channel();
 
         Self {
             queue: Arc::new(parking_lot::Mutex::new(BinaryHeap::new())),
             tx,
-            rx: Arc::new(parking_lot::Mutex::new(rx)),
             handlers: Arc::new(RwLock::new(Vec::new())),
             stats: Arc::new(parking_lot::Mutex::new(InterruptStats::default())),
         }

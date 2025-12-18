@@ -18,24 +18,12 @@ pub trait SyscallHandler: Send + Sync {
 
 /// Linux系统调用处理器
 pub struct LinuxSyscallHandler {
-    /// 文件描述符表
-    fd_table: HashMap<u32, FileDescriptor>,
-    /// 下一个文件描述符
-    next_fd: u32,
+    // 文件描述符表和下一个文件描述符已移除，因为目前未使用
 }
 
 impl LinuxSyscallHandler {
     pub fn new() -> Self {
-        let mut fd_table = HashMap::new();
-        // 标准输入、输出、错误
-        fd_table.insert(0, FileDescriptor::Stdin);
-        fd_table.insert(1, FileDescriptor::Stdout);
-        fd_table.insert(2, FileDescriptor::Stderr);
-
-        Self {
-            fd_table,
-            next_fd: 3,
-        }
+        Self {}
     }
 }
 
@@ -50,24 +38,34 @@ impl SyscallHandler for LinuxSyscallHandler {
             // write系统调用
             1 => {
                 let fd = args[0] as u32;
-                let buf_addr = args[1] as GuestAddr;
+                let buf_addr = GuestAddr(args[1]);
                 let count = args[2] as usize;
 
                 // 从MMU读取数据
                 // 1. 将虚拟地址转换为物理地址
-                let phys_addr = mmu.translate(buf_addr, vm_core::AccessType::Read)
-                    .map_err(|e| VmError::Core(vm_core::CoreError::Internal {
-                        message: format!("Failed to translate address {:#x}: {:?}", buf_addr, e),
-                        module: "os_support".to_string(),
-                    }))?;
+                let phys_addr =
+                    mmu.translate(buf_addr, vm_core::AccessType::Read)
+                        .map_err(|e| {
+                            VmError::Core(vm_core::CoreError::Internal {
+                                message: format!(
+                                    "Failed to translate address {:#x}: {:?}",
+                                    buf_addr, e
+                                ),
+                                module: "os_support".to_string(),
+                            })
+                        })?;
 
                 // 2. 批量读取数据
                 let mut buf = vec![0u8; count];
-                mmu.read_bulk(phys_addr, &mut buf)
-                    .map_err(|e| VmError::Core(vm_core::CoreError::Internal {
-                        message: format!("Failed to read {} bytes from address {:#x}: {:?}", count, phys_addr, e),
+                mmu.read_bulk(phys_addr.into(), &mut buf).map_err(|e| {
+                    VmError::Core(vm_core::CoreError::Internal {
+                        message: format!(
+                            "Failed to read {} bytes from address {:#x}: {:?}",
+                            count, phys_addr.0, e
+                        ),
                         module: "os_support".to_string(),
-                    }))?;
+                    })
+                })?;
 
                 // 写入到标准输出
                 if fd == 1 || fd == 2 {
@@ -97,15 +95,7 @@ impl SyscallHandler for LinuxSyscallHandler {
     }
 }
 
-/// 文件描述符
-#[derive(Debug, Clone)]
-enum FileDescriptor {
-    Stdin,
-    Stdout,
-    Stderr,
-    File(String),
-    Socket(u32),
-}
+
 
 /// 设备模拟器
 pub trait DeviceEmulator: Send + Sync {

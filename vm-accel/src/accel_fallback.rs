@@ -41,10 +41,13 @@ pub struct ExecResult {
 #[derive(Clone)]
 struct PreallocatedResources {
     /// 寄存器状态缓冲
+    #[allow(dead_code)]
     reg_buffer: Vec<u64>,
     /// 内存访问缓冲
+    #[allow(dead_code)]
     mem_buffer: Vec<u8>,
     /// 中断处理缓冲
+    #[allow(dead_code)]
     interrupt_buffer: Vec<u32>,
 }
 

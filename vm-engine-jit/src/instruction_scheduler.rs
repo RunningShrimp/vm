@@ -1,672 +1,851 @@
-//! 指令调度器模块
+//! 指令调度器接口和实现
 //!
-//! 实现延迟感知调度、关键路径优化和超标量调度
+//! 定义了指令调度器的抽象接口和多种实现策略，负责优化指令执行顺序以提高性能。
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use vm_ir::{IROp, RegId};
+use std::collections::{HashMap, HashSet};
+use vm_core::VmError;
+use vm_ir::IROp;
 
-/// 依赖类型
+/// 指令调度器接口
+pub trait InstructionScheduler: Send + Sync {
+    /// 调度IR块中的指令
+    fn schedule(&mut self, block: &crate::compiler::CompiledIRBlock) -> Result<crate::compiler::CompiledIRBlock, VmError>;
+    
+    /// 获取调度器名称
+    fn name(&self) -> &str;
+    
+    /// 获取调度器版本
+    fn version(&self) -> &str;
+    
+    /// 设置调度选项
+    fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError>;
+    
+    /// 获取调度选项
+    fn get_option(&self, option: &str) -> Option<String>;
+    
+    /// 重置调度器状态
+    fn reset(&mut self);
+    
+    /// 获取调度统计信息
+    fn get_stats(&self) -> InstructionSchedulingStats;
+}
+
+/// 指令调度统计信息
+#[derive(Debug, Clone, Default)]
+pub struct InstructionSchedulingStats {
+    /// 原始指令数量
+    pub original_insn_count: usize,
+    /// 调度后指令数量
+    pub scheduled_insn_count: usize,
+    /// 调度耗时（纳秒）
+    pub scheduling_time_ns: u64,
+    /// 依赖边数量
+    pub dependency_edges: usize,
+    /// 关键路径长度
+    pub critical_path_length: usize,
+    /// 并行度提升
+    pub parallelism_improvement: f64,
+}
+
+/// 指令依赖关系
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DependencyType {
-    /// RAW (Read-After-Write) 数据依赖
-    Raw,
-    /// WAR (Write-After-Read) 反依赖
-    War,
-    /// WAW (Write-After-Write) 输出依赖
-    Waw,
-    /// 控制依赖（指令依赖于分支结果）
-    Control,
-    /// 内存依赖（Load/Store之间的别名依赖）
+    /// 真依赖（RAW）
+    True,
+    /// 反依赖（WAR）
+    Anti,
+    /// 输出依赖（WAW）
+    Output,
+    /// 内存依赖
     Memory,
-    /// 资源依赖（功能单元冲突）
-    Resource,
 }
 
-/// 依赖关系
+/// 指令依赖边
 #[derive(Debug, Clone)]
-pub struct Dependency {
-    /// 依赖类型
-    pub dep_type: DependencyType,
-    /// 依赖的指令索引
+pub struct DependencyEdge {
+    /// 源指令索引
     pub from: usize,
-    /// 被依赖的指令索引
+    /// 目标指令索引
     pub to: usize,
-    /// 延迟（cycles）
-    pub latency: u32,
+    /// 依赖类型
+    pub dependency_type: DependencyType,
+    /// 延迟
+    pub latency: u8,
 }
 
-/// 指令调度器
-///
-/// 优化：实现更复杂的依赖分析，包括：
-/// - 数据依赖（RAW, WAR, WAW）
-/// - 控制依赖
-/// - 内存别名分析
-/// - 资源依赖（功能单元）
-/// - 延迟感知调度
-/// - 超标量调度（支持每个周期调度多条指令）
-pub struct InstructionScheduler {
-    /// 依赖图（包含所有类型的依赖）
-    dependency_graph: HashMap<usize, Vec<Dependency>>,
-    /// 指令延迟表
-    instruction_latencies: HashMap<usize, u32>,
-    /// 资源使用表（功能单元）
-    resource_usage: HashMap<usize, Vec<String>>,
-    /// 关键路径长度
-    critical_path_length: u32,
-    /// 超标量宽度（每个周期可以调度的指令数）
-    issue_width: usize,
-    /// 功能单元数量限制
-    functional_units: HashMap<String, usize>,
+/// 指令延迟信息
+#[derive(Debug, Clone)]
+pub struct InstructionLatency {
+    /// 指令类型
+    pub op_type: String,
+    /// 延迟周期数
+    pub latency: u8,
+    /// 吞吐量（每周期可执行次数）
+    pub throughput: u8,
 }
 
-impl InstructionScheduler {
+/// 指令资源需求
+#[derive(Debug, Clone)]
+pub struct ResourceRequirement {
+    /// 资源类型
+    pub resource_type: String,
+    /// 资源数量
+    pub count: u8,
+    /// 使用周期数
+    pub cycles: u8,
+}
+
+/// 列表调度器实现
+pub struct ListScheduler {
+    /// 调度器名称
+    name: String,
+    /// 调度器版本
+    version: String,
+    /// 调度选项
+    options: HashMap<String, String>,
+    /// 指令延迟信息
+    instruction_latencies: HashMap<String, InstructionLatency>,
+    /// 指令资源需求
+    resource_requirements: HashMap<String, Vec<ResourceRequirement>>,
+    /// 调度统计
+    stats: InstructionSchedulingStats,
+    /// 资源池状态
+    resource_pool: HashMap<String, ResourcePool>,
+}
+
+/// 资源池状态
+#[derive(Debug, Clone)]
+struct ResourcePool {
+    /// 总资源数量
+    total_count: u8,
+    /// 可用资源数量
+    available_count: u8,
+    /// 资源使用时间表（周期 -> 使用数量）
+    usage_schedule: HashMap<u32, u8>,
+}
+
+impl ListScheduler {
+    /// 创建新的列表调度器
     pub fn new() -> Self {
+        let mut instruction_latencies = HashMap::new();
+        
+        // 初始化常见指令的延迟信息
+        instruction_latencies.insert("MovImm".to_string(), InstructionLatency {
+            op_type: "MovImm".to_string(),
+            latency: 1,
+            throughput: 1,
+        });
+        
+        instruction_latencies.insert("Add".to_string(), InstructionLatency {
+            op_type: "Add".to_string(),
+            latency: 1,
+            throughput: 1,
+        });
+        
+        instruction_latencies.insert("Sub".to_string(), InstructionLatency {
+            op_type: "Sub".to_string(),
+            latency: 1,
+            throughput: 1,
+        });
+        
+        instruction_latencies.insert("Mul".to_string(), InstructionLatency {
+            op_type: "Mul".to_string(),
+            latency: 3,
+            throughput: 1,
+        });
+        
+        instruction_latencies.insert("Div".to_string(), InstructionLatency {
+            op_type: "Div".to_string(),
+            latency: 10,
+            throughput: 1,
+        });
+        
+        instruction_latencies.insert("Load".to_string(), InstructionLatency {
+            op_type: "Load".to_string(),
+            latency: 4,
+            throughput: 1,
+        });
+        
+        instruction_latencies.insert("Store".to_string(), InstructionLatency {
+            op_type: "Store".to_string(),
+            latency: 1,
+            throughput: 1,
+        });
+        
+        let mut resource_requirements = HashMap::new();
+        
+        // 初始化常见指令的资源需求
+        resource_requirements.insert("Add".to_string(), vec![
+            ResourceRequirement {
+                resource_type: "ALU".to_string(),
+                count: 1,
+                cycles: 1,
+            }
+        ]);
+        
+        resource_requirements.insert("Mul".to_string(), vec![
+            ResourceRequirement {
+                resource_type: "Multiplier".to_string(),
+                count: 1,
+                cycles: 3,
+            }
+        ]);
+        
+        resource_requirements.insert("Div".to_string(), vec![
+            ResourceRequirement {
+                resource_type: "Divider".to_string(),
+                count: 1,
+                cycles: 10,
+            }
+        ]);
+        
+        resource_requirements.insert("Load".to_string(), vec![
+            ResourceRequirement {
+                resource_type: "LoadUnit".to_string(),
+                count: 1,
+                cycles: 4,
+            }
+        ]);
+        
+        resource_requirements.insert("Store".to_string(), vec![
+            ResourceRequirement {
+                resource_type: "StoreUnit".to_string(),
+                count: 1,
+                cycles: 1,
+            }
+        ]);
+        
+        // 初始化资源池
+        let mut resource_pool = HashMap::new();
+        resource_pool.insert("ALU".to_string(), ResourcePool {
+            total_count: 4, // 假设有4个ALU单元
+            available_count: 4,
+            usage_schedule: HashMap::new(),
+        });
+        resource_pool.insert("Multiplier".to_string(), ResourcePool {
+            total_count: 2, // 假设有2个乘法器
+            available_count: 2,
+            usage_schedule: HashMap::new(),
+        });
+        resource_pool.insert("Divider".to_string(), ResourcePool {
+            total_count: 1, // 假设有1个除法器
+            available_count: 1,
+            usage_schedule: HashMap::new(),
+        });
+        resource_pool.insert("LoadUnit".to_string(), ResourcePool {
+            total_count: 2, // 假设有2个加载单元
+            available_count: 2,
+            usage_schedule: HashMap::new(),
+        });
+        resource_pool.insert("StoreUnit".to_string(), ResourcePool {
+            total_count: 2, // 假设有2个存储单元
+            available_count: 2,
+            usage_schedule: HashMap::new(),
+        });
+
         Self {
-            dependency_graph: HashMap::new(),
-            instruction_latencies: HashMap::new(),
-            resource_usage: HashMap::new(),
-            critical_path_length: 0,
-            issue_width: 4, // 默认4路超标量
-            functional_units: {
-                let mut units = HashMap::new();
-                units.insert("alu_unit".to_string(), 2); // 2个ALU单元
-                units.insert("memory_unit".to_string(), 1); // 1个内存单元
-                units.insert("multiply_unit".to_string(), 1); // 1个乘法单元
-                units
-            },
+            name: "ListScheduler".to_string(),
+            version: "1.0.0".to_string(),
+            options: HashMap::new(),
+            instruction_latencies,
+            resource_requirements,
+            stats: InstructionSchedulingStats::default(),
+            resource_pool,
         }
     }
-
-    /// 创建指定宽度的超标量调度器
-    pub fn with_issue_width(issue_width: usize) -> Self {
-        Self {
-            dependency_graph: HashMap::new(),
-            instruction_latencies: HashMap::new(),
-            resource_usage: HashMap::new(),
-            critical_path_length: 0,
-            issue_width,
-            functional_units: {
-                let mut units = HashMap::new();
-                units.insert("alu_unit".to_string(), 2);
-                units.insert("memory_unit".to_string(), 1);
-                units.insert("multiply_unit".to_string(), 1);
-                units
-            },
-        }
-    }
-
-    fn latency(&self, op: &IROp) -> u32 {
-        match op {
-            IROp::Load { .. } | IROp::Store { .. } => 3,
-            IROp::Mul { .. } | IROp::Div { .. } | IROp::Rem { .. } => 3,
-            _ => 1,
-        }
-    }
-
-    /// 构建依赖图（增强版：支持RAW, WAR, WAW, 控制依赖, 内存别名分析）
-    pub fn build_dependency_graph(&mut self, ops: &[IROp]) {
-        self.dependency_graph.clear();
-        self.instruction_latencies.clear();
-        self.resource_usage.clear();
-
-        // 计算指令延迟和资源使用
-        for (i, op) in ops.iter().enumerate() {
-            self.instruction_latencies.insert(i, self.latency(op));
-            self.resource_usage
-                .insert(i, self.get_resource_requirements(op));
-        }
-
-        // 识别条件比较指令（用于控制依赖分析）
-        let condition_regs: HashSet<RegId> = ops
-            .iter()
-            .filter_map(|op| match op {
-                IROp::CmpEq { dst, .. }
-                | IROp::CmpNe { dst, .. }
-                | IROp::CmpLt { dst, .. }
-                | IROp::CmpLtU { dst, .. }
-                | IROp::CmpGe { dst, .. }
-                | IROp::CmpGeU { dst, .. } => Some(*dst),
-                _ => None,
-            })
-            .collect();
-
-        // 构建完整的依赖图（包括RAW, WAR, WAW, 控制依赖, 内存依赖）
-        for (i, op) in ops.iter().enumerate() {
-            let mut dependencies = Vec::new();
-
-            let current_reads = self.collect_read_regs(op);
-            let current_writes = self.collect_written_regs(op);
-            let current_latency = self.instruction_latencies.get(&i).copied().unwrap_or(1);
-
-            // 检查与前面指令的依赖关系
-            for (j, prev_op) in ops.iter().enumerate().take(i) {
-                let prev_reads = self.collect_read_regs(prev_op);
-                let prev_writes = self.collect_written_regs(prev_op);
-                let prev_latency = self.instruction_latencies.get(&j).copied().unwrap_or(1);
-
-                // RAW (Read-After-Write) 数据依赖
-                for &read_reg in &current_reads {
-                    if prev_writes.contains(&read_reg) {
-                        dependencies.push(Dependency {
-                            dep_type: DependencyType::Raw,
-                            from: j,
+    
+    /// 构建依赖图
+    fn build_dependency_graph(&self, block: &crate::compiler::CompiledIRBlock) -> Vec<DependencyEdge> {
+        let mut edges = Vec::with_capacity(block.ops.len() * 2); // 预分配容量
+        let mut reg_defs = HashMap::new(); // 寄存器定义位置
+        let mut reg_last_def = HashMap::new(); // 寄存器最后定义位置
+        let mut mem_accesses: Vec<(usize, bool, u64)> = Vec::new(); // 内存访问记录
+        
+        // 单遍扫描：同时收集定义、使用和构建依赖边
+        for (i, op) in block.ops.iter().enumerate() {
+            match &op.op {
+                IROp::MovImm { dst, .. } => {
+                    // 处理输出依赖（WAW）
+                    if let Some(&last_def) = reg_last_def.get(dst) {
+                        edges.push(DependencyEdge {
+                            from: last_def,
                             to: i,
-                            latency: prev_latency,
+                            dependency_type: DependencyType::Output,
+                            latency: 1,
                         });
-                        break;
                     }
+                    
+                    reg_defs.insert(*dst, i);
+                    reg_last_def.insert(*dst, i);
                 }
-
-                // WAR (Write-After-Read) 反依赖
-                for &write_reg in &current_writes {
-                    if prev_reads.contains(&write_reg) {
-                        dependencies.push(Dependency {
-                            dep_type: DependencyType::War,
-                            from: j,
-                            to: i,
-                            latency: 0,
-                        });
-                        break;
-                    }
-                }
-
-                // WAW (Write-After-Write) 输出依赖
-                for &write_reg in &current_writes {
-                    if prev_writes.contains(&write_reg) {
-                        dependencies.push(Dependency {
-                            dep_type: DependencyType::Waw,
-                            from: j,
-                            to: i,
-                            latency: 0,
-                        });
-                        break;
-                    }
-                }
-
-                // 控制依赖
-                for &read_reg in &current_reads {
-                    if condition_regs.contains(&read_reg) {
-                        if let Some(cond_producer) = self.find_condition_producer(j, read_reg, ops)
-                        {
-                            dependencies.push(Dependency {
-                                dep_type: DependencyType::Control,
-                                from: cond_producer,
+                
+                IROp::Add { dst, src1, src2 } |
+                IROp::Sub { dst, src1, src2 } |
+                IROp::Mul { dst, src1, src2 } |
+                IROp::Div { dst, src1, src2, .. } |
+                IROp::Rem { dst, src1, src2, .. } |
+                IROp::And { dst, src1, src2 } |
+                IROp::Or { dst, src1, src2 } |
+                IROp::Xor { dst, src1, src2 } => {
+                    // 处理源寄存器的真依赖（RAW）
+                    for &src in [src1, src2].iter() {
+                        if let Some(&def_pos) = reg_defs.get(src) {
+                            let latency = self.get_instruction_latency(&op.op);
+                            edges.push(DependencyEdge {
+                                from: def_pos,
                                 to: i,
+                                dependency_type: DependencyType::True,
+                                latency,
+                            });
+                        }
+                        
+                        // 处理反依赖（WAR）
+                        if let Some(&last_def) = reg_last_def.get(src) {
+                            if last_def > i {
+                                edges.push(DependencyEdge {
+                                    from: i,
+                                    to: last_def,
+                                    dependency_type: DependencyType::Anti,
+                                    latency: 1,
+                                });
+                            }
+                        }
+                    }
+                    
+                    // 处理输出依赖（WAW）
+                    if let Some(&last_def) = reg_last_def.get(dst) {
+                        edges.push(DependencyEdge {
+                            from: last_def,
+                            to: i,
+                            dependency_type: DependencyType::Output,
+                            latency: 1,
+                        });
+                    }
+                    
+                    reg_defs.insert(*dst, i);
+                    reg_last_def.insert(*dst, i);
+                }
+                
+                IROp::Load { dst, base, .. } => {
+                    // 处理基址寄存器的真依赖（RAW）
+                    if let Some(&def_pos) = reg_defs.get(base) {
+                        let latency = self.get_instruction_latency(&op.op);
+                        edges.push(DependencyEdge {
+                            from: def_pos,
+                            to: i,
+                            dependency_type: DependencyType::True,
+                            latency,
+                        });
+                    }
+                    
+                    // 处理反依赖（WAR）
+                    if let Some(&last_def) = reg_last_def.get(base) {
+                        if last_def > i {
+                            edges.push(DependencyEdge {
+                                from: i,
+                                to: last_def,
+                                dependency_type: DependencyType::Anti,
                                 latency: 1,
                             });
                         }
                     }
-                }
-
-                // 内存依赖
-                if self.has_memory_dependency_enhanced(op, prev_op, i, j, ops) {
-                    dependencies.push(Dependency {
-                        dep_type: DependencyType::Memory,
-                        from: j,
-                        to: i,
-                        latency: prev_latency,
-                    });
-                }
-
-                // 资源依赖
-                if self.has_resource_conflict(i, j) {
-                    dependencies.push(Dependency {
-                        dep_type: DependencyType::Resource,
-                        from: j,
-                        to: i,
-                        latency: prev_latency,
-                    });
-                }
-            }
-
-            self.dependency_graph.insert(i, dependencies);
-        }
-
-        // 计算关键路径长度
-        self.critical_path_length = self.compute_critical_path(ops);
-    }
-
-    /// 查找产生条件寄存器的指令
-    fn find_condition_producer(
-        &self,
-        max_idx: usize,
-        cond_reg: RegId,
-        ops: &[IROp],
-    ) -> Option<usize> {
-        for j in (0..max_idx).rev() {
-            let prev_writes = self.collect_written_regs(&ops[j]);
-            if prev_writes.contains(&cond_reg) {
-                match &ops[j] {
-                    IROp::CmpEq { .. }
-                    | IROp::CmpNe { .. }
-                    | IROp::CmpLt { .. }
-                    | IROp::CmpLtU { .. }
-                    | IROp::CmpGe { .. }
-                    | IROp::CmpGeU { .. } => return Some(j),
-                    _ => {}
-                }
-            }
-        }
-        None
-    }
-
-    /// 检查内存依赖（增强版）
-    fn has_memory_dependency_enhanced(
-        &self,
-        current: &IROp,
-        previous: &IROp,
-        current_idx: usize,
-        previous_idx: usize,
-        ops: &[IROp],
-    ) -> bool {
-        match (current, previous) {
-            (
-                IROp::Load {
-                    base: base1,
-                    offset: offset1,
-                    ..
-                },
-                IROp::Store {
-                    base: base2,
-                    offset: offset2,
-                    ..
-                },
-            ) => {
-                if base1 == base2 {
-                    if let (Some(off1), Some(off2)) = (
-                        self.get_constant_offset(*base1, *offset1, previous_idx, ops),
-                        self.get_constant_offset(*base2, *offset2, current_idx, ops),
-                    ) {
-                        if off1 == off2 {
-                            return true;
+                    
+                    // 处理内存依赖
+                    for (_mem_idx, &(_addr, is_store, mem_pos)) in mem_accesses.iter().enumerate() {
+                        // 简化的内存依赖检测（实际实现需要更复杂的别名分析）
+                        if !is_store && mem_pos < i as u64 {
+                            edges.push(DependencyEdge {
+                                from: mem_pos as usize,
+                                to: i,
+                                dependency_type: DependencyType::Memory,
+                                latency: 4,
+                            });
                         }
                     }
-                    return true;
+                    
+                    mem_accesses.push((0, false, i as u64)); // 简化的内存地址
+                    
+                    // 处理输出依赖（WAW）
+                    if let Some(&last_def) = reg_last_def.get(dst) {
+                        edges.push(DependencyEdge {
+                            from: last_def,
+                            to: i,
+                            dependency_type: DependencyType::Output,
+                            latency: 1,
+                        });
+                    }
+                    
+                    reg_defs.insert(*dst, i);
+                    reg_last_def.insert(*dst, i);
                 }
-                self.may_alias(*base1, *base2, current_idx, previous_idx, ops)
-            }
-            (
-                IROp::Store {
-                    base: base1,
-                    offset: offset1,
-                    ..
-                },
-                IROp::Load {
-                    base: base2,
-                    offset: offset2,
-                    ..
-                },
-            ) => {
-                if base1 == base2 {
-                    if let (Some(off1), Some(off2)) = (
-                        self.get_constant_offset(*base1, *offset1, previous_idx, ops),
-                        self.get_constant_offset(*base2, *offset2, current_idx, ops),
-                    ) {
-                        if off1 == off2 {
-                            return true;
+                
+                IROp::Store { src, base, .. } => {
+                    // 处理源寄存器的真依赖（RAW）
+                    if let Some(&def_pos) = reg_defs.get(src) {
+                        let latency = self.get_instruction_latency(&op.op);
+                        edges.push(DependencyEdge {
+                            from: def_pos,
+                            to: i,
+                            dependency_type: DependencyType::True,
+                            latency,
+                        });
+                    }
+                    
+                    // 处理基址寄存器的真依赖（RAW）
+                    if let Some(&def_pos) = reg_defs.get(base) {
+                        let latency = self.get_instruction_latency(&op.op);
+                        edges.push(DependencyEdge {
+                            from: def_pos,
+                            to: i,
+                            dependency_type: DependencyType::True,
+                            latency,
+                        });
+                    }
+                    
+                    // 处理反依赖（WAR）
+                    for &reg in [src, base].iter() {
+                        if let Some(&last_def) = reg_last_def.get(reg) {
+                            if last_def > i {
+                                edges.push(DependencyEdge {
+                                    from: i,
+                                    to: last_def,
+                                    dependency_type: DependencyType::Anti,
+                                    latency: 1,
+                                });
+                            }
                         }
                     }
-                    return true;
-                }
-                self.may_alias(*base1, *base2, current_idx, previous_idx, ops)
-            }
-            (
-                IROp::Store {
-                    base: base1,
-                    offset: offset1,
-                    ..
-                },
-                IROp::Store {
-                    base: base2,
-                    offset: offset2,
-                    ..
-                },
-            ) => {
-                if base1 == base2 {
-                    if let (Some(off1), Some(off2)) = (
-                        self.get_constant_offset(*base1, *offset1, previous_idx, ops),
-                        self.get_constant_offset(*base2, *offset2, current_idx, ops),
-                    ) {
-                        if off1 == off2 {
-                            return true;
+                    
+                    // 处理内存依赖
+                    for (_mem_idx, &(_addr, is_store, mem_pos)) in mem_accesses.iter().enumerate() {
+                        // 简化的内存依赖检测
+                        if mem_pos < i as u64 {
+                            edges.push(DependencyEdge {
+                                from: mem_pos as usize,
+                                to: i,
+                                dependency_type: DependencyType::Memory,
+                                latency: if is_store { 1 } else { 4 },
+                            });
                         }
                     }
-                    return true;
+                    
+                    mem_accesses.push((0, true, i as u64)); // 简化的内存地址
                 }
-                self.may_alias(*base1, *base2, current_idx, previous_idx, ops)
-            }
-            (IROp::Load { .. }, IROp::Load { .. }) => false,
-            _ => false,
-        }
-    }
-
-    /// 获取常量offset
-    fn get_constant_offset(
-        &self,
-        _base: RegId,
-        offset: i64,
-        _max_idx: usize,
-        _ops: &[IROp],
-    ) -> Option<i64> {
-        Some(offset)
-    }
-
-    /// 检查两个base寄存器是否可能指向同一内存区域
-    fn may_alias(
-        &self,
-        base1: RegId,
-        base2: RegId,
-        idx1: usize,
-        idx2: usize,
-        ops: &[IROp],
-    ) -> bool {
-        if base1 == base2 {
-            return true;
-        }
-
-        for j in 0..idx2.min(idx1) {
-            let prev_writes = self.collect_written_regs(&ops[j]);
-            if prev_writes.contains(&base2) {
-                match &ops[j] {
-                    IROp::Add { dst, src1, src2 } if *dst == base2 => {
-                        if *src1 == base1 || *src2 == base1 {
-                            return true;
-                        }
-                    }
-                    IROp::MovImm { dst, .. } if *dst == base2 => {
-                        return true;
-                    }
-                    _ => {}
-                }
+                
+                // 其他操作类型的处理...
+                _ => {}
             }
         }
-
-        false
+        
+        edges
     }
-
-    /// 获取指令的资源需求
-    fn get_resource_requirements(&self, op: &IROp) -> Vec<String> {
+    
+    /// 获取指令延迟
+    fn get_instruction_latency(&self, op: &IROp) -> u8 {
+        let op_type = match op {
+            IROp::MovImm { .. } => "MovImm",
+            IROp::Add { .. } => "Add",
+            IROp::Sub { .. } => "Sub",
+            IROp::Mul { .. } => "Mul",
+            IROp::Div { .. } => "Div",
+            IROp::Rem { .. } => "Div",
+            IROp::And { .. } => "Add",
+            IROp::Or { .. } => "Add",
+            IROp::Xor { .. } => "Add",
+            IROp::Load { .. } => "Load",
+            IROp::Store { .. } => "Store",
+            // 其他操作类型的默认延迟
+            _ => "Add",
+        };
+        
+        self.instruction_latencies
+            .get(op_type)
+            .map(|info| info.latency)
+            .unwrap_or(1)
+    }
+    
+    /// 计算指令的优先级
+    fn calculate_priority(&self, 
+                         op_index: usize, 
+                         op: &crate::compiler::CompiledIROp, 
+                         dependencies: &[DependencyEdge]) -> u32 {
+        // 多因素优先级计算
+        let mut priority = 0u32;
+        
+        // 1. 基于指令延迟的优先级（延迟越高，优先级越高）
+        let latency = self.get_instruction_latency(&op.op);
+        priority += (latency as u32) * 100;
+        
+        // 2. 基于关键路径长度的优先级
+        let critical_path_length = self.calculate_critical_path_length(op_index, dependencies);
+        priority += (critical_path_length as u32) * 50;
+        
+        // 3. 基于依赖数量的优先级（依赖越多，优先级越高）
+        let successor_count = self.count_successors(op_index, dependencies);
+        priority += (successor_count as u32) * 25;
+        
+        // 4. 基于指令类型的优先级
+        let type_priority = self.get_instruction_type_priority(&op.op);
+        priority += type_priority;
+        
+        // 5. 基于资源需求的优先级（资源需求越高，优先级越高）
+        let resource_priority = self.get_resource_priority(&op.op);
+        priority += resource_priority;
+        
+        priority
+    }
+    
+    /// 计算关键路径长度
+    fn calculate_critical_path_length(&self, op_index: usize, dependencies: &[DependencyEdge]) -> usize {
+        let mut visited = std::collections::HashSet::new();
+        
+        fn dfs(current: usize, 
+               dependencies: &[DependencyEdge], 
+               visited: &mut std::collections::HashSet<usize>,
+               scheduler: &ListScheduler) -> usize {
+            if visited.contains(&current) {
+                return 0; // 避免循环
+            }
+            visited.insert(current);
+            
+            let mut max_child_path = 0;
+            for edge in dependencies {
+                if edge.from == current {
+                    let child_path = dfs(edge.to, dependencies, visited, scheduler);
+                    max_child_path = max_child_path.max(child_path + edge.latency as usize);
+                }
+            }
+            
+            visited.remove(&current);
+            max_child_path
+        }
+        
+        dfs(op_index, dependencies, &mut visited, self)
+    }
+    
+    /// 计算后继节点数量
+    fn count_successors(&self, op_index: usize, dependencies: &[DependencyEdge]) -> usize {
+        dependencies.iter()
+            .filter(|edge| edge.from == op_index)
+            .count()
+    }
+    
+    /// 获取指令类型优先级
+    fn get_instruction_type_priority(&self, op: &IROp) -> u32 {
         match op {
-            IROp::Load { .. } | IROp::Store { .. } => vec!["memory_unit".to_string()],
-            IROp::Mul { .. } | IROp::Div { .. } | IROp::Rem { .. } => {
-                vec!["multiply_unit".to_string()]
-            }
-            _ => vec!["alu_unit".to_string()],
+            IROp::Load { .. } => 200,  // 内存加载优先级高
+            IROp::Store { .. } => 180, // 内存存储优先级较高
+            IROp::Mul { .. } => 150,   // 乘法优先级中等
+            IROp::Div { .. } => 160,   // 除法优先级中等
+            IROp::Add { .. } => 100,   // 加法优先级较低
+            IROp::Sub { .. } => 100,   // 减法优先级较低
+            IROp::MovImm { .. } => 50, // 立即数移动优先级最低
+            _ => 80,                   // 其他指令的默认优先级
         }
     }
-
-    /// 检查资源冲突
-    fn has_resource_conflict(&self, inst1: usize, inst2: usize) -> bool {
-        if let (Some(res1), Some(res2)) = (
-            self.resource_usage.get(&inst1),
-            self.resource_usage.get(&inst2),
-        ) {
-            for r1 in res1.iter() {
-                if res2.contains(r1) {
-                    let available_units = self.functional_units.get(r1).copied().unwrap_or(1);
-                    if available_units <= 1 {
-                        return true;
+    
+    /// 获取资源优先级
+    fn get_resource_priority(&self, op: &IROp) -> u32 {
+        let op_type = match op {
+            IROp::MovImm { .. } => "MovImm",
+            IROp::Add { .. } => "Add",
+            IROp::Sub { .. } => "Sub",
+            IROp::Mul { .. } => "Mul",
+            IROp::Div { .. } => "Div",
+            IROp::Rem { .. } => "Div",
+            IROp::And { .. } => "Add",
+            IROp::Or { .. } => "Add",
+            IROp::Xor { .. } => "Add",
+            IROp::Load { .. } => "Load",
+            IROp::Store { .. } => "Store",
+            _ => "Add",
+        };
+        
+        self.resource_requirements
+            .get(op_type)
+            .map(|reqs| {
+                reqs.iter()
+                    .map(|req| req.count as u32 * req.cycles as u32)
+                    .sum()
+            })
+            .unwrap_or(10)
+    }
+    
+    /// 检查资源是否可用
+    fn check_resource_availability(&self, op: &IROp, current_cycle: u32) -> bool {
+        let op_type = match op {
+            IROp::MovImm { .. } => "MovImm",
+            IROp::Add { .. } => "Add",
+            IROp::Sub { .. } => "Sub",
+            IROp::Mul { .. } => "Mul",
+            IROp::Div { .. } => "Div",
+            IROp::Rem { .. } => "Div",
+            IROp::And { .. } => "Add",
+            IROp::Or { .. } => "Add",
+            IROp::Xor { .. } => "Add",
+            IROp::Load { .. } => "Load",
+            IROp::Store { .. } => "Store",
+            _ => "Add",
+        };
+        
+        if let Some(requirements) = self.resource_requirements.get(op_type) {
+            for req in requirements {
+                if let Some(pool) = self.resource_pool.get(&req.resource_type) {
+                    // 检查当前周期的资源使用情况
+                    let current_usage = pool.usage_schedule.get(&current_cycle).unwrap_or(&0);
+                    if *current_usage + req.count > pool.total_count {
+                        return false;
+                    }
+                    
+                    // 检查未来周期的资源使用情况
+                    for cycle in current_cycle..current_cycle + req.cycles as u32 {
+                        let usage = pool.usage_schedule.get(&cycle).unwrap_or(&0);
+                        if *usage + req.count > pool.total_count {
+                            return false;
+                        }
                     }
                 }
             }
         }
-        false
-    }
-
-    /// 检查指令是否可以并行执行
-    fn can_execute_parallel(&self, inst1: usize, inst2: usize, ops: &[IROp]) -> bool {
-        if let Some(deps) = self.dependency_graph.get(&inst2) {
-            for dep in deps {
-                if dep.from == inst1 {
-                    return false;
-                }
-            }
-        }
-
-        if self.has_resource_conflict(inst1, inst2) {
-            return false;
-        }
-
+        
         true
     }
-
-    /// 计算关键路径长度
-    fn compute_critical_path(&self, ops: &[IROp]) -> u32 {
-        let mut max_path_length = 0u32;
-        let mut path_lengths = vec![0u32; ops.len()];
-
-        for i in 0..ops.len() {
-            let mut max_dep_length = 0u32;
-
-            if let Some(deps) = self.dependency_graph.get(&i) {
-                for dep in deps {
-                    let dep_path_length = path_lengths[dep.from] + dep.latency;
-                    max_dep_length = max_dep_length.max(dep_path_length);
-                }
-            }
-
-            let latency = self.instruction_latencies.get(&i).copied().unwrap_or(1);
-            path_lengths[i] = max_dep_length + latency;
-            max_path_length = max_path_length.max(path_lengths[i]);
-        }
-
-        max_path_length
-    }
-
-    /// 调度指令（增强版：延迟感知调度 + 关键路径优化 + 超标量调度）
-    pub fn schedule(&self, ops: &[IROp]) -> Vec<usize> {
-        let mut ready_queue = VecDeque::new();
-        let mut scheduled = Vec::new();
-        let mut scheduled_set = HashSet::new();
-        let mut in_degree: HashMap<usize, usize> = HashMap::new();
-
-        // 初始化入度计数
-        for i in 0..ops.len() {
-            let degree = self.dependency_graph.get(&i).map_or(0, |deps| deps.len());
-            in_degree.insert(i, degree);
-            if degree == 0 {
-                ready_queue.push_back(i);
-            }
-        }
-
-        // 超标量调度：每个周期可以调度多条指令
-        while !ready_queue.is_empty() || !scheduled_set.is_empty() {
-            let mut cycle_schedule = Vec::new();
-            let mut cycle_resources = HashMap::new();
-
-            let mut candidates: Vec<usize> = ready_queue.iter().copied().collect();
-
-            // 按优先级排序
-            candidates.sort_by(|&a, &b| {
-                let priority_a = self.compute_instruction_priority(a, &scheduled_set, ops);
-                let priority_b = self.compute_instruction_priority(b, &scheduled_set, ops);
-                priority_b.cmp(&priority_a)
-            });
-
-            // 选择可以并行执行的指令
-            for &inst_idx in &candidates {
-                if cycle_schedule.len() >= self.issue_width {
-                    break;
-                }
-
-                let mut can_schedule = true;
-                if let Some(resources) = self.resource_usage.get(&inst_idx) {
-                    for resource in resources {
-                        let used = cycle_resources.get(resource).copied().unwrap_or(0);
-                        let available = self.functional_units.get(resource).copied().unwrap_or(1);
-                        if used >= available {
-                            can_schedule = false;
-                            break;
-                        }
-                    }
-                }
-
-                if can_schedule {
-                    for &scheduled_idx in &cycle_schedule {
-                        if !self.can_execute_parallel(inst_idx, scheduled_idx, ops) {
-                            can_schedule = false;
-                            break;
-                        }
-                    }
-                }
-
-                if can_schedule {
-                    cycle_schedule.push(inst_idx);
-                    if let Some(resources) = self.resource_usage.get(&inst_idx) {
-                        for resource in resources {
-                            *cycle_resources.entry(resource.clone()).or_insert(0) += 1;
-                        }
-                    }
-                }
-            }
-
-            // 将选中的指令加入调度序列
-            for inst_idx in &cycle_schedule {
-                ready_queue.retain(|&x| x != *inst_idx);
-                scheduled.push(*inst_idx);
-                scheduled_set.insert(*inst_idx);
-            }
-
-            // 更新依赖计数
-            for i in 0..ops.len() {
-                if !scheduled_set.contains(&i) {
-                    let can_schedule = self.dependency_graph.get(&i).map_or(true, |dependencies| {
-                        dependencies
-                            .iter()
-                            .all(|dep| scheduled_set.contains(&dep.from))
-                    });
-                    if can_schedule {
-                        if !ready_queue.contains(&i) {
-                            ready_queue.push_back(i);
-                        }
+    
+    /// 预订资源
+    fn reserve_resources(&mut self, op: &IROp, start_cycle: u32) {
+        let op_type = match op {
+            IROp::MovImm { .. } => "MovImm",
+            IROp::Add { .. } => "Add",
+            IROp::Sub { .. } => "Sub",
+            IROp::Mul { .. } => "Mul",
+            IROp::Div { .. } => "Div",
+            IROp::Rem { .. } => "Div",
+            IROp::And { .. } => "Add",
+            IROp::Or { .. } => "Add",
+            IROp::Xor { .. } => "Add",
+            IROp::Load { .. } => "Load",
+            IROp::Store { .. } => "Store",
+            _ => "Add",
+        };
+        
+        if let Some(requirements) = self.resource_requirements.get(op_type) {
+            for req in requirements {
+                if let Some(pool) = self.resource_pool.get_mut(&req.resource_type) {
+                    for cycle in start_cycle..start_cycle + req.cycles as u32 {
+                        let usage = pool.usage_schedule.entry(cycle).or_insert(0);
+                        *usage += req.count;
                     }
                 }
             }
         }
-
-        scheduled
     }
-
-    /// 计算指令优先级
-    fn compute_instruction_priority(
-        &self,
-        inst_idx: usize,
-        scheduled: &HashSet<usize>,
-        ops: &[IROp],
-    ) -> u32 {
-        let latency = self
-            .instruction_latencies
-            .get(&inst_idx)
-            .copied()
-            .unwrap_or(1);
-        let critical_path_remaining =
-            self.compute_remaining_critical_path(inst_idx, scheduled, ops);
-        latency + critical_path_remaining
-    }
-
-    /// 计算从指定指令到结束的剩余关键路径长度
-    fn compute_remaining_critical_path(
-        &self,
-        start: usize,
-        scheduled: &HashSet<usize>,
-        ops: &[IROp],
-    ) -> u32 {
-        let mut max_path = 0u32;
-        let mut visited = HashSet::new();
-        let mut stack = vec![(start, 0u32)];
-
-        while let Some((inst_idx, path_length)) = stack.pop() {
-            if visited.contains(&inst_idx) || scheduled.contains(&inst_idx) {
-                continue;
-            }
-            visited.insert(inst_idx);
-
-            let latency = self
-                .instruction_latencies
-                .get(&inst_idx)
-                .copied()
-                .unwrap_or(1);
-            let new_length = path_length + latency;
-            max_path = max_path.max(new_length);
-
-            for (j, _) in ops.iter().enumerate() {
-                if let Some(deps) = self.dependency_graph.get(&j) {
-                    for dep in deps {
-                        if dep.from == inst_idx && !scheduled.contains(&j) {
-                            stack.push((j, new_length + dep.latency));
-                        }
-                    }
-                }
-            }
+    
+    /// 找到最早的可用时间槽
+    fn find_earliest_available_slot(&self, op: &IROp, start_cycle: u32) -> u32 {
+        let mut current_cycle = start_cycle;
+        
+        while !self.check_resource_availability(op, current_cycle) {
+            current_cycle += 1;
         }
-
-        max_path
+        
+        current_cycle
     }
-
-    /// 收集操作中读取的寄存器
-    fn collect_read_regs(&self, op: &IROp) -> Vec<RegId> {
-        match op {
-            IROp::Add { src1, src2, .. }
-            | IROp::Sub { src1, src2, .. }
-            | IROp::Mul { src1, src2, .. }
-            | IROp::Div { src1, src2, .. }
-            | IROp::Rem { src1, src2, .. }
-            | IROp::And { src1, src2, .. }
-            | IROp::Or { src1, src2, .. }
-            | IROp::Xor { src1, src2, .. } => vec![*src1, *src2],
-
-            IROp::Sll { src, shreg, .. }
-            | IROp::Srl { src, shreg, .. }
-            | IROp::Sra { src, shreg, .. } => vec![*src, *shreg],
-
-            IROp::Not { src, .. } => vec![*src],
-            IROp::Load { base, .. } => vec![*base],
-
-            IROp::Store { src, base, .. } => vec![*src, *base],
-
-            IROp::CmpEq { lhs, rhs, .. }
-            | IROp::CmpNe { lhs, rhs, .. }
-            | IROp::CmpLt { lhs, rhs, .. }
-            | IROp::CmpLtU { lhs, rhs, .. }
-            | IROp::CmpGe { lhs, rhs, .. }
-            | IROp::CmpGeU { lhs, rhs, .. } => vec![*lhs, *rhs],
-
-            _ => vec![],
-        }
-    }
-
-    /// 收集操作中写入的寄存器
-    fn collect_written_regs(&self, op: &IROp) -> Vec<RegId> {
-        match op {
-            IROp::Add { dst, .. }
-            | IROp::Sub { dst, .. }
-            | IROp::Mul { dst, .. }
-            | IROp::Div { dst, .. }
-            | IROp::Rem { dst, .. }
-            | IROp::AddImm { dst, .. }
-            | IROp::MulImm { dst, .. }
-            | IROp::MovImm { dst, .. }
-            | IROp::And { dst, .. }
-            | IROp::Or { dst, .. }
-            | IROp::Xor { dst, .. }
-            | IROp::Not { dst, .. }
-            | IROp::Sll { dst, .. }
-            | IROp::Srl { dst, .. }
-            | IROp::Sra { dst, .. }
-            | IROp::SllImm { dst, .. }
-            | IROp::SrlImm { dst, .. }
-            | IROp::SraImm { dst, .. }
-            | IROp::Load { dst, .. }
-            | IROp::CmpEq { dst, .. }
-            | IROp::CmpNe { dst, .. }
-            | IROp::CmpLt { dst, .. }
-            | IROp::CmpLtU { dst, .. }
-            | IROp::CmpGe { dst, .. }
-            | IROp::CmpGeU { dst, .. } => vec![*dst],
-
-            _ => vec![],
+    
+    /// 重置资源池状态
+    fn reset_resource_pool(&mut self) {
+        for pool in self.resource_pool.values_mut() {
+            pool.available_count = pool.total_count;
+            pool.usage_schedule.clear();
         }
     }
 }
 
-
+impl InstructionScheduler for ListScheduler {
+    fn schedule(&mut self, block: &crate::compiler::CompiledIRBlock) -> Result<crate::compiler::CompiledIRBlock, VmError> {
+        let start_time = std::time::Instant::now();
+        
+        // 重置资源池状态
+        self.reset_resource_pool();
+        
+        // 构建依赖图
+        let dependencies = self.build_dependency_graph(block);
+        
+        // 资源感知的列表调度算法
+        let mut scheduled_ops = Vec::new();
+        let mut ready_list = Vec::new(); // 准备调度的指令列表
+        let mut scheduled = HashSet::new(); // 已调度的指令
+        let mut remaining_deps = HashMap::new(); // 每条指令的剩余依赖数
+        let mut current_cycle = 0u32; // 当前调度周期
+        let mut op_scheduled_cycle = HashMap::new(); // 指令调度周期记录
+        
+        // 初始化剩余依赖数
+        for i in 0..block.ops.len() {
+            remaining_deps.insert(i, 0);
+        }
+        
+        // 计算每条指令的依赖数
+        for edge in &dependencies {
+            *remaining_deps.entry(edge.to).or_insert(0) += 1;
+        }
+        
+        // 找出没有依赖的指令，加入准备列表
+        for (i, &dep_count) in &remaining_deps {
+            if dep_count == 0 {
+                ready_list.push(*i);
+            }
+        }
+        
+        // 按优先级排序准备列表
+        ready_list.sort_by(|&a, &b| {
+            let priority_a = self.calculate_priority(a, &block.ops[a], &dependencies);
+            let priority_b = self.calculate_priority(b, &block.ops[b], &dependencies);
+            priority_b.cmp(&priority_a) // 高优先级在前
+        });
+        
+        // 主调度循环
+        while !ready_list.is_empty() {
+            let mut scheduled_this_cycle = false;
+            let ready_list_copy = ready_list.clone();
+            
+            // 尝试在当前周期调度尽可能多的指令
+            for &op_index in &ready_list_copy {
+                if scheduled.contains(&op_index) {
+                    continue;
+                }
+                
+                let op = &block.ops[op_index];
+                
+                // 找到最早可用的时间槽
+                let actual_cycle = self.find_earliest_available_slot(&op.op, current_cycle);
+                
+                // 检查依赖是否满足（考虑调度周期）
+                let mut deps_satisfied = true;
+                for edge in &dependencies {
+                    if edge.to == op_index {
+                        if let Some(&dep_cycle) = op_scheduled_cycle.get(&edge.from) {
+                            if dep_cycle + edge.latency as u32 > current_cycle {
+                                deps_satisfied = false;
+                                break;
+                            }
+                        } else {
+                            deps_satisfied = false;
+                            break;
+                        }
+                    }
+                }
+                
+                if deps_satisfied {
+                    // 调度指令
+                    scheduled.insert(op_index);
+                    scheduled_ops.push(op.clone());
+                    op_scheduled_cycle.insert(op_index, actual_cycle);
+                    
+                    // 预订资源
+                    self.reserve_resources(&op.op, actual_cycle);
+                    
+                    // 从准备列表中移除
+                    ready_list.retain(|&x| x != op_index);
+                    
+                    // 更新依赖此指令的其他指令的依赖数
+                    for edge in &dependencies {
+                        if edge.from == op_index {
+                            if let Some(dep_count) = remaining_deps.get_mut(&edge.to) {
+                                *dep_count -= 1;
+                                if *dep_count == 0 && !scheduled.contains(&edge.to) {
+                                    ready_list.push(edge.to);
+                                }
+                            }
+                        }
+                    }
+                    
+                    scheduled_this_cycle = true;
+                }
+            }
+            
+            // 重新排序准备列表
+            ready_list.sort_by(|&a, &b| {
+                let priority_a = self.calculate_priority(a, &block.ops[a], &dependencies);
+                let priority_b = self.calculate_priority(b, &block.ops[b], &dependencies);
+                priority_b.cmp(&priority_a) // 高优先级在前
+            });
+            
+            // 如果当前周期没有调度任何指令，推进到下一个周期
+            if !scheduled_this_cycle {
+                current_cycle += 1;
+            } else {
+                // 可以尝试在同一周期调度更多指令
+                // 但为了简化，我们每个周期只调度一条指令
+                current_cycle += 1;
+            }
+        }
+        
+        // 创建调度后的块
+        let mut scheduled_block = block.clone();
+        scheduled_block.ops = scheduled_ops;
+        
+        // 更新调度信息
+        for (i, op) in scheduled_block.ops.iter_mut().enumerate() {
+            op.scheduling_info.scheduled_position = i;
+            
+            // 查找依赖此指令的其他指令
+            let mut op_dependencies = Vec::new();
+            for edge in &dependencies {
+                if edge.from == i {
+                    op_dependencies.push(edge.to);
+                }
+            }
+            op.scheduling_info.dependencies = op_dependencies;
+            op.scheduling_info.latency = self.get_instruction_latency(&op.op);
+            
+            // 设置调度周期信息
+            if let Some(&cycle) = op_scheduled_cycle.get(&i) {
+                op.scheduling_info.scheduled_cycle = cycle;
+            }
+        }
+        
+        // 更新统计信息
+        let elapsed = start_time.elapsed().as_nanos() as u64;
+        self.stats.scheduling_time_ns = elapsed;
+        self.stats.original_insn_count = block.ops.len();
+        self.stats.scheduled_insn_count = scheduled_block.ops.len();
+        self.stats.dependency_edges = dependencies.len();
+        self.stats.critical_path_length = current_cycle as usize;
+        
+        // 计算并行度提升
+        let original_cycles = block.ops.len(); // 假设原始代码每个指令需要一个周期
+        let scheduled_cycles = current_cycle as usize;
+        self.stats.parallelism_improvement = if scheduled_cycles > 0 {
+            (original_cycles as f64 - scheduled_cycles as f64) / scheduled_cycles as f64
+        } else {
+            0.0
+        };
+        
+        Ok(scheduled_block)
+    }
+    
+    fn name(&self) -> &str {
+        &self.name
+    }
+    
+    fn version(&self) -> &str {
+        &self.version
+    }
+    
+    fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError> {
+        self.options.insert(option.to_string(), value.to_string());
+        Ok(())
+    }
+    
+    fn get_option(&self, option: &str) -> Option<String> {
+        self.options.get(option).cloned()
+    }
+    
+    fn reset(&mut self) {
+        self.stats = InstructionSchedulingStats::default();
+        self.reset_resource_pool();
+    }
+    
+    fn get_stats(&self) -> InstructionSchedulingStats {
+        self.stats.clone()
+    }
+}

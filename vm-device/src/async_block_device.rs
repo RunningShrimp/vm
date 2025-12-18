@@ -35,7 +35,7 @@ impl AsyncIoStats {
         if total_bytes == 0 {
             return 0.0;
         }
-        (total_bytes as f64 / 1024.0 / 1024.0) // 简化计算，实际需要时间信息
+        total_bytes as f64 / 1024.0 / 1024.0 // 简化计算，实际需要时间信息
     }
 
     /// 计算I/O错误率
@@ -148,19 +148,27 @@ impl AsyncBlockDevice {
 
         let file_guard = self.file.read();
         match file_guard.as_ref() {
-            Some(_file) => {
-                // 真实文件I/O
-                let file_ref = self.file.read();
-                if let Some(file) = file_ref.as_ref() {
-                    // 在实际实现中会使用tokio::fs的异步操作
-                    // 这里简化为同步操作用于演示
-                    std::io::Result::Ok(bytes_requested)
-                } else {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "File not open",
-                    ))
-                }
+            Some(file) => {
+                // 真实文件I/O - 实现异步读操作
+                let mut file = file.try_clone().await.map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clone file: {}", e))
+                })?;
+                
+                // 计算偏移量
+                let offset = (sector * self.config.sector_size as u64) as u64;
+                
+                // 执行异步读操作
+                tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(offset))
+                    .await
+                    .map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::Other, format!("Seek failed: {}", e))
+                    })?;
+                
+                tokio::io::AsyncReadExt::read(&mut file, buffer)
+                    .await
+                    .map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::Other, format!("Read failed: {}", e))
+                    })
             }
             _ => {
                 // 内存模式 - 填充零
@@ -214,9 +222,27 @@ impl AsyncBlockDevice {
 
         let file_guard = self.file.read();
         match file_guard.as_ref() {
-            Some(_file) => {
-                // 真实文件I/O - 在实际实现中使用异步写
-                Ok(bytes_requested)
+            Some(file) => {
+                // 真实文件I/O - 实现异步写操作
+                let mut file = file.try_clone().await.map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clone file: {}", e))
+                })?;
+                
+                // 计算偏移量
+                let offset = (sector * self.config.sector_size as u64) as u64;
+                
+                // 执行异步写操作
+                tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(offset))
+                    .await
+                    .map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::Other, format!("Seek failed: {}", e))
+                    })?;
+                
+                tokio::io::AsyncWriteExt::write(&mut file, buffer)
+                    .await
+                    .map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::Other, format!("Write failed: {}", e))
+                    })
             }
             _ => {
                 // 内存模式 - 无操作
@@ -251,11 +277,26 @@ impl AsyncBlockDevice {
 
         let start_time = std::time::Instant::now();
 
-        // 刷新文件（在实际实现中使用异步刷新）
+        // 刷新文件（实现异步刷新）
         let file_guard = self.file.read();
         let result = match file_guard.as_ref() {
-            Some(_file) => Ok(()),
-            _ => Ok(()),
+            Some(file) => {
+                // 真实文件I/O - 实现异步刷新操作
+                let mut file = file.try_clone().await.map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clone file: {}", e))
+                })?;
+                
+                // 执行异步刷新操作
+                tokio::io::AsyncWriteExt::flush(&mut file)
+                    .await
+                    .map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::Other, format!("Flush failed: {}", e))
+                    })
+            }
+            _ => {
+                // 内存模式 - 无操作
+                Ok(())
+            }
         };
 
         result

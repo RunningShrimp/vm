@@ -5,7 +5,7 @@ use crate::{AccessType, GuestAddr, GuestPhysAddr, MMU, VmError, VmResult};
 /// 可插拔的 TLB 管理器接口。
 ///
 /// 标识: 服务接口
-/// 
+///
 /// 此trait为所有TLB实现提供统一接口，包括：
 /// - MultiLevelTlb (vm-mem): 多级TLB，适用于高性能场景
 /// - ConcurrentTlbManager (vm-mem): 并发TLB，适用于高并发场景
@@ -20,11 +20,16 @@ pub trait TlbManager: Send + Sync {
     /// 清空 TLB。
     fn flush(&mut self);
 
-    /// 清除特定 ASID 的条目。
+    /// 清除特定 ASID 的条目
     fn flush_asid(&mut self, asid: u16);
 
+    /// 清除特定页面的条目
+    fn flush_page(&mut self, _va: GuestAddr) {
+        self.flush();
+    }
+
     /// 获取统计信息（可选实现）
-    /// 
+    ///
     /// 返回TLB的统计信息，如命中率、查找次数等。
     /// 默认实现返回None，表示不支持统计。
     fn get_stats(&self) -> Option<TlbStats> {

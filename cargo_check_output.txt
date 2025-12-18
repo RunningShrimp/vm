@@ -1,0 +1,2085 @@
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `test` profile
+warning: unused import: `ExecutionError`
+  --> vm-ir/src/lift/mod.rs:45:15
+   |
+45 | use vm_core::{ExecutionError, CoreError, VmError};
+   |               ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:131:11
+    |
+131 | impl From<LiftError> for VmError {
+    |           ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:132:18
+    |
+132 |     fn from(err: LiftError) -> Self {
+    |                  ^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedISA`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:134:24
+    |
+134 | ...   LiftError::UnsupportedISA(isa) => VmError:...
+    |                  ^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:138:24
+    |
+138 | ...   LiftError::DecodeError(msg) => VmError::Co...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:143:24
+    |
+143 | ...   LiftError::SemanticError(msg) => VmError::...
+    |                  ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::IRGenError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:148:24
+    |
+148 | ...   LiftError::IRGenError(msg) => VmError::Cor...
+    |                  ^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:152:24
+    |
+152 | ...   LiftError::UnsupportedInstruction(msg) => ...
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+ --> vm-ir/src/lift/decoder.rs:5:19
+  |
+5 | use crate::lift::{LiftError, LiftResult};
+  |                   ^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:188:31
+    |
+188 | ...   return Err(LiftError::DecodeError("Empty b...
+    |                             ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:201:31
+    |
+201 | ...   return Err(LiftError::DecodeError("Incompl...
+    |                             ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:232:32
+    |
+232 | ...   LiftError::DecodeError("Incomplete MOV ins...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:248:32
+    |
+248 | ...   LiftError::DecodeError("Incomplete ADD ins...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:265:32
+    |
+265 | ...   LiftError::DecodeError("Incomplete SUB ins...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:291:39
+    |
+291 | ...   return Err(LiftError::DecodeError("Incompl...
+    |                             ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:320:32
+    |
+320 | ...   LiftError::DecodeError(format!("Unsupporte...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:326:24
+    |
+326 | ...   LiftError::DecodeError(format!("Unsupporte...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:410:24
+    |
+410 | ...   LiftError::DecodeError(format!("Unsupporte...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:483:24
+    |
+483 | ...   LiftError::DecodeError(format!("Unsupporte...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:173:35
+    |
+173 | ...   return Err(LiftError::DecodeError("Empty i...
+    |                             ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:364:28
+    |
+364 | ...   LiftError::DecodeError("ARM64 instruction ...
+    |                  ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:430:35
+    |
+430 | ...   return Err(LiftError::DecodeError("Empty b...
+    |                             ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:436:35
+    |
+436 | ...   return Err(LiftError::DecodeError("Incompl...
+    |                             ^^^^^^^^^^^
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+ --> vm-ir/src/lift/semantics.rs:6:19
+  |
+6 | use crate::lift::{LiftError, LiftResult, LiftingCo...
+  |                   ^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:142:35
+    |
+142 | ...   return Err(LiftError::SemanticError("ADD r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:161:35
+    |
+161 | ...   return Err(LiftError::SemanticError("SUB r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:180:35
+    |
+180 | ...   return Err(LiftError::SemanticError("MOV r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:191:35
+    |
+191 | ...   return Err(LiftError::SemanticError("LEA r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:202:35
+    |
+202 | ...   return Err(LiftError::SemanticError("CMP r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:221:35
+    |
+221 | ...   return Err(LiftError::SemanticError("JMP r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:231:35
+    |
+231 | ...   return Err(LiftError::SemanticError("CALL ...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:257:35
+    |
+257 | ...   return Err(LiftError::SemanticError("PUSH ...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:274:35
+    |
+274 | ...   return Err(LiftError::SemanticError("POP r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:298:28
+    |
+298 | ...   LiftError::SemanticError("IMUL requires at...
+    |                  ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:318:35
+    |
+318 | ...   return Err(LiftError::SemanticError("XOR r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:337:35
+    |
+337 | ...   return Err(LiftError::SemanticError("OR re...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:356:35
+    |
+356 | ...   return Err(LiftError::SemanticError("AND r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:375:35
+    |
+375 | ...   return Err(LiftError::SemanticError("TEST ...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:394:35
+    |
+394 | ...   return Err(LiftError::SemanticError("SHL r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:412:35
+    |
+412 | ...   return Err(LiftError::SemanticError("SHR r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:430:35
+    |
+430 | ...   return Err(LiftError::SemanticError("DIV r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:448:35
+    |
+448 | ...   return Err(LiftError::SemanticError("MOVZX...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:460:35
+    |
+460 | ...   return Err(LiftError::SemanticError("MOVSX...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:472:35
+    |
+472 | ...   return Err(LiftError::SemanticError("INC r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:488:35
+    |
+488 | ...   return Err(LiftError::SemanticError("DEC r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:504:35
+    |
+504 | ...   return Err(LiftError::SemanticError("NEG r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:520:35
+    |
+520 | ...   return Err(LiftError::SemanticError("NOT r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:533:35
+    |
+533 | ...   return Err(LiftError::SemanticError("ROR r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:551:35
+    |
+551 | ...   return Err(LiftError::SemanticError("ROL r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:569:35
+    |
+569 | ...   return Err(LiftError::SemanticError("SAR r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:584:35
+    |
+584 | ...   return Err(LiftError::SemanticError("ADC r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:603:35
+    |
+603 | ...   return Err(LiftError::SemanticError("SBB r...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:621:35
+    |
+621 | ...   return Err(LiftError::SemanticError("MOVQ ...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:632:35
+    |
+632 | ...   return Err(LiftError::SemanticError("MOVSQ...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:649:35
+    |
+649 | ...   return Err(LiftError::SemanticError("BSWAP...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:665:35
+    |
+665 | ...   return Err(LiftError::SemanticError("BSR/C...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:681:35
+    |
+681 | ...   return Err(LiftError::SemanticError("BSF/C...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:697:35
+    |
+697 | ...   return Err(LiftError::SemanticError("POPCN...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:713:35
+    |
+713 | ...   return Err(LiftError::SemanticError("PARIT...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:758:35
+    |
+758 | ...   return Err(LiftError::SemanticError("CMOV ...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:780:35
+    |
+780 | ...   return Err(LiftError::SemanticError("CMPXC...
+    |                             ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:835:33
+    |
+835 | ...LiftError::UnsupportedInstruction(format!(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:856:24
+    |
+856 | ...   Err(LiftError::UnsupportedInstruction(form...
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:885:33
+    |
+885 | ...LiftError::UnsupportedInstruction(format!(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:911:33
+    |
+911 | ...LiftError::UnsupportedInstruction(format!(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `lift::LiftError::UnsupportedISA::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:134:39
+    |
+134 | ...   LiftError::UnsupportedISA(isa) => VmError:...
+    |                                 ^^^
+
+warning: use of deprecated field `lift::LiftError::DecodeError::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:138:36
+    |
+138 | ...   LiftError::DecodeError(msg) => VmError::Co...
+    |                              ^^^
+
+warning: use of deprecated field `lift::LiftError::SemanticError::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:143:38
+    |
+143 | ...   LiftError::SemanticError(msg) => VmError::...
+    |                                ^^^
+
+warning: use of deprecated field `lift::LiftError::IRGenError::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:148:35
+    |
+148 | ...   LiftError::IRGenError(msg) => VmError::Cor...
+    |                             ^^^
+
+warning: use of deprecated field `lift::LiftError::UnsupportedInstruction::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:152:47
+    |
+152 | ...   LiftError::UnsupportedInstruction(msg) => ...
+    |                                         ^^^
+
+warning: unused variable: `dst`
+   --> vm-ir/src/lift/semantics.rs:451:13
+    |
+451 |         let dst = self.operand_to_ir(&instr.oper...
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_dst`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dst`
+   --> vm-ir/src/lift/semantics.rs:463:13
+    |
+463 |         let dst = self.operand_to_ir(&instr.oper...
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_dst`
+
+warning: field `flags_state` is never read
+   --> vm-ir/src/lift/semantics.rs:109:5
+    |
+108 | pub struct X86_64Semantics {
+    |            --------------- field in this struct
+109 |     flags_state: HashMap<String, FlagsState>,
+    |     ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `lift_parity` is never used
+   --> vm-ir/src/lift/semantics.rs:711:8
+    |
+118 | impl X86_64Semantics {
+    | -------------------- method in this implementation
+...
+711 |     fn lift_parity(&self, instr: &Instruction, c...
+    |        ^^^^^^^^^^^
+
+warning: `vm-ir` (lib) generated 74 warnings (run `cargo fix --lib -p vm-ir` to apply 3 suggestions)
+warning: unused variable: `message`
+   --> vm-error/src/lib.rs:484:18
+    |
+484 |     pub fn cache(message: impl Into<String>) -> ...
+    |                  ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_message`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-error` (lib) generated 1 warning (run `cargo fix --lib -p vm-error` to apply 1 suggestion)
+warning: unused import: `MMU`
+  --> vm-mem/src/lib.rs:13:60
+   |
+13 | ...Addr, GuestPhysAddr, MMU, MmioDevice, VmError, 
+   |                         ^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: private item shadows public glob re-export
+  --> vm-mem/src/lib.rs:14:73
+   |
+14 | ...AddressTranslator, TlbEntry, TlbManager,
+   |                       ^^^^^^^^
+   |
+note: the name `TlbEntry` in the type namespace is supposed to be publicly re-exported here
+  --> vm-mem/src/lib.rs:35:5
+   |
+35 |     asm_opt::*,
+   |     ^^^^^^^^^^
+note: but the private item here shadows it
+  --> vm-mem/src/lib.rs:14:73
+   |
+14 | ...AddressTranslator, TlbEntry, TlbManager,
+   |                       ^^^^^^^^
+   = note: `#[warn(hidden_glob_reexports)]` on by default
+
+warning: unused import: `TlbEntry`
+  --> vm-mem/src/tlb/tlb_concurrent.rs:24:53
+   |
+24 | ...dr, GuestPhysAddr, TlbEntry, TlbManager};
+   |                       ^^^^^^^^
+
+warning: unused import: `GuestPhysAddr`
+ --> vm-mem/src/tlb/tlb_manager.rs:6:38
+  |
+6 | ...Type, GuestAddr, GuestPhysAddr, TlbEntry};
+  |                     ^^^^^^^^^^^^^
+
+warning: unused import: `TlbEntry`
+  --> vm-mem/src/tlb/tlb_optimized.rs:31:53
+   |
+31 | ...dr, GuestPhysAddr, TlbEntry, TlbManager};
+   |                       ^^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-mem/src/tlb/per_cpu_tlb.rs:5:24
+  |
+5 | use crate::{GuestAddr, VmError};
+  |                        ^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/tlb/per_cpu_tlb.rs:7:15
+  |
+7 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::error::MemoryError`
+ --> vm-mem/src/tlb/per_cpu_tlb.rs:8:5
+  |
+8 | use vm_core::error::MemoryError;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+  --> vm-mem/src/tlb/per_cpu_tlb.rs:10:5
+   |
+10 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused imports: `PageTableFlags` and `PageWalkResult`
+ --> vm-mem/src/tlb/tlb_sync.rs:7:18
+  |
+7 | use crate::mmu::{PageWalkResult, PageTableFlags};
+  |                  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused imports: `PerCpuTlbEntry` and `PerCpuTlbStatsSnapshot`
+ --> vm-mem/src/tlb/tlb_sync.rs:8:49
+  |
+8 | ...er, PerCpuTlbEntry, PerCpuTlbStatsSnapshot};
+  |        ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/tlb/tlb_sync.rs:9:15
+  |
+9 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::error::MemoryError`
+  --> vm-mem/src/tlb/tlb_sync.rs:10:5
+   |
+10 | use vm_core::error::MemoryError;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PageTableFlags` and `PageWalkResult`
+ --> vm-mem/src/tlb/tlb_flush.rs:6:18
+  |
+6 | use crate::mmu::{PageWalkResult, PageTableFlags};
+  |                  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused imports: `PerCpuTlbEntry` and `PerCpuTlbStatsSnapshot`
+ --> vm-mem/src/tlb/tlb_flush.rs:7:49
+  |
+7 | ...er, PerCpuTlbEntry, PerCpuTlbStatsSnapshot};
+  |        ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AccessType` and `Fault`
+ --> vm-mem/src/tlb/tlb_flush.rs:8:15
+  |
+8 | use vm_core::{AccessType, Fault};
+  |               ^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::error::MemoryError`
+ --> vm-mem/src/tlb/tlb_flush.rs:9:5
+  |
+9 | use vm_core::error::MemoryError;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AtomicU64` and `Ordering`
+  --> vm-mem/src/tlb/unified_tlb.rs:29:25
+   |
+29 | use std::sync::atomic::{AtomicU64, Ordering};
+   |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `ConcurrentTlbManager`
+ --> vm-mem/src/unified_mmu.rs:7:26
+  |
+7 |     ConcurrentTlbConfig, ConcurrentTlbManager, Con...
+  |                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::*`
+  --> vm-mem/src/mmu.rs:10:9
+   |
+10 |     use super::*;
+   |         ^^^^^^^^
+
+warning: unreachable expression
+  --> vm-mem/src/optimization/advanced/cache_friendly.rs:90:13
+   |
+86 |                 return CopyStrategy::Simd128;
+   |                 ---------------------------- any code following this expression is unreachable
+...
+90 |             CopyStrategy::WordByWord
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable expression
+   --> vm-mem/src/optimization/advanced/cache_friendly.rs:419:9
+    |
+415 | ...       unsafe { return self.copy_simd128_arm(src, dst, size); }
+    |                    -------------------------------------------- any code following this expression is unreachable
+...
+419 | ...   unsafe { self.copy_word_by_word(src, dst, size); }
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable expression
+
+warning: use of deprecated field `unified_mmu::UnifiedMmuConfig::multilevel_tlb_config`: 使用unified_tlb_config替代
+   --> vm-mem/src/unified_mmu.rs:474:13
+    |
+474 | ...   multilevel_tlb_config: MultiLevelTlbConfig::default(),
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated field `unified_mmu::UnifiedMmuConfig::concurrent_tlb_config`: 使用unified_tlb_config替代
+   --> vm-mem/src/unified_mmu.rs:475:13
+    |
+475 | ...   concurrent_tlb_config: ConcurrentTlbConfig::default(),
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `TlbManager`
+  --> vm-mem/src/lib.rs:14:83
+   |
+14 | ...slator, TlbEntry, TlbManager,
+   |                      ^^^^^^^^^^
+
+warning: unused import: `PageTableWalker`
+  --> vm-mem/src/unified_mmu.rs:15:60
+   |
+15 | ...s, TlbManager, PageTableWalker, MmioManager, M...
+   |                   ^^^^^^^^^^^^^^^
+
+warning: unused variable: `i`
+   --> vm-mem/src/memory/memory_pool.rs:381:14
+    |
+381 |         for (i, pool) in self.tlb_pools.iter().e...
+    |              ^ help: if this is intentional, prefix it with an underscore: `_i`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `i`
+   --> vm-mem/src/memory/memory_pool.rs:385:14
+    |
+385 |         for (i, pool) in self.pte_pools.iter().e...
+    |              ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: variable does not need to be mutable
+  --> vm-mem/src/memory/page_table_walker.rs:98:13
+   |
+98 |         let mut level = 3i32;
+   |             ----^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `pte_addr` is never read
+   --> vm-mem/src/memory/page_table_walker.rs:101:13
+    |
+101 | ...   pte_addr = GuestPhysAddr(pte_addr.0 + vpn[level as usize] * PTE_SIZE);
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `second_size`
+   --> vm-mem/src/optimization/advanced/batch.rs:331:25
+    |
+331 | ...         let second_size = size - first_size;
+    |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_second_size`
+
+warning: unused variable: `cutoff_time`
+   --> vm-mem/src/tlb/tlb_flush.rs:247:13
+    |
+247 |         let cutoff_time = oldest_time + Duration...
+    |             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_cutoff_time`
+
+warning: unused variable: `hot_pages`
+   --> vm-mem/src/tlb/tlb_flush.rs:714:9
+    |
+714 |         hot_pages: &[(GuestAddr, u16, u64)],
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_hot_pages`
+
+warning: unused variable: `stride`
+   --> vm-mem/src/tlb/tlb_flush.rs:729:38
+    |
+729 |             AccessPattern::Strided { stride } => {
+    |                                      ^^^^^^ help: try ignoring the field: `stride: _`
+
+warning: type `PerformanceSnapshot` is more private than the item `PerformanceMonitor::record_snapshot`
+   --> vm-mem/src/tlb/tlb_flush_advanced.rs:483:5
+    |
+483 |     pub fn record_snapshot(&mut self, snapshot: PerformanceSnapshot) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `PerformanceMonitor::record_snapshot` is reachable at visibility `pub`
+    |
+note: but type `PerformanceSnapshot` is only usable at visibility `pub(self)`
+   --> vm-mem/src/tlb/tlb_flush_advanced.rs:447:1
+    |
+447 | struct PerformanceSnapshot {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `PerformanceTrend` is more private than the item `PerformanceMonitor::analyze_trend`
+   --> vm-mem/src/tlb/tlb_flush_advanced.rs:493:5
+    |
+493 |     pub fn analyze_trend(&self) -> PerformanceTrend {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `PerformanceMonitor::analyze_trend` is reachable at visibility `pub`
+    |
+note: but type `PerformanceTrend` is only usable at visibility `pub(self)`
+   --> vm-mem/src/tlb/tlb_flush_advanced.rs:563:1
+    |
+563 | enum PerformanceTrend {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `make_tlb_key` is never used
+   --> vm-mem/src/lib.rs:105:4
+    |
+105 | fn make_tlb_key(vpn: u64, asid: u16) -> u64 {
+    |    ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `lookup` and `insert` are never used
+   --> vm-mem/src/lib.rs:128:8
+    |
+116 | impl Tlb {
+    | -------- methods in this implementation
+...
+128 |     fn lookup(&mut self, vpn: u64, asid: u16) ->...
+    |        ^^^^^^
+...
+140 |     fn insert(&mut self, vpn: u64, ppn: u64, fla...
+    |        ^^^^^^
+
+warning: field `pool_capacity` is never read
+   --> vm-mem/src/memory/memory_pool.rs:186:5
+    |
+180 | pub struct TlbEntryPool {
+    |            ------------ field in this struct
+...
+186 |     pool_capacity: usize,
+    |     ^^^^^^^^^^^^^
+
+warning: field `entry_size` is never read
+   --> vm-mem/src/memory/memory_pool.rs:292:5
+    |
+290 | pub struct PageTableEntryPool {
+    |            ------------------ field in this struct
+291 |     pool: StackPool<u64>,
+292 |     entry_size: usize,
+    |     ^^^^^^^^^^
+
+warning: constant `PAGE_SHIFT` is never used
+  --> vm-mem/src/memory/page_table_walker.rs:79:15
+   |
+79 |         const PAGE_SHIFT: u64 = 12;
+   |               ^^^^^^^^^^
+
+warning: fields `policy` and `thp_available` are never read
+   --> vm-mem/src/memory/thp.rs:266:5
+    |
+264 | pub struct TransparentHugePageManager {
+    |            -------------------------- fields in this struct
+265 |     /// THP策略
+266 |     policy: ThpPolicy,
+    |     ^^^^^^
+...
+270 |     thp_available: bool,
+    |     ^^^^^^^^^^^^^
+
+warning: field `shard_count` is never read
+   --> vm-mem/src/tlb/tlb_concurrent.rs:110:5
+    |
+108 | pub struct ShardedTlb {
+    |            ---------- field in this struct
+109 |     /// 分片数量
+110 |     shard_count: usize,
+    |     ^^^^^^^^^^^
+
+warning: field `cpu_id` is never read
+   --> vm-mem/src/tlb/per_cpu_tlb.rs:188:5
+    |
+186 | struct SingleCpuTlb {
+    |        ------------ field in this struct
+187 |     /// CPU ID
+188 |     cpu_id: usize,
+    |     ^^^^^^
+
+warning: fields `access_timestamps` and `access_pattern` are never read
+   --> vm-mem/src/tlb/tlb_flush_advanced.rs:326:5
+    |
+316 | struct PageStats {
+    |        --------- fields in this struct
+...
+326 |     access_timestamps: Vec<Instant>,
+    |     ^^^^^^^^^^^^^^^^^
+327 |     /// 访问模式
+328 |     access_pattern: Option<AccessPattern>,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `PageStats` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `access_type_from_flags` is never used
+  --> vm-mem/src/tlb/unified_tlb.rs:35:4
+   |
+35 | fn access_type_from_flags(flags: u64) -> vm_core:...
+   |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `id` is never read
+   --> vm-mem/src/unified_mmu.rs:561:5
+    |
+559 | pub struct UnifiedMmu {
+    |            ---------- field in this struct
+560 |     /// MMU ID
+561 |     id: u64,
+    |     ^^
+
+warning: unused `Result` that must be used
+   --> vm-mem/src/lib.rs:869:13
+    |
+869 |             dev.write(offset, val, size);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+869 |             let _ = dev.write(offset, val, size);
+    |             +++++++
+
+warning: path statement with no effect
+   --> vm-mem/src/optimization/lockless_optimizations.rs:255:13
+    |
+255 |             Ordering::Acquire;
+    |             ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(path_statements)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-mem` (lib) generated 49 warnings (run `cargo fix --lib -p vm-mem` to apply 26 suggestions)
+warning: function `is_harmonyos` is never used
+  --> vm-osal/src/lib.rs:70:4
+   |
+70 | fn is_harmonyos() -> bool {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-osal` (lib) generated 1 warning
+warning: field `config_path` is never read
+   --> vm-passthrough/src/pcie.rs:231:5
+    |
+229 | pub struct PciConfigSpace {
+    |            -------------- field in this struct
+230 |     _address: PciAddress,
+231 |     config_path: PathBuf,
+    |     ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-passthrough` (lib) generated 1 warning
+   Compiling cssparser v0.29.6
+warning: unnecessary parentheses around block return value
+  --> vm-device/src/async_block_device.rs:38:9
+   |
+38 | ...   (total_bytes as f64 / 1024.0 / 1024.0) // 简化计算 ...
+   |       ^                                    ^
+   |
+   = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
+help: remove these parentheses
+   |
+38 -         (total_bytes as f64 / 1024.0 / 1024.0) // 简化计算，实际需要时间信息
+38 +         total_bytes as f64 / 1024.0 / 1024.0 // 简化计算，实际需要时间信息
+   |
+
+warning: unused import: `crate::mmu_util::MmuUtil`
+ --> vm-device/src/block.rs:6:5
+  |
+6 | use crate::mmu_util::MmuUtil;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::path::Path`
+ --> vm-device/src/block.rs:7:5
+  |
+7 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `Arc` and `Mutex`
+ --> vm-device/src/block.rs:8:17
+  |
+8 | use std::sync::{Arc, Mutex};
+  |                 ^^^  ^^^^^
+
+warning: unused import: `tokio::fs::File`
+ --> vm-device/src/block.rs:9:5
+  |
+9 | use tokio::fs::File;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `AsyncReadExt`, `AsyncSeekExt`, and `AsyncWriteExt`
+  --> vm-device/src/block.rs:10:17
+   |
+10 | ...::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+   |       ^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::sync::mpsc`
+  --> vm-device/src/block.rs:11:5
+   |
+11 | use tokio::sync::mpsc;
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `MMU`, `PlatformError`, and `VmError`
+  --> vm-device/src/block.rs:12:26
+   |
+12 | ...estAddr, MMU, PlatformError, VmError};
+   |             ^^^  ^^^^^^^^^^^^^  ^^^^^^^
+
+warning: unused import: `vm_mem::SoftMmu`
+  --> vm-device/src/block.rs:13:5
+   |
+13 | use vm_mem::SoftMmu;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `BlockIoRequest`, `BlockIoResponse`, and `BlockRequestHeader`
+ --> vm-device/src/block_service.rs:8:5
+  |
+8 |     BlockIoRequest, BlockIoResponse, BlockRequestHeader, B...
+  |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_9p.rs:9:31
+  |
+9 | use vm_core::{GuestAddr, MMU, VmError};
+  |                               ^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_balloon.rs:7:20
+  |
+7 | use vm_core::{MMU, VmError};
+  |                    ^^^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_crypto.rs:8:20
+  |
+8 | use vm_core::{MMU, VmError};
+  |                    ^^^^^^^
+
+warning: unused import: `Duration`
+ --> vm-device/src/virtio_performance.rs:6:17
+  |
+6 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: unused imports: `Arc` and `Mutex`
+ --> vm-device/src/virtio_rng.rs:6:17
+  |
+6 | use std::sync::{Arc, Mutex};
+  |                 ^^^  ^^^^^
+
+warning: unused import: `VmError`
+ --> vm-device/src/virtio_rng.rs:7:20
+  |
+7 | use vm_core::{MMU, VmError};
+  |                    ^^^^^^^
+
+warning: unused import: `Duration`
+ --> vm-device/src/virtio_watchdog.rs:7:17
+  |
+7 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: unused import: `Duration`
+  --> vm-device/src/io_multiplexing.rs:14:17
+   |
+14 | use std::time::{Duration, Instant};
+   |                 ^^^^^^^^
+
+warning: unused import: `crate::mmu_util::MmuUtil`
+ --> vm-device/src/zero_copy_optimizer.rs:5:5
+  |
+5 | use crate::mmu_util::MmuUtil;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+  --> vm-device/src/zerocopy.rs:12:5
+   |
+12 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused import: `std::slice`
+  --> vm-device/src/dpdk.rs:10:5
+   |
+10 | use std::slice;
+   |     ^^^^^^^^^^
+
+warning: unused import: `GuestAddr`
+  --> vm-device/src/dpdk.rs:11:34
+   |
+11 | use vm_core::{VmError, VmResult, GuestAddr, Guest...
+   |                                  ^^^^^^^^^
+
+warning: unused import: `AtomicU32`
+ --> vm-device/src/sriov.rs:3:36
+  |
+3 | use std::sync::atomic::{AtomicU16, AtomicU32, Atom...
+  |                                    ^^^^^^^^^
+
+warning: unused import: `Duration`
+ --> vm-device/src/network_qos.rs:4:17
+  |
+4 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:225:13
+    |
+225 |         let mut io_tx = self.io_tx.lock().await;
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:394:17
+    |
+394 | ...   let mut io_tx = self.io_tx.lock().await;
+    |           ----^^^^^
+    |           |
+    |           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:514:17
+    |
+514 | ...   let mut io_tx = self.io_tx.lock().await;
+    |           ----^^^^^
+    |           |
+    |           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/block_service.rs:604:17
+    |
+604 | ...   let mut io_tx = self.io_tx.lock().await;
+    |           ----^^^^^
+    |           |
+    |           help: remove this `mut`
+
+warning: unused variable: `file`
+   --> vm-device/src/async_block_device.rs:154:29
+    |
+154 | ...     if let Some(file) = file_ref.as_ref() {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_file`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `permit`
+   --> vm-device/src/async_buffer_pool.rs:217:19
+    |
+217 |         if let Ok(permit) = self.semaphore.try_a...
+    |                   ^^^^^^ help: if this is intentional, prefix it with an underscore: `_permit`
+
+warning: unused variable: `mmio`
+   --> vm-device/src/block.rs:190:18
+    |
+190 | pub fn mmio_read(mmio: &VirtioBlockMmio, _offset...
+    |                  ^^^^ help: if this is intentional, prefix it with an underscore: `_mmio`
+
+warning: unused variable: `mmio`
+   --> vm-device/src/block.rs:195:19
+    |
+195 | pub fn mmio_write(mmio: &mut VirtioBlockMmio, _o...
+    |                   ^^^^ help: if this is intentional, prefix it with an underscore: `_mmio`
+
+warning: unused variable: `device`
+   --> vm-device/src/block_service.rs:325:13
+    |
+325 |         let device = self.device.lock();
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `device`
+   --> vm-device/src/block_service.rs:437:13
+    |
+437 |         let device = self.device.lock();
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `device`
+   --> vm-device/src/block_service.rs:551:13
+    |
+551 |         let device = self.device.lock();
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `mmu`
+   --> vm-device/src/virtio_crypto.rs:187:33
+    |
+187 | ...crypto_op(&self, mmu: &mut dyn MMU, request: ...
+    |                     ^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+
+warning: unused variable: `max_concurrent_requests`
+   --> vm-device/src/io_scheduler.rs:195:30
+    |
+195 | ...h_config(max_concurrent_requests: usize, batc...
+    |             ^^^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_max_concurrent_requests`
+
+warning: unreachable pattern
+   --> vm-device/src/vhost_protocol.rs:152:13
+    |
+151 | ...     VHOST_F_LOG_ALL => Some(VhostFeature::Lo...
+    |         --------------- matches all the relevant values
+152 | ...     VHOST_USER_F_PROTOCOL_FEATURES => Some(V...
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no value can reach this
+    |
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `message`
+   --> vm-device/src/vhost_protocol.rs:398:42
+    |
+398 | ...message(&self, message: &VhostMessage) -> bool {
+    |                   ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_message`
+
+warning: unused variable: `host_addr`
+   --> vm-device/src/zero_copy_optimizer.rs:268:9
+    |
+268 |         host_addr: *mut u8,
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_host_addr`
+
+warning: unused variable: `is_write`
+   --> vm-device/src/zero_copy_optimizer.rs:270:9
+    |
+270 |         is_write: bool,
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_write`
+
+warning: unused variable: `mmu`
+  --> vm-device/src/device_service.rs:17:35
+   |
+17 | ...s_all(&mut self, mmu: &mut dyn MMU) {
+   |                     ^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+
+warning: unused variable: `i`
+   --> vm-device/src/dpdk.rs:371:14
+    |
+371 |         for (i, queue_config) in self.config.rx_...
+    |              ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `i`
+   --> vm-device/src/dpdk.rs:395:14
+    |
+395 |         for (i, queue_config) in self.config.tx_...
+    |              ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `i`
+   --> vm-device/src/dpdk.rs:530:13
+    |
+530 |         for i in 0..packet_count {
+    |             ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `size`
+   --> vm-device/src/dpdk.rs:603:33
+    |
+603 | ...lf, offset: u64, size: u8) -> VmResult<u64> {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:357:13
+    |
+357 |         let mut stats = self.stats.lock().unwrap();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:381:17
+    |
+381 | ...   let mut stats = self.stats.lock().unwrap();
+    |           ----^^^^^
+    |           |
+    |           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:431:13
+    |
+431 |         let mut stats = self.stats.lock().unwrap();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:566:13
+    |
+566 |         let mut stats = self.stats.lock().unwrap();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:792:17
+    |
+792 | ...   let mut stats = self.stats.lock().unwrap();
+    |           ----^^^^^
+    |           |
+    |           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:813:21
+    |
+813 | ...   let mut stats = self.stats.lock().unwrap();
+    |           ----^^^^^
+    |           |
+    |           help: remove this `mut`
+
+warning: unused variable: `tc_id`
+   --> vm-device/src/network_qos.rs:809:22
+    |
+809 | ...  if let Some((tc_id, queue)) = selected_queue {
+    |                   ^^^^^ help: if this is intentional, prefix it with an underscore: `_tc_id`
+
+warning: unused variable: `queue`
+   --> vm-device/src/network_qos.rs:895:25
+    |
+895 | ...   if let Some(queue) = self.queues.get(&tc_c...
+    |                   ^^^^^ help: if this is intentional, prefix it with an underscore: `_queue`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/network_qos.rs:906:13
+    |
+906 |         let mut stats = self.stats.lock().unwrap();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `queue`
+    --> vm-device/src/network_qos.rs:1199:48
+     |
+1199 | ...t: &QosPacket, queue: &QosQueue) -> VmResult...
+     |                   ^^^^^ help: if this is intentional, prefix it with an underscore: `_queue`
+
+warning: field `io_rx` is never read
+  --> vm-device/src/block_service.rs:30:5
+   |
+24 | pub struct BlockDeviceService {
+   |            ------------------ field in this struct
+...
+30 |     io_rx: Arc<Mutex<Option<mpsc::Receiver<AsyncI...
+   |     ^^^^^
+   |
+   = note: `BlockDeviceService` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `process_tx_queue` is never used
+   --> vm-device/src/net.rs:183:8
+    |
+ 70 | impl VirtioNet {
+    | -------------- method in this implementation
+...
+183 |     fn process_tx_queue(&mut self, mmu: &mut dyn...
+    |        ^^^^^^^^^^^^^^^^
+
+warning: field `mac` is never read
+   --> vm-device/src/net.rs:363:5
+    |
+361 | pub struct SmoltcpBackend {
+    |            -------------- field in this struct
+362 |     /// MAC 地址
+363 |     mac: [u8; 6],
+    |     ^^^
+
+warning: field `max_message_size` is never read
+  --> vm-device/src/virtio_9p.rs:58:5
+   |
+44 | pub struct Virtio9P {
+   |            -------- field in this struct
+...
+58 |     max_message_size: u32,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: fields `next_request_id` and `max_segment_size` are never read
+  --> vm-device/src/virtio_crypto.rs:80:5
+   |
+72 | pub struct VirtioCrypto {
+   |            ------------ fields in this struct
+...
+80 |     next_request_id: Arc<Mutex<u64>>,
+   |     ^^^^^^^^^^^^^^^
+...
+84 |     max_segment_size: u32,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: method `allocate_request_id` is never used
+   --> vm-device/src/virtio_crypto.rs:108:8
+    |
+ 87 | impl VirtioCrypto {
+    | ----------------- method in this implementation
+...
+108 |     fn allocate_request_id(&self) -> u64 {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: field `device_status` is never read
+  --> vm-device/src/virtio_input.rs:43:5
+   |
+35 | pub struct VirtioInput {
+   |            ----------- field in this struct
+...
+43 |     device_status: u32,
+   |     ^^^^^^^^^^^^^
+
+warning: fields `last_tick` and `tick_interval_ms` are never read
+  --> vm-device/src/plic.rs:49:5
+   |
+34 | pub struct Plic {
+   |            ---- fields in this struct
+...
+49 |     last_tick: Instant,
+   |     ^^^^^^^^^
+50 |     tick_interval_ms: u64,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: field `device_id` is never read
+   --> vm-device/src/io_scheduler.rs:163:5
+    |
+157 | struct BatchIoRequest {
+    |        -------------- field in this struct
+...
+163 |     device_id: DeviceId,
+    |     ^^^^^^^^^
+    |
+    = note: `BatchIoRequest` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `guest_phys_addr` is never read
+  --> vm-device/src/zero_copy_optimizer.rs:18:5
+   |
+12 | pub struct ZeroCopyBuffer {
+   |            -------------- field in this struct
+...
+18 |     guest_phys_addr: Option<GuestPhysAddr>,
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `ZeroCopyBuffer` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `mappings` is never read
+   --> vm-device/src/zero_copy_optimizer.rs:115:5
+    |
+107 | pub struct ZeroCopyStats {
+    |            ------------- field in this struct
+...
+115 |     mappings: u64,
+    |     ^^^^^^^^
+    |
+    = note: `ZeroCopyStats` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `parent_address` and `type_id` are never read
+  --> vm-device/src/gpu_mdev.rs:24:5
+   |
+23 | pub struct GpuMdev {
+   |            ------- fields in this struct
+24 |     parent_address: PciAddress,
+   |     ^^^^^^^^^^^^^^
+...
+27 |     type_id: String,
+   |     ^^^^^^^
+
+warning: field `mmu` is never read
+   --> vm-device/src/dpdk.rs:187:5
+    |
+173 | pub struct DpdkNetworkDevice {
+    |            ----------------- field in this struct
+...
+187 |     mmu: Arc<Mutex<Box<dyn MMU>>>,
+    |     ^^^
+
+warning: fields `config`, `queue_id`, `descriptors`, `buffer_pool`, and `stats` are never read
+   --> vm-device/src/dpdk.rs:193:5
+    |
+191 | struct DpdkRxQueue {
+    |        ----------- fields in this struct
+192 |     /// Queue configuration
+193 |     config: DpdkQueueConfig,
+    |     ^^^^^^
+194 |     /// Queue identifier
+195 |     queue_id: u16,
+    |     ^^^^^^^^
+196 |     /// Queue descriptor ring
+197 |     descriptors: *mut DpdkRxDescriptor,
+    |     ^^^^^^^^^^^
+198 |     /// Available buffer pool
+199 |     buffer_pool: *mut DpdkMemoryPool,
+    |     ^^^^^^^^^^^
+200 |     /// Queue statistics
+201 |     stats: DpdkQueueStats,
+    |     ^^^^^
+
+warning: fields `config`, `queue_id`, `descriptors`, `buffer_pool`, and `stats` are never read
+   --> vm-device/src/dpdk.rs:211:5
+    |
+209 | struct DpdkTxQueue {
+    |        ----------- fields in this struct
+210 |     /// Queue configuration
+211 |     config: DpdkQueueConfig,
+    |     ^^^^^^
+212 |     /// Queue identifier
+213 |     queue_id: u16,
+    |     ^^^^^^^^
+214 |     /// Queue descriptor ring
+215 |     descriptors: *mut DpdkTxDescriptor,
+    |     ^^^^^^^^^^^
+216 |     /// Available buffer pool
+217 |     buffer_pool: *mut DpdkMemoryPool,
+    |     ^^^^^^^^^^^
+218 |     /// Queue statistics
+219 |     stats: DpdkQueueStats,
+    |     ^^^^^
+
+warning: fields `name`, `pool_id`, `base_addr`, `size`, and `available_count` are never read
+   --> vm-device/src/dpdk.rs:263:9
+    |
+261 | struct DpdkMemoryPool {
+    |        -------------- fields in this struct
+262 |     /// Pool name
+263 |     pub name: String,
+    |         ^^^^
+264 |     /// Pool identifier
+265 |     pub pool_id: u32,
+    |         ^^^^^^^
+266 |     /// Base address of pool
+267 |     pub base_addr: *mut u8,
+    |         ^^^^^^^^^
+268 |     /// Pool size in bytes
+269 |     pub size: u32,
+    |         ^^^^
+270 |     /// Available buffers count
+271 |     pub available_count: u32,
+    |         ^^^^^^^^^^^^^^^
+
+warning: fields `next_vf_id` and `mmu` are never read
+   --> vm-device/src/sriov.rs:250:5
+    |
+236 | pub struct SrIovManager {
+    |            ------------ fields in this struct
+...
+250 |     next_vf_id: AtomicU16,
+    |     ^^^^^^^^^^
+251 |     /// MMU reference
+252 |     mmu: Arc<Mutex<Box<dyn MMU>>>,
+    |     ^^^
+
+warning: field `pci_config` is never read
+   --> vm-device/src/sriov.rs:829:5
+    |
+821 | pub struct SrIovVirtualFunction {
+    |            -------------------- field in this struct
+...
+829 |     pci_config: SrIovPciConfig,
+    |     ^^^^^^^^^^
+
+warning: field `last_refill_time` is never read
+   --> vm-device/src/network_qos.rs:467:5
+    |
+459 | pub struct TrafficShaper {
+    |            ------------- field in this struct
+...
+467 |     last_refill_time: Arc<Mutex<Instant>>,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: `vm-device` (lib) generated 75 warnings (run `cargo fix --lib -p vm-device` to apply 55 suggestions)
+warning[E0133]: call to unsafe function `std::slice::from_raw_parts` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:193:12
+    |
+193 | ...if std::slice::from_raw_parts(a, size) == std...
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+note: an unsafe function restricts its caller, but its body is safe by default
+   --> vm-simd/src/opt/mod.rs:191:5
+    |
+191 |     pub unsafe fn cmp_avx2(&self, a: *const u8, b: *const u8, size: usize) -> i32 {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(unsafe_op_in_unsafe_fn)]` (part of `#[warn(rust_2024_compatibility)]`) on by default
+
+warning[E0133]: call to unsafe function `std::slice::from_raw_parts` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:193:51
+    |
+193 | ...== std::slice::from_raw_parts(b, size) {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+
+warning[E0133]: call to unsafe function `std::ptr::write_bytes` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:223:9
+    |
+223 |         std::ptr::write_bytes(dst, value, size);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+note: an unsafe function restricts its caller, but its body is safe by default
+   --> vm-simd/src/opt/mod.rs:222:5
+    |
+222 |     pub unsafe fn fill_avx2(&self, dst: *mut u8, value: u8, size: usize) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning[E0133]: call to unsafe function `std::arch::aarch64::vld1q_u8` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:267:24
+    |
+267 |             let data = vld1q_u8(src.add(offset));
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+note: an unsafe function restricts its caller, but its body is safe by default
+   --> vm-simd/src/opt/mod.rs:252:5
+    |
+252 |     pub unsafe fn copy_neon(&self, dst: *mut u8, src: *const u8, size: usize) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning[E0133]: call to unsafe function `std::ptr::const_ptr::<impl *const T>::add` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:267:33
+    |
+267 |             let data = vld1q_u8(src.add(offset));
+    |                                 ^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+
+warning[E0133]: call to unsafe function `std::arch::aarch64::vst1q_u8` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:268:13
+    |
+268 |             vst1q_u8(dst.add(offset), data);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+
+warning[E0133]: call to unsafe function `std::ptr::mut_ptr::<impl *mut T>::add` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:268:22
+    |
+268 |             vst1q_u8(dst.add(offset), data);
+    |                      ^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+
+warning[E0133]: call to unsafe function `opt::ArmSimdOptimizer::copy_neon` is unsafe and requires unsafe block
+   --> vm-simd/src/opt/mod.rs:372:13
+    |
+372 |             self.arm.copy_neon(dst, src, size);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+    = note: consult the function's documentation for information on how to avoid undefined behavior
+note: an unsafe function restricts its caller, but its body is safe by default
+   --> vm-simd/src/opt/mod.rs:359:5
+    |
+359 |     pub unsafe fn optimized_copy(&self, dst: *mut u8, src: *const u8, size: usize) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0133`.
+warning: `vm-simd` (lib) generated 8 warnings (run `cargo fix --lib -p vm-simd` to apply 4 suggestions)
+   Compiling swift-rs v1.0.7
+    Checking vm-engine-interpreter v0.1.0 (/Users/didi/Desktop/vm/vm-engine-interpreter)
+   Compiling html5ever v0.29.1
+   Compiling schemars_derive v0.8.22
+   Compiling erased-serde v0.4.9
+    Checking icu_normalizer v2.1.1
+   Compiling camino v1.2.1
+   Compiling brotli-decompressor v5.0.0
+   Compiling unic-ucd-ident v0.9.0
+   Compiling indexmap v1.9.3
+warning: unused import: `RegId`
+   --> vm-engine-jit/src/core.rs:812:27
+    |
+812 |         use vm_ir::{IROp, RegId};
+    |                           ^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `Deserializer`, `SeqAccess`, and `Visitor`
+   --> vm-engine-jit/src/common/stats.rs:191:38
+    |
+191 | ...lize, Deserializer, SeqAccess, Visitor};
+    |          ^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^
+
+warning: unused import: `std::fmt`
+   --> vm-engine-jit/src/common/stats.rs:192:13
+    |
+192 |         use std::fmt;
+    |             ^^^^^^^^
+
+warning: unused imports: `Architecture` and `RegId`
+ --> vm-engine-jit/src/common/error.rs:7:83
+  |
+7 | ...xtExt, utils, Architecture, RegId};
+  |                  ^^^^^^^^^^^^  ^^^^^
+
+warning: unused import: `vm_core::GuestAddr`
+ --> vm-engine-jit/src/common/error.rs:8:5
+  |
+8 | use vm_core::GuestAddr;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Deserialize`
+   --> vm-engine-jit/src/common/stats.rs:191:25
+    |
+191 | ...   use serde::de::{Deserialize, Deserializer,...
+    |                       ^^^^^^^^^^^
+
+warning: unused variable: `thread_id`
+   --> vm-engine-jit/src/core.rs:315:9
+    |
+315 |         thread_id: usize,
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_thread_id`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `mmu`
+   --> vm-engine-jit/src/core.rs:713:41
+    |
+713 | ..._code(&mut self, mmu: &mut dyn MMU, code: &[u...
+    |                     ^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+
+warning: unused variable: `cfg`
+   --> vm-engine-jit/src/compiler.rs:301:13
+    |
+301 |         let cfg = Some(ControlFlowGraph {
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_cfg`
+
+warning: unused variable: `metadata`
+   --> vm-engine-jit/src/compiler.rs:315:13
+    |
+315 |         let metadata = CompilationMetadata {
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_metadata`
+
+warning: unused variable: `mem_idx`
+   --> vm-engine-jit/src/instruction_scheduler.rs:361:26
+    |
+361 | ...          for (mem_idx, &(addr, is_store, mem...
+    |                   ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_mem_idx`
+
+warning: unused variable: `addr`
+   --> vm-engine-jit/src/instruction_scheduler.rs:361:37
+    |
+361 | ... for (mem_idx, &(addr, is_store, mem_pos)) in...
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_addr`
+
+warning: unused variable: `mem_idx`
+   --> vm-engine-jit/src/instruction_scheduler.rs:427:26
+    |
+427 | ...          for (mem_idx, &(addr, is_store, mem...
+    |                   ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_mem_idx`
+
+warning: unused variable: `addr`
+   --> vm-engine-jit/src/instruction_scheduler.rs:427:37
+    |
+427 | ... for (mem_idx, &(addr, is_store, mem_pos)) in...
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_addr`
+
+warning: variable does not need to be mutable
+   --> vm-engine-jit/src/instruction_scheduler.rs:507:13
+    |
+507 |         let mut max_path = 0;
+    |             ----^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `max_path`
+   --> vm-engine-jit/src/instruction_scheduler.rs:507:13
+    |
+507 |         let mut max_path = 0;
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_max_path`
+
+warning: variable does not need to be mutable
+   --> vm-engine-jit/src/instruction_scheduler.rs:716:17
+    |
+716 | ...   let mut ready_list_copy = ready_list.clone();
+    |           ----^^^^^^^^^^^^^^^
+    |           |
+    |           help: remove this `mut`
+
+warning: field `config` is never read
+   --> vm-engine-jit/src/lib.rs:153:5
+    |
+151 | pub struct Jit {
+    |            --- field in this struct
+152 |     // 配置
+153 |     config: Option<AdaptiveThresholdConfig>,
+    |     ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `options` is never read
+  --> vm-engine-jit/src/aot/builder.rs:46:5
+   |
+45 | pub struct AotBuilder {
+   |            ---------- field in this struct
+46 |     options: CompilationOptions,
+   |     ^^^^^^^
+
+warning: fields `priority` and `created_at` are never read
+   --> vm-engine-jit/src/core.rs:126:5
+    |
+120 | struct CompilationTask {
+    |        --------------- fields in this struct
+...
+126 |     priority: u32,
+    |     ^^^^^^^^
+127 |     /// 创建时间
+128 |     created_at: std::time::Instant,
+    |     ^^^^^^^^^^
+    |
+    = note: `CompilationTask` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `compilation_threads` is never read
+   --> vm-engine-jit/src/core.rs:192:5
+    |
+164 | pub struct JITEngine {
+    |            --------- field in this struct
+...
+192 |     compilation_threads: Vec<thread::JoinHandle<...
+    |     ^^^^^^^^^^^^^^^^^^^
+
+warning: field `config` is never read
+  --> vm-engine-jit/src/optimizer.rs:79:5
+   |
+71 | pub struct DefaultIROptimizer {
+   |            ------------------ field in this struct
+...
+79 |     config: crate::core::JITConfig,
+   |     ^^^^^^
+
+warning: fields `last_access` and `access_count` are never read
+   --> vm-engine-jit/src/code_cache.rs:123:5
+    |
+119 | struct CacheEntry {
+    |        ---------- fields in this struct
+...
+123 |     last_access: std::time::Instant,
+    |     ^^^^^^^^^^^
+124 |     /// 访问次数
+125 |     access_count: u64,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `CacheEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `update_lru` is never used
+   --> vm-engine-jit/src/code_cache.rs:154:8
+    |
+128 | impl LRUCache {
+    | ------------- method in this implementation
+...
+154 |     fn update_lru(&mut self, pc: GuestAddr) {
+    |        ^^^^^^^^^^
+
+warning: field `created_at` is never read
+  --> vm-engine-jit/src/tiered_cache.rs:55:5
+   |
+45 | struct CacheEntry {
+   |        ---------- field in this struct
+...
+55 |     created_at: std::time::Instant,
+   |     ^^^^^^^^^^
+   |
+   = note: `CacheEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `release_physical_register` and `release_stack_slot` are never used
+   --> vm-engine-jit/src/register_allocator.rs:253:8
+    |
+129 | impl LinearScanAllocator {
+    | ------------------------ methods in this implementation
+...
+253 |     fn release_physical_register(&mut self, preg...
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+260 |     fn release_stack_slot(&mut self, slot: usize) {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: field `resource_type` is never read
+   --> vm-engine-jit/src/instruction_scheduler.rs:120:5
+    |
+118 | struct ResourcePool {
+    |        ------------ field in this struct
+119 |     /// 资源类型
+120 |     resource_type: String,
+    |     ^^^^^^^^^^^^^
+    |
+    = note: `ResourcePool` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `find_earliest_available_slot` is never used
+   --> vm-engine-jit/src/instruction_scheduler.rs:652:8
+    |
+129 | impl ListScheduler {
+    | ------------------ method in this implementation
+...
+652 |     fn find_earliest_available_slot(&self, op: &...
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling regex v1.12.2
+   Compiling cfb v0.7.3
+warning: `vm-engine-jit` (lib) generated 28 warnings (run `cargo fix --lib -p vm-engine-jit` to apply 16 suggestions)
+    Checking vm-frontend-arm64 v0.1.0 (/Users/didi/Desktop/vm/vm-frontend-arm64)
+   Compiling jsonptr v0.6.3
+error: unexpected closing delimiter: `}`
+   --> vm-engine-interpreter/src/async_executor.rs:431:5
+    |
+422 | impl vm_core::MmuAsAny for MockMMU {
+    |                                    - this opening brace...
+...
+430 | }
+    | - ...matches this closing brace
+431 |     }
+    |     ^ unexpected closing delimiter
+
+error: could not compile `vm-engine-interpreter` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: unused import: `Instruction`
+ --> vm-frontend-arm64/src/lib.rs:2:35
+  |
+2 | use vm_core::{Decoder, GuestAddr, Instruction, MMU, VmError};
+  |                                   ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `pc`
+  --> vm-frontend-arm64/src/apple_amx.rs:87:37
+   |
+87 |     pub fn decode(&self, insn: u32, pc: GuestAddr) -> Result<Option<AmxInstruction>, VmError> {
+   |                                     ^^ help: if this is intentional, prefix it with an underscore: `_pc`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `pc`
+  --> vm-frontend-arm64/src/qualcomm_hexagon.rs:83:37
+   |
+83 |     pub fn decode(&self, insn: u32, pc: GuestAddr) -> Result<Option<HexagonInstruction>, VmError> {
+   |                                     ^^ help: if this is intentional, prefix it with an underscore: `_pc`
+
+warning: unused variable: `dst`
+   --> vm-frontend-arm64/src/qualcomm_hexagon.rs:171:17
+    |
+171 |                 dst,
+    |                 ^^^ help: try ignoring the field: `dst: _`
+
+warning: unused variable: `sf`
+   --> vm-frontend-arm64/src/lib.rs:482:21
+    |
+482 |                 let sf = (insn >> 31) & 1;
+    |                     ^^ help: if this is intentional, prefix it with an underscore: `_sf`
+
+warning: unused variable: `pstate_reg`
+   --> vm-frontend-arm64/src/lib.rs:612:25
+    |
+612 |                     let pstate_reg = 17;
+    |                         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pstate_reg`
+
+warning: unused variable: `pstate_reg`
+   --> vm-frontend-arm64/src/lib.rs:889:25
+    |
+889 |                     let pstate_reg = 17;
+    |                         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pstate_reg`
+
+warning: unused variable: `pstate_reg`
+   --> vm-frontend-arm64/src/lib.rs:987:21
+    |
+987 |                 let pstate_reg = 17;
+    |                     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pstate_reg`
+
+warning: unused variable: `pstate_reg`
+    --> vm-frontend-arm64/src/lib.rs:1083:21
+     |
+1083 |                 let pstate_reg = 17;
+     |                     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pstate_reg`
+
+warning: unused variable: `pstate_reg`
+    --> vm-frontend-arm64/src/lib.rs:1180:21
+     |
+1180 |                 let pstate_reg = 17;
+     |                     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pstate_reg`
+
+warning: unused variable: `element_size`
+    --> vm-frontend-arm64/src/lib.rs:1781:25
+     |
+1781 |                     let element_size = match size {
+     |                         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_element_size`
+
+warning: unused variable: `shift_amount`
+    --> vm-frontend-arm64/src/lib.rs:1795:25
+     |
+1795 |                     let shift_amount = 103;
+     |                         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_shift_amount`
+
+warning: unused variable: `element_size`
+    --> vm-frontend-arm64/src/lib.rs:1814:25
+     |
+1814 |                     let element_size = match size {
+     |                         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_element_size`
+
+warning: unused variable: `size`
+    --> vm-frontend-arm64/src/lib.rs:1845:25
+     |
+1845 |                     let size = (insn >> 22) & 0x3;
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: unused variable: `size`
+    --> vm-frontend-arm64/src/lib.rs:1874:25
+     |
+1874 |                     let size = (insn >> 22) & 0x3;
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: unused variable: `size`
+    --> vm-frontend-arm64/src/lib.rs:1934:25
+     |
+1934 |                     let size = (insn >> 22) & 0x3;
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: unused variable: `size`
+    --> vm-frontend-arm64/src/lib.rs:1962:25
+     |
+1962 |                     let size = (insn >> 22) & 0x3;
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: unused variable: `size`
+    --> vm-frontend-arm64/src/lib.rs:1989:25
+     |
+1989 |                     let size = (insn >> 22) & 0x3;
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: unused variable: `size`
+    --> vm-frontend-arm64/src/lib.rs:2016:25
+     |
+2016 |                     let size = (insn >> 22) & 0x3;
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_size`
+
+warning: unused variable: `sign_mask`
+    --> vm-frontend-arm64/src/lib.rs:3222:25
+     |
+3222 |                     let sign_mask = 0x8000000000000000u64;
+     |                         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sign_mask`
+
+warning: unused variable: `is_signed`
+    --> vm-frontend-arm64/src/lib.rs:3655:21
+     |
+3655 |                 let is_signed = (insn & 0x00400000) == 0;
+     |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_signed`
+
+warning: unused variable: `is_signed`
+    --> vm-frontend-arm64/src/lib.rs:3786:21
+     |
+3786 |                 let is_signed = (insn & 0x00400000) == 0;
+     |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_signed`
+
+warning: unused variable: `rn`
+    --> vm-frontend-arm64/src/lib.rs:4001:21
+     |
+4001 |                 let rn = (insn >> 5) & 0x1F;
+     |                     ^^ help: if this is intentional, prefix it with an underscore: `_rn`
+
+warning: unused variable: `rn`
+    --> vm-frontend-arm64/src/lib.rs:4159:21
+     |
+4159 |                 let rn = (insn >> 5) & 0x1F;
+     |                     ^^ help: if this is intentional, prefix it with an underscore: `_rn`
+
+warning: unused variable: `opcode`
+    --> vm-frontend-arm64/src/lib.rs:4642:21
+     |
+4642 |                 let opcode = insn & 0x1F;
+     |                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_opcode`
+
+warning: unused variable: `is_fcmpe`
+    --> vm-frontend-arm64/src/lib.rs:4646:21
+     |
+4646 |                 let is_fcmpe = (insn & 0x00200000) != 0; // E bit
+     |                     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_fcmpe`
+
+warning: unused variable: `pstate_reg`
+    --> vm-frontend-arm64/src/lib.rs:4668:21
+     |
+4668 |                 let pstate_reg = 17;
+     |                     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pstate_reg`
+
+warning: unused variable: `imm16`
+    --> vm-frontend-arm64/src/lib.rs:4912:21
+     |
+4912 |                 let imm16 = insn & 0xFFFF;
+     |                     ^^^^^ help: if this is intentional, prefix it with an underscore: `_imm16`
+
+warning: unused variable: `cr`
+    --> vm-frontend-arm64/src/lib.rs:4945:21
+     |
+4945 |                 let cr = insn & 0xF;
+     |                     ^^ help: if this is intentional, prefix it with an underscore: `_cr`
+
+warning: unused variable: `op1`
+    --> vm-frontend-arm64/src/lib.rs:4970:21
+     |
+4970 |                 let op1 = (insn >> 8) & 0xF;
+     |                     ^^^ help: if this is intentional, prefix it with an underscore: `_op1`
+
+warning: unused variable: `crn`
+    --> vm-frontend-arm64/src/lib.rs:4971:21
+     |
+4971 |                 let crn = (insn >> 12) & 0xF;
+     |                     ^^^ help: if this is intentional, prefix it with an underscore: `_crn`
+
+warning: unused variable: `crm`
+    --> vm-frontend-arm64/src/lib.rs:4972:21
+     |
+4972 |                 let crm = insn & 0xF;
+     |                     ^^^ help: if this is intentional, prefix it with an underscore: `_crm`
+
+warning: unused variable: `rt`
+    --> vm-frontend-arm64/src/lib.rs:4973:21
+     |
+4973 |                 let rt = (insn >> 5) & 0x1F;
+     |                     ^^ help: if this is intentional, prefix it with an underscore: `_rt`
+
+warning: enum `NeonInstruction` is never used
+ --> vm-frontend-arm64/src/extended_insns.rs:7:10
+  |
+7 | pub enum NeonInstruction {
+  |          ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: enum `SveInstruction` is never used
+  --> vm-frontend-arm64/src/extended_insns.rs:54:10
+   |
+54 | pub enum SveInstruction {
+   |          ^^^^^^^^^^^^^^
+
+warning: enum `CryptoInstruction` is never used
+  --> vm-frontend-arm64/src/extended_insns.rs:96:10
+   |
+96 | pub enum CryptoInstruction {
+   |          ^^^^^^^^^^^^^^^^^
+
+warning: struct `ExtendedDecoder` is never constructed
+   --> vm-frontend-arm64/src/extended_insns.rs:121:12
+    |
+121 | pub struct ExtendedDecoder;
+    |            ^^^^^^^^^^^^^^^
+
+warning: associated functions `decode_neon`, `decode_sve`, `decode_crypto`, `has_neon`, `has_sve`, and `has_crypto` are never used
+   --> vm-frontend-arm64/src/extended_insns.rs:125:12
+    |
+123 | impl ExtendedDecoder {
+    | -------------------- associated functions in this implementation
+124 |     /// 解码 NEON 指令
+125 |     pub fn decode_neon(insn: u32) -> Option<NeonInstruction> {
+    |            ^^^^^^^^^^^
+...
+147 |     pub fn decode_sve(insn: u32) -> Option<SveInstruction> {
+    |            ^^^^^^^^^^
+...
+213 |     pub fn decode_crypto(insn: u32) -> Option<CryptoInstruction> {
+    |            ^^^^^^^^^^^^^
+...
+232 |     pub fn has_neon() -> bool {
+    |            ^^^^^^^^
+...
+239 |     pub fn has_sve() -> bool {
+    |            ^^^^^^^
+...
+254 |     pub fn has_crypto() -> bool {
+    |            ^^^^^^^^^^
+
+warning: `vm-frontend-arm64` (lib) generated 38 warnings (run `cargo fix --lib -p vm-frontend-arm64` to apply 33 suggestions)

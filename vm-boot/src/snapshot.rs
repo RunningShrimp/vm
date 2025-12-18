@@ -168,9 +168,9 @@ pub struct VmSnapshot {
 }
 
 /// 快照文件管理器
-/// 
+///
 /// 管理虚拟机快照的文件 I/O 操作，包括保存和加载完整的虚拟机状态。
-/// 
+///
 /// 注意：这与 `vm-core` 中的 `SnapshotMetadataManager` 不同：
 /// - `SnapshotMetadataManager`: 管理快照的元数据和快照树结构
 /// - `SnapshotFileManager`: 管理快照文件的读写
@@ -232,7 +232,7 @@ impl SnapshotFileManager {
         }
 
         // 写入内存快照
-        writer.write_all(&snapshot.memory.base_addr.to_le_bytes())?;
+        writer.write_all(&snapshot.memory.base_addr.0.to_le_bytes())?;
         writer.write_all(&(snapshot.memory.data.len() as u64).to_le_bytes())?;
         writer.write_all(&snapshot.memory.data)?;
 
@@ -337,7 +337,7 @@ impl SnapshotFileManager {
         Ok(VmSnapshot {
             metadata,
             vcpus,
-            memory: MemorySnapshot { data, base_addr },
+            memory: MemorySnapshot { data, base_addr: vm_core::GuestAddr(base_addr) },
         })
     }
 

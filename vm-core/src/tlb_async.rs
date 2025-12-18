@@ -1,637 +1,290 @@
-use crate::{AccessType, GuestAddr, GuestPhysAddr, TlbEntry, TlbManager, VmError};
-use parking_lot::RwLock;
+//! Asynchronous TLB implementation module.
+
+#![cfg(feature = "async")]
+
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "async")]
-use tokio::time::sleep;
+use async_trait::async_trait;
 
-/// Week 4 - TLB 异步优化
+use crate::{AccessType, TlbEntry, VmError};
+
+/// Trait defining the asynchronous interface for a Translation Lookaside Buffer (TLB).
 ///
-/// 实现高效的 TLB 异步操作，包括：
-/// - 并发 TLB 访问
-/// - 异步批量刷新
-/// - 选择性失效
-/// - TLB 一致性维护
-use std::sync::Arc;
-
-/// TLB 访问记录
-#[derive(Clone, Debug)]
-pub struct AccessRecord {
-    /// 访问时间戳
-    pub timestamp_us: u64,
-    /// 访问类型
-    pub access_type: AccessType,
-    /// 访问频率
-    pub frequency: u64,
-}
-
-/// TLB 一致性状态
-#[derive(Clone, Debug, PartialEq, Eq, Copy)]
-pub enum TLBConsistency {
-    /// 有效
-    Valid,
-    /// 待刷新
-    Pending,
-    /// 无效
-    Invalid,
-}
-
-/// 高性能异步 TLB 缓存
-pub struct AsyncTLBCache {
-    /// TLB 表项存储 (虚拟地址 -> (物理地址, 访问权限, 一致性状态))
-    entries: Arc<RwLock<HashMap<GuestAddr, (GuestPhysAddr, AccessType, TLBConsistency)>>>,
-    /// 访问记录 (用于 LRU)
-    access_records: Arc<parking_lot::Mutex<HashMap<GuestAddr, AccessRecord>>>,
-    /// TLB 容量
-    capacity: usize,
-    /// 预取队列大小
-    prefetch_queue_size: usize,
-    /// 统计信息
-    stats: Arc<parking_lot::Mutex<TLBCacheStats>>,
-}
-
-/// TLB 缓存统计
-#[derive(Clone, Debug, Default)]
-pub struct TLBCacheStats {
-    /// 命中次数
-    pub hits: u64,
-    /// 缺失次数
-    pub misses: u64,
-    /// 刷新次数
-    pub flushes: u64,
-    /// 批量刷新次数
-    pub batch_flushes: u64,
-    /// 预取次数
-    pub prefetches: u64,
-    /// 平均命中率
-    pub hit_rate: f64,
-}
-
-impl AsyncTLBCache {
-    /// 创建新的 TLB 缓存
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            entries: Arc::new(RwLock::new(HashMap::new())),
-            access_records: Arc::new(parking_lot::Mutex::new(HashMap::new())),
-            capacity,
-            prefetch_queue_size: 100,
-            stats: Arc::new(parking_lot::Mutex::new(TLBCacheStats::default())),
-        }
-    }
-
-    /// 查找 TLB 表项
-    pub fn lookup(&self, va: GuestAddr) -> Option<(GuestPhysAddr, AccessType)> {
-        let entries = self.entries.write();
-
-        if let Some(&(pa, access, consistency)) = entries.get(&va)
-            && consistency == TLBConsistency::Valid {
-                let mut stats = self.stats.lock();
-                stats.hits += 1;
-                return Some((pa, access));
-            }
-
-        let mut stats = self.stats.lock();
-        stats.misses += 1;
-        None
-    }
-
-    /// 异步查找（带预取提示）
-    pub async fn lookup_async_with_hint(
-        &self,
-        va: GuestAddr,
-        prefetch_addrs: Option<&[GuestAddr]>,
-    ) -> Option<(GuestPhysAddr, AccessType)> {
-        let result = self.lookup(va);
-
-        // 如果提供了预取地址，异步处理
-        if let Some(addrs) = prefetch_addrs
-            && result.is_none() {
-                // 可以在这里触发异步预取
-                let _ = self.async_prefetch(addrs).await;
-            }
-
-        result
-    }
-
-    /// 异步预取（优化版：智能预取策略）
+/// This trait provides a unified interface for all TLB implementations across different
+/// architectures, allowing them to be used interchangeably in the virtual machine.
+#[async_trait]
+pub trait AsyncTranslationLookasideBuffer {
+    /// Asynchronously translate a virtual address to a physical address.
     ///
-    /// 预取策略：
-    /// 1. 顺序访问模式：预取后续页面
-    /// 2. 跨页访问模式：预取相邻页面
-    /// 3. 热点检测：预取频繁访问的页面
-    /// 4. 自适应窗口：根据命中率调整预取窗口大小
-    pub async fn async_prefetch(&self, addresses: &[GuestAddr]) -> Result<(), VmError> {
-        let mut records = self.access_records.lock();
-        let entries = self.entries.write();
-        let mut stats = self.stats.lock();
-
-        // 计算当前命中率
-        let total_accesses = stats.hits + stats.misses;
-        let hit_rate = if total_accesses > 0 {
-            stats.hits as f64 / total_accesses as f64
-        } else {
-            0.0
-        };
-
-        // 自适应预取窗口：命中率低时增加预取
-        let prefetch_window = if hit_rate < 0.90 {
-            4 // 命中率低，增加预取
-        } else if hit_rate < 0.95 {
-            2 // 命中率中等
-        } else {
-            1 // 命中率高，减少预取
-        };
-
-        let mut prefetched = 0;
-
-        for &addr in addresses.iter().take(self.prefetch_queue_size) {
-            // 策略1：顺序访问预取（+1, +2, +4页面）
-            for offset in [0x1000, 0x2000, 0x4000] {
-                let prefetch_addr = addr.wrapping_add(offset);
-
-                // 检查是否已在TLB中
-                if entries.contains_key(&prefetch_addr) {
-                    continue;
-                }
-
-                // 添加到预取队列（标记为待预取）
-                records.insert(
-                    prefetch_addr,
-                    AccessRecord {
-                        timestamp_us: 0, // 预取标记
-                        access_type: AccessType::Read,
-                        frequency: 1,
-                    },
-                );
-
-                prefetched += 1;
-                if prefetched >= prefetch_window {
-                    break;
-                }
-            }
-
-            // 策略2：基于访问历史的预取
-            if let Some(record) = records.get(&addr) {
-                // 如果访问频率高，预取更多
-                if record.frequency > 5 {
-                    for offset in [0x1000, 0x2000] {
-                        let prefetch_addr = addr.wrapping_add(offset);
-                        if !entries.contains_key(&prefetch_addr) {
-                            records.insert(
-                                prefetch_addr,
-                                AccessRecord {
-                                    timestamp_us: 0,
-                                    access_type: AccessType::Read,
-                                    frequency: 1,
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        stats.prefetches += prefetched;
-
-        Ok(())
-    }
-
-    /// 智能预取（基于访问模式）
+    /// # Arguments
+    /// - `va`: The virtual address to translate.
+    /// - `access`: The type of access (read, write, execute).
     ///
-    /// 分析最近的访问模式，预测下一个可能访问的地址
-    pub fn smart_prefetch(&self, current_addr: GuestAddr) -> Vec<GuestAddr> {
-        let records = self.access_records.lock();
-        let entries = self.entries.read(); // 只需要读，不需要mut
-        let mut prefetch_candidates = Vec::new();
+    /// # Returns
+    /// - `Ok(paddr)`: The translated physical address if the translation was successful.
+    /// - `Err(VmError)`: An error if the translation failed (e.g., page fault).
+    async fn translate(&mut self, va: u64, access: AccessType) -> Result<u64, VmError>;
 
-        // 策略1：顺序访问检测
-        // 如果最近访问的地址是连续的，预取后续地址
-        let recent_addrs: Vec<GuestAddr> = records.iter().take(10).map(|(&addr, _)| addr).collect();
+    /// Asynchronously update the TLB with a new translation entry.
+    ///
+    /// # Arguments
+    /// - `va`: The virtual address to associate with the entry.
+    /// - `entry`: The TLB entry containing the physical address and other metadata.
+    ///
+    /// # Returns
+    /// - `Ok(())`: If the entry was successfully added to the TLB.
+    /// - `Err(VmError)`: An error if the entry could not be added.
+    async fn update(&mut self, va: u64, entry: TlbEntry) -> Result<(), VmError>;
 
-        if let Some(&last_addr) = recent_addrs.last() {
-            // 检查是否是顺序访问
-            if current_addr == last_addr + 0x1000 {
-                // 顺序访问，预取后续页面
-                for i in 1..=3 {
-                    let prefetch_addr = current_addr + (i * 0x1000);
-                    if !entries.contains_key(&prefetch_addr) {
-                        prefetch_candidates.push(prefetch_addr);
-                    }
-                }
-            }
-        }
+    /// Asynchronously flush a specific TLB entry by virtual address.
+    ///
+    /// # Arguments
+    /// - `va`: The virtual address of the entry to flush.
+    ///
+    /// # Returns
+    /// - `Ok(())`: If the entry was successfully flushed.
+    /// - `Err(VmError)`: An error if the entry could not be flushed.
+    async fn flush(&mut self, va: u64) -> Result<(), VmError>;
 
-        // 策略2：热点页面预取
-        // 找出访问频率最高的页面，预取其相邻页面
-        let mut hot_pages: Vec<(&GuestAddr, &AccessRecord)> = records
-            .iter()
-            .filter(|(_, record)| record.frequency > 3)
-            .collect();
-        hot_pages.sort_by(|a, b| b.1.frequency.cmp(&a.1.frequency));
+    /// Asynchronously flush all TLB entries.
+    ///
+    /// # Returns
+    /// - `Ok(())`: If all entries were successfully flushed.
+    /// - `Err(VmError)`: An error if the TLB could not be flushed.
+    async fn flush_all(&mut self) -> Result<(), VmError>;
 
-        for (hot_addr, _) in hot_pages.iter().take(3) {
-            let hot_addr = **hot_addr;
-            // 预取热点页面的相邻页面
-            for offset in [0x1000u64, 0x2000u64] {
-                // 向前和向后预取
-                let prefetch_addr_forward = hot_addr.wrapping_add(offset);
-                let prefetch_addr_backward = hot_addr.wrapping_sub(offset);
+    /// Asynchronously flush TLB entries by ASID.
+    ///
+    /// # Arguments
+    /// - `asid`: The Address Space Identifier (ASID) of the entries to flush.
+    ///
+    /// # Returns
+    /// - `Ok(())`: If the entries were successfully flushed.
+    /// - `Err(VmError)`: An error if the entries could not be flushed.
+    async fn flush_asid(&mut self, asid: u16) -> Result<(), VmError>;
 
-                for prefetch_addr in [prefetch_addr_forward, prefetch_addr_backward] {
-                    if !entries.contains_key(&prefetch_addr)
-                        && !prefetch_candidates.contains(&prefetch_addr)
-                    {
-                        prefetch_candidates.push(prefetch_addr);
-                    }
-                }
-            }
-        }
-
-        prefetch_candidates
-    }
-
-    /// 插入 TLB 表项
-    pub fn insert(&self, va: GuestAddr, pa: GuestPhysAddr, access: AccessType) {
-        let mut entries = self.entries.write();
-
-        // 容量检查
-        if entries.len() >= self.capacity {
-            // 移除 LRU 表项
-            if let Some(lru_va) = self.find_lru_entry() {
-                entries.remove(&lru_va);
-            }
-        }
-
-        entries.insert(va, (pa, access, TLBConsistency::Valid));
-
-        // 记录访问
-        let mut records = self.access_records.lock();
-        records.insert(
-            va,
-            AccessRecord {
-                timestamp_us: 0,
-                access_type: access,
-                frequency: 1,
-            },
-        );
-    }
-
-    /// 查找 LRU 表项
-    fn find_lru_entry(&self) -> Option<GuestAddr> {
-        let records = self.access_records.lock();
-        records
-            .iter()
-            .min_by_key(|(_, record)| record.timestamp_us)
-            .map(|(&va, _)| va)
-    }
-
-    /// 刷新单个 TLB 表项
-    pub fn flush_entry(&self, va: GuestAddr) {
-        let mut entries = self.entries.write();
-        entries.remove(&va);
-
-        let mut stats = self.stats.lock();
-        stats.flushes += 1;
-    }
-
-    /// 批量刷新 TLB 表项
-    pub async fn batch_flush(&self, addresses: &[GuestAddr]) -> Result<(), VmError> {
-        let mut entries = self.entries.write();
-
-        for &va in addresses {
-            entries.remove(&va);
-        }
-
-        let mut stats = self.stats.lock();
-        stats.batch_flushes += 1;
-        stats.flushes += addresses.len() as u64;
-
-        Ok(())
-    }
-
-    /// 选择性刷新（根据条件）
-    pub async fn selective_flush<F>(&self, predicate: F) -> Result<u64, VmError>
-    where
-        F: Fn(&GuestAddr) -> bool,
-    {
-        let mut entries = self.entries.write();
-        let mut count = 0;
-
-        let addresses: Vec<_> = entries.keys().filter(|va| predicate(va)).copied().collect();
-
-        for va in addresses {
-            entries.remove(&va);
-            count += 1;
-        }
-
-        let mut stats = self.stats.lock();
-        stats.flushes += count;
-
-        Ok(count)
-    }
-
-    /// 刷新所有 TLB
-    pub fn flush_all(&self) {
-        let mut entries = self.entries.write();
-        entries.clear();
-
-        let mut stats = self.stats.lock();
-        stats.flushes += 1;
-    }
-
-    /// 标记为待刷新
-    pub fn mark_pending(&self, va: GuestAddr) {
-        let mut entries = self.entries.write();
-        if let Some((pa, access, _)) = entries.get(&va).copied() {
-            entries.insert(va, (pa, access, TLBConsistency::Pending));
-        }
-    }
-
-    /// 批量标记为待刷新
-    pub async fn batch_mark_pending(&self, addresses: &[GuestAddr]) -> Result<(), VmError> {
-        let mut entries = self.entries.write();
-
-        for &va in addresses {
-            if let Some((pa, access, _)) = entries.get(&va).copied() {
-                entries.insert(va, (pa, access, TLBConsistency::Pending));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// 获取统计信息
-    pub fn get_stats(&self) -> TLBCacheStats {
-        let mut stats = self.stats.lock().clone();
-
-        // 计算命中率
-        let total = stats.hits + stats.misses;
-        if total > 0 {
-            stats.hit_rate = stats.hits as f64 / total as f64;
-        }
-
-        stats
-    }
-
-    /// 重置统计信息
-    pub fn reset_stats(&self) {
-        let mut stats = self.stats.lock();
-        *stats = TLBCacheStats::default();
-    }
-
-    /// 获取 TLB 使用率
-    pub fn get_occupancy(&self) -> f64 {
-        let entries = self.entries.write();
-        entries.len() as f64 / self.capacity as f64
-    }
+    /// Asynchronously flush TLB entries by virtual page range.
+    ///
+    /// # Arguments
+    /// - `start_va`: The start of the virtual address range to flush.
+    /// - `end_va`: The end of the virtual address range to flush.
+    ///
+    /// # Returns
+    /// - `Ok(())`: If the entries were successfully flushed.
+    /// - `Err(VmError)`: An error if the entries could not be flushed.
+    async fn flush_range(&mut self, start_va: u64, end_va: u64) -> Result<(), VmError>;
 }
 
-/// 并发 TLB 操作管理器
-pub struct ConcurrentTLBManager {
-    /// 主 TLB 缓存
-    cache: Arc<AsyncTLBCache>,
-    /// 待处理刷新操作
-    pending_flushes: Arc<parking_lot::Mutex<Vec<(GuestAddr, TLBConsistency)>>>,
+/// A virtual page key used for TLB lookups.
+///
+/// This combines the virtual address and ASID to form a unique key for TLB entries.
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
+pub struct VirtPageKey {
+    pub va: u64,
+    pub asid: u16,
 }
 
-impl ConcurrentTLBManager {
-    /// 创建新的并发 TLB 管理器
-    pub fn new(capacity: usize) -> Self {
+impl VirtPageKey {
+    /// Create a new VirtPageKey.
+    ///
+    /// # Arguments
+    /// - `va`: The virtual address (page-aligned).
+    /// - `asid`: The Address Space Identifier.
+    pub fn new(va: u64, asid: u16) -> Self {
+        // Ensure the address is page-aligned.
+        let page_aligned_va = va & !(0x1000 - 1);
         Self {
-            cache: Arc::new(AsyncTLBCache::new(capacity)),
-            pending_flushes: Arc::new(parking_lot::Mutex::new(Vec::new())),
+            va: page_aligned_va,
+            asid,
         }
-    }
-
-    /// 异步查找
-    pub async fn async_lookup(&self, va: GuestAddr) -> Option<(GuestPhysAddr, AccessType)> {
-        self.cache.lookup(va)
-    }
-
-    /// 异步插入
-    pub async fn async_insert(
-        &self,
-        va: GuestAddr,
-        pa: GuestPhysAddr,
-        access: AccessType,
-    ) -> Result<(), VmError> {
-        self.cache.insert(va, pa, access);
-        Ok(())
-    }
-
-    /// 异步刷新
-    pub async fn async_flush(&self, va: GuestAddr) -> Result<(), VmError> {
-        self.cache.flush_entry(va);
-        Ok(())
-    }
-
-    /// 处理待处理刷新
-    pub async fn process_pending_flushes(&self) -> Result<usize, VmError> {
-        let mut pending = self.pending_flushes.lock();
-        let count = pending.len();
-
-        for (va, _) in pending.drain(..) {
-            self.cache.flush_entry(va);
-        }
-
-        Ok(count)
-    }
-
-    /// 获取统计信息
-    pub fn get_stats(&self) -> TLBCacheStats {
-        self.cache.get_stats()
     }
 }
+
+impl From<u64> for VirtPageKey {
+    /// Create a VirtPageKey from a virtual address with default ASID 0.
+    ///
+    /// # Arguments
+    /// - `va`: The virtual address.
+    fn from(va: u64) -> Self {
+        Self::new(va, 0)
+    }
+}
+
+/// A simple asynchronous TLB implementation.
+pub struct AsyncSimpleTlb {
+    entries: Arc<Mutex<HashMap<VirtPageKey, TlbEntry>>>,
+}
+
+impl AsyncSimpleTlb {
+    /// Create a new simple asynchronous TLB.
+    pub fn new() -> Self {
+        Self {
+            entries: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl AsyncTranslationLookasideBuffer for AsyncSimpleTlb {
+    async fn translate(&mut self, va: u64, access: AccessType) -> Result<u64, VmError> {
+        let entry = self
+            .entries
+            .lock()
+            .unwrap()
+            .get(&VirtPageKey::from(va))
+            .cloned();
+
+        match entry {
+            Some(entry) => {
+                // Check access permissions.
+                // Note: For simplicity, we'll assume all entries have full permissions.
+                // In a real implementation, you'd check the flags field.
+
+                // Calculate the physical address.
+                let offset = va - (va & !(0x1000 - 1));
+                Ok(entry.phys_addr + offset)
+            }
+            None => {
+                // Return a page not found error.
+                Err(crate::VmError::Memory(crate::MemoryError::PageTableError {
+                    message: "Page not found in TLB".to_string(),
+                    level: None,
+                }))
+            }
+        }
+    }
+
+    async fn update(&mut self, va: u64, entry: TlbEntry) -> Result<(), VmError> {
+        let key = VirtPageKey::new(entry.guest_addr, entry.asid);
+        self.entries.lock().unwrap().insert(key, entry);
+        Ok(())
+    }
+
+    async fn flush(&mut self, va: u64) -> Result<(), VmError> {
+        self.entries.lock().unwrap().remove(&VirtPageKey::from(va));
+        Ok(())
+    }
+
+    async fn flush_all(&mut self) -> Result<(), VmError> {
+        self.entries.lock().unwrap().clear();
+        Ok(())
+    }
+
+    async fn flush_asid(&mut self, asid: u16) -> Result<(), VmError> {
+        self.entries
+            .lock()
+            .unwrap()
+            .retain(|key, _| key.asid != asid);
+        Ok(())
+    }
+
+    async fn flush_range(&mut self, start_va: u64, end_va: u64) -> Result<(), VmError> {
+        let start_key = VirtPageKey::from(start_va);
+        let end_key = VirtPageKey::from(end_va);
+
+        self.entries
+            .lock()
+            .unwrap()
+            .retain(|key, _| key.va < start_key.va || key.va > end_key.va);
+
+        Ok(())
+    }
+}
+
+/// Architecture-specific TLB implementations can be added here.
+/// For example:
+/// - X86_64AsyncTlb
+/// - Arm64AsyncTlb
+/// - Riscv64AsyncTlb
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AccessType;
 
-    #[test]
-    fn test_tlb_cache_creation() {
-        let cache = AsyncTLBCache::new(256);
-        assert_eq!(cache.capacity, 256);
-        assert_eq!(cache.get_occupancy(), 0.0);
-    }
-
-    #[test]
-    fn test_insert_and_lookup() {
-        let cache = AsyncTLBCache::new(10);
-        cache.insert(0x1000, 0x2000, AccessType::Read);
-
-        let result = cache.lookup(0x1000);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().0, 0x2000);
-    }
-
-    #[test]
-    fn test_flush_entry() {
-        let cache = AsyncTLBCache::new(10);
-        cache.insert(0x1000, 0x2000, AccessType::Read);
-
-        cache.flush_entry(0x1000);
-        assert!(cache.lookup(0x1000).is_none());
-    }
-
-    #[test]
-    fn test_miss_tracking() {
-        let cache = AsyncTLBCache::new(10);
-        cache.lookup(0x5000); // miss
-        cache.lookup(0x5000); // miss
-
-        let stats = cache.get_stats();
-        assert_eq!(stats.misses, 2);
-    }
-
-    #[test]
-    fn test_hit_rate_calculation() {
-        let cache = AsyncTLBCache::new(10);
-        cache.insert(0x1000, 0x2000, AccessType::Read);
-
-        cache.lookup(0x1000); // hit
-        cache.lookup(0x1000); // hit
-        cache.lookup(0x5000); // miss
-
-        let stats = cache.get_stats();
-        assert!(stats.hit_rate > 0.65 && stats.hit_rate < 0.75);
-    }
-
-    #[cfg(feature = "async")]
     #[tokio::test]
-    async fn test_batch_flush() {
-        let cache = AsyncTLBCache::new(20);
+    async fn test_async_simple_tlb_translate() {
+        // Create a new asynchronous TLB.
+        let mut tlb = AsyncSimpleTlb::new();
 
-        for i in 0..5 {
-            cache.insert(
-                0x1000 + (i * 0x1000) as u64,
-                0x2000 + (i * 0x1000) as u64,
-                AccessType::Read,
-            );
-        }
-
-        let addresses = vec![0x1000, 0x2000, 0x3000];
-        let result = cache.batch_flush(&addresses).await;
-        assert!(result.is_ok());
-
-        assert!(cache.lookup(0x1000).is_none());
-        assert!(cache.lookup(0x2000).is_none());
-    }
-
-    #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn test_selective_flush() {
-        let cache = AsyncTLBCache::new(20);
-
-        cache.insert(0x1000, 0x2000, AccessType::Read);
-        cache.insert(0x2000, 0x3000, AccessType::Store);
-        cache.insert(0x3000, 0x4000, AccessType::Read);
-
-        let count = cache.selective_flush(|va| *va < 0x2500).await;
-        assert!(count.is_ok());
-        assert_eq!(count.unwrap(), 2);
-    }
-
-    #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn test_concurrent_manager() {
-        let manager = ConcurrentTLBManager::new(10);
-
-        manager
-            .async_insert(0x1000, 0x2000, AccessType::Read)
-            .await
-            .unwrap();
-        let result = manager.async_lookup(0x1000).await;
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn test_occupancy() {
-        let cache = AsyncTLBCache::new(10);
-        cache.insert(0x1000, 0x2000, AccessType::Read);
-        cache.insert(0x3000, 0x4000, AccessType::Read);
-
-        let occupancy = cache.get_occupancy();
-        assert!(occupancy > 0.1 && occupancy < 0.3);
-    }
-}
-
-/// 异步TLB缓存适配器，实现TlbManager trait
-///
-/// 此适配器将AsyncTLBCache适配到TlbManager接口，使其可以与其他TLB实现互换使用。
-///
-/// # 适用场景
-///
-/// - **异步执行环境**: 当使用async/await进行异步内存访问时
-/// - **批量刷新优化**: 需要异步批量刷新TLB条目的场景
-/// - **选择性失效**: 需要细粒度控制TLB条目失效的场景
-///
-/// # 与其他TLB实现的对比
-///
-/// - `MultiLevelTlb` (vm-mem): 适用于高性能场景，支持多级缓存和预取
-/// - `ConcurrentTlbManager` (vm-mem): 适用于高并发场景，使用无锁数据结构
-/// - `AsyncTlbAdapter` (vm-core): 适用于异步场景，支持异步批量操作
-pub struct AsyncTlbAdapter {
-    cache: Arc<AsyncTLBCache>,
-}
-
-impl AsyncTlbAdapter {
-    /// 创建新的异步TLB适配器
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            cache: Arc::new(AsyncTLBCache::new(capacity)),
-        }
-    }
-
-    /// 获取内部缓存引用
-    pub fn cache(&self) -> &Arc<AsyncTLBCache> {
-        &self.cache
-    }
-}
-
-impl TlbManager for AsyncTlbAdapter {
-    fn lookup(&mut self, addr: GuestAddr, _asid: u16, access: AccessType) -> Option<TlbEntry> {
-        // AsyncTLBCache的lookup方法不接收asid和access参数
-        // 我们需要先查找，然后检查权限
-        if let Some((phys_addr, cached_access)) = self.cache.lookup(addr) {
-            // 检查访问权限是否匹配
-            if cached_access == access || access == AccessType::Read {
-                Some(TlbEntry {
-                    guest_addr: addr,
-                    phys_addr,
-                    flags: match cached_access {
-                        AccessType::Read => 1 << 1,  // R bit
-                        AccessType::Write => 1 << 2, // W bit
-                        AccessType::Exec => 1 << 3,  // X bit
-                    },
-                    asid: _asid,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    fn update(&mut self, entry: TlbEntry) {
-        // 从flags推断访问类型（简化实现）
-        let access = if (entry.flags & (1 << 3)) != 0 {
-            AccessType::Exec
-        } else if (entry.flags & (1 << 2)) != 0 {
-            AccessType::Write
-        } else {
-            AccessType::Read
+        // Define a test translation entry.
+        let va = 0x12345000;
+        let entry = TlbEntry {
+            guest_addr: va,
+            phys_addr: 0x56789000,
+            flags: 0x00000003, // Read/Write permissions.
+            asid: 0,
         };
-        self.cache.insert(entry.guest_addr, entry.phys_addr, access);
+
+        // Update the TLB with the entry.
+        tlb.update(va, entry).await.unwrap();
+
+        // Translate the virtual address.
+        let pa = tlb.translate(va, AccessType::Read).await.unwrap();
+
+        // Verify the translation result.
+        assert_eq!(pa, 0x56789000);
     }
 
-    fn flush(&mut self) {
-        self.cache.flush_all();
+    #[tokio::test]
+    async fn test_async_simple_tlb_flush() {
+        // Create a new asynchronous TLB.
+        let mut tlb = AsyncSimpleTlb::new();
+
+        // Define a test translation entry.
+        let va = 0x12345000;
+        let entry = TlbEntry {
+            guest_addr: va,
+            phys_addr: 0x56789000,
+            flags: 0x00000003, // Read/Write permissions.
+            asid: 0,
+        };
+
+        // Update the TLB with the entry.
+        tlb.update(va, entry).await.unwrap();
+
+        // Flush the entry.
+        tlb.flush(va).await.unwrap();
+
+        // Attempt to translate the virtual address.
+        let result = tlb.translate(va, AccessType::Read).await;
+
+        // Verify that the translation fails.
+        assert!(result.is_err());
     }
 
-    fn flush_asid(&mut self, asid: u16) {
-        // AsyncTLBCache不直接支持ASID，我们需要刷新所有条目
-        // 这是一个限制，但在某些场景下可以接受
-        self.cache.flush_all();
+    #[tokio::test]
+    async fn test_async_simple_tlb_flush_all() {
+        // Create a new asynchronous TLB.
+        let mut tlb = AsyncSimpleTlb::new();
+
+        // Define multiple test translation entries.
+        let entries = vec![
+            (0x12345000, 0x56789000, 0),
+            (0x23456000, 0x67890000, 0),
+            (0x34567000, 0x78901000, 1),
+        ];
+
+        // Update the TLB with the entries.
+        for (va, pa, asid) in entries {
+            let entry = TlbEntry {
+                guest_addr: va,
+                phys_addr: pa,
+                flags: 0x00000003, // Read/Write permissions.
+                asid,
+            };
+            tlb.update(va, entry).await.unwrap();
+        }
+
+        // Flush all entries.
+        tlb.flush_all().await.unwrap();
+
+        // Attempt to translate the virtual addresses.
+        for (va, _, _) in entries {
+            let result = tlb.translate(va, AccessType::Read).await;
+            // Verify that the translation fails.
+            assert!(result.is_err());
+        }
     }
 }

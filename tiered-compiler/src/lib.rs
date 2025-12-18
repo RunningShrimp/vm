@@ -6,9 +6,9 @@
 //! - Tier 2: Balanced JIT (300-500 μs, current default)
 //! - Tier 3: Optimized JIT (>1ms, aggressive optimization)
 
-use std::sync::Arc;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Result type for compilation operations
@@ -101,10 +101,10 @@ pub struct UpgradePolicy {
 impl Default for UpgradePolicy {
     fn default() -> Self {
         Self {
-            tier0_to_tier1_threshold: 10,      // Hot after 10 executions
-            tier1_to_tier2_threshold: 100,     // Very hot after 100 executions
-            tier2_to_tier3_threshold: 1000,    // Ultra hot after 1000 executions
-            min_time_in_tier_us: 100_000,      // At least 100ms in each tier
+            tier0_to_tier1_threshold: 10,   // Hot after 10 executions
+            tier1_to_tier2_threshold: 100,  // Very hot after 100 executions
+            tier2_to_tier3_threshold: 1000, // Ultra hot after 1000 executions
+            min_time_in_tier_us: 100_000,   // At least 100ms in each tier
         }
     }
 }
@@ -139,7 +139,7 @@ impl TieredCompilerState {
 
         block_stat.execution_count += 1;
         block_stat.total_exec_us += exec_time_us;
-        if let Some(tier) = block_stat.current_tier {
+        if let Some(_tier) = block_stat.current_tier {
             block_stat.time_in_tier_us += exec_time_us;
         }
     }
@@ -152,10 +152,7 @@ impl TieredCompilerState {
     /// Check if block should upgrade tier
     pub fn should_upgrade(&self, block_id: u64) -> Option<CompilationTier> {
         let stats = self.stats.read();
-        let block_stat = match stats.get(&block_id) {
-            Some(s) => s,
-            None => return None,
-        };
+        let block_stat = stats.get(&block_id)?;
 
         let current_tier = block_stat.current_tier?;
         let exec_count = block_stat.execution_count;
@@ -246,7 +243,7 @@ impl Tier1FastJit {
         let start = Instant::now();
 
         // Simulate fast compilation (10-100 μs)
-        let compile_time = std::cmp::min(50 + (block_id % 50) as u64, 100);
+        let compile_time = std::cmp::min(50 + (block_id % 50), 100);
         std::thread::sleep(std::time::Duration::from_micros(compile_time));
 
         Ok(CompiledCode {
@@ -271,7 +268,7 @@ impl Tier2BalancedJit {
         let start = Instant::now();
 
         // Simulate balanced compilation (300-500 μs)
-        let compile_time = 300 + (block_id % 200) as u64;
+        let compile_time = 300 + (block_id % 200);
         std::thread::sleep(std::time::Duration::from_micros(compile_time));
 
         Ok(CompiledCode {
@@ -300,7 +297,7 @@ impl Tier3OptimizedJit {
         let start = Instant::now();
 
         // Simulate aggressive compilation (1-3 ms)
-        let compile_time = 1000 + (block_id % 2000) as u64;
+        let compile_time = 1000 + (block_id % 2000);
         std::thread::sleep(std::time::Duration::from_micros(compile_time));
 
         Ok(CompiledCode {
@@ -362,12 +359,11 @@ impl TieredCompiler {
         }
 
         // Recompile if tier changed
-        if let Some(cached) = self.state.get_cached_code(block_id) {
-            if let Some(current_stats) = self.state.get_stats(block_id) {
-                if current_stats.current_tier != Some(cached.tier) {
-                    return self.compile(block_id);
-                }
-            }
+        if let Some(cached) = self.state.get_cached_code(block_id)
+            && let Some(current_stats) = self.state.get_stats(block_id)
+            && current_stats.current_tier != Some(cached.tier)
+        {
+            return self.compile(block_id);
         }
 
         // Return cached or compile
@@ -479,7 +475,10 @@ mod tests {
 
         // Update to Tier 1
         state.update_tier(1, CompilationTier::Tier1);
-        assert_eq!(state.get_stats(1).unwrap().current_tier, Some(CompilationTier::Tier1));
+        assert_eq!(
+            state.get_stats(1).unwrap().current_tier,
+            Some(CompilationTier::Tier1)
+        );
     }
 
     #[test]

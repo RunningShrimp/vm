@@ -2,13 +2,13 @@
 //!
 //! 支持三种架构（AMD64、ARM64、RISC-V64）两两之间的AOT编译
 
-use super::{Architecture, PerformanceConfig, PerformanceOptimizer, SourceArch, TargetArch};
-use aot_builder::{AotBuilder, CodegenMode, CompilationOptions};
+use super::{Architecture, PerformanceConfig, PerformanceOptimizer};
+use vm_engine_jit::aot::{AotBuilder, CodegenMode, CompilationOptions};
 use std::collections::HashMap;
 use std::path::Path;
-use vm_core::{GuestAddr, GuestArch, VmError};
+use vm_core::{GuestAddr, VmError};
 use vm_ir::IRBlock;
-use vm_ir_lift::ISA;
+use vm_ir::lift::ISA;
 
 /// 跨架构AOT编译配置
 #[derive(Debug, Clone)]
@@ -77,6 +77,9 @@ impl CrossArchAotCompiler {
             target_isa,
             enable_applicability_check: true,
             codegen_mode: config.codegen_mode.clone(),
+            enable_parallel_compilation: false,
+            parallel_threads: 1,
+            respect_dependencies: true,
         };
 
         let builder = AotBuilder::with_options(compilation_options);
@@ -100,8 +103,14 @@ impl CrossArchAotCompiler {
     ) -> Result<(), VmError> {
         let start_time = std::time::Instant::now();
 
-        // 1. 解码源架构代码为IR
-        let ir_block = self.decode_source_to_ir(source_code, source_arch, pc)?;
+        // 1. 解码源架构代码为IR（使用缓存避免重复解码）
+        let ir_block = if let Some(cached_ir) = self.source_to_ir.get(&pc) {
+            cached_ir.clone()
+        } else {
+            let new_ir = self.decode_source_to_ir(source_code, source_arch, pc)?;
+            self.source_to_ir.insert(pc, new_ir.clone());
+            new_ir
+        };
 
         // 2. 跨架构优化（如果需要）
         let optimized_ir = if self.config.enable_cross_arch_optimization {
@@ -113,6 +122,7 @@ impl CrossArchAotCompiler {
         // 3. 编译IR到目标架构代码
         let target_code = self.compile_ir_to_target(&optimized_ir)?;
         let code_size = target_code.len();
+        self.stats.generated_code_size += code_size;
 
         // 4. 添加到AOT镜像
         self.builder
@@ -175,7 +185,7 @@ impl CrossArchAotCompiler {
         pc: GuestAddr,
     ) -> Result<IRBlock, VmError> {
         // 使用vm-ir-lift解码
-        use vm_ir_lift::{LiftingContext, create_decoder, create_semantics};
+        use vm_ir::lift::create_decoder;
 
         let source_isa = match source_arch {
             Architecture::X86_64 => ISA::X86_64,
@@ -290,7 +300,7 @@ impl CrossArchAotCompiler {
     pub fn save_to_file<P: AsRef<Path>>(self, path: P) -> Result<(), VmError> {
         let image = self.builder.build();
         let mut file = std::fs::File::create(path).map_err(|e| VmError::Io(e.to_string()))?;
-        image
+        image?
             .serialize(&mut file)
             .map_err(|e| VmError::Io(e.to_string()))?;
         Ok(())

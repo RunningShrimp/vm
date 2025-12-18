@@ -5,7 +5,7 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Instant;
-use vm_core::MmioDevice;
+use vm_core::{MmioDevice, VmResult};
 
 /// CLINT 寄存器偏移
 pub mod offsets {
@@ -151,18 +151,14 @@ impl ClintMmio {
 }
 
 impl MmioDevice for ClintMmio {
-    fn read(&self, offset: u64, size: u8) -> u64 {
+    fn read(&self, offset: u64, size: u8) -> VmResult<u64> {
         let mut clint = self.clint.lock();
-        clint.read(offset, size)
+        Ok(clint.read(offset, size))
     }
 
-    fn write(&mut self, offset: u64, val: u64, size: u8) {
+    fn write(&mut self, offset: u64, val: u64, size: u8) -> VmResult<()> {
         let mut clint = self.clint.lock();
         clint.write(offset, val, size);
-    }
-
-    fn poll(&mut self, _mmu: &mut dyn vm_core::MMU) {
-        let mut clint = self.clint.lock();
-        clint.update_time();
+        Ok(())
     }
 }

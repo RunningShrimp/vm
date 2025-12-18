@@ -6,15 +6,56 @@
 //! - 工作线程（M）：OS线程，绑定到CPU核心，执行调度循环
 //! - 反应器（Reactor）：后台I/O运行时，监听和唤醒阻塞协程
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::os::unix::io::RawFd;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
+use std::time::{Duration, Instant};
 
-use parking_lot::Mutex;
 use crossbeam_queue::SegQueue;
+use parking_lot::Mutex;
 use uuid::Uuid;
+
+/// Legacy compatibility types and functions
+/// These are provided for backward compatibility with the deprecated gmp module
+#[derive(Debug, Clone, Copy)]
+pub struct Token(usize);
+
+impl Token {
+    /// 获取 Token 的值
+    pub fn value(&self) -> usize {
+        self.0
+    }
+}
+
+/// Legacy yield_now implementation for backward compatibility
+pub async fn yield_now(_reason: YieldReason) {
+    // In the new scheduler, we simulate yield by sleeping for a short duration
+    // This is a simplified version for backward compatibility
+    std::thread::sleep(Duration::from_micros(10));
+}
+
+#[cfg(target_family = "unix")]
+pub fn register_readable(_fd: RawFd) -> Token {
+    // This is a no-op implementation for backward compatibility
+    static NEXT_TOKEN: AtomicUsize = AtomicUsize::new(0);
+    let id = NEXT_TOKEN.fetch_add(1, Ordering::SeqCst);
+    Token(id)
+}
+
+#[cfg(target_family = "unix")]
+pub fn register_writable(_fd: RawFd) -> Token {
+    // This is a no-op implementation for backward compatibility
+    static NEXT_TOKEN: AtomicUsize = AtomicUsize::new(0);
+    let id = NEXT_TOKEN.fetch_add(1, Ordering::SeqCst);
+    Token(id)
+}
+
+#[cfg(target_family = "unix")]
+pub fn unregister(_token: Token) {
+    // This is a no-op implementation for backward compatibility
+}
 
 /// 优先级枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -728,14 +769,17 @@ mod tests {
     #[test]
     fn test_scheduler_creation() {
         let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
-        assert_eq!(scheduler.num_workers(), num_cpus::get().saturating_sub(1).max(1));
+        assert_eq!(
+            scheduler.num_workers(),
+            num_cpus::get().saturating_sub(1).max(1)
+        );
         assert!(!scheduler.is_running());
     }
 
     #[test]
     fn test_task_submission() {
         let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
-        
+
         let task1 = scheduler.submit_task(Priority::High, || {});
         let task2 = scheduler.submit_task(Priority::Medium, || {});
         let task3 = scheduler.submit_task(Priority::Low, || {});

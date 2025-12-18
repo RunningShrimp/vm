@@ -31,6 +31,10 @@ pub mod riscv_vector;
 /// ARM SVE 指令
 pub mod sve;
 
+pub mod opt;
+
+pub use opt::SimdOptimizer;
+
 /// 计算单个 64-bit packed 向量的逐元素加法（按 element_size 分段）。
 pub fn vec_add(a: u64, b: u64, element_size: u8) -> u64 {
     platform::vec_add(a, b, element_size)

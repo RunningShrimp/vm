@@ -71,19 +71,24 @@ impl GdbServer {
 /// GDB 连接
 pub struct GdbConnection {
     stream: TcpStream,
+    /// 内部缓冲区，用于优化多次读取操作
     buffer: Vec<u8>,
 }
 
 impl GdbConnection {
     fn new(stream: TcpStream) -> Self {
+        // 预分配缓冲区以减少分配次数，容量为4KB
         Self {
             stream,
-            buffer: Vec::new(),
+            buffer: Vec::with_capacity(4096),
         }
     }
 
     /// 接收 GDB 数据包
     pub fn recv_packet(&mut self) -> Result<String, String> {
+        // 清空缓冲区但保留容量，用于下次读取
+        self.buffer.clear();
+        
         let mut reader = BufReader::new(&self.stream);
         let mut line = String::new();
 
@@ -95,6 +100,8 @@ impl GdbConnection {
         if line.starts_with('$') {
             let end = line.find('#').unwrap_or(line.len());
             let data = &line[1..end];
+            // 将数据存储到缓冲区以供后续使用
+            self.buffer.extend_from_slice(data.as_bytes());
             Ok(data.to_string())
         } else {
             Err("Invalid packet format".to_string())
@@ -190,7 +197,7 @@ impl GdbSession {
                     let len = usize::from_str_radix(parts[1], 16)
                         .map_err(|_| "Invalid length".to_string())?;
 
-                    match self.read_memory(mmu, addr, len) {
+                    match self.read_memory(mmu, GuestAddr(addr), len) {
                         Ok(data) => {
                             let hex = data
                                 .iter()
@@ -216,7 +223,7 @@ impl GdbSession {
                             .map_err(|_| "Invalid address".to_string())?;
                         let data = Self::hex_to_bytes(parts[1])?;
 
-                        match self.write_memory(mmu, addr, &data) {
+                        match self.write_memory(mmu, GuestAddr(addr), &data) {
                             Ok(_) => self.connection.send_packet("OK")?,
                             Err(_) => self.connection.send_error(0x01)?,
                         }
@@ -243,7 +250,7 @@ impl GdbSession {
                 if !parts.is_empty() {
                     let addr = u64::from_str_radix(parts[0], 16)
                         .map_err(|_| "Invalid address".to_string())?;
-                    self.breakpoints.push(addr);
+                    self.breakpoints.push(GuestAddr(addr));
                     self.connection.send_packet("OK")?;
                 }
             }
@@ -255,7 +262,7 @@ impl GdbSession {
                 if !parts.is_empty() {
                     let addr = u64::from_str_radix(parts[0], 16)
                         .map_err(|_| "Invalid address".to_string())?;
-                    self.breakpoints.retain(|&bp| bp != addr);
+                    self.breakpoints.retain(|&bp| bp != GuestAddr(addr));
                     self.connection.send_packet("OK")?;
                 }
             }
@@ -287,7 +294,7 @@ impl GdbSession {
 
     /// 格式化寄存器为十六进制字符串
     fn format_registers(&self, vcpu: &VcpuStateContainer) -> String {
-        vcpu.regs
+        vcpu.state.regs.gpr
             .iter()
             .map(|r| format!("{:016x}", r))
             .collect::<Vec<_>>()
@@ -297,12 +304,12 @@ impl GdbSession {
     /// 从十六进制字符串解析寄存器
     fn parse_registers(&self, vcpu: &mut VcpuStateContainer, hex: &str) -> Result<(), String> {
         let mut offset = 0;
-        for i in 0..vcpu.regs.len() {
+        for i in 0..vcpu.state.regs.gpr.len() {
             if offset + 16 > hex.len() {
                 break;
             }
             let reg_hex = &hex[offset..offset + 16];
-            vcpu.regs[i] = u64::from_str_radix(reg_hex, 16)
+            vcpu.state.regs.gpr[i] = u64::from_str_radix(reg_hex, 16)
                 .map_err(|_| "Invalid register value".to_string())?;
             offset += 16;
         }
@@ -319,7 +326,7 @@ impl GdbSession {
         let mut data = Vec::with_capacity(len);
         for i in 0..len {
             match mmu.read(addr + i as u64, 1) {
-                Ok(byte) => data.push(byte as u8),
+                Ok(byte) => data.push(byte.try_into().unwrap()),
                 Err(_) => return Err("Memory read failed".to_string()),
             }
         }
@@ -329,7 +336,7 @@ impl GdbSession {
     /// 写入内存
     fn write_memory(&self, mmu: &mut dyn MMU, addr: GuestAddr, data: &[u8]) -> Result<(), String> {
         for (i, &byte) in data.iter().enumerate() {
-            mmu.write(addr + i as u64, byte as u64, 1)
+            mmu.write(GuestAddr(addr.0 + i as u64), byte as u64, 1)
                 .map_err(|_| "Memory write failed".to_string())?;
         }
         Ok(())

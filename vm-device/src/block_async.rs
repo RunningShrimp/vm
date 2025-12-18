@@ -684,9 +684,9 @@ impl AsyncVirtioBlockMmio {
             completion_tx,
             selected_queue: 0,
             queue_size: 128,
-            desc_addr: 0,
-            avail_addr: 0,
-            used_addr: 0,
+            desc_addr: GuestAddr(0),
+            avail_addr: GuestAddr(0),
+            used_addr: GuestAddr(0),
             device_status: 0,
             driver_features: 0,
             interrupt_status: 0,
@@ -857,9 +857,9 @@ impl AsyncVirtioBlockMmio {
             0x038 => self.queue_size = val as u32,
             0x044 => self.device_status = val as u32,
             0x064 => self.interrupt_status &= !(val as u32),
-            0x080 => self.desc_addr = val,
-            0x090 => self.avail_addr = val,
-            0x0A0 => self.used_addr = val,
+            0x080 => self.desc_addr = GuestAddr(val),
+            0x090 => self.avail_addr = GuestAddr(val),
+            0x0A0 => self.used_addr = GuestAddr(val),
             _ => {}
         }
     }

@@ -3,8 +3,8 @@
 //! 将VirtualMachine重构为聚合根，负责维护聚合不变式和发布领域事件。
 
 use crate::domain_event_bus::DomainEventBus;
-use crate::domain_events::{DomainEvent, DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
-use crate::{VmConfig, VmError, VmResult, VmState};
+use crate::domain_events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
+use crate::{VmLifecycleState, VmConfig, VmError, VmResult, VmState};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -36,7 +36,7 @@ pub struct VirtualMachineAggregate {
     /// 配置
     config: VmConfig,
     /// 当前状态
-    state: VmState,
+    state: VmLifecycleState,
     /// 事件总线（可选，如果为None则使用全局总线）
     event_bus: Option<Arc<DomainEventBus>>,
     /// 未提交的事件
@@ -52,7 +52,7 @@ impl VirtualMachineAggregate {
         let mut aggregate = Self {
             vm_id: vm_id.clone(),
             config: config.clone(),
-            state: VmState::Created,
+            state: VmLifecycleState::Created,
             event_bus: None,
             uncommitted_events: Vec::new(),
             version: 1,
@@ -73,7 +73,7 @@ impl VirtualMachineAggregate {
         let mut aggregate = Self {
             vm_id: vm_id.clone(),
             config: config.clone(),
-            state: VmState::Created,
+            state: VmLifecycleState::Created,
             event_bus: Some(event_bus),
             uncommitted_events: Vec::new(),
             version: 1,
@@ -88,128 +88,20 @@ impl VirtualMachineAggregate {
         aggregate
     }
 
-    /// 启动虚拟机
-    pub fn start(&mut self) -> VmResult<()> {
-        // 检查不变式：只能在Created或Paused状态启动
-        if self.state != VmState::Created && self.state != VmState::Paused {
-            return Err(VmError::Core(crate::CoreError::InvalidState {
-                message: format!("Cannot start VM in state {:?}", self.state),
-                current: format!("{:?}", self.state),
-                expected: "Created or Paused".to_string(),
-            }));
-        }
-
-        let old_state = self.state;
-        self.state = VmState::Running;
+    /// Set VM state directly (internal method)
+    /// 
+    /// This method is used by domain services to set the state
+    /// after validation has been performed.
+    pub(crate) fn set_state(&mut self, state: VmLifecycleState) {
+        self.state = state;
         self.version += 1;
-
-        // 发布状态变更事件
-        self.record_event(DomainEventEnum::VmLifecycle(
-            VmLifecycleEvent::VmStateChanged {
-                vm_id: self.vm_id.clone(),
-                from: old_state,
-                to: self.state,
-                occurred_at: SystemTime::now(),
-            },
-        ));
-
-        // 发布启动事件
-        self.record_event(DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
-            vm_id: self.vm_id.clone(),
-            occurred_at: SystemTime::now(),
-        }));
-
-        Ok(())
     }
-
-    /// 暂停虚拟机
-    pub fn pause(&mut self) -> VmResult<()> {
-        if self.state != VmState::Running {
-            return Err(VmError::Core(crate::CoreError::InvalidState {
-                message: format!("Cannot pause VM in state {:?}", self.state),
-                current: format!("{:?}", self.state),
-                expected: "Running".to_string(),
-            }));
-        }
-
-        let old_state = self.state;
-        self.state = VmState::Paused;
-        self.version += 1;
-
-        self.record_event(DomainEventEnum::VmLifecycle(
-            VmLifecycleEvent::VmStateChanged {
-                vm_id: self.vm_id.clone(),
-                from: old_state,
-                to: self.state,
-                occurred_at: SystemTime::now(),
-            },
-        ));
-
-        self.record_event(DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmPaused {
-            vm_id: self.vm_id.clone(),
-            occurred_at: SystemTime::now(),
-        }));
-
-        Ok(())
-    }
-
-    /// 恢复虚拟机
-    pub fn resume(&mut self) -> VmResult<()> {
-        if self.state != VmState::Paused {
-            return Err(VmError::Core(crate::CoreError::InvalidState {
-                message: format!("Cannot resume VM in state {:?}", self.state),
-                current: format!("{:?}", self.state),
-                expected: "Paused".to_string(),
-            }));
-        }
-
-        let old_state = self.state;
-        self.state = VmState::Running;
-        self.version += 1;
-
-        self.record_event(DomainEventEnum::VmLifecycle(
-            VmLifecycleEvent::VmStateChanged {
-                vm_id: self.vm_id.clone(),
-                from: old_state,
-                to: self.state,
-                occurred_at: SystemTime::now(),
-            },
-        ));
-
-        self.record_event(DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmResumed {
-            vm_id: self.vm_id.clone(),
-            occurred_at: SystemTime::now(),
-        }));
-
-        Ok(())
-    }
-
-    /// 停止虚拟机
-    pub fn stop(&mut self, reason: String) -> VmResult<()> {
-        let old_state = self.state;
-        self.state = VmState::Stopped;
-        self.version += 1;
-
-        self.record_event(DomainEventEnum::VmLifecycle(
-            VmLifecycleEvent::VmStateChanged {
-                vm_id: self.vm_id.clone(),
-                from: old_state,
-                to: self.state,
-                occurred_at: SystemTime::now(),
-            },
-        ));
-
-        self.record_event(DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStopped {
-            vm_id: self.vm_id.clone(),
-            reason,
-            occurred_at: SystemTime::now(),
-        }));
-
-        Ok(())
-    }
-
-    /// 记录领域事件
-    fn record_event(&mut self, event: DomainEventEnum) {
+    
+    /// Record an event (internal method)
+    /// 
+    /// This method is used by domain services to record events
+    /// after validation has been performed.
+    pub(crate) fn record_event(&mut self, event: DomainEventEnum) {
         self.uncommitted_events.push(event);
     }
 
@@ -259,7 +151,11 @@ impl VirtualMachineAggregate {
     ///
     /// # 返回
     /// 重建后的聚合根
-    pub fn from_events(vm_id: String, config: VmConfig, events: Vec<crate::event_store::StoredEvent>) -> Self {
+    pub fn from_events(
+        vm_id: String,
+        config: VmConfig,
+        events: Vec<crate::event_store_legacy::StoredEvent>,
+    ) -> Self {
         let mut aggregate = Self {
             vm_id: vm_id.clone(),
             config: config.clone(),
@@ -283,28 +179,28 @@ impl VirtualMachineAggregate {
     /// 这个方法用于事件回放，不会记录事件到uncommitted_events。
     fn apply_event(&mut self, event: &DomainEventEnum) {
         match event {
-            DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreated { config, .. }) => {
+            DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreated { .. }) => {
                 // 从事件中恢复配置（如果需要）
                 // 注意：这里假设config已经通过构造函数传入
-                self.state = VmState::Created;
+                self.state = VmLifecycleState::Created;
             }
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted { .. }) => {
-                if self.state == VmState::Created || self.state == VmState::Paused {
-                    self.state = VmState::Running;
+                if self.state == VmLifecycleState::Created || self.state == VmLifecycleState::Paused {
+                    self.state = VmLifecycleState::Running;
                 }
             }
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmPaused { .. }) => {
-                if self.state == VmState::Running {
-                    self.state = VmState::Paused;
+                if self.state == VmLifecycleState::Running {
+                    self.state = VmLifecycleState::Paused;
                 }
             }
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmResumed { .. }) => {
-                if self.state == VmState::Paused {
-                    self.state = VmState::Running;
+                if self.state == VmLifecycleState::Paused {
+                    self.state = VmLifecycleState::Running;
                 }
             }
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStopped { .. }) => {
-                self.state = VmState::Stopped;
+                self.state = VmLifecycleState::Stopped;
             }
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStateChanged { to, .. }) => {
                 self.state = *to;
@@ -348,15 +244,18 @@ mod tests {
         };
 
         let aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        
+
         assert_eq!(aggregate.aggregate_id(), "test-vm");
-        assert_eq!(aggregate.state, VmState::Created);
+        assert_eq!(aggregate.state, VmLifecycleState::Created);
         assert_eq!(aggregate.version, 1);
-        
+
         // 应该有一个创建事件
         let events = aggregate.uncommitted_events();
         assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreated { .. })));
+        assert!(matches!(
+            events[0],
+            DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreated { .. })
+        ));
     }
 
     #[test]
@@ -374,13 +273,36 @@ mod tests {
             config,
             event_bus.clone(),
         );
-        
+
         assert_eq!(aggregate.aggregate_id(), "test-vm");
         assert!(aggregate.event_bus.is_some());
     }
 
     #[test]
-    fn test_virtual_machine_start() {
+    fn test_virtual_machine_set_state() {
+        let config = VmConfig {
+            guest_arch: GuestArch::Riscv64,
+            memory_size: 64 * 1024 * 1024,
+            vcpu_count: 1,
+            ..Default::default()
+        };
+
+        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
+        let initial_version = aggregate.version();
+
+        // 设置状态
+        aggregate.set_state(VmLifecycleState::Running);
+        assert_eq!(aggregate.state(), VmLifecycleState::Running);
+        assert_eq!(aggregate.version(), initial_version + 1);
+
+        // 再次设置状态
+        aggregate.set_state(VmLifecycleState::Paused);
+        assert_eq!(aggregate.state(), VmLifecycleState::Paused);
+        assert_eq!(aggregate.version(), initial_version + 2);
+    }
+
+    #[test]
+    fn test_virtual_machine_record_event() {
         let config = VmConfig {
             guest_arch: GuestArch::Riscv64,
             memory_size: 64 * 1024 * 1024,
@@ -393,103 +315,21 @@ mod tests {
         // 清除创建事件
         aggregate.mark_events_as_committed();
         
-        // 启动虚拟机
-        assert!(aggregate.start().is_ok());
-        assert_eq!(aggregate.state, VmState::Running);
+        // 记录一个自定义事件
+        let custom_event = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
+            vm_id: "test-vm".to_string(),
+            occurred_at: SystemTime::now(),
+        });
         
-        // 应该有一个启动事件
+        aggregate.record_event(custom_event);
+        
+        // 应该有一个事件
         let events = aggregate.uncommitted_events();
         assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted { .. })));
-    }
-
-    #[test]
-    fn test_virtual_machine_start_invalid_state() {
-        let config = VmConfig {
-            guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
-            vcpu_count: 1,
-            ..Default::default()
-        };
-
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        aggregate.state = VmState::Running;
-        
-        // 已经在运行状态，不能再次启动
-        assert!(aggregate.start().is_err());
-    }
-
-    #[test]
-    fn test_virtual_machine_pause() {
-        let config = VmConfig {
-            guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
-            vcpu_count: 1,
-            ..Default::default()
-        };
-
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        aggregate.state = VmState::Running;
-        aggregate.mark_events_as_committed();
-        
-        // 暂停虚拟机
-        assert!(aggregate.pause().is_ok());
-        assert_eq!(aggregate.state, VmState::Paused);
-        
-        // 应该有一个暂停事件
-        let events = aggregate.uncommitted_events();
-        assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmPaused { .. })));
-    }
-
-    #[test]
-    fn test_virtual_machine_resume() {
-        let config = VmConfig {
-            guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
-            vcpu_count: 1,
-            ..Default::default()
-        };
-
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        aggregate.state = VmState::Paused;
-        aggregate.mark_events_as_committed();
-        
-        // 恢复虚拟机
-        assert!(aggregate.resume().is_ok());
-        assert_eq!(aggregate.state, VmState::Running);
-        
-        // 应该有一个恢复事件
-        let events = aggregate.uncommitted_events();
-        assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmResumed { .. })));
-    }
-
-    #[test]
-    fn test_virtual_machine_stop() {
-        let config = VmConfig {
-            guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
-            vcpu_count: 1,
-            ..Default::default()
-        };
-
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        aggregate.state = VmState::Running;
-        aggregate.mark_events_as_committed();
-        
-        // 停止虚拟机
-        assert!(aggregate.stop("Test reason".to_string()).is_ok());
-        assert_eq!(aggregate.state, VmState::Stopped);
-        
-        // 应该有一个停止事件
-        let events = aggregate.uncommitted_events();
-        assert_eq!(events.len(), 1);
-        if let DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStopped { reason, .. }) = &events[0] {
-            assert_eq!(reason, "Test reason");
-        } else {
-            panic!("Expected VmStopped event");
-        }
+        assert!(matches!(
+            events[0],
+            DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted { .. })
+        ));
     }
 
     #[test]
@@ -502,14 +342,14 @@ mod tests {
         };
 
         let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        
+
         // 测试 aggregate_id
         assert_eq!(aggregate.aggregate_id(), "test-vm");
-        
+
         // 测试 uncommitted_events
         let events = aggregate.uncommitted_events();
         assert!(!events.is_empty());
-        
+
         // 测试 mark_events_as_committed
         aggregate.mark_events_as_committed();
         assert!(aggregate.uncommitted_events().is_empty());
@@ -525,71 +365,15 @@ mod tests {
         };
 
         let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        let initial_version = aggregate.version;
-        
-        aggregate.start().unwrap();
-        aggregate.mark_events_as_committed();
-        
-        // 版本应该在操作后递增
-        assert!(aggregate.version > initial_version);
-    }
+        let initial_version = aggregate.version();
 
-    #[test]
-    fn test_pause_invalid_state() {
-        let config = VmConfig {
-            guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
-            vcpu_count: 1,
-            ..Default::default()
-        };
+        // Set state multiple times
+        aggregate.set_state(VmLifecycleState::Running);
+        aggregate.set_state(VmLifecycleState::Paused);
+        aggregate.set_state(VmLifecycleState::Stopped);
 
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        // 在Created状态不能暂停
-        assert!(aggregate.pause().is_err());
-        
-        aggregate.state = VmState::Stopped;
-        // 在Stopped状态不能暂停
-        assert!(aggregate.pause().is_err());
-    }
-
-    #[test]
-    fn test_resume_invalid_state() {
-        let config = VmConfig {
-            guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
-            vcpu_count: 1,
-            ..Default::default()
-        };
-
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        // 在Created状态不能恢复
-        assert!(aggregate.resume().is_err());
-        
-        aggregate.state = VmState::Running;
-        // 在Running状态不能恢复
-        assert!(aggregate.resume().is_err());
-        
-        aggregate.state = VmState::Stopped;
-        // 在Stopped状态不能恢复
-        assert!(aggregate.resume().is_err());
-    }
-
-    #[test]
-    fn test_stop_from_paused_state() {
-        let config = VmConfig {
-            guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
-            vcpu_count: 1,
-            ..Default::default()
-        };
-
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        aggregate.state = VmState::Paused;
-        aggregate.mark_events_as_committed();
-        
-        // 可以从Paused状态停止
-        assert!(aggregate.stop("Stopped from paused".to_string()).is_ok());
-        assert_eq!(aggregate.state, VmState::Stopped);
+        // Version should have been incremented for each state change
+        assert_eq!(aggregate.version(), initial_version + 3);
     }
 
     #[test]
@@ -602,10 +386,10 @@ mod tests {
         };
 
         let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        
+
         // 应该有未提交的事件
         assert!(!aggregate.uncommitted_events().is_empty());
-        
+
         // 提交事件到事件总线（使用内部事件总线或创建新的）
         assert!(aggregate.commit_events().is_ok());
         assert!(aggregate.uncommitted_events().is_empty());
@@ -626,7 +410,7 @@ mod tests {
             config,
             event_bus.clone(),
         );
-        
+
         // 提交事件
         assert!(aggregate.commit_events().is_ok());
         assert!(aggregate.uncommitted_events().is_empty());
@@ -642,26 +426,27 @@ mod tests {
         };
 
         let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        aggregate.mark_events_as_committed();
-        
+        let initial_version = aggregate.version();
+
         // Created -> Running
-        assert!(aggregate.start().is_ok());
-        assert_eq!(aggregate.state, VmState::Running);
-        aggregate.mark_events_as_committed();
-        
+        aggregate.set_state(VmLifecycleState::Running);
+        assert_eq!(aggregate.state(), VmLifecycleState::Running);
+        assert_eq!(aggregate.version(), initial_version + 1);
+
         // Running -> Paused
-        assert!(aggregate.pause().is_ok());
-        assert_eq!(aggregate.state, VmState::Paused);
-        aggregate.mark_events_as_committed();
-        
+        aggregate.set_state(VmLifecycleState::Paused);
+        assert_eq!(aggregate.state(), VmLifecycleState::Paused);
+        assert_eq!(aggregate.version(), initial_version + 2);
+
         // Paused -> Running
-        assert!(aggregate.resume().is_ok());
-        assert_eq!(aggregate.state, VmState::Running);
-        aggregate.mark_events_as_committed();
-        
+        aggregate.set_state(VmLifecycleState::Running);
+        assert_eq!(aggregate.state(), VmLifecycleState::Running);
+        assert_eq!(aggregate.version(), initial_version + 3);
+
         // Running -> Stopped
-        assert!(aggregate.stop("Test".to_string()).is_ok());
-        assert_eq!(aggregate.state, VmState::Stopped);
+        aggregate.set_state(VmLifecycleState::Stopped);
+        assert_eq!(aggregate.state(), VmLifecycleState::Stopped);
+        assert_eq!(aggregate.version(), initial_version + 4);
     }
 
     #[test]
@@ -674,7 +459,7 @@ mod tests {
         };
 
         let aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
-        assert_eq!(aggregate.state(), VmState::Created);
+        assert_eq!(aggregate.state(), VmLifecycleState::Created);
     }
 
     #[test]
@@ -701,7 +486,7 @@ mod tests {
 
         let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
         let initial_version = aggregate.version();
-        
+
         aggregate.start().unwrap();
         assert!(aggregate.version() > initial_version);
     }

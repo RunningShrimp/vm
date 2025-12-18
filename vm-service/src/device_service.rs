@@ -3,11 +3,9 @@
 //! 实现统一的设备控制服务，处理所有设备的业务逻辑。
 //! 符合DDD贫血模型原则，将设备控制逻辑从设备结构移至服务层。
 
-use log::{error, info};
 use parking_lot::Mutex;
 use std::sync::{Arc, Mutex as StdMutex};
 use vm_core::{GuestAddr, MMU, VmConfig, VmError, VmResult};
-use vm_device::block::{VirtioBlock, VirtioBlockMmio};
 use vm_device::block_service::BlockDeviceService;
 use vm_device::clint::{Clint, ClintMmio};
 use vm_device::gpu_virt::GpuManager;
@@ -61,7 +59,7 @@ impl DeviceService {
                         device_type: "GPU".to_string(),
                         message: format!("GPU backend select failed: {}", e),
                     })
-                });
+                })?;
         } else {
             gpu_manager.auto_select_backend();
         }
@@ -94,14 +92,21 @@ impl DeviceService {
 
         // 初始化GPU后端（如果已设置）
         if let Some(ref mut gpu_manager) = self.gpu_manager {
-            let mut mmu_guard = mmu.lock().unwrap();
+            let _mmu_guard = mmu.lock().unwrap();
             gpu_manager.init_selected_backend().map_err(|e| {
                 VmError::Device(vm_core::DeviceError::InitFailed {
                     device_type: "GPU".to_string(),
                     message: format!("GPU init failed: {:?}", e),
                 })
-            });
+            })?;
         }
+
+        // 初始化Block设备服务
+        // 使用默认配置：1GB磁盘容量，512字节扇区大小，可读写
+        // 由于VmConfig中没有disk_gb字段，我们使用固定值：1GB = 2097152扇区（假设512字节扇区）
+        let disk_capacity_sectors = 2097152u64; // 1GB / 512 bytes per sector
+        let block_service = BlockDeviceService::new(disk_capacity_sectors, 512, false);
+        self.block_service = Some(block_service);
 
         Ok(())
     }
@@ -109,7 +114,7 @@ impl DeviceService {
     /// 映射设备到MMIO地址空间
     ///
     /// 将设备注册到MMU的MMIO映射中
-    pub async fn map_devices(&self, config: &VmConfig) -> VmResult<()> {
+    pub async fn map_devices(&self) -> VmResult<()> {
         let mmu = self
             .mmu
             .as_ref()
@@ -143,21 +148,21 @@ impl DeviceService {
             })?
             .clone();
 
-        let mut mmu_guard = mmu.lock().unwrap();
+        let mmu_guard = mmu.lock().unwrap();
 
         // CLINT @ 0x0200_0000 (16KB)
         let clint_mmio = ClintMmio::new(Arc::clone(&clint));
-        mmu_guard.map_mmio(0x0200_0000, 0x10000, Box::new(clint_mmio));
+        mmu_guard.map_mmio(vm_core::GuestAddr(0x0200_0000), 0x10000, Box::new(clint_mmio));
 
         // PLIC @ 0x0C00_0000 (64MB)
-        let mut plic_mmio = PlicMmio::new(Arc::clone(&plic));
+        let plic_mmio = PlicMmio::new(Arc::clone(&plic));
         plic_mmio.set_virtio_queue_source_base(32);
-        mmu_guard.map_mmio(0x0C00_0000, 0x4000000, Box::new(plic_mmio));
+        mmu_guard.map_mmio(vm_core::GuestAddr(0x0C00_0000), 0x4000000, Box::new(plic_mmio));
 
         // VirtIO Block 设备暂不映射到 MMU（需完整实现 MmioDevice）
         // VirtIO AI @ 0x1000_1000 (4KB)
         let virtio_ai = VirtioAiMmio::new(VirtioAi::new());
-        mmu_guard.map_mmio(0x1000_1000, 0x1000, Box::new(virtio_ai));
+        mmu_guard.map_mmio(vm_core::GuestAddr(0x1000_1000), 0x1000, Box::new(virtio_ai));
 
         Ok(())
     }
@@ -187,7 +192,7 @@ impl DeviceService {
             use tokio::time::{Duration, sleep};
             loop {
                 sleep(Duration::from_millis(10)).await;
-                let mut mmu_guard = mmu.lock().unwrap();
+                let mmu_guard = mmu.lock().unwrap();
                 mmu_guard.poll_devices();
             }
         });
@@ -224,21 +229,18 @@ impl DeviceService {
     pub fn process_io(
         &self,
         addr: GuestAddr,
-        is_write: bool,
-        size: u8,
-        data: u64,
     ) -> VmResult<u64> {
         // 根据MMIO地址范围路由到相应设备
         // 实际I/O处理由MMU中的MMIO设备处理
         // 这里主要用于路由和日志记录
 
-        if addr >= 0x1000_0000 && addr < 0x1000_2000 {
+        if addr >= vm_core::GuestAddr(0x1000_0000) && addr < vm_core::GuestAddr(0x1000_2000) {
             // VirtIO Block设备I/O（由MMU中的设备处理）
             Ok(0)
-        } else if addr >= 0x0200_0000 && addr < 0x0200_1000 {
+        } else if addr >= vm_core::GuestAddr(0x0200_0000) && addr < vm_core::GuestAddr(0x0200_1000) {
             // CLINT设备I/O（由MMU中的设备处理）
             Ok(0)
-        } else if addr >= 0x0C00_0000 && addr < 0x1000_0000 {
+        } else if addr >= vm_core::GuestAddr(0x0C00_0000) && addr < vm_core::GuestAddr(0x1000_0000) {
             // PLIC设备I/O（由MMU中的设备处理）
             Ok(0)
         } else {
@@ -271,8 +273,31 @@ impl DeviceService {
     /// 定期调用以处理设备的异步操作
     pub fn poll_devices(&self) -> VmResult<()> {
         if let Some(mmu) = &self.mmu {
-            let mut mmu_guard = mmu.lock().unwrap();
+            let mmu_guard = mmu.lock().unwrap();
             mmu_guard.poll_devices();
+        }
+        
+        // 轮询Block设备
+        if self.block_service.is_some() {
+            // 在这里可以添加Block设备的轮询逻辑
+            // 目前只是占位符实现
+        }
+        
+        Ok(())
+    }
+
+    /// 获取Block设备服务引用
+    pub fn block_service(&self) -> Option<&BlockDeviceService> {
+        self.block_service.as_ref()
+    }
+
+    /// 配置Block设备
+    pub async fn configure_block_device(&self, _path: &str, _readonly: bool) -> VmResult<()> {
+        if self.block_service.is_some() {
+            // 注意：BlockDeviceService没有configure_device方法
+            // 应该在初始化时通过BlockDeviceService::open创建实例
+            // 这里保留方法签名以保持接口一致性，但实际实现可能需要重构
+            todo!("需要重构Block设备配置逻辑");
         }
         Ok(())
     }

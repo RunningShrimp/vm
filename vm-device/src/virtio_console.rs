@@ -109,7 +109,7 @@ impl VirtioDevice for VirtioConsole {
                 if desc.flags & 0x1 == 0 {
                     // 可读
                     let mut bytes = vec![0u8; desc.len as usize];
-                    if mmu.read_bulk(desc.addr, &mut bytes).is_ok() {
+                    if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut bytes).is_ok() {
                         data.extend_from_slice(&bytes);
                     }
                 }
@@ -139,7 +139,7 @@ impl VirtioDevice for VirtioConsole {
                 if desc.flags & 0x1 == 0 {
                     // 可读
                     let mut bytes = vec![0u8; desc.len as usize];
-                    if mmu.read_bulk(desc.addr, &mut bytes).is_ok() {
+                    if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut bytes).is_ok() {
                         data.extend_from_slice(&bytes);
                     }
                 }

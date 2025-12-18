@@ -192,6 +192,7 @@ impl CpuInfo {
     #[cfg(target_arch = "aarch64")]
     fn detect_aarch64() -> Self {
         let mut features = CpuFeatures::default();
+        #[allow(unused_assignments)]
         let mut vendor = CpuVendor::Unknown;
         let mut model_name = String::from("Unknown ARM64 CPU");
 
@@ -292,11 +293,30 @@ impl CpuInfo {
                 || model_lower.contains("m4");
         }
 
-        // 检测 MediaTek
+        // 检测 MediaTek (适用于所有平台)
         if model_name.to_lowercase().contains("mediatek")
             || model_name.to_lowercase().contains("mt")
         {
             vendor = CpuVendor::MediaTek;
+        }
+
+        // 如果在非Linux和非macOS平台上仍未确定vendor，尝试从model_name推断
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            let model_lower = model_name.to_lowercase();
+            if model_lower.contains("qualcomm") || model_lower.contains("snapdragon") {
+                vendor = CpuVendor::Qualcomm;
+            } else if model_lower.contains("mediatek") || model_lower.contains("dimensity") {
+                vendor = CpuVendor::MediaTek;
+            } else if model_lower.contains("kirin") {
+                vendor = CpuVendor::HiSilicon;
+            } else if model_lower.contains("apple") || model_lower.contains("m1") 
+                || model_lower.contains("m2") || model_lower.contains("m3") 
+                || model_lower.contains("m4") {
+                vendor = CpuVendor::Apple;
+            } else {
+                vendor = CpuVendor::ARM; // 默认为ARM
+            }
         }
 
         let core_count = num_cpus::get();

@@ -2,7 +2,7 @@
 //!
 //! 提供多种优化策略以提高跨架构执行性能
 
-use super::{Architecture, CrossArchConfig};
+use super::Architecture;
 use std::collections::HashMap;
 use vm_core::GuestAddr;
 use vm_ir::{IRBlock, IROp};
@@ -43,6 +43,8 @@ impl Default for PerformanceConfig {
     }
 }
 
+use vm_ir::RegId;
+
 /// 性能优化器
 pub struct PerformanceOptimizer {
     config: PerformanceConfig,
@@ -50,6 +52,8 @@ pub struct PerformanceOptimizer {
     register_usage: HashMap<u32, u32>,
     /// 热点代码块（用于内联优化）
     hot_blocks: HashMap<GuestAddr, u32>,
+    /// 寄存器映射表（虚拟机寄存器 -> 物理寄存器）
+    register_mapping: HashMap<RegId, RegId>,
 }
 
 impl PerformanceOptimizer {
@@ -59,6 +63,7 @@ impl PerformanceOptimizer {
             config,
             register_usage: HashMap::new(),
             hot_blocks: HashMap::new(),
+            register_mapping: HashMap::new(),
         }
     }
 
@@ -232,6 +237,16 @@ impl PerformanceOptimizer {
 
         // 选择使用频率最高的寄存器映射到物理寄存器
         // 实际实现中需要更复杂的图着色算法
+        // 这里简化处理：只保留使用频率最高的available_regs个寄存器
+        let mut sorted_regs: Vec<_> = self.register_usage.iter().collect();
+        sorted_regs.sort_by(|a, b| b.1.cmp(a.1));
+        
+        // 只保留前available_regs个最常用的寄存器
+        self.register_mapping.clear();
+        for (i, (reg, _count)) in sorted_regs.iter().take(available_regs).enumerate() {
+            // 映射到物理寄存器i
+            self.register_mapping.insert(**reg, i as RegId);
+        }
 
         Ok(())
     }
@@ -254,18 +269,32 @@ impl PerformanceOptimizer {
             match op {
                 IROp::MulImm { dst, src, imm } => {
                     match target_arch {
-                        Architecture::ARM64 => {
-                            // ARM64: 如果imm是2的幂，使用移位
+                        Architecture::ARM64 | Architecture::RISCV64 => {
+                            // ARM64和RISCV64: 如果imm是2的幂，使用移位
                             if *imm > 0 && (*imm as u64).is_power_of_two() {
-                                let _shift = (*imm as u64).trailing_zeros();
-                                // 转换为移位操作（简化版）
-                                optimized_ops.push(op.clone());
+                                let shift = (*imm as u64).trailing_zeros();
+                                // 转换为移位操作
+                                optimized_ops.push(IROp::SllImm {
+                                    dst: *dst,
+                                    src: *src,
+                                    sh: shift as u8,
+                                });
                             } else {
                                 optimized_ops.push(op.clone());
                             }
                         }
-                        _ => {
-                            optimized_ops.push(op.clone());
+                        Architecture::X86_64 => {
+                            // x86-64: 如果imm是小常数，使用LEA指令（简化版）
+                            if *imm >= -2048 && *imm <= 2047 {
+                                // 这里使用AddImm模拟LEA效果
+                                optimized_ops.push(IROp::AddImm {
+                                    dst: *dst,
+                                    src: *src,
+                                    imm: *imm - 1, // 简化处理
+                                });
+                            } else {
+                                optimized_ops.push(op.clone());
+                            }
                         }
                     }
                 }

@@ -1,6 +1,6 @@
 //! 厂商扩展执行引擎测试
 
-use vm_simd::apple_amx::{AmxExecutor, AmxState, AmxTile};
+use vm_simd::apple_amx::{AmxExecutor, AmxState};
 
 #[test]
 fn test_amx_tile_config() {
@@ -17,9 +17,9 @@ fn test_amx_tile_config() {
 fn test_amx_mul_int8() {
     let mut executor = AmxExecutor::new();
 
-    executor.state.configure_tile(0, 2, 2, 1);
-    executor.state.configure_tile(1, 2, 2, 1);
-    executor.state.configure_tile(2, 2, 2, 1);
+    executor.configure_tile(0, 2, 2, 1);
+    executor.configure_tile(1, 2, 2, 1);
+    executor.configure_tile(2, 2, 2, 1);
 
     let result = executor.execute_mul(2, 0, 1, "Int8");
     assert!(result.is_ok());
@@ -29,11 +29,10 @@ fn test_amx_mul_int8() {
 fn test_amx_add_fp32() {
     let mut executor = AmxExecutor::new();
 
-    executor.state.configure_tile(0, 2, 2, 4);
-    executor.state.configure_tile(1, 2, 2, 4);
-    executor.state.configure_tile(2, 2, 2, 4);
+    executor.configure_tile(0, 2, 2, 4);
+    executor.configure_tile(1, 2, 2, 4);
+    executor.configure_tile(2, 2, 2, 4);
 
     let result = executor.execute_add(2, 0, 1, "Fp32");
     assert!(result.is_ok());
 }
-

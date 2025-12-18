@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use vm_core::{
-    VmError, VmResult,
-    domain_event_bus::{DomainEventBus, EventHandler, SimpleEventHandler},
+    VmResult,
+    domain_event_bus::{DomainEventBus, SimpleEventHandler},
     domain_events::{DeviceEvent, DomainEvent, DomainEventEnum},
 };
 
@@ -82,7 +82,8 @@ impl DeviceEventHandler {
                 Ok(())
             }
         });
-        let id = self.event_bus
+        let id = self
+            .event_bus
             .subscribe("device.added", Box::new(handler_added), None)?;
         ids.push(id);
 
@@ -98,7 +99,8 @@ impl DeviceEventHandler {
                 Ok(())
             }
         });
-        let id = self.event_bus
+        let id = self
+            .event_bus
             .subscribe("device.removed", Box::new(handler_removed), None)?;
         ids.push(id);
 
@@ -115,7 +117,8 @@ impl DeviceEventHandler {
                 Ok(())
             }
         });
-        let id = self.event_bus
+        let id = self
+            .event_bus
             .subscribe("device.interrupt", Box::new(handler_interrupt), None)?;
         ids.push(id);
 
@@ -124,15 +127,18 @@ impl DeviceEventHandler {
             let stats = Arc::clone(&self.stats);
             move |event: &dyn DomainEvent| -> VmResult<()> {
                 if event.event_type() == "device.io_completed" {
-                    let mut s = stats.lock().unwrap();
+                    let _s = stats.lock().unwrap();
                     // 注意：这里无法直接提取字节数，因为DomainEvent trait的限制
                     debug!("Device I/O completed");
                 }
                 Ok(())
             }
         });
-        let id = self.event_bus
-            .subscribe("device.io_completed", Box::new(handler_io_completed), None)?;
+        let id = self.event_bus.subscribe(
+            "device.io_completed",
+            Box::new(handler_io_completed),
+            None,
+        )?;
         ids.push(id);
 
         Ok(())

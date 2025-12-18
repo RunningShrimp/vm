@@ -175,7 +175,12 @@ pub fn detect_sve() -> bool {
 /// # Safety
 ///
 /// 调用者必须确保 `base` 指向至少 `offset + vl.get()` 字节的有效内存。
-pub unsafe fn ld1b(base: *const u8, offset: isize, pred: &SvePredicate, vl: &VectorLength) -> SveVector {
+pub unsafe fn ld1b(
+    base: *const u8,
+    offset: isize,
+    pred: &SvePredicate,
+    vl: &VectorLength,
+) -> SveVector {
     let mut result = Vec::with_capacity(vl.get());
     for i in 0..vl.get() {
         if pred.test(i) {
@@ -194,7 +199,12 @@ pub unsafe fn ld1b(base: *const u8, offset: isize, pred: &SvePredicate, vl: &Vec
 /// # Safety
 ///
 /// 调用者必须确保 `base` 指向至少 `(offset / 2) + (vl.get() / 2)` 个半字的有效内存。
-pub unsafe fn ld1h(base: *const u16, offset: isize, pred: &SvePredicate, vl: &VectorLength) -> Vec<u16> {
+pub unsafe fn ld1h(
+    base: *const u16,
+    offset: isize,
+    pred: &SvePredicate,
+    vl: &VectorLength,
+) -> Vec<u16> {
     let mut result = Vec::with_capacity(vl.get() / 2);
     for i in 0..(vl.get() / 2) {
         if pred.test(i) {
@@ -213,7 +223,12 @@ pub unsafe fn ld1h(base: *const u16, offset: isize, pred: &SvePredicate, vl: &Ve
 /// # Safety
 ///
 /// 调用者必须确保 `base` 指向至少 `(offset / 4) + (vl.get() / 4)` 个字的有效内存。
-pub unsafe fn ld1w(base: *const u32, offset: isize, pred: &SvePredicate, vl: &VectorLength) -> Vec<u32> {
+pub unsafe fn ld1w(
+    base: *const u32,
+    offset: isize,
+    pred: &SvePredicate,
+    vl: &VectorLength,
+) -> Vec<u32> {
     let mut result = Vec::with_capacity(vl.get() / 4);
     for i in 0..(vl.get() / 4) {
         if pred.test(i) {
@@ -232,7 +247,12 @@ pub unsafe fn ld1w(base: *const u32, offset: isize, pred: &SvePredicate, vl: &Ve
 /// # Safety
 ///
 /// 调用者必须确保 `base` 指向至少 `(offset / 8) + (vl.get() / 8)` 个双字的有效内存。
-pub unsafe fn ld1d(base: *const u64, offset: isize, pred: &SvePredicate, vl: &VectorLength) -> Vec<u64> {
+pub unsafe fn ld1d(
+    base: *const u64,
+    offset: isize,
+    pred: &SvePredicate,
+    vl: &VectorLength,
+) -> Vec<u64> {
     let mut result = Vec::with_capacity(vl.get() / 8);
     for i in 0..(vl.get() / 8) {
         if pred.test(i) {
@@ -308,11 +328,10 @@ pub fn sve_smaxv(a: &[i32], pred: &SvePredicate) -> i32 {
     let mut found = false;
 
     for i in 0..a.len() {
-        if pred.test(i)
-            && (!found || a[i] > max_val) {
-                max_val = a[i];
-                found = true;
-            }
+        if pred.test(i) && (!found || a[i] > max_val) {
+            max_val = a[i];
+            found = true;
+        }
     }
 
     if found {
@@ -327,12 +346,11 @@ pub fn sve_sminv(a: &[i32], pred: &SvePredicate) -> i32 {
     let mut min_val = i32::MAX;
     let mut found = false;
 
-    for i in 0..a.len() {
-        if pred.test(i)
-            && (!found || a[i] < min_val) {
-                min_val = a[i];
-                found = true;
-            }
+    for (i, &val) in a.iter().enumerate() {
+        if pred.test(i) && (!found || val < min_val) {
+            min_val = val;
+            found = true;
+        }
     }
 
     if found { min_val } else { 0 }
@@ -342,9 +360,9 @@ pub fn sve_sminv(a: &[i32], pred: &SvePredicate) -> i32 {
 /// 根据谓词压缩向量，只保留激活的元素
 pub fn sve_compress(a: &[u32], pred: &SvePredicate) -> Vec<u32> {
     let mut result = Vec::new();
-    for i in 0..a.len() {
+    for (i, &val) in a.iter().enumerate() {
         if pred.test(i) {
-            result.push(a[i]);
+            result.push(val);
         }
     }
     result
@@ -356,9 +374,9 @@ pub fn sve_decompress(compressed: &[u32], pred: &SvePredicate, original_len: usi
     let mut result = vec![0u32; original_len];
     let mut comp_idx = 0;
 
-    for i in 0..original_len {
+    for (i, val) in result.iter_mut().enumerate().take(original_len) {
         if pred.test(i) && comp_idx < compressed.len() {
-            result[i] = compressed[comp_idx];
+            *val = compressed[comp_idx];
             comp_idx += 1;
         }
     }

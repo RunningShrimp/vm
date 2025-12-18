@@ -10,6 +10,7 @@ log = "0.4"
 thiserror = "2.0"
 vm-core = { path = "../vm-core" }
 parking_lot = "0.12"
+serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 kvm-ioctls = { version = "0.24", optional = true }

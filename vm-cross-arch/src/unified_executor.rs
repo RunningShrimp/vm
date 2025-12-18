@@ -3,9 +3,9 @@
 //! 整合AOT、JIT、解释器，提供统一的跨架构执行接口
 
 use super::{
-    CacheConfig, CacheOptimizer, CachePolicy, CrossArchRuntime, CrossArchRuntimeConfig, HostArch,
+    CacheConfig, CacheOptimizer, CachePolicy, CrossArchRuntime, CrossArchRuntimeConfig,
 };
-use std::collections::HashMap;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use vm_core::{ExecResult, ExecutionEngine, GuestAddr, GuestArch, VmError};
@@ -13,7 +13,7 @@ use vm_ir::IRBlock;
 use vm_mem::SoftMmu;
 
 // AOT加载器类型别名（避免直接依赖vm-engine-jit的内部模块）
-type AotLoader = vm_engine_jit::aot_loader::AotLoader;
+type AotLoader = vm_engine_jit::aot::AotLoader;
 
 /// 统一执行器
 ///
@@ -46,6 +46,10 @@ pub struct ExecutionStats {
     pub aot_hit_rate: f64,
     /// JIT命中率
     pub jit_hit_rate: f64,
+    /// 翻译的指令数
+    pub instructions_translated: usize,
+    /// JIT编译时间（微秒）
+    pub jit_compilation_time_us: u64,
 }
 
 impl UnifiedExecutor {
@@ -138,7 +142,7 @@ impl UnifiedExecutor {
 
     /// 执行AOT代码
     fn execute_aot_code(&mut self, pc: GuestAddr, code: &[u8]) -> Result<ExecResult, VmError> {
-        tracing::debug!(pc = pc, code_size = code.len(), "Executing AOT code");
+        tracing::debug!(pc = pc.0, code_size = code.len(), "Executing AOT code");
 
         // 优先使用AOT加载器中的代码块（如果可用）
         if let Some(ref loader) = self.aot_loader {
@@ -147,7 +151,7 @@ impl UnifiedExecutor {
                 // 注意：这里需要将host_addr转换为函数指针并调用
                 // 当前实现使用运行时执行，但标记为AOT执行
                 tracing::debug!(
-                    pc = pc,
+                    pc = pc.0,
                     host_addr = block.host_addr as u64,
                     size = block.size,
                     "Found AOT code block in loader"
@@ -169,7 +173,7 @@ impl UnifiedExecutor {
         // 注意：当前实现中，CacheOptimizer存储的是字节码，不是可执行代码
         // 在实际生产环境中，应该存储函数指针或代码指针
         // 这里我们使用运行时来执行代码块，但标记为JIT执行
-        tracing::debug!(pc = pc, code_size = code.len(), "Executing JIT code");
+        tracing::debug!(pc = pc.0, code_size = code.len(), "Executing JIT code");
 
         // 实际执行：由于缓存中存储的是字节码而非可执行代码，
         // 我们需要通过运行时来执行。在完整实现中，应该：
@@ -242,7 +246,7 @@ impl UnifiedExecutor {
 
         // 通过运行时触发JIT编译
         // 运行时会在检测到热点时自动编译
-        tracing::debug!(pc = pc, "Triggering JIT compilation for hotspot");
+        tracing::debug!(pc = pc.0, "Triggering JIT compilation for hotspot");
         Ok(())
     }
 
@@ -254,7 +258,7 @@ impl UnifiedExecutor {
         }
 
         // 通过运行时触发AOT编译
-        tracing::debug!(pc = pc, "Triggering AOT compilation for hotspot");
+        tracing::debug!(pc = pc.0, "Triggering AOT compilation for hotspot");
         Ok(())
     }
 
@@ -285,6 +289,11 @@ impl UnifiedExecutor {
     /// 获取配置
     pub fn config(&self) -> &CrossArchRuntimeConfig {
         self.runtime.config()
+    }
+
+    /// 获取物理内存大小（字节）
+    pub fn memory_size(&self) -> usize {
+        self.runtime.memory_size()
     }
 }
 

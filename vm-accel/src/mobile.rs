@@ -3,7 +3,7 @@
 //! 实现针对华为海思麒麟、高通骁龙、联发科天玑等移动芯片的优化
 
 use super::cpuinfo::{CpuInfo, CpuVendor};
-use super::vendor_extensions::{VendorExtension, VendorExtensionDetector};
+use super::vendor_extensions::VendorExtensionDetector;
 
 /// 移动芯片型号
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

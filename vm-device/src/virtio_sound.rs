@@ -176,7 +176,7 @@ impl VirtioSound {
                 if desc.flags & 0x1 == 0 {
                     // 可读
                     let mut data = vec![0u8; desc.len as usize];
-                    if mmu.read_bulk(desc.addr, &mut data).is_ok() {
+                    if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut data).is_ok() {
                         // 将数据放入输入缓冲区
                         if let Ok(mut buffer) = self.input_buffer.lock() {
                             buffer.extend(&data);
@@ -215,7 +215,7 @@ impl VirtioSound {
                         }
 
                         if read > 0 {
-                            if mmu.write_bulk(desc.addr, &data[..read]).is_ok() {
+                            if mmu.write_bulk(vm_core::GuestAddr(desc.addr), &data[..read]).is_ok() {
                                 total_written += read;
                             }
                         }

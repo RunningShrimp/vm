@@ -6,10 +6,10 @@
 //! - AOT编译驱动
 //! - 性能优化反馈
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// 块执行Profile信息
 #[derive(Clone, Debug, Default)]
@@ -133,7 +133,8 @@ impl ProfileCollector {
         profile.execution_count += 1;
         profile.total_time_us += time_us;
         self.samples_collected.fetch_add(1, Ordering::Relaxed);
-        self.total_exec_time_us.fetch_add(time_us, Ordering::Relaxed);
+        self.total_exec_time_us
+            .fetch_add(time_us, Ordering::Relaxed);
     }
 
     /// 记录分支预测结果
@@ -212,7 +213,11 @@ impl ProfileCollector {
     /// 获取热调用路径
     pub fn get_hot_call_paths(&self, limit: usize) -> Vec<CallProfile> {
         let calls = self.call_profiles.read();
-        let mut hot: Vec<_> = calls.values().filter(|c| c.is_hot_path()).cloned().collect();
+        let mut hot: Vec<_> = calls
+            .values()
+            .filter(|c| c.is_hot_path())
+            .cloned()
+            .collect();
         hot.sort_by(|a, b| b.total_time_us.cmp(&a.total_time_us));
         hot.truncate(limit);
         hot
@@ -405,10 +410,22 @@ impl PgoManager {
     /// 获取优化统计
     pub fn get_optimization_stats(&self) -> PgoOptimizationStats {
         let all_hints = self.aot_driver.get_all_hints();
-        let opt_level_0 = all_hints.iter().filter(|h| h.optimization_level == 0).count();
-        let opt_level_1 = all_hints.iter().filter(|h| h.optimization_level == 1).count();
-        let opt_level_2 = all_hints.iter().filter(|h| h.optimization_level == 2).count();
-        let opt_level_3 = all_hints.iter().filter(|h| h.optimization_level == 3).count();
+        let opt_level_0 = all_hints
+            .iter()
+            .filter(|h| h.optimization_level == 0)
+            .count();
+        let opt_level_1 = all_hints
+            .iter()
+            .filter(|h| h.optimization_level == 1)
+            .count();
+        let opt_level_2 = all_hints
+            .iter()
+            .filter(|h| h.optimization_level == 2)
+            .count();
+        let opt_level_3 = all_hints
+            .iter()
+            .filter(|h| h.optimization_level == 3)
+            .count();
 
         PgoOptimizationStats {
             total_hints: all_hints.len() as u64,

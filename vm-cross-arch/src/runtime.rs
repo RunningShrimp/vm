@@ -2,7 +2,7 @@
 //!
 //! 提供自动检测host架构、guest架构，并选择合适的执行策略
 
-use super::{Architecture, SourceArch, TargetArch};
+use super::Architecture;
 use std::fmt;
 use vm_core::{ExecMode, GuestArch, VmError};
 
@@ -165,14 +165,14 @@ impl CrossArchConfig {
             CrossArchStrategy::Native => {
                 // 同架构：优先使用硬件加速或JIT
                 if self.enable_hardware_accel {
-                    ExecMode::Accelerated
+                    ExecMode::HardwareAssisted
                 } else {
-                    ExecMode::Hybrid // JIT + 解释器
+                    ExecMode::JIT // JIT编译模式
                 }
             }
             CrossArchStrategy::CrossArch => {
-                // 跨架构：使用混合模式（JIT + 解释器）
-                ExecMode::Hybrid
+                // 跨架构：使用JIT编译模式
+                ExecMode::JIT
             }
             CrossArchStrategy::Unsupported => {
                 // 不支持：只能使用解释器

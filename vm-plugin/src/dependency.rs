@@ -95,5 +95,3 @@ impl DependencyResolver {
         &self.installed_plugins
     }
 }
-
-

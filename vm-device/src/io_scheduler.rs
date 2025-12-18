@@ -159,8 +159,6 @@ struct BatchIoRequest {
     requests: Vec<PendingIoRequest>,
     /// 批量开始时间
     start_time: std::time::Instant,
-    /// 设备ID（用于合并判断）
-    device_id: DeviceId,
 }
 
 /// 异步 I/O 调度器
@@ -183,6 +181,8 @@ pub struct AsyncIoScheduler {
     batch_config: BatchConfig,
     /// 当前批量缓冲区
     batch_buffer: Arc<RwLock<HashMap<DeviceId, BatchIoRequest>>>,
+    /// 最大并发请求数
+    max_concurrent_requests: usize,
 }
 
 impl AsyncIoScheduler {
@@ -203,6 +203,7 @@ impl AsyncIoScheduler {
             scheduler_task: None,
             batch_config,
             batch_buffer: Arc::new(RwLock::new(HashMap::new())),
+            max_concurrent_requests,
         };
 
         scheduler
@@ -211,74 +212,41 @@ impl AsyncIoScheduler {
     /// 启动调度器
     pub fn start(&mut self) {
         let queue = Arc::clone(&self.request_queue);
-        let device_handlers = Arc::clone(&self.device_handlers);
         let batch_handlers = Arc::clone(&self.batch_handlers);
         let stats = Arc::clone(&self.stats);
         let batch_config = self.batch_config.clone();
         let batch_buffer = Arc::clone(&self.batch_buffer);
+        let max_concurrent = self.max_concurrent_requests;
+
+        // 创建信号量用于限制并发请求数
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent));
 
         let scheduler_task = tokio::spawn(async move {
             loop {
-                // 处理批量缓冲区
-                Self::process_batch_buffer(&batch_buffer, &batch_handlers, &stats, &batch_config)
+                // 处理批量缓冲区（超时或达到大小限制的批量）
+                Self::process_batch_buffer(&batch_buffer, &batch_handlers, &stats, &batch_config, &semaphore)
                     .await;
 
-                // 从队列获取请求并尝试批量处理
-                let pending_requests = {
+                // 从队列获取请求并添加到批量缓冲区
+                {
                     let mut q = queue.write();
-                    let mut requests = Vec::new();
-                    let mut device_groups: HashMap<DeviceId, Vec<PendingIoRequest>> =
-                        HashMap::new();
+                    let mut buffer = batch_buffer.write();
 
-                    // 收集一批请求进行分组
+                    // 收集一批请求进行批量处理
                     for _ in 0..batch_config.max_batch_size {
                         if let Some(pending) = q.pop() {
-                            device_groups
-                                .entry(pending.device_id())
-                                .or_insert_with(Vec::new)
-                                .push(pending);
+                            let device_id = pending.device_id();
+                            
+                            // 获取或创建该设备的批量请求
+                            let batch = buffer.entry(device_id).or_insert_with(|| BatchIoRequest {
+                                requests: Vec::new(),
+                                start_time: std::time::Instant::now(),
+                            });
+                            
+                            // 添加请求到批量
+                            batch.requests.push(pending);
                         } else {
                             break;
-                        }
-                    }
-
-                    // 对每个设备的请求进行批量处理
-                    for (device_id, device_requests) in device_groups {
-                        if device_requests.len() >= batch_config.merge_threshold {
-                            // 批量处理
-                            if let Some(batch_handler) = batch_handlers
-                                .try_read()
-                                .and_then(|h| h.get(&device_id).cloned())
-                            {
-                                let requests: Vec<IoRequest> =
-                                    device_requests.into_iter().map(|pr| pr.request).collect();
-
-                                let _ = batch_handler.send(requests.clone());
-
-                                // 更新统计
-                                let mut s = stats.write();
-                                s.total_requests += requests.len() as u64;
-                            }
-                        } else {
-                            // 单个处理
-                            for pending in device_requests {
-                                requests.push(pending);
-                            }
-                        }
-                    }
-
-                    requests
-                };
-
-                // 处理单个请求
-                for pending in pending_requests {
-                    if let Some(handlers) = device_handlers.try_read() {
-                        if let Some(handler) = handlers.get(&pending.request.device_id()) {
-                            let _ = handler.send(pending.request);
-
-                            // 更新统计
-                            let mut s = stats.write();
-                            s.total_requests += 1;
                         }
                     }
                 }
@@ -302,6 +270,7 @@ impl AsyncIoScheduler {
         batch_handlers: &Arc<RwLock<HashMap<DeviceId, mpsc::UnboundedSender<Vec<IoRequest>>>>>,
         stats: &Arc<RwLock<IoStats>>,
         config: &BatchConfig,
+        semaphore: &Arc<tokio::sync::Semaphore>,
     ) {
         let mut to_process = Vec::new();
 
@@ -330,14 +299,24 @@ impl AsyncIoScheduler {
                 .try_read()
                 .and_then(|h| h.get(&device_id).cloned())
             {
-                let io_requests: Vec<IoRequest> =
-                    requests.into_iter().map(|pr| pr.request).collect();
+                let io_requests: Vec<IoRequest> = requests.into_iter().map(|pr| pr.request).collect();
+                let stats_clone = Arc::clone(stats);
+                let semaphore_clone = Arc::clone(semaphore);
 
-                let _ = batch_handler.send(io_requests.clone());
+                // 使用信号量限制并发
+                tokio::spawn(async move {
+                    // 尝试获取信号量许可
+                    if let Ok(_permit) = semaphore_clone.acquire().await {
+                        // 发送批量请求
+                        let _ = batch_handler.send(io_requests.clone());
 
-                // 更新统计
-                let mut s = stats.write();
-                s.total_requests += io_requests.len() as u64;
+                        // 更新统计
+                        let mut s = stats_clone.write();
+                        s.total_requests += io_requests.len() as u64;
+
+                        // 自动释放许可（当_permit离开作用域时）
+                    }
+                });
             }
         }
     }

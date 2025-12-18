@@ -338,7 +338,6 @@ impl ArchEncoder for X86_64Encoder {
             IROp::Fcvtlud { dst, src } => Ok(vec![encode_x86_cvttsd2si64_u(*dst, *src)?]),
             IROp::Fcvtdw { dst, src } => Ok(vec![encode_x86_cvtsi2sd(*dst, *src)?]),
             IROp::Fcvtdwu { dst, src } => Ok(vec![encode_x86_cvtsi2sd_u(*dst, *src)?]),
-            IROp::Fcvtdl { dst, src } => Ok(vec![encode_x86_cvtsi2sd64(*dst, *src)?]),
             IROp::Fcvtdlu { dst, src } => Ok(vec![encode_x86_cvtsi2sd64_u(*dst, *src)?]),
             // 原子操作
             IROp::AtomicRMW {
@@ -682,7 +681,6 @@ impl ArchEncoder for Arm64Encoder {
             IROp::Fcvtlud { dst, src } => Ok(vec![encode_arm64_fcvtzus64(*dst, *src)?]),
             IROp::Fcvtdw { dst, src } => Ok(vec![encode_arm64_scvtf(*dst, *src)?]),
             IROp::Fcvtdwu { dst, src } => Ok(vec![encode_arm64_ucvtf(*dst, *src)?]),
-            IROp::Fcvtdl { dst, src } => Ok(vec![encode_arm64_scvtf64(*dst, *src)?]),
             IROp::Fcvtdlu { dst, src } => Ok(vec![encode_arm64_ucvtf64(*dst, *src)?]),
             // 原子操作
             IROp::AtomicRMW {
@@ -1041,7 +1039,6 @@ impl ArchEncoder for Riscv64Encoder {
             IROp::Fcvtlud { dst, src } => Ok(vec![encode_riscv_fcvtlud(*dst, *src)?]),
             IROp::Fcvtdw { dst, src } => Ok(vec![encode_riscv_fcvtdw(*dst, *src)?]),
             IROp::Fcvtdwu { dst, src } => Ok(vec![encode_riscv_fcvtdwu(*dst, *src)?]),
-            IROp::Fcvtdl { dst, src } => Ok(vec![encode_riscv_fcvtdl(*dst, *src)?]),
             IROp::Fcvtdlu { dst, src } => Ok(vec![encode_riscv_fcvtdlu(*dst, *src)?]),
             // 原子操作（RISC-V LR/SC）
             IROp::AtomicRMW {
@@ -1084,7 +1081,7 @@ impl ArchEncoder for Riscv64Encoder {
 
 fn encode_x86_add(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: ADD r/m64, r64
@@ -1103,7 +1100,7 @@ fn encode_x86_add(
 
 fn encode_x86_sub(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: SUB r/m64, r64
@@ -1121,7 +1118,7 @@ fn encode_x86_sub(
 
 fn encode_x86_add_imm(
     dst: RegId,
-    src: RegId,
+    _src: RegId,
     imm: i64,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: ADD r/m64, imm32
@@ -1156,7 +1153,7 @@ fn encode_x86_load(
     dst: RegId,
     base: RegId,
     offset: i64,
-    size: u8,
+    _size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: MOV r64, [base + offset]
     let mut bytes = vec![0x48 | ((dst & 8) >> 3) as u8];
@@ -1182,7 +1179,7 @@ fn encode_x86_store(
     src: RegId,
     base: RegId,
     offset: i64,
-    size: u8,
+    _size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: MOV [base + offset], r64
     let mut bytes = vec![0x48 | ((src & 8) >> 3) as u8];
@@ -1481,7 +1478,7 @@ fn encode_riscv_load(
     dst: RegId,
     base: RegId,
     offset: i64,
-    size: u8,
+    _size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: LD xd, offset(xbase)
     // offset是12位有符号立即数
@@ -1508,7 +1505,7 @@ fn encode_riscv_store(
     src: RegId,
     base: RegId,
     offset: i64,
-    size: u8,
+    _size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: SD xsrc, offset(xbase)
     if offset < -2048 || offset >= 2048 {
@@ -1537,18 +1534,15 @@ fn encode_riscv_store(
 
 fn encode_x86_simd_add(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // x86-64: PADDB/PADDW/PADDD/PADDQ (SSE2)
     // 或 VADDPD/VADDPS (AVX)
     // 简化实现：使用SSE2指令
-    let opcode = match element_size {
-        1 => 0x66, // PADDB
-        2 => 0x66, // PADDW
-        4 => 0x66, // PADDD
-        8 => 0x66, // PADDQ
+    match element_size {
+        1 | 2 | 4 | 8 => {},
         _ => {
             return Err(TranslationError::UnsupportedOperation {
                 op: format!("SIMD add with element_size {}", element_size),
@@ -1578,7 +1572,7 @@ fn encode_x86_simd_add(
 
 fn encode_x86_simd_sub(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
@@ -1608,7 +1602,7 @@ fn encode_x86_simd_sub(
 
 fn encode_x86_simd_mul(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
@@ -1643,7 +1637,7 @@ fn encode_x86_simd_mul(
 
 fn encode_x86_fadd(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: ADDSD xmm1, xmm2 (双精度)
@@ -1664,7 +1658,7 @@ fn encode_x86_fadd(
 
 fn encode_x86_fsub(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: SUBSD
@@ -1684,7 +1678,7 @@ fn encode_x86_fsub(
 
 fn encode_x86_fmul(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: MULSD
@@ -1704,7 +1698,7 @@ fn encode_x86_fmul(
 
 fn encode_x86_fdiv(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: DIVSD
@@ -1724,7 +1718,7 @@ fn encode_x86_fdiv(
 
 fn encode_x86_fadds(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: ADDSS (单精度)
@@ -1744,7 +1738,7 @@ fn encode_x86_fadds(
 
 fn encode_x86_fsubs(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     Ok(TargetInstruction {
@@ -1763,7 +1757,7 @@ fn encode_x86_fsubs(
 
 fn encode_x86_fmuls(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     Ok(TargetInstruction {
@@ -1782,7 +1776,7 @@ fn encode_x86_fmuls(
 
 fn encode_x86_fdivs(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     Ok(TargetInstruction {
@@ -1927,7 +1921,7 @@ fn encode_x86_atomic_cmpxchg(
     base: RegId,
     expected: RegId,
     new: RegId,
-    size: u8,
+    _size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // x86-64: CMPXCHG r/m64, r64
     // 0F B1 /r: CMPXCHG r/m64, r64
@@ -2406,7 +2400,7 @@ fn encode_riscv_simd_add(
     dst: RegId,
     src1: RegId,
     src2: RegId,
-    element_size: u8,
+    _element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // RISC-V: VADD.VV (向量加法)
     // 需要设置vtype和vl寄存器
@@ -2433,7 +2427,7 @@ fn encode_riscv_simd_sub(
     dst: RegId,
     src1: RegId,
     src2: RegId,
-    element_size: u8,
+    _element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let word: u32 = 0x00000057
         | (((dst & 0x1F) as u32) << 7)
@@ -2454,7 +2448,7 @@ fn encode_riscv_simd_mul(
     dst: RegId,
     src1: RegId,
     src2: RegId,
-    element_size: u8,
+    _element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let word: u32 = 0x00000057
         | (((dst & 0x1F) as u32) << 7)
@@ -2842,7 +2836,7 @@ fn encode_riscv_sc(
 
 fn encode_x86_simd_addsat(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     element_size: u8,
     signed: bool,
@@ -2888,7 +2882,7 @@ fn encode_x86_simd_addsat(
 
 fn encode_x86_simd_subsat(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     element_size: u8,
     signed: bool,
@@ -2936,7 +2930,7 @@ fn encode_x86_simd_subsat(
 
 fn encode_x86_fmadd(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -2959,7 +2953,7 @@ fn encode_x86_fmadd(
 
 fn encode_x86_fmsub(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -2981,7 +2975,7 @@ fn encode_x86_fmsub(
 
 fn encode_x86_fnmadd(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3003,7 +2997,7 @@ fn encode_x86_fnmadd(
 
 fn encode_x86_fnmsub(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3025,7 +3019,7 @@ fn encode_x86_fnmsub(
 
 fn encode_x86_fmadds(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3047,7 +3041,7 @@ fn encode_x86_fmadds(
 
 fn encode_x86_fmsubs(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3068,7 +3062,7 @@ fn encode_x86_fmsubs(
 
 fn encode_x86_fnmadds(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3089,7 +3083,7 @@ fn encode_x86_fnmadds(
 
 fn encode_x86_fnmsubs(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3112,7 +3106,7 @@ fn encode_x86_fnmsubs(
 
 fn encode_x86_feq(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: COMISD + SETE
@@ -3134,7 +3128,7 @@ fn encode_x86_feq(
 
 fn encode_x86_flt(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: CMPLTSD
@@ -3155,7 +3149,7 @@ fn encode_x86_flt(
 
 fn encode_x86_fle(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: CMPLESD
@@ -3176,7 +3170,7 @@ fn encode_x86_fle(
 
 fn encode_x86_feqs(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: CMPEQSS
@@ -3197,7 +3191,7 @@ fn encode_x86_feqs(
 
 fn encode_x86_flts(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     Ok(TargetInstruction {
@@ -3217,7 +3211,7 @@ fn encode_x86_flts(
 
 fn encode_x86_fles(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     Ok(TargetInstruction {
@@ -3239,7 +3233,7 @@ fn encode_x86_fles(
 
 fn encode_x86_fmin(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: MINSD
@@ -3259,7 +3253,7 @@ fn encode_x86_fmin(
 
 fn encode_x86_fmax(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: MAXSD
@@ -3279,7 +3273,7 @@ fn encode_x86_fmax(
 
 fn encode_x86_fmins(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: MINSS
@@ -3299,7 +3293,7 @@ fn encode_x86_fmins(
 
 fn encode_x86_fmaxs(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: MAXSS
@@ -3797,7 +3791,7 @@ fn encode_arm64_fnmsubs(
 // ========== ARM64 浮点比较编码实现 ==========
 
 fn encode_arm64_fcmp(
-    dst: RegId,
+    _dst: RegId,
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3814,7 +3808,7 @@ fn encode_arm64_fcmp(
 }
 
 fn encode_arm64_fcmplt(
-    dst: RegId,
+    _dst: RegId,
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3830,7 +3824,7 @@ fn encode_arm64_fcmplt(
 }
 
 fn encode_arm64_fcmple(
-    dst: RegId,
+    _dst: RegId,
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3845,7 +3839,7 @@ fn encode_arm64_fcmple(
 }
 
 fn encode_arm64_fcmps(
-    dst: RegId,
+    _dst: RegId,
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3860,7 +3854,7 @@ fn encode_arm64_fcmps(
 }
 
 fn encode_arm64_fcmplts(
-    dst: RegId,
+    _dst: RegId,
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -3875,7 +3869,7 @@ fn encode_arm64_fcmplts(
 }
 
 fn encode_arm64_fcmples(
-    dst: RegId,
+    _dst: RegId,
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
@@ -4155,7 +4149,7 @@ fn encode_riscv_simd_addsat(
     dst: RegId,
     src1: RegId,
     src2: RegId,
-    element_size: u8,
+    _element_size: u8,
     signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // RISC-V: VSADDU.VV/VSADD.VV (饱和加法)
@@ -4184,7 +4178,7 @@ fn encode_riscv_simd_subsat(
     dst: RegId,
     src1: RegId,
     src2: RegId,
-    element_size: u8,
+    _element_size: u8,
     signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // RISC-V: VSSUB.VV/VSSUBU.VV (饱和减法)
@@ -4784,7 +4778,7 @@ fn encode_x86_simd_mulsat(
     src1: RegId,
     src2: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // x86-64: PMULHRSW (有符号饱和乘法，16位) 或其他
     // 注意：x86-64没有直接的饱和乘法指令，需要组合实现
@@ -4825,7 +4819,7 @@ fn encode_x86_fsgnj(
 
 fn encode_x86_fsgnjn(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: 复制src2的符号位并取反
@@ -4846,7 +4840,7 @@ fn encode_x86_fsgnjn(
 
 fn encode_x86_fsgnjx(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // x86-64: 符号异或（如果src2符号为负则翻转src1符号）
@@ -4886,7 +4880,7 @@ fn encode_x86_fsgnjs(
 
 fn encode_x86_fsgnjns(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     Ok(TargetInstruction {
@@ -4900,7 +4894,7 @@ fn encode_x86_fsgnjns(
 
 fn encode_x86_fsgnjxs(
     dst: RegId,
-    src1: RegId,
+    _src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     Ok(TargetInstruction {
@@ -5203,7 +5197,7 @@ fn encode_arm64_simd_mulsat(
 fn encode_arm64_fsgnj(
     dst: RegId,
     src1: RegId,
-    src2: RegId,
+    _src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: 使用位操作实现符号复制
     // 简化：使用FABS + 条件选择
@@ -5222,7 +5216,7 @@ fn encode_arm64_fsgnj(
 fn encode_arm64_fsgnjn(
     dst: RegId,
     src1: RegId,
-    src2: RegId,
+    _src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FNEG (取反符号)
     let word: u32 = 0x4EE0E900 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5);
@@ -5238,7 +5232,7 @@ fn encode_arm64_fsgnjn(
 fn encode_arm64_fsgnjx(
     dst: RegId,
     src1: RegId,
-    src2: RegId,
+    _src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: 符号异或（需要多条指令实现）
     // 简化：使用FNEG
@@ -5255,7 +5249,7 @@ fn encode_arm64_fsgnjx(
 fn encode_arm64_fsgnjs(
     dst: RegId,
     src1: RegId,
-    src2: RegId,
+    _src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x4EA0E800 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5);
     Ok(TargetInstruction {
@@ -5272,11 +5266,12 @@ fn encode_arm64_fsgnjns(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EA0E900 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5);
+    // ARM64: FSGNJNS instruction uses src2's sign bit
+    let word: u32 = 0x4EA0E900 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
-        mnemonic: format!("fneg s{}, s{}", dst, src1),
+        mnemonic: format!("fsgnjns s{}, s{}, s{}", dst, src1, src2),
         is_control_flow: false,
         is_memory_op: false,
     })
@@ -5287,11 +5282,12 @@ fn encode_arm64_fsgnjxs(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EA0E900 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5);
+    // ARM64: FSGNJXS instruction uses src2's sign bit
+    let word: u32 = 0x4EA0E920 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
-        mnemonic: format!("fneg s{}, s{}", dst, src1),
+        mnemonic: format!("fsgnjxs s{}, s{}, s{}", dst, src1, src2),
         is_control_flow: false,
         is_memory_op: false,
     })
@@ -5433,12 +5429,32 @@ fn encode_riscv_simd_mulsat(
     dst: RegId,
     src1: RegId,
     src2: RegId,
-    element_size: u8,
+    _element_size: u8,
     signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
-    // RISC-V: 饱和乘法需要组合实现
-    // 简化：使用普通乘法
-    Ok(encode_riscv_simd_mul(dst, src1, src2, element_size)?)
+    // RISC-V: 根据符号类型选择合适的饱和乘法指令
+    let funct6 = if signed {
+        0b100101 // VMUL.VV - 有符号乘法
+    } else {
+        0b100111 // VMULU.VV - 无符号乘法
+    };
+    
+    let word: u32 = 0x00000057
+        | (((dst & 0x1F) as u32) << 7)
+        | (((src1 & 0x1F) as u32) << 15)
+        | (((src2 & 0x1F) as u32) << 20)
+        | ((funct6 as u32) << 26);
+    
+    // 注意：RISC-V本身没有直接的饱和乘法指令，需要后续处理
+    // 这里简化实现，使用普通乘法指令
+    Ok(vec![TargetInstruction {
+        bytes: word.to_le_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("{}.vv v{}, v{}, v{}", 
+            if signed { "vmul" } else { "vmulu" }, dst, src1, src2),
+        is_control_flow: false,
+        is_memory_op: false,
+    }])
 }
 
 // ========== RISC-V64 浮点符号操作编码实现 ==========
@@ -5775,10 +5791,22 @@ fn encode_x86_vec128_add(
     let mut instructions = Vec::new();
 
     // 低64位
-    instructions.extend(encode_x86_simd_add(dst_lo, src1_lo, src2_lo, element_size)?);
+    instructions.extend(
+        if signed {
+            encode_x86_simd_addsat(dst_lo, src1_lo, src2_lo, element_size, signed)?
+        } else {
+            encode_x86_simd_add(dst_lo, src1_lo, src2_lo, element_size)?
+        }
+    );
 
     // 高64位
-    instructions.extend(encode_x86_simd_add(dst_hi, src1_hi, src2_hi, element_size)?);
+    instructions.extend(
+        if signed {
+            encode_x86_simd_addsat(dst_hi, src1_hi, src2_hi, element_size, signed)?
+        } else {
+            encode_x86_simd_add(dst_hi, src1_hi, src2_hi, element_size)?
+        }
+    );
 
     Ok(instructions)
 }
@@ -5804,10 +5832,34 @@ fn encode_x86_vec256_add(
 
     // 使用AVX VADDPD/VADDPS (如果支持)
     // 简化：分别处理每个64位段
-    instructions.extend(encode_x86_simd_add(dst0, src10, src20, element_size)?);
-    instructions.extend(encode_x86_simd_add(dst1, src11, src21, element_size)?);
-    instructions.extend(encode_x86_simd_add(dst2, src12, src22, element_size)?);
-    instructions.extend(encode_x86_simd_add(dst3, src13, src23, element_size)?);
+    instructions.extend(
+        if signed {
+            encode_x86_simd_addsat(dst0, src10, src20, element_size, signed)?
+        } else {
+            encode_x86_simd_add(dst0, src10, src20, element_size)?
+        }
+    );
+    instructions.extend(
+        if signed {
+            encode_x86_simd_addsat(dst1, src11, src21, element_size, signed)?
+        } else {
+            encode_x86_simd_add(dst1, src11, src21, element_size)?
+        }
+    );
+    instructions.extend(
+        if signed {
+            encode_x86_simd_addsat(dst2, src12, src22, element_size, signed)?
+        } else {
+            encode_x86_simd_add(dst2, src12, src22, element_size)?
+        }
+    );
+    instructions.extend(
+        if signed {
+            encode_x86_simd_addsat(dst3, src13, src23, element_size, signed)?
+        } else {
+            encode_x86_simd_add(dst3, src13, src23, element_size)?
+        }
+    );
 
     Ok(instructions)
 }
@@ -5826,7 +5878,7 @@ fn encode_x86_vec256_sub(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let mut instructions = Vec::new();
 
@@ -5852,7 +5904,7 @@ fn encode_x86_vec256_mul(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let mut instructions = Vec::new();
 
@@ -5874,7 +5926,7 @@ fn encode_arm64_vec128_add(
     src2_lo: RegId,
     src2_hi: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // ARM64: 128位向量加法
     let mut instructions = Vec::new();
@@ -5909,7 +5961,7 @@ fn encode_arm64_vec256_add(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // ARM64: 256位向量加法
     let mut instructions = Vec::new();
@@ -5936,7 +5988,7 @@ fn encode_arm64_vec256_sub(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let mut instructions = Vec::new();
 
@@ -5962,7 +6014,7 @@ fn encode_arm64_vec256_mul(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let mut instructions = Vec::new();
 
@@ -5984,7 +6036,7 @@ fn encode_riscv_vec128_add(
     src2_lo: RegId,
     src2_hi: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // RISC-V: 128位向量加法
     let mut instructions = Vec::new();
@@ -6019,7 +6071,7 @@ fn encode_riscv_vec256_add(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     // RISC-V: 256位向量加法
     let mut instructions = Vec::new();
@@ -6046,7 +6098,7 @@ fn encode_riscv_vec256_sub(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let mut instructions = Vec::new();
 
@@ -6072,7 +6124,7 @@ fn encode_riscv_vec256_mul(
     src22: RegId,
     src23: RegId,
     element_size: u8,
-    signed: bool,
+    _signed: bool,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let mut instructions = Vec::new();
 

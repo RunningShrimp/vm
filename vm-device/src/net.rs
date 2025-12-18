@@ -5,7 +5,7 @@
 use crate::mmu_util::MmuUtil;
 use crate::virtio::Queue;
 use thiserror::Error;
-use vm_core::{MMU, MmioDevice, PlatformError, VmError};
+use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
 
 /// 网络后端类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +235,69 @@ impl VirtioNet {
         // 触发中断
         self.interrupt_status |= 1;
     }
+
+    /// 处理 RX 队列 (Queue 0)
+    fn process_rx_queue(&mut self, mmu: &mut dyn MMU) {
+        if self.queues.is_empty() {
+            return;
+        }
+
+        // 借用检查 workaround: 先获取需要的信息，再处理
+        // 因为 pop 需要 &mut self.queues[0] 和 &dyn MmuUtil
+        // 而 recv_packet 需要 &mut self
+
+        let mut packets = Vec::new();
+        let mut chains = Vec::new();
+
+        // 先尝试获取一个数据包
+        if let Ok(packet) = self.recv_packet() {
+            packets.push(packet);
+        }
+
+        // 然后尝试获取一个空闲的描述符
+        { 
+            let queue = &mut self.queues[0];
+            if let Some(chain) = queue.pop(mmu) {
+                chains.push(chain);
+            }
+        }
+
+        // 处理数据包和描述符
+        if let (Some(packet), Some(chain)) = (packets.pop(), chains.pop()) {
+            // 将数据包发送给客人
+            let mut bytes_written = 0;
+            
+            for desc in chain.descs {
+                if (desc.flags & 1) == 0 {
+                    continue; // Skip read-only descriptors
+                }
+
+                let available_space = desc.len as usize;
+                let remaining_packet = &packet[bytes_written..];
+                let write_size = std::cmp::min(available_space, remaining_packet.len());
+                
+                if write_size > 0 {
+                    if let Ok(_) = MmuUtil::write_slice(mmu, desc.addr, &remaining_packet[..write_size]) {
+                        bytes_written += write_size;
+                    }
+                }
+
+                if bytes_written >= packet.len() {
+                    break;
+                }
+            }
+            
+            // 更新 Used Ring
+            self.queues[0].add_used(mmu, chain.head_index, bytes_written as u32);
+            
+            // 触发中断
+            self.interrupt_status |= 1;
+        } else if !packets.is_empty() {
+            // 没有可用的描述符，将数据包放回接收缓冲区
+            // 这里需要后端支持重新入队
+            log::debug!("RX queue full, dropping packet");
+        }
+    }
 }
 
 /// 网络设备错误类型别名
@@ -272,8 +335,8 @@ pub enum NetLegacyError {
 }
 
 impl MmioDevice for VirtioNet {
-    fn read(&self, offset: u64, _size: u8) -> u64 {
-        match offset {
+    fn read(&self, offset: u64, _size: u8) -> VmResult<u64> {
+        Ok(match offset {
             0x00 => 0x74726976, // Magic "virt"
             0x04 => 2,          // Version
             0x08 => 1,          // Device ID (Net)
@@ -303,10 +366,10 @@ impl MmioDevice for VirtioNet {
             0x108 => self.config.max_virtqueue_pairs as u64,
             0x10A => self.config.mtu as u64,
             _ => 0,
-        }
+        })
     }
 
-    fn write(&mut self, offset: u64, val: u64, _size: u8) {
+    fn write(&mut self, offset: u64, val: u64, _size: u8) -> VmResult<()> {
         match offset {
             0x14 => self.device_features_sel = val as u32,
             0x20 => self.driver_features = val as u32,
@@ -322,8 +385,7 @@ impl MmioDevice for VirtioNet {
                 // Queue notify
                 let queue_idx = val as usize;
                 log::debug!("VirtioNet: Queue {} notified", queue_idx);
-                // 这里我们不能直接调用 process_tx_queue，因为没有 mmu
-                // 需要在 notify 回调中处理
+                // 队列通知由虚拟机主循环处理，调用 process_queues
             }
             0x64 => {
                 // InterruptACK
@@ -352,12 +414,40 @@ impl MmioDevice for VirtioNet {
                 log::trace!("VirtioNet write: offset={:#x} val={:#x}", offset, val);
             }
         }
+        Ok(())
+    }
+}
+
+/// 为 VirtioNet 实现 VirtioDevice trait
+impl crate::virtio::VirtioDevice for VirtioNet {
+    fn device_id(&self) -> u32 {
+        1 // VIRTIO_DEVICE_ID_NET
     }
 
-    fn notify(&mut self, mmu: &mut dyn MMU, _offset: u64) {
-        // 假设 notify 被调用时，意味着有队列更新
-        // 检查 TX 队列 (Queue 1)
-        self.process_tx_queue(mmu);
+    fn num_queues(&self) -> usize {
+        self.queues.len()
+    }
+
+    fn get_queue(&mut self, index: usize) -> &mut crate::virtio::Queue {
+        // 需要转换内部队列类型到 virtio::Queue
+        // 这里我们假设内部队列和 virtio::Queue 结构兼容
+        let queue = &mut self.queues[index];
+        unsafe {
+            std::mem::transmute(queue)
+        }
+    }
+
+    /// 处理所有队列
+    fn process_queues(&mut self, mmu: &mut dyn MMU) {
+        // 处理 TX 队列 (Queue 1)
+        if self.queues.len() > 1 {
+            self.process_tx_queue(mmu);
+        }
+
+        // 处理 RX 队列 (Queue 0)
+        if !self.queues.is_empty() {
+            self.process_rx_queue(mmu);
+        }
     }
 }
 
@@ -384,7 +474,10 @@ impl SmoltcpBackend {
 
     pub fn send(&mut self, data: &[u8]) -> Result<(), VmError> {
         self.tx_buffer.push(data.to_vec());
-        log::debug!("smoltcp: Sent {} bytes", data.len());
+        log::debug!("smoltcp: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} sent {} bytes", 
+                   self.mac[0], self.mac[1], self.mac[2], 
+                   self.mac[3], self.mac[4], self.mac[5], 
+                   data.len());
         Ok(())
     }
 

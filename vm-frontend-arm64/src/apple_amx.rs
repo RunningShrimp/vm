@@ -84,7 +84,7 @@ impl AmxDecoder {
     ///       bits [23:20] = tile 寄存器编号
     ///       bits [19:16] = 第二个 tile 寄存器编号（如适用）
     ///       bits [15:0]  = 立即数/偏移量
-    pub fn decode(&self, insn: u32, pc: GuestAddr) -> Result<Option<AmxInstruction>, VmError> {
+    pub fn decode(&self, insn: u32, _pc: GuestAddr) -> Result<Option<AmxInstruction>, VmError> {
         // 检查是否为 AMX 指令（简化检测：高位为特定模式）
         // 实际实现中，AMX 指令通过 MRS/MSR 访问系统寄存器
         // 系统寄存器地址范围：0xDA00-0xDAFF 用于 AMX

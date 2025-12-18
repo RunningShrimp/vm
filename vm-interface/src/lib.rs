@@ -130,7 +130,7 @@ pub enum VmEvent {
 // ============================================================================
 
 /// VM组件基础trait，定义生命周期管理
-pub trait VmComponent {
+pub trait VmComponent: Send + Sync {
     type Config;
     type Error;
 
@@ -218,11 +218,11 @@ pub trait ExecutionEngine<I>: VmComponent + Configurable + Observable {
     fn reset(&mut self);
 
     /// 异步执行版本
-    async fn execute_async<M: crate::memory::MemoryManager>(
+    fn execute_async<M: crate::memory::MemoryManager>(
         &mut self,
         mmu: &mut M,
         block: &I,
-    ) -> ExecResult;
+    ) -> impl std::future::Future<Output = ExecResult> + Send;
 }
 
 /// 热编译管理trait（用于JIT和Hybrid引擎）
@@ -290,8 +290,8 @@ pub trait MemoryManager: VmComponent + Configurable {
     ) -> Result<u64, VmError>;
 
     /// 异步内存操作
-    async fn read_memory_async(&self, addr: GuestAddr, size: usize) -> Result<Vec<u8>, VmError>;
-    async fn write_memory_async(&mut self, addr: GuestAddr, data: Vec<u8>) -> Result<(), VmError>;
+    fn read_memory_async(&self, addr: GuestAddr, size: usize) -> impl std::future::Future<Output = Result<Vec<u8>, VmError>> + Send;
+    fn write_memory_async(&mut self, addr: GuestAddr, data: Vec<u8>) -> impl std::future::Future<Output = Result<(), VmError>> + Send;
 }
 
 /// 缓存管理接口

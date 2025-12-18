@@ -61,8 +61,8 @@ impl EventPublisher {
     }
 
     /// 取消订阅
-    pub fn unsubscribe(&mut self, event_type: &str, id: SubscriptionId) -> Result<(), VmError> {
-        if let Some(callbacks) = self.subscribers.get_mut(event_type) {
+    pub fn unsubscribe(&mut self, event_type: &str, _id: SubscriptionId) -> Result<(), VmError> {
+        if self.subscribers.contains_key(event_type) {
             // Note: In a real implementation, we'd need to track IDs per callback
             // This is a simplified version
             Ok(())

@@ -126,6 +126,16 @@ impl VirtioInput {
     pub fn device_type(&self) -> InputDeviceType {
         self.device_type
     }
+
+    /// 设置设备状态
+    pub fn set_device_status(&mut self, status: u32) {
+        self.device_status = status;
+    }
+
+    /// 获取设备状态
+    pub fn device_status(&self) -> u32 {
+        self.device_status
+    }
 }
 
 impl VirtioDevice for VirtioInput {
@@ -172,7 +182,7 @@ impl VirtioDevice for VirtioInput {
                         ];
 
                         let to_write = event_data.len().min(desc.len as usize - written);
-                        if mmu.write_bulk(desc.addr, &event_data[..to_write]).is_ok() {
+                        if mmu.write_bulk(vm_core::GuestAddr(desc.addr), &event_data[..to_write]).is_ok() {
                             written += to_write;
                         }
 

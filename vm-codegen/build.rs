@@ -9,12 +9,22 @@ fn main() {
 
     let r#gen = std::env::var("VM_CODEGEN_GEN").unwrap_or_default();
     if r#gen == "1" {
+        // 生成指令解码器
         if let Err(e) = run_codegen_example("arm64_instructions") {
             println!("cargo:warning=Failed to generate ARM64 decoder: {}", e);
         }
 
         if let Err(e) = run_codegen_example("riscv_instructions") {
             println!("cargo:warning=Failed to generate RISC-V decoder: {}", e);
+        }
+
+        // 生成前端代码
+        if let Err(e) = run_codegen_example("generate_arm64_frontend") {
+            println!("cargo:warning=Failed to generate ARM64 frontend: {}", e);
+        }
+
+        if let Err(e) = run_codegen_example("generate_riscv_frontend") {
+            println!("cargo:warning=Failed to generate RISC-V frontend: {}", e);
         }
 
         check_generated_code();
@@ -48,5 +58,17 @@ fn check_generated_code() {
     let riscv_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("riscv_decoder_generated.rs");
     if riscv_path.exists() {
         println!("cargo:rerun-if-changed=riscv_decoder_generated.rs");
+    }
+
+    // 检查生成的ARM64前端代码
+    let arm64_frontend_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("arm64_frontend_generated.rs");
+    if arm64_frontend_path.exists() {
+        println!("cargo:rerun-if-changed=arm64_frontend_generated.rs");
+    }
+
+    // 检查生成的RISC-V前端代码
+    let riscv_frontend_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("riscv_frontend_generated.rs");
+    if riscv_frontend_path.exists() {
+        println!("cargo:rerun-if-changed=riscv_frontend_generated.rs");
     }
 }

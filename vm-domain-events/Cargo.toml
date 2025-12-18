@@ -1,0 +1,11 @@
+[package]
+name = "vm-domain-events"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+serde = { version = "1.0", features = ["derive"] }

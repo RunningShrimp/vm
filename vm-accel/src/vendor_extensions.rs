@@ -2,7 +2,7 @@
 //!
 //! 提供统一的接口来检测和使用不同厂商的处理器扩展
 
-use super::cpuinfo::{CpuFeatures, CpuInfo, CpuVendor};
+use super::cpuinfo::{CpuInfo, CpuVendor};
 
 /// 厂商扩展 trait
 ///
@@ -408,4 +408,3 @@ mod tests {
         }
     }
 }
-

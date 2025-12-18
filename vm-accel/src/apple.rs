@@ -3,7 +3,7 @@
 //! 实现针对 Apple M1/M2/M3/M4 芯片的优化
 
 use super::cpuinfo::{CpuInfo, CpuVendor};
-use super::vendor_extensions::{VendorExtension, VendorExtensionDetector};
+use super::vendor_extensions::VendorExtensionDetector;
 
 /// Apple Silicon 型号
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

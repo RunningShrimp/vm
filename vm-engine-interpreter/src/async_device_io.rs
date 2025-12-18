@@ -77,10 +77,10 @@ impl AsyncDeviceIoManager {
     /// 异步处理块设备读请求
     pub async fn handle_block_read_async(
         &self,
-        mmu: &mut dyn MMU,
-        sector: u64,
-        count: u32,
-        data_addr: GuestAddr,
+        _mmu: &mut dyn MMU,
+        _sector: u64,
+        _count: u32,
+        _data_addr: GuestAddr,
     ) -> Result<(), VmError> {
         if self.block_service.is_some() {
             Ok(())
@@ -95,10 +95,10 @@ impl AsyncDeviceIoManager {
     /// 异步处理块设备写请求
     pub async fn handle_block_write_async(
         &self,
-        mmu: &mut dyn MMU,
-        sector: u64,
-        data_addr: GuestAddr,
-        data_len: u32,
+        _mmu: &mut dyn MMU,
+        _sector: u64,
+        _data_addr: GuestAddr,
+        _data_len: u32,
     ) -> Result<(), VmError> {
         if self.block_service.is_some() {
             Ok(())
@@ -112,7 +112,7 @@ impl AsyncDeviceIoManager {
 
     /// 异步处理块设备刷新请求
     pub async fn handle_block_flush_async(&self) -> Result<(), VmError> {
-        if let Some(ref block_service) = self.block_service {
+        if let Some(ref _block_service) = self.block_service {
             // 创建一个临时的MMU引用用于刷新操作
             // 实际实现中可能需要更复杂的处理
             Ok(())
@@ -186,4 +186,3 @@ impl AsyncIoExecutionContext {
         Arc::clone(&self.device_io_manager)
     }
 }
-

@@ -337,7 +337,7 @@ impl ExtendedDecoder {
     }
 
     /// 解码 SSE3 指令 (0x66 0F 38 / 0xF2 0F 38)
-    pub fn decode_sse3(opcode: &[u8], pc: GuestAddr) -> Option<Sse3Instruction> {
+    pub fn decode_sse3(opcode: &[u8], _pc: GuestAddr) -> Option<Sse3Instruction> {
         if opcode.len() < 3 {
             return None;
         }
@@ -368,7 +368,7 @@ impl ExtendedDecoder {
     }
 
     /// 解码 SSSE3 指令 (0x66 0F 38)
-    pub fn decode_ssse3(opcode: &[u8], pc: GuestAddr) -> Option<Ssse3Instruction> {
+    pub fn decode_ssse3(opcode: &[u8], _pc: GuestAddr) -> Option<Ssse3Instruction> {
         if opcode.len() < 4 {
             return None;
         }
@@ -393,7 +393,7 @@ impl ExtendedDecoder {
     }
 
     /// 解码 SSE4.1 指令 (0x66 0F 38 / 0x66 0F 3A)
-    pub fn decode_sse41(opcode: &[u8], pc: GuestAddr) -> Option<Sse41Instruction> {
+    pub fn decode_sse41(opcode: &[u8], _pc: GuestAddr) -> Option<Sse41Instruction> {
         if opcode.len() < 4 {
             return None;
         }
@@ -410,31 +410,24 @@ impl ExtendedDecoder {
                 Some(&0x20) => Some(Sse41Instruction::Pinsrb),
                 Some(&0xC4) => Some(Sse41Instruction::Pinsrw),
                 Some(&0x22) => Some(Sse41Instruction::Pinsrd),
-                Some(&0x22) => Some(Sse41Instruction::Pinsrq),
                 Some(&0x17) => Some(Sse41Instruction::Extractps),
                 Some(&0x14) => Some(Sse41Instruction::Pextrb),
-                Some(&0x15) => Some(Sse41Instruction::Pextrw),
                 Some(&0x16) => Some(Sse41Instruction::Pextrd),
-                Some(&0x16) => Some(Sse41Instruction::Pextrq),
                 Some(&0x28) => Some(Sse41Instruction::Pmuldq),
                 Some(&0x38) => Some(Sse41Instruction::Pminsb),
                 Some(&0x3C) => Some(Sse41Instruction::Pmaxsb),
                 Some(&0x39) => Some(Sse41Instruction::Pminsw),
                 Some(&0x3E) => Some(Sse41Instruction::Pmaxsw),
-                Some(&0x39) => Some(Sse41Instruction::Pminsd),
                 Some(&0x3D) => Some(Sse41Instruction::Pmaxsd),
                 Some(&0x3A) => Some(Sse41Instruction::Pminuw),
-                Some(&0x3E) => Some(Sse41Instruction::Pmaxuw),
                 Some(&0x3B) => Some(Sse41Instruction::Pminud),
                 Some(&0x3F) => Some(Sse41Instruction::Pmaxud),
                 Some(&0x08) => Some(Sse41Instruction::Roundps),
                 Some(&0x09) => Some(Sse41Instruction::Roundpd),
-                Some(&0x0A) => Some(Sse41Instruction::Roundss),
                 Some(&0x0B) => Some(Sse41Instruction::Roundsd),
                 Some(&0x40) => Some(Sse41Instruction::Dpps),
                 Some(&0x41) => Some(Sse41Instruction::Dppd),
                 Some(&0x42) => Some(Sse41Instruction::Mpsadbw),
-                Some(&0x41) => Some(Sse41Instruction::Phminposuw),
                 _ => None,
             }
         } else if opcode[0] == 0x66 && opcode[1] == 0x0F && opcode[2] == 0x3A {
@@ -443,18 +436,14 @@ impl ExtendedDecoder {
                 Some(&0x0D) => Some(Sse41Instruction::Blendpd),
                 Some(&0x4B) => Some(Sse41Instruction::Blendvps),
                 Some(&0x4A) => Some(Sse41Instruction::Blendvpd),
-                Some(&0x0C) => Some(Sse41Instruction::Pblendvb),
                 Some(&0x0E) => Some(Sse41Instruction::Pblendw),
                 Some(&0x21) => Some(Sse41Instruction::Insertps),
                 Some(&0x20) => Some(Sse41Instruction::Pinsrb),
                 Some(&0xC4) => Some(Sse41Instruction::Pinsrw),
                 Some(&0x22) => Some(Sse41Instruction::Pinsrd),
-                Some(&0x22) => Some(Sse41Instruction::Pinsrq),
                 Some(&0x17) => Some(Sse41Instruction::Extractps),
                 Some(&0x14) => Some(Sse41Instruction::Pextrb),
-                Some(&0x15) => Some(Sse41Instruction::Pextrw),
                 Some(&0x16) => Some(Sse41Instruction::Pextrd),
-                Some(&0x16) => Some(Sse41Instruction::Pextrq),
                 _ => None,
             }
         } else {
@@ -463,7 +452,7 @@ impl ExtendedDecoder {
     }
 
     /// 解码 SSE4.2 指令 (0x66 0F 38)
-    pub fn decode_sse42(opcode: &[u8], pc: GuestAddr) -> Option<Sse42Instruction> {
+    pub fn decode_sse42(opcode: &[u8], _pc: GuestAddr) -> Option<Sse42Instruction> {
         if opcode.len() < 4 {
             return None;
         }
@@ -490,7 +479,7 @@ impl ExtendedDecoder {
     /// 解码原子操作指令
     pub fn decode_atomic(
         opcode: &[u8],
-        pc: GuestAddr,
+        _pc: GuestAddr,
         has_lock: bool,
     ) -> Option<AtomicInstruction> {
         if !has_lock {
@@ -552,7 +541,7 @@ impl ExtendedDecoder {
     }
 
     /// 解码 AVX 指令（返回指令类型）
-    pub fn decode_avx_insn(opcode: &[u8], pc: GuestAddr) -> Option<AvxInstruction> {
+    pub fn decode_avx_insn(opcode: &[u8], _pc: GuestAddr) -> Option<AvxInstruction> {
         if opcode.len() < 3 {
             return None;
         }

@@ -7,8 +7,8 @@ use std::thread;
 use std::time::Instant;
 use vm_core::{AccessType, MMU};
 use vm_mem::{
-    ConcurrentTlbConfig, MmuOptimizationStrategy, MultiLevelTlbConfig, UnifiedMmuConfig,
-    UnifiedMmu, SoftMmu,
+    ConcurrentTlbConfig, MmuOptimizationStrategy, MultiLevelTlbConfig, SoftMmu, UnifiedMmu,
+    UnifiedMmuConfig,
 };
 
 /// 测试多级TLB性能提升
@@ -198,7 +198,9 @@ fn test_hybrid_strategy_performance() {
     println!("整体TLB命中率: {:.2}%", stats.tlb_hit_rate() * 100.0);
     println!(
         "预取命中次数: {}",
-        stats.prefetch_hits.load(std::sync::atomic::Ordering::Relaxed)
+        stats
+            .prefetch_hits
+            .load(std::sync::atomic::Ordering::Relaxed)
     );
 
     // 性能断言

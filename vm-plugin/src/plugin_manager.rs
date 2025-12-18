@@ -4,8 +4,8 @@
 
 use crate::{
     DependencyResolver, Plugin, PluginContext, PluginEvent, PluginEventBus, PluginId,
-    PluginInstance, PluginManagerStats, PluginMetadata, PluginPermission, PluginState,
-    PluginType, SecurityManager,
+    PluginInstance, PluginManagerStats, PluginMetadata, PluginPermission, PluginState, PluginType,
+    SecurityManager,
 };
 use libloading::Library;
 use serde::{Deserialize, Serialize};
@@ -43,14 +43,35 @@ pub struct PluginChannel {
 impl PluginChannel {
     pub fn new() -> (Self, PluginChannelHandle) {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        let handle = PluginChannelHandle { sender: sender.clone() };
-        (
-            Self {
-                sender,
-                receiver,
-            },
-            handle,
-        )
+        let handle = PluginChannelHandle {
+            sender: sender.clone(),
+        };
+        (Self { sender, receiver }, handle)
+    }
+
+    /// 处理接收到的消息
+    pub async fn process_messages(
+        &mut self,
+        _plugin_id: &str,
+        plugin: &mut dyn Plugin,
+    ) -> Result<(), VmError> {
+        while let Some(message) = self.receiver.recv().await {
+            // 将插件间消息转换为插件事件
+            let event = PluginEvent::Custom {
+                event_type: message.message_type.clone(),
+                data: message.data,
+            };
+
+            // 处理事件
+            plugin.handle_event(&event).await?;
+        }
+
+        Ok(())
+    }
+
+    /// 获取接收者的引用（用于外部轮询）
+    pub fn receiver(&mut self) -> &mut tokio::sync::mpsc::UnboundedReceiver<PluginMessage> {
+        &mut self.receiver
     }
 }
 
@@ -294,22 +315,27 @@ impl PluginManager {
     pub async fn broadcast_event(&mut self, event: PluginEvent) -> Result<(), VmError> {
         for instance in self.loaded_plugins.values_mut() {
             if let Some(ref mut handle) = instance.handle
-                && instance.state == PluginState::Active {
-                    instance.stats.last_activity = std::time::Instant::now();
-                    match handle.handle_event(&event).await {
-                        Ok(_) => {
-                            instance.stats.events_processed += 1;
-                        }
-                        Err(e) => {
-                            instance.stats.error_count += 1;
-                            tracing::warn!("Plugin {} failed to handle event: {:?}", instance.metadata.id, e);
-                            // 如果错误过多，将插件状态设置为Error
-                            if instance.stats.error_count > 10 {
-                                instance.state = PluginState::Error;
-                            }
+                && instance.state == PluginState::Active
+            {
+                instance.stats.last_activity = std::time::Instant::now();
+                match handle.handle_event(&event).await {
+                    Ok(_) => {
+                        instance.stats.events_processed += 1;
+                    }
+                    Err(e) => {
+                        instance.stats.error_count += 1;
+                        tracing::warn!(
+                            "Plugin {} failed to handle event: {:?}",
+                            instance.metadata.id,
+                            e
+                        );
+                        // 如果错误过多，将插件状态设置为Error
+                        if instance.stats.error_count > 10 {
+                            instance.state = PluginState::Error;
                         }
                     }
                 }
+            }
         }
 
         // 发布到事件总线
@@ -357,12 +383,7 @@ impl PluginManager {
     fn is_plugin_file(path: &Path) -> bool {
         path.extension()
             .and_then(|s| s.to_str())
-            .map(|ext| {
-                matches!(
-                    ext,
-                    "plugin" | "so" | "dylib" | "dll" | "rlib" | "a"
-                )
-            })
+            .map(|ext| matches!(ext, "plugin" | "so" | "dylib" | "dll" | "rlib" | "a"))
             .unwrap_or(false)
     }
 
@@ -371,18 +392,20 @@ impl PluginManager {
         // 尝试从JSON文件加载元信息
         let metadata_path = path.with_extension("json");
         if metadata_path.exists() {
-            let json_str = std::fs::read_to_string(&metadata_path)
-                .map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            let json_str = std::fs::read_to_string(&metadata_path).map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
                     message: format!("Failed to read metadata file: {}", e),
                     current: "read_failed".to_string(),
                     expected: "read_success".to_string(),
-                }))?;
-            let metadata: PluginMetadata = serde_json::from_str(&json_str)
-                .map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+                })
+            })?;
+            let metadata: PluginMetadata = serde_json::from_str(&json_str).map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
                     message: format!("Failed to parse metadata: {}", e),
                     current: "parse_failed".to_string(),
                     expected: "parse_success".to_string(),
-                }))?;
+                })
+            })?;
             return Ok(metadata);
         }
 
@@ -413,15 +436,15 @@ impl PluginManager {
     /// 加载插件库
     ///
     /// 从文件系统加载插件动态库并创建插件实例。
-    /// 
+    ///
     /// # 插件ABI要求
-    /// 
+    ///
     /// 插件库必须导出以下函数：
     /// - `plugin_create`: 创建插件实例的函数指针
     /// - `plugin_version`: 返回插件API版本
-    /// 
+    ///
     /// # 实现说明
-    /// 
+    ///
     /// 当前实现使用mock插件作为占位符。实际实现应该：
     /// 1. 使用`libloading`加载动态库
     /// 2. 调用库中的入口点函数创建插件实例
@@ -433,10 +456,10 @@ impl PluginManager {
     ) -> Result<(Box<dyn Plugin>, Library), VmError> {
         // 注意：实际的动态库加载需要插件实现特定的ABI
         // 这里提供一个简化的实现，实际使用时需要根据插件ABI调整
-        
+
         // 对于Rust插件，可以使用cdylib crate类型和特定的导出函数
         // 这里提供一个mock实现作为占位符
-        
+
         struct MockPlugin {
             metadata: PluginMetadata,
             config: Option<HashMap<String, String>>,
@@ -492,7 +515,10 @@ impl PluginManager {
                 self.config.as_ref()
             }
 
-            async fn update_config(&mut self, config: HashMap<String, String>) -> Result<(), VmError> {
+            async fn update_config(
+                &mut self,
+                config: HashMap<String, String>,
+            ) -> Result<(), VmError> {
                 self.config = Some(config);
                 Ok(())
             }
@@ -510,12 +536,12 @@ impl PluginManager {
             //         expected: "loaded".to_string(),
             //     })
             // })?
-            // 
+            //
             // 然后调用库中的入口点函数：
-            // let create_fn: Symbol<unsafe extern "C" fn() -> *mut dyn Plugin> = 
+            // let create_fn: Symbol<unsafe extern "C" fn() -> *mut dyn Plugin> =
             //     library.get(b"plugin_create")?;
             // let plugin = unsafe { Box::from_raw(create_fn()) };
-            
+
             // 为了编译通过，这里使用mock实现
             // 实际应该返回错误或加载真实的库
             match Library::new(path) {
@@ -666,10 +692,11 @@ impl PluginManager {
     pub async fn enable_plugin(&mut self, plugin_id: &str) -> Result<(), VmError> {
         if let Some(instance) = self.loaded_plugins.get_mut(plugin_id) {
             if instance.state == PluginState::Loaded
-                && let Some(ref mut handle) = instance.handle {
-                    handle.start().await?;
-                    instance.state = PluginState::Active;
-                }
+                && let Some(ref mut handle) = instance.handle
+            {
+                handle.start().await?;
+                instance.state = PluginState::Active;
+            }
             Ok(())
         } else {
             Err(VmError::Core(vm_core::CoreError::InvalidState {
@@ -684,10 +711,11 @@ impl PluginManager {
     pub async fn disable_plugin(&mut self, plugin_id: &str) -> Result<(), VmError> {
         if let Some(instance) = self.loaded_plugins.get_mut(plugin_id) {
             if instance.state == PluginState::Active
-                && let Some(ref mut handle) = instance.handle {
-                    handle.stop().await?;
-                    instance.state = PluginState::Loaded;
-                }
+                && let Some(ref mut handle) = instance.handle
+            {
+                handle.stop().await?;
+                instance.state = PluginState::Loaded;
+            }
             Ok(())
         } else {
             Err(VmError::Core(vm_core::CoreError::InvalidState {
@@ -696,6 +724,33 @@ impl PluginManager {
                 expected: "found".to_string(),
             }))
         }
+    }
+
+    /// 处理所有插件的消息
+    pub async fn process_plugin_messages(&mut self) -> Result<(), VmError> {
+        let channels = self.plugin_channels.clone();
+        let mut channel_handles = channels.write().unwrap();
+
+        // 获取需要处理的插件ID列表
+        let plugin_ids: Vec<String> = channel_handles.keys().cloned().collect();
+
+        for plugin_id in plugin_ids {
+            if let Some(instance) = self.loaded_plugins.get_mut(&plugin_id)
+                && let Some(ref mut plugin) = instance.handle
+                && let Some(channel) = channel_handles.get_mut(&plugin_id)
+            {
+                // 处理该插件的消息
+                if let Err(e) = channel.process_messages(&plugin_id, plugin.as_mut()).await {
+                    tracing::warn!(
+                        "Failed to process messages for plugin {}: {:?}",
+                        plugin_id,
+                        e
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -717,4 +772,3 @@ pub struct PluginHealth {
     /// 是否健康（状态为Active且错误率 < 10%）
     pub is_healthy: bool,
 }
-

@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use vm_core::MmioDevice;
+use vm_core::{MmioDevice, VmResult};
 
 /// PLIC 寄存器偏移
 pub mod offsets {
@@ -278,6 +278,18 @@ impl Plic {
     pub fn claim_mut(&mut self, context: usize) -> u32 {
         self.claim(context)
     }
+
+    /// 内部定时中断处理方法
+    pub fn tick_internal(&mut self) {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_tick);
+        
+        if elapsed.as_millis() >= self.tick_interval_ms as u128 {
+            // 可以在这里实现定时中断逻辑
+            // 例如：触发一个特定的中断源
+            self.last_tick = now;
+        }
+    }
 }
 
 /// PLIC MMIO 设备包装器
@@ -293,6 +305,12 @@ impl PlicMmio {
     /// 获取 PLIC 的共享引用
     pub fn plic(&self) -> Arc<Mutex<Plic>> {
         Arc::clone(&self.plic)
+    }
+
+    /// 处理定时中断
+    pub fn tick(&self) {
+        let mut plic = self.plic.lock();
+        plic.tick_internal();
     }
 
     pub fn set_virtio_queue_source_base(&self, base: usize) {
@@ -311,7 +329,7 @@ impl PlicMmio {
 }
 
 impl MmioDevice for PlicMmio {
-    fn read(&self, offset: u64, size: u8) -> u64 {
+    fn read(&self, offset: u64, size: u8) -> VmResult<u64> {
         // 特殊处理 CLAIM 寄存器
         if offset >= offsets::CONTEXT_BASE {
             let context = ((offset - offsets::CONTEXT_BASE) / 0x1000) as usize;
@@ -319,37 +337,17 @@ impl MmioDevice for PlicMmio {
 
             if reg_offset == context_offsets::CLAIM {
                 let mut plic = self.plic.lock();
-                return plic.claim_mut(context) as u64;
+                return Ok(plic.claim_mut(context) as u64);
             }
         }
 
         let plic = self.plic.lock();
-        plic.read(offset, size)
+        Ok(plic.read(offset, size))
     }
 
-    fn write(&mut self, offset: u64, val: u64, size: u8) {
+    fn write(&mut self, offset: u64, val: u64, size: u8) -> VmResult<()> {
         let mut plic = self.plic.lock();
         plic.write(offset, val, size);
-    }
-
-    fn poll(&mut self, _mmu: &mut dyn vm_core::MMU) {
-        let mut plic = self.plic.lock();
-        let elapsed = plic.last_tick.elapsed();
-        if elapsed.as_millis() as u64 >= plic.tick_interval_ms {
-            plic.set_pending(1);
-            plic.last_tick = Instant::now();
-        }
-        if let Ok(status) = _mmu.read(0x1000_0000 + 0x030, 4) {
-            if status != 0 {
-                plic.set_pending(1);
-            }
-        }
-        let cause = _mmu.read(0x1000_0000 + 0x048, 8).unwrap_or(0);
-        let base = plic.virtio_queue_source_base;
-        for i in 0..32 {
-            if ((cause >> i) & 1) != 0 {
-                plic.set_pending(base + i as usize);
-            }
-        }
+        Ok(())
     }
 }

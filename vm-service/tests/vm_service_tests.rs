@@ -2,7 +2,7 @@
 //!
 //! 验证DDD贫血模型合规性和服务层功能
 
-use vm_core::{ExecMode, GuestArch, VmConfig, vm_state::VirtualMachineState};
+use vm_core::{ExecMode, GuestArch, VmConfig, VmLifecycleState, vm_state::VirtualMachineState};
 use vm_mem::SoftMmu;
 use vm_service::vm_service::VirtualMachineService;
 
@@ -22,7 +22,7 @@ fn test_vm_service_creation() {
     // 验证服务创建成功
     let state = service.state();
     let state_guard = state.lock().unwrap();
-    assert_eq!(state_guard.state(), vm_core::VmState::Created);
+    assert_eq!(state_guard.state(), vm_core::VmLifecycleState::Created);
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn test_vm_service_lifecycle() {
     {
         let state = service.state();
         let state_guard = state.lock().unwrap();
-        assert_eq!(state_guard.state(), vm_core::VmState::Running);
+        assert_eq!(state_guard.state(), vm_core::VmLifecycleState::Running);
     }
 
     // 测试暂停
@@ -56,7 +56,7 @@ fn test_vm_service_lifecycle() {
     {
         let state = service.state();
         let state_guard = state.lock().unwrap();
-        assert_eq!(state_guard.state(), vm_core::VmState::Paused);
+        assert_eq!(state_guard.state(), vm_core::VmLifecycleState::Paused);
     }
 
     // 测试停止
@@ -64,7 +64,7 @@ fn test_vm_service_lifecycle() {
     {
         let state = service.state();
         let state_guard = state.lock().unwrap();
-        assert_eq!(state_guard.state(), vm_core::VmState::Stopped);
+        assert_eq!(state_guard.state(), vm_core::VmLifecycleState::Stopped);
     }
 }
 
@@ -95,10 +95,9 @@ fn test_vm_state_anemic_model() {
     let state = VirtualMachineState::new(config, mmu);
 
     // 验证只有简单的访问方法
-    assert_eq!(state.state(), vm_core::VmState::Created);
+    assert_eq!(state.state(), vm_core::VmLifecycleState::Created);
     assert_eq!(state.vcpus.len(), 0);
 
     // 验证没有业务逻辑方法（通过编译检查）
     // 所有业务逻辑应该在VirtualMachineService中
 }
-

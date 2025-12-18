@@ -17,14 +17,19 @@ vm-frontend-x86_64 = { path = "../vm-frontend-x86_64" }
 vm-frontend-arm64 = { path = "../vm-frontend-arm64" }
 vm-frontend-riscv64 = { path = "../vm-frontend-riscv64" }
 vm-engine-interpreter = { path = "../vm-engine-interpreter" }
-vm-engine-jit = { path = "../vm-engine-jit" }
 vm-mem = { path = "../vm-mem" }
 vm-boot = { path = "../vm-boot" }
-aot-builder = { path = "../aot-builder" }
-vm-ir-lift = { path = "../vm-ir-lift" }
+vm-engine-jit = { path = "../vm-engine-jit" }
+vm-encoding = { path = "../vm-encoding" }
+vm-register = { path = "../vm-register" }
+vm-memory-access = { path = "../vm-memory-access" }
+vm-instruction-patterns = { path = "../vm-instruction-patterns" }
+vm-optimization = { path = "../vm-optimization" }
+vm-error = { path = "../vm-error" }
 thiserror = "2.0"
 tracing = "0.1"
 bincode = "2.0"
+fastrand = "2.0"
 
 [features]
 default = []

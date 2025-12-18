@@ -1,6 +1,6 @@
 //! 执行引擎接口定义
 
-use crate::{Configurable, ExecResult, GuestAddr, HotStats, Observable, VmComponent, VmError};
+use crate::{Configurable, ExecResult, GuestAddr, HotStats, Observable, VmComponent, VmError};use vm_core::VcpuStateContainer;
 use vm_ir::IRBlock;
 
 /// 执行引擎配置
@@ -90,12 +90,18 @@ pub trait ExecutionEngine<I>: VmComponent {
     /// 重置执行状态
     fn reset(&mut self);
 
+    /// 获取vCPU状态
+    fn get_vcpu_state(&self) -> VcpuStateContainer;
+
+    /// 设置vCPU状态
+    fn set_vcpu_state(&mut self, state: &VcpuStateContainer);
+
     /// 异步执行版本
-    async fn execute_async<M: crate::memory::MemoryManager>(
+    fn execute_async<M: crate::memory::MemoryManager + Send>(
         &mut self,
         mmu: &mut M,
         block: &I,
-    ) -> ExecResult;
+    ) -> impl std::future::Future<Output = ExecResult> + Send;
 }
 
 /// 热编译管理trait（用于JIT和Hybrid引擎）
@@ -138,7 +144,7 @@ impl InterpreterEngine {
         Self {
             config,
             state: ExecutionEngineState {
-                pc: 0,
+                pc: vm_core::GuestAddr(0),
                 registers: [0; 32],
                 float_registers: [0.0; 32],
                 execution_count: 0,
@@ -265,7 +271,7 @@ impl ExecutionEngine<IRBlock> for InterpreterEngine {
 
     fn reset(&mut self) {
         self.state = ExecutionEngineState {
-            pc: 0,
+            pc: vm_core::GuestAddr(0),
             registers: [0; 32],
             float_registers: [0.0; 32],
             execution_count: 0,
@@ -275,7 +281,24 @@ impl ExecutionEngine<IRBlock> for InterpreterEngine {
         self.stats = ExecutionEngineStats::default();
     }
 
-    async fn execute_async<M: crate::memory::MemoryManager>(
+    fn get_vcpu_state(&self) -> VcpuStateContainer {
+        VcpuStateContainer {
+            vcpu_id: 0, // 默认VCPU ID
+            state: vm_core::VmState {
+                regs: vm_core::GuestRegs::default(),
+                memory: vec![],
+                pc: self.state.pc,
+            },
+            running: true,
+        }
+    }
+
+    fn set_vcpu_state(&mut self, state: &VcpuStateContainer) {
+        self.state.pc = state.state.pc;
+        // 其他状态可以根据需要设置
+    }
+
+    async fn execute_async<M: crate::memory::MemoryManager + Send>(
         &mut self,
         mmu: &mut M,
         block: &IRBlock,

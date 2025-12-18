@@ -1,75 +1,92 @@
-//! 协程池测试套件
+//! 协程调度器测试套件
 
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
-use vm_runtime::CoroutinePool;
+use vm_runtime::CoroutineScheduler;
+use vm_runtime::Priority;
 
 #[tokio::test]
-async fn test_coroutine_pool_basic() {
-    let pool = CoroutinePool::new(10);
+fn test_coroutine_scheduler_basic() {
+    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+    scheduler.start().expect("Failed to start scheduler");
 
     // 提交任务
-    let task = async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
+    let task = || {
+        std::thread::sleep(Duration::from_millis(10));
     };
 
-    assert!(pool.spawn(task).await.is_ok());
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    let coroutine = scheduler.submit_task(Priority::Medium, task);
+    assert!(!coroutine.id().is_empty());
+    
+    // 等待任务完成
+    std::thread::sleep(Duration::from_millis(20));
+    
+    scheduler.stop();
+    scheduler.join_all();
 }
 
 #[tokio::test]
-async fn test_coroutine_pool_multiple_tasks() {
-    let pool = CoroutinePool::new(4);
+fn test_coroutine_scheduler_multiple_tasks() {
+    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+    scheduler.start().expect("Failed to start scheduler");
 
     // 提交多个任务
     for i in 0..5 {
-        let task = async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        let task = move || {
+            std::thread::sleep(Duration::from_millis(50));
         };
-        let _ = pool.spawn(task).await;
+        let _coroutine = scheduler.submit_task(Priority::Medium, task);
     }
 
     // 等待所有任务完成
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    pool.join_all().await.unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    
+    let stats = scheduler.get_stats();
+    println!("Scheduler stats: {:?}", stats);
+    
+    scheduler.stop();
+    scheduler.join_all();
 }
 
 #[tokio::test]
-async fn test_coroutine_pool_max_limit() {
-    let pool = CoroutinePool::new(2);
+fn test_coroutine_scheduler_priority() {
+    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+    scheduler.start().expect("Failed to start scheduler");
 
-    // 提交超过最大限制的协程
-    for _ in 0..3 {
-        let task = async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        };
-        let _ = pool.spawn(task).await;
-    }
-
-    // 等待一下让协程启动
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    // 再次提交应该失败（如果达到限制）
-    let task = async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
+    // 提交不同优先级的任务
+    let high_task = || {
+        std::thread::sleep(Duration::from_millis(10));
     };
-    // 注意：由于异步特性，这个测试可能不够准确
-    // 实际使用中应该检查返回值
+    
+    let low_task = || {
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    let _high_coro = scheduler.submit_task(Priority::High, high_task);
+    let _low_coro = scheduler.submit_task(Priority::Low, low_task);
+
+    // 等待任务完成
+    std::thread::sleep(Duration::from_millis(30));
+    
+    scheduler.stop();
+    scheduler.join_all();
 }
 
 #[tokio::test]
-async fn test_coroutine_pool_cleanup() {
-    let pool = CoroutinePool::new(5);
-
+fn test_coroutine_scheduler_stats() {
+    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+    
     // 提交一些任务
-    for _ in 0..3 {
-        let task = async {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+    for i in 0..3 {
+        let task = move || {
+            std::thread::sleep(Duration::from_millis(10));
         };
-        let _ = pool.spawn(task).await;
+        let _coroutine = scheduler.submit_task(Priority::Medium, task);
     }
 
-    // 清理
-    pool.cleanup().await;
-    assert_eq!(pool.active_count(), 0);
+    let stats = scheduler.get_stats();
+    assert_eq!(stats.global_queue_size, 3);
+    assert_eq!(stats.total_tasks, 3);
+    assert!(!stats.running);
 }

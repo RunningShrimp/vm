@@ -2,9 +2,8 @@
 //!
 //! 为VM服务提供跨架构自动检测和配置功能
 
-use super::{AutoExecutor, CrossArchConfig, HostArch};
+use super::CrossArchConfig;
 use vm_core::{ExecMode, GuestArch, VmConfig, VmError};
-use vm_mem::SoftMmu;
 
 /// VM配置扩展
 ///
@@ -31,18 +30,14 @@ impl VmConfigExt for VmConfig {
     /// 根据跨架构配置调整VM配置
     fn apply_cross_arch_config(&mut self, config: &CrossArchConfig) {
         // 根据策略调整执行模式
-        if self.exec_mode == ExecMode::Accelerated
+        if self.exec_mode == ExecMode::HardwareAssisted
             && config.strategy != super::CrossArchStrategy::Native
         {
-            // 跨架构不支持硬件加速，回退到混合模式
-            self.exec_mode = ExecMode::Hybrid;
-            self.enable_accel = false;
+            // 跨架构不支持硬件加速，回退到JIT模式
+            self.exec_mode = ExecMode::JIT;
         }
 
         // 根据当前模式和推荐模式进行调整（当需要时）
-
-        // 设置硬件加速标志
-        self.enable_accel = config.enable_hardware_accel;
     }
 }
 
@@ -57,8 +52,7 @@ pub fn create_auto_vm_config(
         guest_arch,
         memory_size: memory_size.unwrap_or(128 * 1024 * 1024), // 默认128MB
         vcpu_count: 1,
-        exec_mode: ExecMode::Hybrid, // 默认混合模式
-        enable_accel: false,         // 先设为false，后续根据检测结果调整
+        exec_mode: ExecMode::Interpreter, // 默认解释器模式
         ..Default::default()
     };
 

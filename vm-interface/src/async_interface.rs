@@ -52,11 +52,7 @@ impl DefaultTaskScheduler {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
-            .map_err(|e| {
-                VmError::Io(
-                    std::io::Error::other(format!("{}", e)).to_string(),
-                )
-            })?;
+            .map_err(|e| VmError::Io(std::io::Error::other(format!("{}", e)).to_string()))?;
 
         Ok(Self {
             runtime,
@@ -111,11 +107,7 @@ impl DefaultAsyncContext {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
-            .map_err(|e| {
-                VmError::Io(
-                    std::io::Error::other(format!("{}", e)).to_string(),
-                )
-            })?;
+            .map_err(|e| VmError::Io(std::io::Error::other(format!("{}", e)).to_string()))?;
 
         let scheduler = DefaultTaskScheduler::new()?;
 

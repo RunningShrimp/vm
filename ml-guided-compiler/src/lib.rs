@@ -6,10 +6,10 @@
 //! - 自适应参数调整
 //! - A/B测试框架
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// 编译块特征向量
 #[derive(Clone, Debug, Default)]
@@ -97,13 +97,13 @@ impl SimpleLinearModel {
         Self {
             // 这些是示例权重，基于启发式规则
             weights: vec![
-                0.1,   // size权重
-                0.3,   // branch权重
-                0.2,   // loop权重
-                0.15,  // call权重
-                0.15,  // memory权重
-                0.25,  // exec_count权重
-                0.25,  // exec_time权重
+                0.1,  // size权重
+                0.3,  // branch权重
+                0.2,  // loop权重
+                0.15, // call权重
+                0.15, // memory权重
+                0.25, // exec_count权重
+                0.25, // exec_time权重
             ],
             bias: -0.5,
         }
@@ -113,14 +113,14 @@ impl SimpleLinearModel {
     pub fn predict(&self, features: &BlockFeatures) -> f32 {
         let normalized = features.normalize();
         let mut score = self.bias;
-        
+
         for (i, feat) in normalized.iter().enumerate() {
             if i < self.weights.len() {
                 score += self.weights[i] * feat;
             }
         }
 
-        score.max(0.0).min(3.0)
+        score.clamp(0.0, 3.0)
     }
 
     /// 预测最佳编译层级
@@ -162,7 +162,11 @@ impl MLGuidedCompiler {
     }
 
     /// 为代码块进行编译决策
-    pub fn decide_compilation(&self, block_id: u64, features: &BlockFeatures) -> CompilationDecision {
+    pub fn decide_compilation(
+        &self,
+        block_id: u64,
+        features: &BlockFeatures,
+    ) -> CompilationDecision {
         // 检查缓存
         {
             let cache = self.decision_cache.read();
@@ -182,8 +186,12 @@ impl MLGuidedCompiler {
 
         // 缓存决策和特征
         {
-            self.feature_cache.write().insert(block_id, features.clone());
-            self.decision_cache.write().insert(block_id, decision.clone());
+            self.feature_cache
+                .write()
+                .insert(block_id, features.clone());
+            self.decision_cache
+                .write()
+                .insert(block_id, decision.clone());
         }
 
         self.predictions_made.fetch_add(1, Ordering::Relaxed);
@@ -194,7 +202,7 @@ impl MLGuidedCompiler {
     pub fn update_with_feedback(
         &self,
         block_id: u64,
-        actual_tier: CompilationDecision,
+        _actual_tier: CompilationDecision,
         actual_time_us: u64,
     ) {
         let mut features = {
@@ -208,6 +216,12 @@ impl MLGuidedCompiler {
 
         // 更新特征中的执行时间
         features.execution_time_us = actual_time_us;
+
+        // 将更新后的特征存储回缓存
+        {
+            let mut cache = self.feature_cache.write();
+            cache.insert(block_id, features);
+        }
 
         // 简单的权重调整 (基于性能反馈)
         // 如果实际使用的tier比预测的好，增加相关特征的权重
@@ -233,7 +247,7 @@ impl MLGuidedCompiler {
         let hits = self.cache_hits.load(Ordering::Relaxed);
         let misses = self.cache_misses.load(Ordering::Relaxed);
         let total = hits + misses;
-        
+
         if total == 0 {
             0.0
         } else {
@@ -330,7 +344,9 @@ impl ABTestFramework {
         if control.avg_compile_us == 0 {
             0.0
         } else {
-            ((control.avg_compile_us - experimental.avg_compile_us) as f32 / control.avg_compile_us as f32) * 100.0
+            ((control.avg_compile_us - experimental.avg_compile_us) as f32
+                / control.avg_compile_us as f32)
+                * 100.0
         }
     }
 
@@ -425,7 +441,13 @@ mod tests {
         assert!(score >= 0.0 && score <= 3.0);
 
         let tier = model.predict_tier(&features);
-        assert!(matches!(tier, CompilationDecision::Tier0 | CompilationDecision::Tier1 | CompilationDecision::Tier2 | CompilationDecision::Tier3));
+        assert!(matches!(
+            tier,
+            CompilationDecision::Tier0
+                | CompilationDecision::Tier1
+                | CompilationDecision::Tier2
+                | CompilationDecision::Tier3
+        ));
     }
 
     #[test]
@@ -451,7 +473,13 @@ mod tests {
         };
 
         let decision1 = compiler.decide_compilation(1, &features);
-        assert!(matches!(decision1, CompilationDecision::Tier0 | CompilationDecision::Tier1 | CompilationDecision::Tier2 | CompilationDecision::Tier3));
+        assert!(matches!(
+            decision1,
+            CompilationDecision::Tier0
+                | CompilationDecision::Tier1
+                | CompilationDecision::Tier2
+                | CompilationDecision::Tier3
+        ));
 
         let stats = compiler.get_stats();
         assert_eq!(stats.predictions_made, 1);

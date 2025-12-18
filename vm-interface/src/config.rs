@@ -135,12 +135,13 @@ impl ConfigManager {
         })?;
 
         if let Some(existing) = configs.get(&key)
-            && !existing.runtime_modifiable {
-                return Err(VmError::Core(vm_core::CoreError::Config {
-                    message: format!("Configuration '{}' is not runtime modifiable", key),
-                    path: Some(key),
-                }));
-            }
+            && !existing.runtime_modifiable
+        {
+            return Err(VmError::Core(vm_core::CoreError::Config {
+                message: format!("Configuration '{}' is not runtime modifiable", key),
+                path: Some(key),
+            }));
+        }
 
         drop(configs);
         self.set(

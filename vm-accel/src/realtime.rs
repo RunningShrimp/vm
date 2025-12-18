@@ -10,8 +10,7 @@
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Instant;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 实时优先级等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -205,7 +204,7 @@ impl PreallocatedPool {
         let mut blocks = VecDeque::new();
         for _ in 0..pool_size {
             // 页面对齐
-            let mut block = vec![0u8; block_size];
+            let block = vec![0u8; block_size];
             // 模拟页面锁定
             let _ = mlock_simulation(&block);
             blocks.push_back(block);
@@ -238,6 +237,10 @@ impl PreallocatedPool {
 
     pub fn get_available_blocks(&self) -> usize {
         self.memory_blocks.read().len()
+    }
+
+    pub fn get_block_size(&self) -> usize {
+        self.block_size
     }
 }
 

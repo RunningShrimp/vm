@@ -4,7 +4,7 @@
 
 use crate::virtio::{Queue, VirtioDevice};
 use std::sync::{Arc, Mutex};
-use vm_core::{MMU, VmError};
+use vm_core::MMU;
 
 /// VirtIO Balloon 统计信息
 #[derive(Debug, Clone, Default)]
@@ -97,7 +97,7 @@ impl VirtioBalloon {
                 // 可读
                 let num_pages = (desc.len / 8) as usize;
                 let mut page_data = vec![0u8; num_pages * 8];
-                if mmu.read_bulk(desc.addr, &mut page_data).is_ok() {
+                if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut page_data).is_ok() {
                     // 将字节数组转换为u64数组
                     let page_addrs: Vec<u64> = page_data
                         .chunks_exact(8)
@@ -141,7 +141,7 @@ impl VirtioBalloon {
                 // 可读
                 let num_pages = (desc.len / 8) as usize;
                 let mut page_data = vec![0u8; num_pages * 8];
-                if mmu.read_bulk(desc.addr, &mut page_data).is_ok() {
+                if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut page_data).is_ok() {
                     // 将字节数组转换为u64数组
                     let page_addrs: Vec<u64> = page_data
                         .chunks_exact(8)

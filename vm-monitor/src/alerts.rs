@@ -2,12 +2,12 @@
 //!
 //! 提供性能告警检测、通知和确认功能
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{AlertThresholds, SystemMetrics};
@@ -172,13 +172,13 @@ impl AlertManager {
                     "JIT执行速度低于阈值",
                     &format!(
                         "当前JIT执行速度: {:.2} execs/sec，阈值: {:.2} execs/sec",
-                        metrics.jit_metrics.execution_rate,
-                        self.thresholds.jit_execution_rate
+                        metrics.jit_metrics.execution_rate, self.thresholds.jit_execution_rate
                     ),
                     metrics.jit_metrics.execution_rate,
                     self.thresholds.jit_execution_rate,
                     metrics,
-                ).await;
+                )
+                .await;
                 self.set_cooldown(alert_key, now, Duration::from_secs(300)); // 5分钟冷却
             }
         }
@@ -193,13 +193,13 @@ impl AlertManager {
                     "TLB命中率低于阈值",
                     &format!(
                         "当前TLB命中率: {:.2}%，阈值: {:.2}%",
-                        metrics.tlb_metrics.hit_rate,
-                        self.thresholds.tlb_hit_rate
+                        metrics.tlb_metrics.hit_rate, self.thresholds.tlb_hit_rate
                     ),
                     metrics.tlb_metrics.hit_rate,
                     self.thresholds.tlb_hit_rate,
                     metrics,
-                ).await;
+                )
+                .await;
                 self.set_cooldown(alert_key, now, Duration::from_secs(300));
             }
         }
@@ -221,7 +221,8 @@ impl AlertManager {
                     memory_usage_ratio * 100.0,
                     self.thresholds.memory_usage_rate,
                     metrics,
-                ).await;
+                )
+                .await;
                 self.set_cooldown(alert_key, now, Duration::from_secs(600)); // 10分钟冷却
             }
         }
@@ -287,7 +288,8 @@ impl AlertManager {
                 memory: Some(MemoryAlertMetrics {
                     usage_ratio: metrics.memory_metrics.usage_rate / 100.0,
                     allocation_rate: metrics.memory_metrics.allocation_rate,
-                    read_write_ops: metrics.memory_metrics.total_reads + metrics.memory_metrics.total_writes,
+                    read_write_ops: metrics.memory_metrics.total_reads
+                        + metrics.memory_metrics.total_writes,
                 }),
                 parallel: Some(ParallelAlertMetrics {
                     efficiency: metrics.parallel_metrics.efficiency_score,

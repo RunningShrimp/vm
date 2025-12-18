@@ -1,0 +1,947 @@
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /Users/didi/Desktop/vm/Cargo.toml: `panic` setting is ignored for `test` profile
+warning: variable does not need to be mutable
+   --> vm-common/src/lockfree/state_management.rs:283:55
+    |
+283 |     pub fn update_shard<F>(&self, shard_index: usize, mut updater: F) -> Option<StateSnapshot<T>>
+    |                                                       ----^^^^^^^
+    |                                                       |
+    |                                                       help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `old_data`
+   --> vm-common/src/lockfree/state_management.rs:469:54
+    |
+469 |         let new_snapshot = self.shared_state.update(|old_data| {
+    |                                                      ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_old_data`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `old_data`
+   --> vm-common/src/lockfree/state_management.rs:500:58
+    |
+500 |             let new_snapshot = self.shared_state.update(|old_data| {
+    |                                                          ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_old_data`
+
+warning: field `worker_id` is never read
+   --> vm-common/src/lockfree/queue.rs:428:5
+    |
+422 | pub struct WorkStealingQueue<T> {
+    |            ----------------- field in this struct
+...
+428 |     worker_id: usize,
+    |     ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `version` is never read
+  --> vm-common/src/lockfree/state_management.rs:92:5
+   |
+88 | pub struct LockFreeSharedState<T: Send + Sync> {
+   |            ------------------- field in this struct
+...
+92 |     version: AtomicU64,
+   |     ^^^^^^^
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/queue.rs:126:29
+    |
+126 | ...                   Box::from_raw(head);
+    |                       ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+126 |                             let _ = Box::from_raw(head);
+    |                             +++++++
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/queue.rs:179:17
+    |
+179 |                 Box::from_raw(head);
+    |                 ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+179 |                 let _ = Box::from_raw(head);
+    |                 +++++++
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:114:22
+    |
+114 |             unsafe { Box::from_raw(new_node) };
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+114 |             unsafe { let _ = Box::from_raw(new_node); };
+    |                      +++++++                        +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:168:30
+    |
+168 |                     unsafe { Box::from_raw(target) };
+    |                              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+168 |                     unsafe { let _ = Box::from_raw(target); };
+    |                              +++++++                      +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:181:30
+    |
+181 |                     unsafe { Box::from_raw(target) };
+    |                              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+181 |                     unsafe { let _ = Box::from_raw(target); };
+    |                              +++++++                      +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:217:26
+    |
+217 |                 unsafe { Box::from_raw(head) };
+    |                          ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+217 |                 unsafe { let _ = Box::from_raw(head); };
+    |                          +++++++                    +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/hash_table.rs:310:26
+    |
+310 |                 unsafe { Box::from_raw(head) };
+    |                          ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+310 |                 unsafe { let _ = Box::from_raw(head); };
+    |                          +++++++                    +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:155:26
+    |
+155 |                 unsafe { Box::from_raw(old_ptr) };
+    |                          ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+155 |                 unsafe { let _ = Box::from_raw(old_ptr); };
+    |                          +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:161:22
+    |
+161 |             unsafe { Box::from_raw(new_ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+161 |             unsafe { let _ = Box::from_raw(new_ptr); };
+    |                      +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:198:26
+    |
+198 |                 unsafe { Box::from_raw(old_ptr) };
+    |                          ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+198 |                 unsafe { let _ = Box::from_raw(old_ptr); };
+    |                          +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:204:22
+    |
+204 |             unsafe { Box::from_raw(new_ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+204 |             unsafe { let _ = Box::from_raw(new_ptr); };
+    |                      +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:222:22
+    |
+222 |             unsafe { Box::from_raw(ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+222 |             unsafe { let _ = Box::from_raw(ptr); };
+    |                      +++++++                   +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:384:18
+    |
+384 |         unsafe { Box::from_raw(old_ptr) };
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+384 |         unsafe { let _ = Box::from_raw(old_ptr); };
+    |                  +++++++                       +
+
+warning: unused return value of `Box::<T>::from_raw` that must be used
+   --> vm-common/src/lockfree/state_management.rs:394:22
+    |
+394 |             unsafe { Box::from_raw(ptr) };
+    |                      ^^^^^^^^^^^^^^^^^^
+    |
+    = note: call `drop(Box::from_raw(ptr))` if you intend to drop the `Box`
+help: use `let _ = ...` to ignore the resulting value
+    |
+394 |             unsafe { let _ = Box::from_raw(ptr); };
+    |                      +++++++                   +
+
+warning: `vm-common` (lib) generated 19 warnings (run `cargo fix --lib -p vm-common` to apply 1 suggestion)
+warning: field `buffer` is never read
+  --> vm-core/src/gdb.rs:74:5
+   |
+72 | pub struct GdbConnection {
+   |            ------------- field in this struct
+73 |     stream: TcpStream,
+74 |     buffer: Vec<u8>,
+   |     ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-core` (lib) generated 1 warning
+warning: unused import: `ExecutionError`
+  --> vm-ir/src/lift/mod.rs:45:15
+   |
+45 | use vm_core::{ExecutionError, CoreError, VmError};
+   |               ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:131:11
+    |
+131 | impl From<LiftError> for VmError {
+    |           ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:132:18
+    |
+132 |     fn from(err: LiftError) -> Self {
+    |                  ^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedISA`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:134:24
+    |
+134 |             LiftError::UnsupportedISA(isa) => VmError::Core(CoreError::NotSupported { 
+    |                        ^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:138:24
+    |
+138 |             LiftError::DecodeError(msg) => VmError::Core(CoreError::DecodeError {
+    |                        ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:143:24
+    |
+143 |             LiftError::SemanticError(msg) => VmError::Core(CoreError::DecodeError {
+    |                        ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::IRGenError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:148:24
+    |
+148 |             LiftError::IRGenError(msg) => VmError::Core(CoreError::NotSupported {
+    |                        ^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:152:24
+    |
+152 |             LiftError::UnsupportedInstruction(msg) => VmError::Core(CoreError::NotSupported { 
+    |                        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+ --> vm-ir/src/lift/decoder.rs:5:19
+  |
+5 | use crate::lift::{LiftError, LiftResult};
+  |                   ^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:188:31
+    |
+188 |         return Err(LiftError::DecodeError("Empty bytes".to_string()).into());
+    |                               ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:201:31
+    |
+201 |         return Err(LiftError::DecodeError("Incomplete instruction".to_string()).into());
+    |                               ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:232:32
+    |
+232 |                     LiftError::DecodeError("Incomplete MOV instruction".to_string()).into(),
+    |                                ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:248:32
+    |
+248 |                     LiftError::DecodeError("Incomplete ADD instruction".to_string()).into(),
+    |                                ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:265:32
+    |
+265 |                     LiftError::DecodeError("Incomplete SUB instruction".to_string()).into(),
+    |                                ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:291:39
+    |
+291 |                 return Err(LiftError::DecodeError("Incomplete FF instruction".to_string()).into());
+    |                                       ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:320:32
+    |
+320 |                     LiftError::DecodeError(format!("Unsupported FF variant: {}", reg_opcode))
+    |                                ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:326:24
+    |
+326 |             LiftError::DecodeError(format!("Unsupported x86-64 opcode: 0x{:02X}", opcode)).into(),
+    |                        ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:410:24
+    |
+410 |             LiftError::DecodeError(format!("Unsupported ARM64 instruction: 0x{:08X}", word)).into(),
+    |                        ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:483:24
+    |
+483 |             LiftError::DecodeError(format!("Unsupported RISC-V opcode: 0x{:02X}", opcode)).into(),
+    |                        ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:173:35
+    |
+173 |             return Err(LiftError::DecodeError("Empty instruction bytes".to_string()).into());
+    |                                   ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:364:28
+    |
+364 |                 LiftError::DecodeError("ARM64 instruction must be 4 bytes".to_string()).into(),
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:430:35
+    |
+430 |             return Err(LiftError::DecodeError("Empty bytes".to_string()).into());
+    |                                   ^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::DecodeError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/decoder.rs:436:35
+    |
+436 |             return Err(LiftError::DecodeError("Incomplete RISC-V instruction".to_string()).into());
+    |                                   ^^^^^^^^^^^
+
+warning: use of deprecated enum `lift::LiftError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+ --> vm-ir/src/lift/semantics.rs:6:19
+  |
+6 | use crate::lift::{LiftError, LiftResult, LiftingContext};
+  |                   ^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:142:35
+    |
+142 |             return Err(LiftError::SemanticError("ADD requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:161:35
+    |
+161 |             return Err(LiftError::SemanticError("SUB requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:180:35
+    |
+180 |             return Err(LiftError::SemanticError("MOV requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:191:35
+    |
+191 |             return Err(LiftError::SemanticError("LEA requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:202:35
+    |
+202 |             return Err(LiftError::SemanticError("CMP requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:221:35
+    |
+221 |             return Err(LiftError::SemanticError("JMP requires target".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:231:35
+    |
+231 |             return Err(LiftError::SemanticError("CALL requires target".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:257:35
+    |
+257 |             return Err(LiftError::SemanticError("PUSH requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:274:35
+    |
+274 |             return Err(LiftError::SemanticError("POP requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:298:28
+    |
+298 |                 LiftError::SemanticError("IMUL requires at least 2 operands".to_string()).into(),
+    |                            ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:318:35
+    |
+318 |             return Err(LiftError::SemanticError("XOR requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:337:35
+    |
+337 |             return Err(LiftError::SemanticError("OR requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:356:35
+    |
+356 |             return Err(LiftError::SemanticError("AND requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:375:35
+    |
+375 |             return Err(LiftError::SemanticError("TEST requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:394:35
+    |
+394 |             return Err(LiftError::SemanticError("SHL requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:412:35
+    |
+412 |             return Err(LiftError::SemanticError("SHR requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:430:35
+    |
+430 |             return Err(LiftError::SemanticError("DIV requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:448:35
+    |
+448 |             return Err(LiftError::SemanticError("MOVZX requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:460:35
+    |
+460 |             return Err(LiftError::SemanticError("MOVSX requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:472:35
+    |
+472 |             return Err(LiftError::SemanticError("INC requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:488:35
+    |
+488 |             return Err(LiftError::SemanticError("DEC requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:504:35
+    |
+504 |             return Err(LiftError::SemanticError("NEG requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:520:35
+    |
+520 |             return Err(LiftError::SemanticError("NOT requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:533:35
+    |
+533 |             return Err(LiftError::SemanticError("ROR requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:551:35
+    |
+551 |             return Err(LiftError::SemanticError("ROL requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:569:35
+    |
+569 |             return Err(LiftError::SemanticError("SAR requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:584:35
+    |
+584 |             return Err(LiftError::SemanticError("ADC requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:603:35
+    |
+603 |             return Err(LiftError::SemanticError("SBB requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:621:35
+    |
+621 |             return Err(LiftError::SemanticError("MOVQ requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:632:35
+    |
+632 |             return Err(LiftError::SemanticError("MOVSQ requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:649:35
+    |
+649 |             return Err(LiftError::SemanticError("BSWAP requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:665:35
+    |
+665 |             return Err(LiftError::SemanticError("BSR/CLZ requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:681:35
+    |
+681 |             return Err(LiftError::SemanticError("BSF/CTZ requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:697:35
+    |
+697 |             return Err(LiftError::SemanticError("POPCNT requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:713:35
+    |
+713 |             return Err(LiftError::SemanticError("PARITY requires operand".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:758:35
+    |
+758 |             return Err(LiftError::SemanticError("CMOV requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::SemanticError`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:780:35
+    |
+780 |             return Err(LiftError::SemanticError("CMPXCHG requires 2 operands".to_string()).into());
+    |                                   ^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:835:33
+    |
+835 |             _ => Err(LiftError::UnsupportedInstruction(format!(
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:856:24
+    |
+856 |         Err(LiftError::UnsupportedInstruction(format!(
+    |                        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:885:33
+    |
+885 |             _ => Err(LiftError::UnsupportedInstruction(format!(
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated tuple variant `lift::LiftError::UnsupportedInstruction`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/semantics.rs:911:33
+    |
+911 |             _ => Err(LiftError::UnsupportedInstruction(format!(
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `lift::LiftError::UnsupportedISA::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:134:39
+    |
+134 |             LiftError::UnsupportedISA(isa) => VmError::Core(CoreError::NotSupported { 
+    |                                       ^^^
+
+warning: use of deprecated field `lift::LiftError::DecodeError::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:138:36
+    |
+138 |             LiftError::DecodeError(msg) => VmError::Core(CoreError::DecodeError {
+    |                                    ^^^
+
+warning: use of deprecated field `lift::LiftError::SemanticError::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:143:38
+    |
+143 |             LiftError::SemanticError(msg) => VmError::Core(CoreError::DecodeError {
+    |                                      ^^^
+
+warning: use of deprecated field `lift::LiftError::IRGenError::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:148:35
+    |
+148 |             LiftError::IRGenError(msg) => VmError::Core(CoreError::NotSupported {
+    |                                   ^^^
+
+warning: use of deprecated field `lift::LiftError::UnsupportedInstruction::0`: Use vm_core::VmError instead. This type is kept for backward compatibility.
+   --> vm-ir/src/lift/mod.rs:152:47
+    |
+152 |             LiftError::UnsupportedInstruction(msg) => VmError::Core(CoreError::NotSupported { 
+    |                                               ^^^
+
+warning: unused variable: `dst`
+   --> vm-ir/src/lift/semantics.rs:451:13
+    |
+451 |         let dst = self.operand_to_ir(&instr.operands[0])?;
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_dst`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dst`
+   --> vm-ir/src/lift/semantics.rs:463:13
+    |
+463 |         let dst = self.operand_to_ir(&instr.operands[0])?;
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_dst`
+
+warning: field `flags_state` is never read
+   --> vm-ir/src/lift/semantics.rs:109:5
+    |
+108 | pub struct X86_64Semantics {
+    |            --------------- field in this struct
+109 |     flags_state: HashMap<String, FlagsState>,
+    |     ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `lift_parity` is never used
+   --> vm-ir/src/lift/semantics.rs:711:8
+    |
+118 | impl X86_64Semantics {
+    | -------------------- method in this implementation
+...
+711 |     fn lift_parity(&self, instr: &Instruction, ctx: &mut LiftingContext) -> LiftResult<String> {
+    |        ^^^^^^^^^^^
+
+warning: `vm-ir` (lib) generated 74 warnings (run `cargo fix --lib -p vm-ir` to apply 1 suggestion)
+   Compiling vm-frontend-x86_64 v0.1.0 (/Users/didi/Desktop/vm/vm-frontend-x86_64)
+error[E0407]: method `decode_block` is not a member of trait `Decoder`
+   --> vm-frontend-x86_64/src/lib.rs:826:5
+    |
+826 | /     fn decode_block(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<IRBlock, VmError> {
+827 | |         // 检查缓存
+828 | |         if let Some(ref cache) = self.decode_cache
+829 | |             && let Some(cached_block) = cache.get(&pc)
+...   |
+917 | |         Ok(block)
+918 | |     }
+    | |_____^ not a member of trait `Decoder`
+
+error[E0425]: cannot find value `pc` in this scope
+   --> vm-frontend-x86_64/src/extended_insns.rs:331:26
+    |
+315 |     pub fn decode_sse(opcode: &[u8], _pc: GuestAddr) -> Option<X86Instruction> {
+    |                                      --- `_pc` defined here
+...
+331 |                 next_pc: pc + opcode.len() as u64,
+    |                          ^^
+    |
+help: the leading underscore in `_pc` marks it as unused, consider renaming it to `pc`
+    |
+315 -     pub fn decode_sse(opcode: &[u8], _pc: GuestAddr) -> Option<X86Instruction> {
+315 +     pub fn decode_sse(opcode: &[u8], pc: GuestAddr) -> Option<X86Instruction> {
+    |
+
+error[E0425]: cannot find value `pc` in this scope
+   --> vm-frontend-x86_64/src/extended_insns.rs:535:26
+    |
+519 |     pub fn decode_avx(opcode: &[u8], _pc: GuestAddr) -> Option<X86Instruction> {
+    |                                      --- `_pc` defined here
+...
+535 |                 next_pc: pc + opcode.len() as u64,
+    |                          ^^
+    |
+help: the leading underscore in `_pc` marks it as unused, consider renaming it to `pc`
+    |
+519 -     pub fn decode_avx(opcode: &[u8], _pc: GuestAddr) -> Option<X86Instruction> {
+519 +     pub fn decode_avx(opcode: &[u8], pc: GuestAddr) -> Option<X86Instruction> {
+    |
+
+error[E0425]: cannot find value `pc` in this scope
+   --> vm-frontend-x86_64/src/extended_insns.rs:696:26
+    |
+680 |     pub fn decode_bmi(opcode: &[u8], _pc: GuestAddr) -> Option<X86Instruction> {
+    |                                      --- `_pc` defined here
+...
+696 |                 next_pc: pc + opcode.len() as u64,
+    |                          ^^
+    |
+help: the leading underscore in `_pc` marks it as unused, consider renaming it to `pc`
+    |
+680 -     pub fn decode_bmi(opcode: &[u8], _pc: GuestAddr) -> Option<X86Instruction> {
+680 +     pub fn decode_bmi(opcode: &[u8], pc: GuestAddr) -> Option<X86Instruction> {
+    |
+
+error[E0425]: cannot find value `b` in this scope
+    --> vm-frontend-x86_64/src/lib.rs:2009:37
+     |
+2009 | ...                   opcode: b as u32,
+     |                               ^ not found in this scope
+
+error[E0050]: method `decode` has 2 parameters but the declaration in trait `vm_core::Decoder::decode` has 3
+   --> vm-frontend-x86_64/src/lib.rs:807:15
+    |
+807 |     fn decode(&self, bytes: &[u8]) -> VmResult<Instruction> {
+    |               ^^^^^^^^^^^^^^^^^^^ expected 3 parameters, found 2
+    |
+    = note: `decode` from trait: `fn(&mut Self, &(dyn MMU + 'static), GuestAddr) -> Result<<Self as Decoder>::Block, CoreVmError>`
+
+error[E0046]: not all trait items implemented, missing: `Instruction`, `Block`, `decode_insn`
+   --> vm-frontend-x86_64/src/lib.rs:806:1
+    |
+806 | impl Decoder for X86Decoder {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `Instruction`, `Block`, `decode_insn` in implementation
+    |
+    = help: implement the missing item: `type Instruction = /* Type */;`
+    = help: implement the missing item: `type Block = /* Type */;`
+    = help: implement the missing item: `fn decode_insn(&mut self, _: &(dyn MMU + 'static), _: GuestAddr) -> Result<<Self as Decoder>::Instruction, CoreVmError> { todo!() }`
+
+error[E0599]: no variant or associated item named `core` found for enum `CoreVmError` in the current scope
+   --> vm-frontend-x86_64/src/lib.rs:809:33
+    |
+809 |             return Err(VmError::core(CoreError::InvalidState { 
+    |                                 ^^^^ variant or associated item not found in `CoreVmError`
+    |
+help: there is a variant with a similar name (notice the capitalization)
+    |
+809 -             return Err(VmError::core(CoreError::InvalidState { 
+809 +             return Err(VmError::Core(CoreError::InvalidState { 
+    |
+
+error[E0063]: missing fields `current` and `expected` in initializer of `CoreError`
+   --> vm-frontend-x86_64/src/lib.rs:809:38
+    |
+809 |             return Err(VmError::core(CoreError::InvalidState { 
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^ missing `current` and `expected`
+
+warning: unreachable pattern
+   --> vm-frontend-x86_64/src/extended_insns.rs:414:17
+    |
+405 |                 Some(&0x14) => Some(Sse41Instruction::Blendvps),
+    |                 ----------- matches all the relevant values
+...
+414 |                 Some(&0x14) => Some(Sse41Instruction::Pextrb),
+    |                 ^^^^^^^^^^^ no value can reach this
+    |
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `count_reg`
+    --> vm-frontend-x86_64/src/lib.rs:4349:43
+     |
+4349 |             } else if let X86Operand::Reg(count_reg) = insn.op2 {
+     |                                           ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_count_reg`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `tmp3`
+    --> vm-frontend-x86_64/src/lib.rs:5929:21
+     |
+5929 |                 let tmp3 = 212;
+     |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_tmp3`
+
+warning: unused variable: `temp`
+    --> vm-frontend-x86_64/src/lib.rs:6096:17
+     |
+6096 |             let temp = 203;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_temp`
+
+warning: unused variable: `rel_offset`
+    --> vm-frontend-x86_64/src/lib.rs:7585:17
+     |
+7585 |             let rel_offset = if let X86Operand::Rel(offset) = insn.op1 {
+     |                 ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_rel_offset`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:7944:17
+     |
+7944 |             let dest = load_operand(builder, &insn.op1, 64)?; // ZMM is 64 bytes
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `src1`
+    --> vm-frontend-x86_64/src/lib.rs:7945:17
+     |
+7945 |             let src1 = load_operand(builder, &insn.op2, 64)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_src1`
+
+warning: unused variable: `src2`
+    --> vm-frontend-x86_64/src/lib.rs:7946:17
+     |
+7946 |             let src2 = load_operand(builder, &insn.op3, 64)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_src2`
+
+warning: unused variable: `result_hi`
+    --> vm-frontend-x86_64/src/lib.rs:7951:17
+     |
+7951 |             let result_hi = 401;
+     |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_result_hi`
+
+warning: unused variable: `src1_hi`
+    --> vm-frontend-x86_64/src/lib.rs:7953:17
+     |
+7953 |             let src1_hi = 403;
+     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_src1_hi`
+
+warning: unused variable: `src2_hi`
+    --> vm-frontend-x86_64/src/lib.rs:7955:17
+     |
+7955 |             let src2_hi = 405;
+     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_src2_hi`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:7983:17
+     |
+7983 |             let dest = load_operand(builder, &insn.op1, 64)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8014:17
+     |
+8014 |             let dest = load_operand(builder, &insn.op1, 64)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8045:17
+     |
+8045 |             let dest = load_operand(builder, &insn.op1, 64)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8093:17
+     |
+8093 |             let dest = load_operand(builder, &insn.op1, 1)?; // Mask registers are 8 bits
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8106:17
+     |
+8106 |             let dest = load_operand(builder, &insn.op1, 1)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8124:17
+     |
+8124 |             let dest = load_operand(builder, &insn.op1, 1)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8137:17
+     |
+8137 |             let dest = load_operand(builder, &insn.op1, 1)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8155:17
+     |
+8155 |             let dest = load_operand(builder, &insn.op1, 1)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8168:17
+     |
+8168 |             let dest = load_operand(builder, &insn.op1, 1)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8181:17
+     |
+8181 |             let dest = load_operand(builder, &insn.op1, 1)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8438:17
+     |
+8438 |             let dest = load_operand(builder, &insn.op1, 16)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `src2`
+    --> vm-frontend-x86_64/src/lib.rs:8440:17
+     |
+8440 |             let src2 = load_operand(builder, &insn.op3, 16)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_src2`
+
+warning: unused variable: `dest`
+    --> vm-frontend-x86_64/src/lib.rs:8447:17
+     |
+8447 |             let dest = load_operand(builder, &insn.op1, 16)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_dest`
+
+warning: unused variable: `src2`
+    --> vm-frontend-x86_64/src/lib.rs:8449:17
+     |
+8449 |             let src2 = load_operand(builder, &insn.op3, 16)?;
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_src2`
+
+Some errors have detailed explanations: E0046, E0050, E0063, E0407, E0425, E0599.
+For more information about an error, try `rustc --explain E0046`.
+warning: `vm-frontend-x86_64` (lib) generated 25 warnings
+error: could not compile `vm-frontend-x86_64` (lib) due to 9 previous errors; 25 warnings emitted

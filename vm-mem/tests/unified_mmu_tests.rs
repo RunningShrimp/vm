@@ -1,8 +1,8 @@
 //! 统一MMU测试套件
 
 use vm_core::{AccessType, GuestAddr};
-use vm_mem::PagingMode;
 use vm_mem::unified_mmu::{UnifiedMmu, UnifiedMmuConfig};
+use vm_mem::{MmuOptimizationStrategy as MmuStrategy, PagingMode};
 
 #[test]
 fn test_unified_mmu_creation() {
@@ -15,7 +15,7 @@ fn test_unified_mmu_creation() {
 #[test]
 fn test_unified_mmu_translate_bare() {
     let config = UnifiedMmuConfig::default();
-    let mmu = UnifiedMmu::new(0x10000000, false, config);
+    let mut mmu = UnifiedMmu::new(0x10000000, false, config);
     // 注意：UnifiedMmu可能没有set_paging_mode方法，需要检查实际API
     // mmu.set_paging_mode(PagingMode::Bare);
 
@@ -31,9 +31,6 @@ fn test_unified_mmu_read_write() {
     let config = UnifiedMmuConfig::default();
     let mmu = UnifiedMmu::new(0x10000000, false, config);
 
-    let addr = 0x1000;
-    let value = 0x1234567890ABCDEF;
-
     // 写入（需要检查实际API）
     // mmu.write(addr, value, 8).unwrap();
 
@@ -45,8 +42,9 @@ fn test_unified_mmu_read_write() {
 #[test]
 fn test_unified_mmu_tlb_caching() {
     let mut config = UnifiedMmuConfig::default();
-    config.use_hybrid_strategy = true;
-    let mmu = UnifiedMmu::new(0x10000000, true, config);
+    // The field name changed from use_hybrid_strategy to strategy
+    config.strategy = MmuStrategy::Hybrid;
+    let mut mmu = UnifiedMmu::new(0x10000000, true, config);
 
     let va = 0x1000;
 
@@ -57,7 +55,7 @@ fn test_unified_mmu_tlb_caching() {
     let _pa2 = mmu.translate_with_cache(va, AccessType::Read);
 
     // 检查TLB统计
-    let stats = mmu.get_stats();
+    let stats = mmu.stats();
     assert!(stats.tlb_hit_rate() >= 0.0);
 }
 
@@ -65,7 +63,7 @@ fn test_unified_mmu_tlb_caching() {
 fn test_unified_mmu_page_table_cache() {
     let mut config = UnifiedMmuConfig::default();
     config.enable_page_table_cache = true;
-    let mmu = UnifiedMmu::new(0x10000000, true, config);
+    let mut mmu = UnifiedMmu::new(0x10000000, true, config);
 
     let va = 0x2000;
 
@@ -76,6 +74,6 @@ fn test_unified_mmu_page_table_cache() {
     let _pa2 = mmu.translate_with_cache(va, AccessType::Read);
 
     // 应该使用缓存
-    let stats = mmu.get_stats();
+    let stats = mmu.stats();
     assert!(stats.page_table_cache_hit_rate() >= 0.0);
 }

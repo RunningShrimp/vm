@@ -7,6 +7,7 @@ use vm_ir::{IRBlock, IROp, MemFlags, Terminator};
 
 /// RV64V 向量指令类型
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)] // 暂时允许未使用的变体，因为向量扩展仍在开发中
 pub enum VectorInstruction {
     // 向量加载/存储
     Vle8,
@@ -69,7 +70,7 @@ impl VectorDecoder {
 
         let funct3 = (insn >> 12) & 0x7;
         let funct6 = (insn >> 26) & 0x3f;
-        let vm = (insn >> 25) & 0x1;
+        let _vm = (insn >> 25) & 0x1;
 
         // 根据 funct3 和 funct6 解码指令
         match funct3 {
@@ -93,7 +94,7 @@ impl VectorDecoder {
                     _ => None,
                 }
             }
-            0b000 => {
+            0b001 => {
                 // 向量算术指令 (OP-VV)
                 match funct6 {
                     0b000000 => Some(VectorInstruction::Vadd),
@@ -109,7 +110,6 @@ impl VectorDecoder {
                     0b000000 => Some(VectorInstruction::Vand),
                     0b000010 => Some(VectorInstruction::Vor),
                     0b000011 => Some(VectorInstruction::Vxor),
-                    0b000101 => Some(VectorInstruction::Vsll),
                     0b000100 => Some(VectorInstruction::Vsrl),
                     0b000101 => Some(VectorInstruction::Vsra),
                     _ => None,
@@ -127,7 +127,7 @@ impl VectorDecoder {
                     _ => None,
                 }
             }
-            0b010 => {
+            0b100 => {
                 // 向量归约指令
                 match funct6 {
                     0b000000 => Some(VectorInstruction::Vredsum),
@@ -148,14 +148,14 @@ impl VectorDecoder {
         insn: u32,
         reg_file: &mut vm_ir::RegisterFile,
         builder: &mut vm_ir::IRBuilder,
-        mmu: &dyn MMU,
+        _mmu: &dyn MMU,
         pc: GuestAddr,
     ) -> Result<IRBlock, VmError> {
-        let rd = ((insn >> 7) & 0x1f);
-        let rs1 = ((insn >> 15) & 0x1f);
-        let rs2 = ((insn >> 20) & 0x1f);
-        let vm = (insn >> 25) & 0x1;
-        let funct3 = (insn >> 12) & 0x7;
+        let rd = (insn >> 7) & 0x1f;
+        let rs1 = (insn >> 15) & 0x1f;
+        let rs2 = (insn >> 20) & 0x1f;
+        let _vm = (insn >> 25) & 0x1;
+        let _funct3 = (insn >> 12) & 0x7;
 
         // 简化实现：将向量操作映射到标量操作
         // 实际实现应该使用 SIMD 库或向量寄存器

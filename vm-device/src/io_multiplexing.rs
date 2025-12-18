@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// I/O 事件类型
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

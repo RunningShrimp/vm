@@ -181,38 +181,6 @@ impl RuntimeController {
         }
     }
 
-    /// 轮询事件：将命令转化为事件并执行状态更新
-    pub fn poll_events(&self) -> Option<RuntimeEvent> {
-        if let Some(cmd) = self.process_commands() {
-            match cmd {
-                RuntimeCommand::Pause => {
-                    self.update_state(RuntimeState::Paused);
-                    Some(RuntimeEvent::Paused)
-                }
-                RuntimeCommand::Resume => {
-                    self.update_state(RuntimeState::Running);
-                    Some(RuntimeEvent::Resumed)
-                }
-                RuntimeCommand::Shutdown => {
-                    self.update_state(RuntimeState::ShuttingDown);
-                    Some(RuntimeEvent::ShuttingDown)
-                }
-                RuntimeCommand::Stop => {
-                    self.update_state(RuntimeState::Stopped);
-                    Some(RuntimeEvent::Stopped)
-                }
-                RuntimeCommand::Reset => {
-                    self.update_state(RuntimeState::Running);
-                    Some(RuntimeEvent::Reset)
-                }
-                RuntimeCommand::SaveSnapshot => Some(RuntimeEvent::SnapshotSaved("default".into())),
-                RuntimeCommand::LoadSnapshot => Some(RuntimeEvent::SnapshotLoaded("default".into())),
-            }
-        } else {
-            None
-        }
-    }
-
     /// 更新状态
     pub fn update_state(&self, new_state: RuntimeState) {
         if let Ok(mut state) = self.state.lock() {

@@ -189,4 +189,3 @@ mod tests {
         assert_eq!(metrics.avg_time, Duration::from_micros(125));
     }
 }
-

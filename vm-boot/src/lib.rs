@@ -24,7 +24,9 @@ pub mod snapshot;
 pub use gc_runtime::GcRuntime;
 pub use hotplug::{DeviceInfo, DeviceType, HotplugEvent, HotplugManager};
 pub use runtime::{RuntimeCommand, RuntimeController, RuntimeEvent, RuntimeState};
-pub use snapshot::{SnapshotManager, SnapshotMetadata, VmSnapshot};
+pub use snapshot::{SnapshotFileManager, SnapshotMetadata, VmSnapshot};
+#[allow(deprecated)]
+pub use snapshot::SnapshotManager; // 保留SnapshotManager以保持向后兼容
 
 /// 启动错误类型别名
 pub type BootError = VmError;
@@ -112,8 +114,8 @@ impl Default for BootConfig {
             initrd: None,
             firmware: None,
             iso: None,
-            kernel_load_addr: 0x80000000, // 默认 RISC-V/ARM64 加载地址
-            initrd_load_addr: 0x84000000,
+            kernel_load_addr: GuestAddr(0x80000000), // 默认 RISC-V/ARM64 加载地址
+            initrd_load_addr: GuestAddr(0x84000000),
         }
     }
 }
@@ -382,7 +384,7 @@ impl BootLoader {
 
         for (i, &byte) in firmware_data.iter().enumerate() {
             memory
-                .write(firmware_addr + i as u64, byte as u64, 1)
+                .write(vm_core::GuestAddr(firmware_addr + i as u64), byte as u64, 1)
                 .map_err(|e| {
                     VmError::Platform(PlatformError::InitializationFailed(format!(
                         "Memory write failed: {:?}",
@@ -394,7 +396,7 @@ impl BootLoader {
         log::info!("UEFI firmware loaded at 0x{:x}", firmware_addr);
 
         Ok(BootInfo {
-            entry_point: firmware_addr,
+            entry_point: vm_core::GuestAddr(firmware_addr),
             initrd_addr: None,
             initrd_size: None,
             cmdline_addr: None,
@@ -429,7 +431,7 @@ impl BootLoader {
 
         for (i, &byte) in firmware_data.iter().enumerate() {
             memory
-                .write(firmware_addr + i as u64, byte as u64, 1)
+                .write(vm_core::GuestAddr(firmware_addr + i as u64), byte as u64, 1)
                 .map_err(|e| {
                     VmError::Platform(PlatformError::InitializationFailed(format!(
                         "Memory write failed: {:?}",
@@ -441,7 +443,7 @@ impl BootLoader {
         log::info!("BIOS firmware loaded at 0x{:x}", firmware_addr);
 
         Ok(BootInfo {
-            entry_point: 0xFFF0, // BIOS 重置向量
+            entry_point: vm_core::GuestAddr(0xFFF0), // BIOS 重置向量
             initrd_addr: None,
             initrd_size: None,
             cmdline_addr: None,
@@ -504,7 +506,7 @@ impl BootLoader {
 
         for (i, &byte) in boot_image.iter().enumerate() {
             memory
-                .write(boot_addr + i as u64, byte as u64, 1)
+                .write(GuestAddr(boot_addr + i as u64), byte as u64, 1)
                 .map_err(|e| {
                     VmError::Platform(PlatformError::InitializationFailed(format!(
                         "Memory write failed: {:?}",
@@ -516,7 +518,7 @@ impl BootLoader {
         log::info!("Boot image loaded at 0x{:x}", boot_addr);
 
         Ok(BootInfo {
-            entry_point: boot_addr,
+            entry_point: GuestAddr(boot_addr),
             initrd_addr: None,
             initrd_size: None,
             cmdline_addr: None,

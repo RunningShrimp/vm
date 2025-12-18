@@ -3,7 +3,7 @@
 //! 定义虚拟机领域的核心事件，遵循DDD事件驱动架构原则。
 //! 所有领域事件都是不可变的，表示已经发生的事实。
 
-use crate::VmState;
+use crate::VmLifecycleState;
 #[allow(unused_imports)]
 use crate::{GuestAddr, VmError};
 use serde::{Deserialize, Serialize};
@@ -70,7 +70,10 @@ impl EventVersionMigrator {
     }
 
     /// 升级单个事件版本
-    fn upgrade_event(event: DomainEventEnum, target_version: u64) -> Result<DomainEventEnum, String> {
+    fn upgrade_event(
+        event: DomainEventEnum,
+        target_version: u64,
+    ) -> Result<DomainEventEnum, String> {
         match event {
             DomainEventEnum::VmLifecycle(ref lifecycle_event) => {
                 Self::upgrade_vm_lifecycle_event(lifecycle_event.clone(), target_version)
@@ -92,18 +95,25 @@ impl EventVersionMigrator {
     }
 
     /// 升级VM生命周期事件
-    fn upgrade_vm_lifecycle_event(event: VmLifecycleEvent, target_version: u64) -> Result<DomainEventEnum, String> {
+    fn upgrade_vm_lifecycle_event(
+        event: VmLifecycleEvent,
+        target_version: u64,
+    ) -> Result<DomainEventEnum, String> {
         match target_version {
             2 => {
                 // v2: 添加了额外的元数据字段
                 let upgraded_event = match event {
-                    VmLifecycleEvent::VmCreated { vm_id, config, occurred_at } => {
+                    VmLifecycleEvent::VmCreated {
+                        vm_id,
+                        config,
+                        occurred_at,
+                    } => {
                         VmLifecycleEvent::VmCreatedV2 {
                             vm_id,
                             config,
                             occurred_at,
                             created_by: "system".to_string(), // 默认创建者
-                            tags: vec![], // 默认空标签
+                            tags: vec![],                     // 默认空标签
                         }
                     }
                     VmLifecycleEvent::VmStarted { vm_id, occurred_at } => {
@@ -113,7 +123,11 @@ impl EventVersionMigrator {
                             startup_time_ms: 0, // 默认启动时间
                         }
                     }
-                    VmLifecycleEvent::VmStopped { vm_id, reason, occurred_at } => {
+                    VmLifecycleEvent::VmStopped {
+                        vm_id,
+                        reason,
+                        occurred_at,
+                    } => {
                         VmLifecycleEvent::VmStoppedV2 {
                             vm_id,
                             reason,
@@ -131,12 +145,20 @@ impl EventVersionMigrator {
     }
 
     /// 升级内存事件
-    fn upgrade_memory_event(event: MemoryEvent, target_version: u64) -> Result<DomainEventEnum, String> {
+    fn upgrade_memory_event(
+        event: MemoryEvent,
+        target_version: u64,
+    ) -> Result<DomainEventEnum, String> {
         match target_version {
             2 => {
                 // v2: 添加了内存类型字段
                 let upgraded_event = match event {
-                    MemoryEvent::MemoryAllocated { vm_id, addr, size, occurred_at } => {
+                    MemoryEvent::MemoryAllocated {
+                        vm_id,
+                        addr,
+                        size,
+                        occurred_at,
+                    } => {
                         MemoryEvent::MemoryAllocatedV2 {
                             vm_id,
                             addr,
@@ -155,13 +177,19 @@ impl EventVersionMigrator {
     }
 
     /// 升级执行事件
-    fn upgrade_execution_event(event: ExecutionEvent, target_version: u64) -> Result<DomainEventEnum, String> {
+    fn upgrade_execution_event(
+        event: ExecutionEvent,
+        _target_version: u64,
+    ) -> Result<DomainEventEnum, String> {
         // 执行事件目前只有一个版本
         Ok(DomainEventEnum::Execution(event))
     }
 
     /// 升级设备事件
-    fn upgrade_device_event(event: DeviceEvent, target_version: u64) -> Result<DomainEventEnum, String> {
+    fn upgrade_device_event(
+        event: DeviceEvent,
+        _target_version: u64,
+    ) -> Result<DomainEventEnum, String> {
         // 设备事件目前只有一个版本
         Ok(DomainEventEnum::Device(event))
     }
@@ -190,9 +218,7 @@ impl EventVersionMigrator {
 /// 事件迁移工具
 ///
 /// 提供命令行工具和API用于事件版本迁移
-pub struct EventMigrationTool {
-    migrator: EventVersionMigrator,
-}
+pub struct EventMigrationTool;
 
 impl Default for EventMigrationTool {
     fn default() -> Self {
@@ -203,9 +229,7 @@ impl Default for EventMigrationTool {
 impl EventMigrationTool {
     /// 创建新的迁移工具
     pub fn new() -> Self {
-        Self {
-            migrator: EventVersionMigrator,
-        }
+        Self
     }
 
     /// 迁移单个事件
@@ -214,8 +238,12 @@ impl EventMigrationTool {
     }
 
     /// 迁移事件列表
-    pub fn migrate_events(&self, events: Vec<DomainEventEnum>) -> Result<Vec<DomainEventEnum>, String> {
-        events.into_iter()
+    pub fn migrate_events(
+        &self,
+        events: Vec<DomainEventEnum>,
+    ) -> Result<Vec<DomainEventEnum>, String> {
+        events
+            .into_iter()
             .map(|event| self.migrate_event(event))
             .collect()
     }
@@ -235,7 +263,10 @@ impl EventMigrationTool {
                     current_version: version,
                     latest_version,
                     issue_type: VersionIssueType::Outdated,
-                    description: format!("Event is outdated (v{} vs latest v{})", version, latest_version),
+                    description: format!(
+                        "Event is outdated (v{} vs latest v{})",
+                        version, latest_version
+                    ),
                 });
             } else if version > latest_version {
                 issues.push(EventVersionIssue {
@@ -243,7 +274,10 @@ impl EventMigrationTool {
                     current_version: version,
                     latest_version,
                     issue_type: VersionIssueType::TooNew,
-                    description: format!("Event version is newer than expected (v{} vs latest v{})", version, latest_version),
+                    description: format!(
+                        "Event version is newer than expected (v{} vs latest v{})",
+                        version, latest_version
+                    ),
                 });
             }
         }
@@ -255,14 +289,23 @@ impl EventMigrationTool {
     pub fn generate_upgrade_report(&self, events: &[DomainEventEnum]) -> EventUpgradeReport {
         let issues = self.validate_event_versions(events);
         let total_events = events.len();
-        let outdated_events = issues.iter().filter(|i| i.issue_type == VersionIssueType::Outdated).count();
-        let upgradeable_events = issues.iter().filter(|i| i.issue_type == VersionIssueType::Outdated).count();
+        let outdated_events = issues
+            .iter()
+            .filter(|i| i.issue_type == VersionIssueType::Outdated)
+            .count();
+        let upgradeable_events = issues
+            .iter()
+            .filter(|i| i.issue_type == VersionIssueType::Outdated)
+            .count();
 
         EventUpgradeReport {
             total_events,
             outdated_events,
             upgradeable_events,
-            incompatible_events: issues.iter().filter(|i| i.issue_type == VersionIssueType::TooNew).count(),
+            incompatible_events: issues
+                .iter()
+                .filter(|i| i.issue_type == VersionIssueType::TooNew)
+                .count(),
             issues,
         }
     }
@@ -361,8 +404,8 @@ pub enum VmLifecycleEvent {
     /// 虚拟机状态已变更
     VmStateChanged {
         vm_id: String,
-        from: VmState,
-        to: VmState,
+        from: VmLifecycleState,
+        to: VmLifecycleState,
         occurred_at: SystemTime,
     },
 }
@@ -370,11 +413,17 @@ pub enum VmLifecycleEvent {
 impl DomainEvent for VmLifecycleEvent {
     fn event_type(&self) -> &'static str {
         match self {
-            VmLifecycleEvent::VmCreated { .. } | VmLifecycleEvent::VmCreatedV2 { .. } => "vm.created",
-            VmLifecycleEvent::VmStarted { .. } | VmLifecycleEvent::VmStartedV2 { .. } => "vm.started",
+            VmLifecycleEvent::VmCreated { .. } | VmLifecycleEvent::VmCreatedV2 { .. } => {
+                "vm.created"
+            }
+            VmLifecycleEvent::VmStarted { .. } | VmLifecycleEvent::VmStartedV2 { .. } => {
+                "vm.started"
+            }
             VmLifecycleEvent::VmPaused { .. } => "vm.paused",
             VmLifecycleEvent::VmResumed { .. } => "vm.resumed",
-            VmLifecycleEvent::VmStopped { .. } | VmLifecycleEvent::VmStoppedV2 { .. } => "vm.stopped",
+            VmLifecycleEvent::VmStopped { .. } | VmLifecycleEvent::VmStoppedV2 { .. } => {
+                "vm.stopped"
+            }
             VmLifecycleEvent::VmStateChanged { .. } => "vm.state_changed",
         }
     }
@@ -464,7 +513,9 @@ pub enum MemoryEvent {
 impl DomainEvent for MemoryEvent {
     fn event_type(&self) -> &'static str {
         match self {
-            MemoryEvent::MemoryAllocated { .. } | MemoryEvent::MemoryAllocatedV2 { .. } => "memory.allocated",
+            MemoryEvent::MemoryAllocated { .. } | MemoryEvent::MemoryAllocatedV2 { .. } => {
+                "memory.allocated"
+            }
             MemoryEvent::MemoryFreed { .. } => "memory.freed",
             MemoryEvent::MemoryMapped { .. } => "memory.mapped",
             MemoryEvent::MemoryUnmapped { .. } => "memory.unmapped",
@@ -502,6 +553,19 @@ impl DomainEvent for MemoryEvent {
 /// 执行引擎事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExecutionEvent {
+    /// 执行已开始
+    ExecutionStarted {
+        vm_id: String,
+        pc: GuestAddr,
+        occurred_at: SystemTime,
+    },
+    /// 执行已停止
+    ExecutionStopped {
+        vm_id: String,
+        pc: GuestAddr,
+        reason: String,
+        occurred_at: SystemTime,
+    },
     /// 指令已执行
     InstructionExecuted {
         vm_id: String,
@@ -536,6 +600,8 @@ pub enum ExecutionEvent {
 impl DomainEvent for ExecutionEvent {
     fn event_type(&self) -> &'static str {
         match self {
+            ExecutionEvent::ExecutionStarted { .. } => "execution.started",
+            ExecutionEvent::ExecutionStopped { .. } => "execution.stopped",
             ExecutionEvent::InstructionExecuted { .. } => "execution.instruction_executed",
             ExecutionEvent::CodeBlockCompiled { .. } => "execution.code_block_compiled",
             ExecutionEvent::HotspotDetected { .. } => "execution.hotspot_detected",
@@ -545,7 +611,9 @@ impl DomainEvent for ExecutionEvent {
 
     fn occurred_at(&self) -> SystemTime {
         match self {
-            ExecutionEvent::InstructionExecuted { occurred_at, .. }
+            ExecutionEvent::ExecutionStarted { occurred_at, .. }
+            | ExecutionEvent::ExecutionStopped { occurred_at, .. }
+            | ExecutionEvent::InstructionExecuted { occurred_at, .. }
             | ExecutionEvent::CodeBlockCompiled { occurred_at, .. }
             | ExecutionEvent::HotspotDetected { occurred_at, .. }
             | ExecutionEvent::VcpuExited { occurred_at, .. } => *occurred_at,
@@ -693,7 +761,7 @@ impl From<&crate::VmConfig> for VmConfigSnapshot {
         Self {
             guest_arch: config.guest_arch.name().to_string(),
             memory_size: config.memory_size as u64,
-            vcpu_count: config.vcpu_count,
+            vcpu_count: config.vcpu_count as u32,
             exec_mode: format!("{:?}", config.exec_mode),
         }
     }
@@ -707,7 +775,7 @@ mod tests {
     #[test]
     fn test_vm_lifecycle_event_types() {
         let now = SystemTime::now();
-        
+
         let created = VmLifecycleEvent::VmCreated {
             vm_id: "test-vm".to_string(),
             config: VmConfigSnapshot {
@@ -748,8 +816,8 @@ mod tests {
 
         let state_changed = VmLifecycleEvent::VmStateChanged {
             vm_id: "test-vm".to_string(),
-            from: VmState::Created,
-            to: VmState::Running,
+            from: VmLifecycleState::Created,
+            to: VmLifecycleState::Running,
             occurred_at: now,
         };
         assert_eq!(state_changed.event_type(), "vm.state_changed");
@@ -758,10 +826,10 @@ mod tests {
     #[test]
     fn test_memory_event_types() {
         let now = SystemTime::now();
-        
+
         let allocated = MemoryEvent::MemoryAllocated {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         };
@@ -770,7 +838,7 @@ mod tests {
 
         let freed = MemoryEvent::MemoryFreed {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         };
@@ -780,17 +848,17 @@ mod tests {
     #[test]
     fn test_execution_event_types() {
         let now = SystemTime::now();
-        
+
         let started = ExecutionEvent::ExecutionStarted {
             vm_id: "test-vm".to_string(),
-            pc: 0x1000,
+            pc: GuestAddr(0x1000),
             occurred_at: now,
         };
         assert_eq!(started.event_type(), "execution.started");
 
         let stopped = ExecutionEvent::ExecutionStopped {
             vm_id: "test-vm".to_string(),
-            pc: 0x2000,
+            pc: GuestAddr(0x2000),
             reason: "Breakpoint".to_string(),
             occurred_at: now,
         };
@@ -800,7 +868,7 @@ mod tests {
     #[test]
     fn test_domain_event_enum() {
         let now = SystemTime::now();
-        
+
         let lifecycle = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm".to_string(),
             occurred_at: now,
@@ -809,7 +877,7 @@ mod tests {
 
         let memory = DomainEventEnum::Memory(MemoryEvent::MemoryAllocated {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         });
@@ -817,7 +885,7 @@ mod tests {
 
         let execution = DomainEventEnum::Execution(ExecutionEvent::ExecutionStarted {
             vm_id: "test-vm".to_string(),
-            pc: 0x1000,
+            pc: GuestAddr(0x1000),
             occurred_at: now,
         });
         assert_eq!(execution.event_type(), "execution.started");
@@ -878,7 +946,11 @@ mod tests {
 
         // 验证升级结果
         match upgraded {
-            DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreatedV2 { vm_id, created_by, .. }) => {
+            DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreatedV2 {
+                vm_id,
+                created_by,
+                ..
+            }) => {
                 assert_eq!(vm_id, "test-vm");
                 assert_eq!(created_by, "system");
             }
@@ -893,7 +965,7 @@ mod tests {
         // 创建v1内存事件
         let v1_event = MemoryEvent::MemoryAllocated {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         };
@@ -907,7 +979,9 @@ mod tests {
 
         // 验证升级结果
         match upgraded {
-            DomainEventEnum::Memory(MemoryEvent::MemoryAllocatedV2 { vm_id, memory_type, .. }) => {
+            DomainEventEnum::Memory(MemoryEvent::MemoryAllocatedV2 {
+                vm_id, memory_type, ..
+            }) => {
                 assert_eq!(vm_id, "test-vm");
                 assert_eq!(memory_type, "heap");
             }
@@ -970,6 +1044,9 @@ mod tests {
         assert!(EventVersionMigrator::is_version_compatible("vm.created", 2));
 
         // 测试不兼容版本
-        assert!(!EventVersionMigrator::is_version_compatible("vm.created", 3));
+        assert!(!EventVersionMigrator::is_version_compatible(
+            "vm.created",
+            3
+        ));
     }
 }

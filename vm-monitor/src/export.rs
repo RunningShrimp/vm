@@ -2,9 +2,9 @@
 //!
 //! 提供Prometheus、JSON文件等格式的指标导出功能
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -57,8 +57,12 @@ impl PrometheusExporter {
     async fn update_metrics(&self, metrics: &SystemMetrics) -> Result<()> {
         // 这里是简化版本，实际实现需要存储metric句柄
         // 当前版本只是记录日志
-        tracing::debug!("Updating Prometheus metrics: JIT={:.0}, TLB={:.1}%, Memory={:.1}%",
-                       metrics.jit_metrics.execution_rate, metrics.tlb_metrics.hit_rate, metrics.memory_metrics.usage_rate);
+        tracing::debug!(
+            "Updating Prometheus metrics: JIT={:.0}, TLB={:.1}%, Memory={:.1}%",
+            metrics.jit_metrics.execution_rate,
+            metrics.tlb_metrics.hit_rate,
+            metrics.memory_metrics.usage_rate
+        );
         Ok(())
     }
 
@@ -96,8 +100,11 @@ impl MetricsExporter for PrometheusExporter {
             }
         });
 
-        tracing::info!("Prometheus exporter started on {}:{}",
-                     self.config.bind_address, self.config.bind_port);
+        tracing::info!(
+            "Prometheus exporter started on {}:{}",
+            self.config.bind_address,
+            self.config.bind_port
+        );
         Ok(())
     }
 
@@ -111,9 +118,8 @@ impl MetricsExporter for PrometheusExporter {
 impl Clone for PrometheusExporter {
     fn clone(&self) -> Self {
         // 简化实现，重新创建一个新的实例
-        PrometheusExporter::new(self.config.clone()).unwrap_or_else(|_| {
-            panic!("Failed to clone PrometheusExporter")
-        })
+        PrometheusExporter::new(self.config.clone())
+            .unwrap_or_else(|_| panic!("Failed to clone PrometheusExporter"))
     }
 }
 

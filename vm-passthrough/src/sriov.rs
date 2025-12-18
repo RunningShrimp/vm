@@ -319,10 +319,11 @@ impl SriovVfManager {
     pub fn enable_vf(&self, vf_id: VfId) -> bool {
         let mut configs = self.vf_configs.write().unwrap();
         if let Some(config) = configs.get_mut(&vf_id)
-            && (config.state == VfState::Initialized || config.state == VfState::Disabled) {
-                config.state = VfState::Enabled;
-                return true;
-            }
+            && (config.state == VfState::Initialized || config.state == VfState::Disabled)
+        {
+            config.state = VfState::Enabled;
+            return true;
+        }
         false
     }
 
@@ -330,10 +331,11 @@ impl SriovVfManager {
     pub fn disable_vf(&self, vf_id: VfId) -> bool {
         let mut configs = self.vf_configs.write().unwrap();
         if let Some(config) = configs.get_mut(&vf_id)
-            && config.state == VfState::Enabled {
-                config.state = VfState::Disabled;
-                return true;
-            }
+            && config.state == VfState::Enabled
+        {
+            config.state = VfState::Disabled;
+            return true;
+        }
         false
     }
 

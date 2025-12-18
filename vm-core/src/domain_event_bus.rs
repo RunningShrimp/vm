@@ -66,14 +66,38 @@ impl DomainEventBus {
     }
 
     /// 发布事件
-    pub fn publish<E: DomainEvent>(&self, event: E) -> Result<(), VmError> {
+    pub fn publish<E: DomainEvent + Clone + Send + 'static>(&self, event: E) -> Result<(), VmError> {
         let event_type = event.event_type();
-        let subscriptions = self.subscriptions.read().map_err(|_| {
-            VmError::Core(crate::CoreError::Concurrency {
-                message: "Failed to acquire subscriptions lock".to_string(),
-                operation: "publish".to_string(),
-            })
-        })?;
+        
+        // 根据async_enabled决定处理方式
+        if self.async_enabled {
+            // 异步处理
+            let subscriptions = self.subscriptions.clone();
+            let event_clone = event.clone();
+            std::thread::spawn(move || {
+                Self::process_handlers_sync(subscriptions, event_type, event_clone);
+            });
+        } else {
+            // 同步处理
+            Self::process_handlers_sync(self.subscriptions.clone(), event_type, event);
+        }
+
+        Ok(())
+    }
+
+    /// 同步处理事件处理器
+    fn process_handlers_sync<E: DomainEvent>(
+        subscriptions: Arc<RwLock<HashMap<String, Vec<EventSubscription>>>>,
+        event_type: &str,
+        event: E,
+    ) {
+        let subscriptions = match subscriptions.read() {
+            Ok(subs) => subs,
+            Err(_) => {
+                eprintln!("Failed to acquire subscriptions lock");
+                return;
+            }
+        };
 
         // 获取该事件类型的所有订阅
         let mut handlers: Vec<&EventSubscription> = subscriptions
@@ -88,9 +112,10 @@ impl DomainEventBus {
         for subscription in handlers {
             // 检查过滤器
             if let Some(filter) = &subscription.filter
-                && !filter.matches(&event) {
-                    continue;
-                }
+                && !filter.matches(&event)
+            {
+                continue;
+            }
 
             // 执行处理器
             if let Err(e) = subscription.handler.handle(&event) {
@@ -98,8 +123,6 @@ impl DomainEventBus {
                 eprintln!("Event handler error: {:?}", e);
             }
         }
-
-        Ok(())
     }
 
     /// 订阅事件
@@ -270,8 +293,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
+    use crate::domain_events::VmLifecycleEvent;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::SystemTime;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_event_bus_publish_subscribe() {
@@ -317,8 +342,10 @@ mod tests {
             Ok(())
         });
 
-        bus.subscribe("vm.started", Box::new(handler1), None).unwrap();
-        bus.subscribe("vm.started", Box::new(handler2), None).unwrap();
+        bus.subscribe("vm.started", Box::new(handler1), None)
+            .unwrap();
+        bus.subscribe("vm.started", Box::new(handler2), None)
+            .unwrap();
 
         let event = VmLifecycleEvent::VmStarted {
             vm_id: "test".to_string(),
@@ -358,7 +385,8 @@ mod tests {
             vm_id: "test-vm".to_string(),
         });
 
-        bus.subscribe("vm.started", Box::new(handler), Some(filter)).unwrap();
+        bus.subscribe("vm.started", Box::new(handler), Some(filter))
+            .unwrap();
 
         // 匹配的事件
         let event1 = VmLifecycleEvent::VmStarted {
@@ -390,7 +418,9 @@ mod tests {
             Ok(())
         });
 
-        let sub_id = bus.subscribe("vm.started", Box::new(handler), None).unwrap();
+        let sub_id = bus
+            .subscribe("vm.started", Box::new(handler), None)
+            .unwrap();
 
         let event = VmLifecycleEvent::VmStarted {
             vm_id: "test".to_string(),
@@ -402,7 +432,7 @@ mod tests {
         assert_eq!(counter.load(Ordering::Relaxed), 1);
 
         // 取消订阅
-        bus.unsubscribe(sub_id).unwrap();
+        bus.unsubscribe("vm.started", sub_id).unwrap();
 
         // 再次发布，不应该被处理
         bus.publish(event).unwrap();
@@ -483,7 +513,8 @@ mod tests {
             }))
         });
 
-        bus.subscribe("vm.started", Box::new(handler), None).unwrap();
+        bus.subscribe("vm.started", Box::new(handler), None)
+            .unwrap();
 
         let event = VmLifecycleEvent::VmStarted {
             vm_id: "test".to_string(),

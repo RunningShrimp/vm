@@ -1,0 +1,23 @@
+[package]
+name = "vm-common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# No external dependencies for now
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "lockfree_hashmap"
+harness = false
+
+[[bench]]
+name = "lockfree_queue"
+harness = false
+
+[features]
+default = ["std"]
+std = []
+no_std = []

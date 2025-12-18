@@ -1,8 +1,6 @@
 //! 内存管理接口定义
 
-use crate::{
-    CacheStats, GuestAddr, MemoryOrder, PageFlags, PageStats, VmComponent, VmError,
-};
+use crate::{CacheStats, GuestAddr, MemoryOrder, PageFlags, PageStats, VmComponent, VmError};
 use vm_core::GuestPhysAddr;
 
 /// 内存管理器配置
@@ -71,8 +69,8 @@ pub trait MemoryManager: VmComponent {
     ) -> Result<u64, VmError>;
 
     /// 异步内存操作
-    async fn read_memory_async(&self, addr: GuestAddr, size: usize) -> Result<Vec<u8>, VmError>;
-    async fn write_memory_async(&mut self, addr: GuestAddr, data: Vec<u8>) -> Result<(), VmError>;
+    fn read_memory_async(&self, addr: GuestAddr, size: usize) -> impl std::future::Future<Output = Result<Vec<u8>, VmError>> + Send;
+    fn write_memory_async(&mut self, addr: GuestAddr, data: Vec<u8>) -> impl std::future::Future<Output = Result<(), VmError>> + Send;
 }
 
 /// 缓存管理接口
@@ -133,6 +131,21 @@ impl TlbCacheManager {
             stats: CacheStats::default(),
         }
     }
+    
+    /// 检查TLB是否启用
+    pub fn is_enabled(&self) -> bool {
+        self.config.enable_tlb
+    }
+    
+    /// 获取TLB大小配置
+    pub fn tlb_size(&self) -> usize {
+        self.config.tlb_size
+    }
+    
+    /// 获取内存管理器配置
+    pub fn config(&self) -> &MemoryManagerConfig {
+        &self.config
+    }
 }
 
 impl CacheManager for TlbCacheManager {
@@ -184,10 +197,10 @@ impl PageTableManager for PageTableManagerImpl {
         _access_type: vm_core::AccessType,
     ) -> Result<GuestPhysAddr, VmError> {
         // 简化实现：直接映射
-        if vaddr >= self.config.memory_size as u64 {
+        if vaddr >= vm_core::GuestAddr(self.config.memory_size as u64) {
             return Err(VmError::Memory(vm_core::MemoryError::InvalidAddress(vaddr)));
         }
-        Ok(vaddr) // 直接映射
+        Ok(vm_core::GuestPhysAddr::from(vaddr)) // 直接映射
     }
 
     fn update_entry(

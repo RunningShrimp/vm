@@ -11,14 +11,25 @@ parking_lot = "0.12"
 
 serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
+serde_json = { version = "1.0", optional = true }
+chrono = { version = "0.4", features = ["serde"], optional = true }
 
 bincode = { version = "2.0.1", features = ["serde"] }
+
+# Optional dependencies for enhanced features
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "postgres", "chrono", "json", "uuid"], optional = true }
+
+# Local dependencies
+vm-common = { path = "../vm-common" }
 
 [features]
 default = ["std"]
 std = []
 no_std = []
 async = ["tokio", "futures", "async-trait"]
+enhanced-event-sourcing = ["sqlx", "serde_json", "chrono"]
+enhanced-debugging = []
+enhanced-networking = []
 
 [dependencies.tokio]
 version = "1.48"
