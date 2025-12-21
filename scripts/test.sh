@@ -1,9 +1,16 @@
 #!/bin/bash
 
-# FVP虚拟机系统自动化测试脚本
+# FVP虚拟机系统自动化测试脚本（带超时保护）
 # 用于本地开发和CI/CD流水线
 
 set -e
+
+# 获取脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WITH_TIMEOUT="${SCRIPT_DIR}/with_timeout.sh"
+
+# 确保 with_timeout.sh 可执行
+chmod +x "${WITH_TIMEOUT}" 2>/dev/null || true
 
 # 颜色定义
 RED='\033[0;31m'
@@ -150,7 +157,7 @@ run_unit_tests() {
         test_args="-- --nocapture"
     fi
 
-    if cargo test $test_args --all-features --lib; then
+    if "${WITH_TIMEOUT}" 300 cargo test $test_args --all-features --lib; then
         print_success "单元测试通过"
         return 0
     else
@@ -163,7 +170,7 @@ run_unit_tests() {
 run_doc_tests() {
     print_header "运行文档测试"
 
-    if cargo test --all-features --doc; then
+    if "${WITH_TIMEOUT}" 180 cargo test --all-features --doc; then
         print_success "文档测试通过"
         return 0
     else
@@ -190,11 +197,11 @@ generate_coverage() {
     local coverage_dir="$TEST_RESULTS_DIR/coverage"
     mkdir -p "$coverage_dir"
 
-    if cargo llvm-cov --all-features --workspace --html --output-dir "$coverage_dir"; then
+    if "${WITH_TIMEOUT}" 1800 cargo llvm-cov --all-features --workspace --html --output-dir "$coverage_dir"; then
         print_success "覆盖率报告生成成功: $coverage_dir/index.html"
 
-        # 生成文本摘要
-        cargo llvm-cov --all-features --workspace --summary > "$coverage_dir/coverage-summary.txt"
+        # 生成文本摘要（超时5分钟）
+        "${WITH_TIMEOUT}" 300 cargo llvm-cov --all-features --workspace --summary > "$coverage_dir/coverage-summary.txt"
         print_info "覆盖率摘要:"
         cat "$coverage_dir/coverage-summary.txt"
         return 0
@@ -214,20 +221,22 @@ run_integration_tests() {
 
     local test_args=""
     if [ "$VERBOSE" = true ]; then
-        test_args="-- --nocapture --test-threads=1"
+        test_args="-- --nocapture"
     else
-        test_args="-- --test-threads=1"
+        test_args=""
     fi
+    # 移除 --test-threads=1 限制，允许并行执行测试以提升速度
+    # 如果某些测试需要串行执行，应在测试代码中使用适当的同步机制
 
-    # 构建项目
-    print_info "构建项目..."
-    if ! cargo build --release --all-features; then
+    # 构建项目（超时10分钟）
+    print_info "构建项目（超时10分钟）..."
+    if ! "${WITH_TIMEOUT}" 600 cargo build --release --all-features; then
         print_error "项目构建失败"
         return 1
     fi
 
-    # 运行集成测试
-    if cargo test --release --package vm-tests --test integration $test_args; then
+    # 运行集成测试（超时10分钟）
+    if "${WITH_TIMEOUT}" 600 cargo test --release --package vm-tests --test integration $test_args; then
         print_success "集成测试通过"
         return 0
     else
@@ -244,34 +253,34 @@ run_performance_tests() {
 
     print_header "运行性能测试"
 
-    # 构建优化版本
-    print_info "构建性能优化版本..."
-    if ! cargo build --release --all-features; then
+    # 构建优化版本（超时10分钟）
+    print_info "构建性能优化版本（超时10分钟）..."
+    if ! "${WITH_TIMEOUT}" 600 cargo build --release --all-features; then
         print_error "性能版本构建失败"
         return 1
     fi
 
-    # 运行JIT性能测试
-    print_info "运行JIT性能测试..."
-    if cargo test --release --package vm-tests --test jit_performance_tests -- --nocapture; then
+    # 运行JIT性能测试（超时5分钟）
+    print_info "运行JIT性能测试（超时5分钟）..."
+    if "${WITH_TIMEOUT}" 300 cargo test --release --package vm-tests --test jit_performance_tests -- --nocapture; then
         print_success "JIT性能测试通过"
     else
         print_error "JIT性能测试失败"
         return 1
     fi
 
-    # 运行TLB性能测试
-    print_info "运行TLB性能测试..."
-    if cargo test --release --package vm-tests --test tlb_performance_tests -- --nocapture; then
+    # 运行TLB性能测试（超时5分钟）
+    print_info "运行TLB性能测试（超时5分钟）..."
+    if "${WITH_TIMEOUT}" 300 cargo test --release --package vm-tests --test tlb_performance_tests -- --nocapture; then
         print_success "TLB性能测试通过"
     else
         print_error "TLB性能测试失败"
         return 1
     fi
 
-    # 运行系统性能测试
-    print_info "运行系统性能测试..."
-    if cargo test --release --package vm-tests --test system_performance_tests -- --nocapture; then
+    # 运行系统性能测试（超时5分钟）
+    print_info "运行系统性能测试（超时5分钟）..."
+    if "${WITH_TIMEOUT}" 300 cargo test --release --package vm-tests --test system_performance_tests -- --nocapture; then
         print_success "系统性能测试通过"
     else
         print_error "系统性能测试失败"
@@ -299,8 +308,8 @@ run_benchmarks() {
     local bench_dir="$TEST_RESULTS_DIR/benchmarks"
     mkdir -p "$bench_dir"
 
-    # 运行基准测试
-    if cargo bench --all-features -- --output-format html; then
+    # 运行基准测试（超时30分钟）
+    if "${WITH_TIMEOUT}" 1800 cargo bench --all-features -- --output-format html; then
         print_success "基准测试完成"
         print_info "基准测试报告: target/criterion/report/index.html"
         return 0
@@ -314,18 +323,18 @@ run_benchmarks() {
 run_quality_checks() {
     print_header "运行代码质量检查"
 
-    # 代码格式检查
-    print_info "检查代码格式..."
-    if cargo fmt --all -- --check; then
+    # 代码格式检查（超时2分钟）
+    print_info "检查代码格式（超时2分钟）..."
+    if "${WITH_TIMEOUT}" 120 cargo fmt --all -- --check; then
         print_success "代码格式检查通过"
     else
         print_error "代码格式检查失败，请运行 'cargo fmt' 修复"
         return 1
     fi
 
-    # Clippy检查
-    print_info "运行Clippy检查..."
-    if cargo clippy --all-targets --all-features -- -D warnings; then
+    # Clippy检查（超时10分钟）
+    print_info "运行Clippy检查（超时10分钟）..."
+    if "${WITH_TIMEOUT}" 600 cargo clippy --all-targets --all-features -- -D warnings; then
         print_success "Clippy检查通过"
     else
         print_error "Clippy检查失败"

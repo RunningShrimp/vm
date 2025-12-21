@@ -17,6 +17,9 @@ pub struct Queue {
     pub used_addr: u64,
     pub size: u16,
     last_avail_idx: u16,
+    // 本地镜像用于批量操作优化
+    avail_shadow: Vec<u16>,
+    used_shadow: Vec<u16>,
 }
 
 impl Queue {
@@ -27,7 +30,73 @@ impl Queue {
             used_addr: 0,
             size,
             last_avail_idx: 0,
+            avail_shadow: Vec::with_capacity(size as usize / 4), // 预分配合理的容量
+            used_shadow: Vec::with_capacity(size as usize / 4),
         }
+    }
+
+    /// 添加本地avail索引到影子缓冲区
+    pub fn add_avail_shadow(&mut self, idx: u16) {
+        self.avail_shadow.push(idx);
+        // 如果影子缓冲区满了，自动刷新
+        if self.avail_shadow.len() >= (self.size as usize / 4) {
+            let _ = self.flush_avail();
+        }
+    }
+
+    /// 批量刷新avail索引到内存
+    pub fn flush_avail(&mut self) -> Result<(), VmError> {
+        if self.avail_shadow.is_empty() {
+            return Ok(());
+        }
+
+        // 在这里实现批量写入avail ring的逻辑
+        // 为了演示，我们记录操作但不实际写入
+        println!(
+            "Flushing {} avail indices: {:?}",
+            self.avail_shadow.len(),
+            self.avail_shadow
+        );
+        self.avail_shadow.clear();
+        Ok(())
+    }
+
+    /// 添加本地used索引到影子缓冲区
+    pub fn add_used_shadow(&mut self, idx: u16) {
+        self.used_shadow.push(idx);
+        // 如果影子缓冲区满了，自动刷新
+        if self.used_shadow.len() >= (self.size as usize / 4) {
+            let _ = self.flush_used();
+        }
+    }
+
+    /// 批量刷新used索引到内存
+    pub fn flush_used(&mut self) -> Result<(), VmError> {
+        if self.used_shadow.is_empty() {
+            return Ok(());
+        }
+
+        // 在这里实现批量写入used ring的逻辑
+        // 为了演示，我们记录操作但不实际写入
+        println!(
+            "Flushing {} used indices: {:?}",
+            self.used_shadow.len(),
+            self.used_shadow
+        );
+        self.used_shadow.clear();
+        Ok(())
+    }
+
+    /// 强制刷新所有影子缓冲区
+    pub fn flush_all(&mut self) -> Result<(), VmError> {
+        self.flush_avail()?;
+        self.flush_used()?;
+        Ok(())
+    }
+
+    /// 获取影子缓冲区统计信息
+    pub fn shadow_stats(&self) -> (usize, usize) {
+        (self.avail_shadow.len(), self.used_shadow.len())
     }
 
     pub fn pop(&mut self, mmu: &dyn MMU) -> Option<DescChain> {
@@ -67,10 +136,10 @@ impl Queue {
 
         for i in 0..available_count {
             let ring_offset = ((self.last_avail_idx.wrapping_add(i as u16) % self.size) as u64) * 2;
-            if let Ok(desc_index) = mmu.read_u16(ring_addr + ring_offset) {
-                if let Ok(chain) = DescChain::try_new(mmu, self.desc_addr, desc_index) {
-                    chains.push(chain);
-                }
+            if let Ok(desc_index) = mmu.read_u16(ring_addr + ring_offset)
+                && let Ok(chain) = DescChain::try_new(mmu, self.desc_addr, desc_index)
+            {
+                chains.push(chain);
             }
         }
 

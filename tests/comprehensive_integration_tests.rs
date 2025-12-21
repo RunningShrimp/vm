@@ -44,7 +44,7 @@ fn test_jit_compile_execute_integration() {
         
         // 检查JIT是否已编译（在达到阈值后）
         if i >= 100 {
-            assert!(jit.is_hot(0x1000), "JIT应该已编译热点代码");
+            assert!(jit.is_hotspot(vm_core::GuestAddr(0x1000)), "JIT应该已编译热点代码");
         }
     }
     let elapsed = start.elapsed();
@@ -207,7 +207,7 @@ fn test_jit_gc_concurrent_integration() {
     }
     
     // 验证JIT已编译
-    assert!(jit.is_hot(0x1000), "JIT应该已编译代码");
+    assert!(jit.is_hotspot(vm_core::GuestAddr(0x1000)), "JIT应该已编译代码");
     
     println!("  ✓ JIT和GC并发集成测试通过");
 }
@@ -271,7 +271,7 @@ fn test_hotspot_detection_jit_integration() {
     }
     
     // 验证热点代码块已被编译
-    assert!(jit.is_hot(0x1000), "热点代码块应该已被JIT编译");
+    assert!(jit.is_hotspot(vm_core::GuestAddr(0x1000)), "热点代码块应该已被JIT编译");
     
     println!("  ✓ 热点检测和JIT编译集成测试通过");
 }

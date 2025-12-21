@@ -7,8 +7,6 @@ pub mod cross_arch_integration_tests_part2;
 pub mod cross_arch_integration_tests_part3;
 
 pub use cross_arch_integration_tests::{
-    CrossArchIntegrationTestFramework, 
-    CrossArchTestConfig, 
+    CrossArchIntegrationTestFramework, CrossArchPerformanceMetrics, CrossArchTestConfig,
     CrossArchTestResult,
-    CrossArchPerformanceMetrics
 };

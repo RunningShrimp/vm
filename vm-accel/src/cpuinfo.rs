@@ -55,6 +55,7 @@ pub struct CpuFeatures {
     // ARM 虚拟化特性
     pub el2: bool, // ARM Hypervisor mode
     pub vhe: bool, // Virtualization Host Extensions
+    pub smmu: bool, // ARM System Memory Management Unit (SMMU/IOMMU)
 
     // 其他特性
     pub aes: bool, // AES-NI
@@ -84,7 +85,7 @@ static CPU_INFO: OnceLock<CpuInfo> = OnceLock::new();
 impl CpuInfo {
     /// 获取全局 CPU 信息（单例）
     pub fn get() -> &'static CpuInfo {
-        CPU_INFO.get_or_init(|| Self::detect())
+        CPU_INFO.get_or_init(Self::detect)
     }
 
     /// 检测 CPU 信息
@@ -268,10 +269,9 @@ impl CpuInfo {
                 .arg("-n")
                 .arg("machdep.cpu.brand_string")
                 .output()
+                && let Ok(brand) = String::from_utf8(output.stdout)
             {
-                if let Ok(brand) = String::from_utf8(output.stdout) {
-                    model_name = brand.trim().to_string();
-                }
+                model_name = brand.trim().to_string();
             }
 
             // Apple Silicon 特性
@@ -310,14 +310,20 @@ impl CpuInfo {
                 vendor = CpuVendor::MediaTek;
             } else if model_lower.contains("kirin") {
                 vendor = CpuVendor::HiSilicon;
-            } else if model_lower.contains("apple") || model_lower.contains("m1") 
-                || model_lower.contains("m2") || model_lower.contains("m3") 
-                || model_lower.contains("m4") {
+            } else if model_lower.contains("apple")
+                || model_lower.contains("m1")
+                || model_lower.contains("m2")
+                || model_lower.contains("m3")
+                || model_lower.contains("m4")
+            {
                 vendor = CpuVendor::Apple;
             } else {
                 vendor = CpuVendor::ARM; // 默认为ARM
             }
         }
+
+        // 检测 SMMU (System Memory Management Unit) 支持
+        features.smmu = Self::detect_smmu();
 
         let core_count = num_cpus::get();
 
@@ -328,6 +334,68 @@ impl CpuInfo {
             features,
             core_count,
         }
+    }
+
+    /// 检测 SMMU (System Memory Management Unit) 支持
+    ///
+    /// SMMU 是 ARM 架构的 IOMMU，用于设备 DMA 地址转换。
+    /// 检测方法：
+    /// 1. 检查 `/sys/class/iommu` 目录是否存在（Linux）
+    /// 2. 检查 `/sys/kernel/iommu_groups` 目录是否存在（Linux）
+    /// 3. 检查 `/dev/iommu` 设备节点（某些系统）
+    /// 4. 检查内核是否支持 IOMMU（通过 dmesg 或 /proc/iomem）
+    fn detect_smmu() -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            // 方法1: 检查 /sys/class/iommu 目录
+            if std::path::Path::new("/sys/class/iommu").exists() {
+                return true;
+            }
+
+            // 方法2: 检查 /sys/kernel/iommu_groups 目录
+            if std::path::Path::new("/sys/kernel/iommu_groups").exists() {
+                return true;
+            }
+
+            // 方法3: 检查 /dev/iommu 设备节点
+            if std::path::Path::new("/dev/iommu").exists() {
+                return true;
+            }
+
+            // 方法4: 检查 /proc/iomem 中是否包含 IOMMU 相关信息
+            if let Ok(content) = std::fs::read_to_string("/proc/iomem") {
+                if content.contains("iommu") || content.contains("SMMU") {
+                    return true;
+                }
+            }
+
+            // 方法5: 检查 dmesg 输出（需要权限）
+            if let Ok(output) = std::process::Command::new("dmesg")
+                .output()
+            {
+                if let Ok(dmesg_output) = String::from_utf8(output.stdout) {
+                    let dmesg_lower = dmesg_output.to_lowercase();
+                    if dmesg_lower.contains("smmu") || dmesg_lower.contains("iommu") {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // macOS 上，Apple Silicon 可能支持类似的 IOMMU 功能
+            // 但通常不称为 SMMU，而是通过其他机制实现
+            // 这里基于经验判断：Apple Silicon 通常有类似的设备 DMA 保护机制
+            let cpu_info = Self::get();
+            if cpu_info.vendor == CpuVendor::Apple {
+                // Apple Silicon 通常有设备 DMA 保护，但不一定是标准 SMMU
+                // 返回 false，因为不是标准 SMMU
+                return false;
+            }
+        }
+
+        false
     }
 
     /// 检测 AMX 支持（运行时检测）

@@ -5,6 +5,12 @@ pub struct VirtioScsi {
     queues: Vec<Queue>,
 }
 
+impl Default for VirtioScsi {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VirtioScsi {
     pub fn new() -> Self {
         Self {

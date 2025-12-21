@@ -1,5 +1,5 @@
-use std::time::Duration;
 use anyhow::Result;
+use std::time::Duration;
 
 /// 压力测试配置
 #[derive(Debug, Clone)]
@@ -39,11 +39,9 @@ pub struct StressTestRunner {
 impl StressTestRunner {
     /// 创建新的压力测试运行器
     pub fn new(config: StressTestConfig) -> Self {
-        Self {
-            config,
-        }
+        Self { config }
     }
-    
+
     /// 运行压力测试
     pub async fn run_test<F, Fut>(&self, test_name: &str, test_fn: F) -> Result<StressTestResult>
     where
@@ -55,9 +53,9 @@ impl StressTestRunner {
         let mut total_executions = 0;
         let mut successful_executions = 0;
         let mut failed_executions = 0;
-        
+
         let end_time = start_time + self.config.duration;
-        
+
         while std::time::Instant::now() < end_time {
             match test_fn().await {
                 Ok(()) => {
@@ -69,14 +67,14 @@ impl StressTestRunner {
             }
             total_executions += 1;
         }
-        
+
         let elapsed = start_time.elapsed();
         let average_execution_time_ns = if total_executions > 0 {
             elapsed.as_nanos() as u64 / total_executions
         } else {
             0
         };
-        
+
         Ok(StressTestResult {
             test_name: test_name.to_string(),
             total_executions,
@@ -86,7 +84,7 @@ impl StressTestRunner {
             peak_memory_usage_bytes: None, // 在这个简单的实现中不收集内存使用情况
         })
     }
-    
+
     /// 获取配置
     pub fn config(&self) -> &StressTestConfig {
         &self.config

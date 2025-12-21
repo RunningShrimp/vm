@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 跨架构集成测试运行脚本
+# 跨架构集成测试运行脚本（带超时保护）
 # 用于运行所有跨架构集成测试并生成报告
 
 set -e
@@ -8,6 +8,10 @@ set -e
 # 脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+WITH_TIMEOUT="${SCRIPT_DIR}/with_timeout.sh"
+
+# 确保 with_timeout.sh 可执行
+chmod +x "${WITH_TIMEOUT}" 2>/dev/null || true
 
 # 默认参数
 ENABLE_PERFORMANCE_TESTS=true
@@ -120,16 +124,16 @@ fi
 echo "检查必要的crate..."
 cd "$PROJECT_ROOT"
 
-# 构建测试
-echo "构建跨架构集成测试..."
-cargo build --release -p vm-cross-arch-integration-tests --bin cross_arch_integration_test_runner
+# 构建测试（超时10分钟）
+echo "构建跨架构集成测试（超时10分钟）..."
+"${WITH_TIMEOUT}" 600 cargo build --release -p vm-cross-arch-integration-tests --bin cross_arch_integration_test_runner
 
 if [ $? -ne 0 ]; then
     echo "错误: 构建失败"
     exit 1
 fi
 
-# 运行测试
+# 运行测试（使用配置的超时时间，但至少30分钟）
 echo "运行跨架构集成测试..."
 echo "参数: $TEST_ARGS"
 echo ""
@@ -138,9 +142,11 @@ echo ""
 OUTPUT_DIR="$PROJECT_ROOT/test_results"
 mkdir -p "$OUTPUT_DIR"
 
-# 运行测试并捕获结果
+# 运行测试并捕获结果（超时保护）
 TEST_START_TIME=$(date +%s)
-"$PROJECT_ROOT/target/release/cross_arch_integration_test_runner" $TEST_ARGS
+# 使用更大的超时时间（测试超时时间 + 10分钟缓冲）
+TEST_TIMEOUT_WITH_BUFFER=$((TIMEOUT + 600))
+"${WITH_TIMEOUT}" $TEST_TIMEOUT_WITH_BUFFER "$PROJECT_ROOT/target/release/cross_arch_integration_test_runner" $TEST_ARGS
 TEST_EXIT_CODE=$?
 TEST_END_TIME=$(date +%s)
 TEST_DURATION=$((TEST_END_TIME - TEST_START_TIME))

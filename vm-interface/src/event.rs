@@ -11,6 +11,7 @@ use std::sync::{
 
 /// 事件发布器
 pub struct EventPublisher {
+    #[allow(clippy::type_complexity)]
     subscribers: HashMap<String, Vec<Box<dyn Fn(&VmEvent) + Send + Sync>>>,
     next_id: AtomicU64,
 }
@@ -167,7 +168,7 @@ impl ComponentRegistry {
 
     /// 注销组件
     pub fn unregister(&mut self, name: &str) -> Result<(), VmError> {
-        if let Some(_) = self.components.remove(name) {
+        if self.components.remove(name).is_some() {
             self.event_bus
                 .publish(VmEvent::ComponentStopped(name.to_string()));
             Ok(())
@@ -228,7 +229,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
 
         let counter_clone = counter.clone();
-        publisher.subscribe("test_event", move |_| {
+        publisher.subscribe("component_started", move |_| {
             counter_clone.fetch_add(1, Ordering::Relaxed);
         });
 

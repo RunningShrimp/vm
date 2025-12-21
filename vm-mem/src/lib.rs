@@ -2,6 +2,9 @@
 //!
 //! 包含 SoftMMU（软件 MMU）和 RISC-V SV39/SV48 页表遍历
 
+#[cfg(feature = "no_std")]
+extern crate alloc;
+
 use crate::mmu::hugepage::{HugePageAllocator, HugePageSize};
 
 use lru::LruCache;
@@ -10,10 +13,14 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use vm_core::{AccessType, Fault, GuestAddr, GuestPhysAddr, MmioDevice, VmError, 
-    MemoryAccess, MmioManager, MmuAsAny, mmu_traits::AddressTranslator,
-};
 use vm_core::error::{CoreError, MemoryError};
+use vm_core::{
+    AccessType, Fault, GuestAddr, GuestPhysAddr, MemoryAccess, MmioDevice, MmioManager, MmuAsAny,
+    VmError, mmu_traits::AddressTranslator,
+};
+
+/// Type alias for MMIO check result
+type MmioCheckResult = Option<(Arc<RwLock<Box<dyn MmioDevice>>>, u64)>;
 
 // 模块组织
 pub mod memory;
@@ -21,25 +28,41 @@ pub mod optimization;
 pub mod tlb;
 pub mod unified_mmu;
 
+// GC优化器模块（从gc-optimizer合并）
+pub mod gc_optimizer;
+pub use gc_optimizer::{
+    AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcStats, LockFreeWriteBarrier,
+    OptimizedGc, ParallelMarker, WriteBarrierType,
+};
+
+// 内存优化器模块（从memory-optimizer合并）
+pub mod memory_optimizer;
+pub use memory_optimizer::{
+    AccessPattern, AsyncPrefetchingTlb, MemoryError as MemoryOptimizerError, MemoryOptimizer,
+    MemoryResult, NumaAllocator as MemoryOptimizerNumaAllocator, NumaConfig,
+    PageTableEntry as MemoryOptimizerPageTableEntry, ParallelPageTable,
+};
+// TlbEntry 和 TlbStats 从 memory_optimizer 导出，使用模块限定避免与 tlb 模块冲突
+pub use memory_optimizer::{
+    TlbEntry as MemoryOptimizerTlbEntry, TlbStats as MemoryOptimizerTlbStats,
+};
+
 #[cfg(feature = "async")]
 pub mod async_mmu;
 
 // 重新导出主要类型
 pub use memory::{
-    MemoryPool, PageTableEntryPool, PoolError, PoolManager, PoolStats, StackPool, TlbEntryPool,
-    NumaAllocPolicy, NumaAllocStats, NumaAllocator, NumaNodeInfo,
-    Sv39PageTableWalker, Sv48PageTableWalker,
+    MemoryPool, NumaAllocPolicy, NumaAllocStats, NumaAllocator as MemoryNumaAllocator,
+    NumaNodeInfo, PageTableEntryPool, PoolError, PoolManager, PoolStats, StackPool,
+    Sv39PageTableWalker, Sv48PageTableWalker, TlbEntryPool,
 };
-pub use optimization::{
-    lockless_optimizations::*,
-    asm_opt::*,
-};
+pub use optimization::{asm_opt::*, lockless_optimizations::*};
 pub use tlb::{
-    TlbFactory, TlbResult, UnifiedTlb,
-    ConcurrentTlbConfig, ConcurrentTlbManager, ConcurrentTlbManagerAdapter, ShardedTlb,
-    StandardTlbManager, MultiLevelTlb, MultiLevelTlbConfig, OptimizedTlbEntry,
+    ConcurrentTlbConfig, ConcurrentTlbManager, ConcurrentTlbManagerAdapter, MultiLevelTlb,
+    MultiLevelTlbConfig, OptimizedTlbEntry, ShardedTlb, StandardTlbManager, TlbFactory, TlbResult,
+    UnifiedTlb,
 };
-// 显式导入 TlbStats 避免冲突
+// TlbStats 从 tlb 模块导出
 pub use tlb::unified_tlb::TlbStats;
 pub use unified_mmu::{MmuOptimizationStrategy, UnifiedMmu, UnifiedMmuConfig, UnifiedMmuStats};
 
@@ -100,7 +123,6 @@ use vm_core::TlbEntry;
 
 /// TLB 条目
 // Removed duplicate TlbEntry struct to avoid shadowing public re-export
-
 /// 组合键: (vpn, asid) -> 单个 u64 键
 #[inline]
 fn make_tlb_key(vpn: u64, asid: u16) -> u64 {
@@ -150,10 +172,11 @@ impl Tlb {
             return;
         }
         let key = make_tlb_key(vpn, asid);
-        if !self.entries.contains_key(&key) && self.entries.len() >= self.max_size {
-            if let Some((old_key, _)) = self.lru.pop_lru() {
-                self.entries.remove(&old_key);
-            }
+        if !self.entries.contains_key(&key)
+            && self.entries.len() >= self.max_size
+            && let Some((old_key, _)) = self.lru.pop_lru()
+        {
+            self.entries.remove(&old_key);
         }
         self.entries.insert(key, entry);
         self.lru.put(key, ());
@@ -178,7 +201,6 @@ impl Tlb {
         }
     }
 
-    #[allow(dead_code)]
     fn flush_page(&mut self, vpn: u64) {
         self.global_entries.remove(&vpn);
         let keys_to_remove: Vec<u64> = self
@@ -223,6 +245,9 @@ pub struct PhysicalMemory {
     /// 全局保留地址集合 (用于 LR/SC): (addr, owner_id, size)
     reservations: RwLock<Vec<(GuestPhysAddr, u64, u8)>>,
     /// 大页分配器
+    ///
+    /// 当前用于初始化时的内存分配，未来可能用于动态大页管理和统计。
+    /// 保留此字段以支持未来的大页管理功能。
     #[allow(dead_code)]
     huge_page_allocator: HugePageAllocator,
 }
@@ -230,7 +255,7 @@ pub struct PhysicalMemory {
 impl PhysicalMemory {
     pub fn new(size: usize, use_hugepages: bool) -> Self {
         let allocator = HugePageAllocator::new(use_hugepages, HugePageSize::Size2M);
-        let shard_size = (size + SHARD_COUNT - 1) / SHARD_COUNT;
+        let shard_size = size.div_ceil(SHARD_COUNT);
 
         let mut shards = Vec::with_capacity(SHARD_COUNT);
         for i in 0..SHARD_COUNT {
@@ -257,8 +282,14 @@ impl PhysicalMemory {
             shards,
             shard_size,
             total_size: size,
-            mmio_regions: RwLock::new(Vec::new()),
-            reservations: RwLock::new(Vec::new()),
+            #[cfg(feature = "no_std")]
+            mmio_regions: RwLock::new(alloc::vec::Vec::new()),
+            #[cfg(feature = "no_std")]
+            reservations: RwLock::new(alloc::vec::Vec::new()),
+            #[cfg(not(feature = "no_std"))]
+            mmio_regions: RwLock::new(std::vec::Vec::new()),
+            #[cfg(not(feature = "no_std"))]
+            reservations: RwLock::new(std::vec::Vec::new()),
             huge_page_allocator: allocator,
         }
     }
@@ -345,9 +376,9 @@ impl PhysicalMemory {
 
     pub fn read_u8(&self, addr: usize) -> Result<u8, VmError> {
         if addr >= self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let shard = self.shards[idx].read();
@@ -356,9 +387,9 @@ impl PhysicalMemory {
 
     pub fn read_u16(&self, addr: usize) -> Result<u16, VmError> {
         if addr + 2 > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let shard = self.shards[idx].read();
@@ -375,9 +406,9 @@ impl PhysicalMemory {
 
     pub fn read_u32(&self, addr: usize) -> Result<u32, VmError> {
         if addr + 4 > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let shard = self.shards[idx].read();
@@ -395,9 +426,9 @@ impl PhysicalMemory {
 
     pub fn read_u64(&self, addr: usize) -> Result<u64, VmError> {
         if addr + 8 > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let shard = self.shards[idx].read();
@@ -415,9 +446,9 @@ impl PhysicalMemory {
 
     pub fn write_u8(&self, addr: usize, val: u8) -> Result<(), VmError> {
         if addr >= self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let mut shard = self.shards[idx].write();
@@ -427,9 +458,9 @@ impl PhysicalMemory {
 
     pub fn write_u16(&self, addr: usize, val: u16) -> Result<(), VmError> {
         if addr + 2 > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let mut shard = self.shards[idx].write();
@@ -446,9 +477,9 @@ impl PhysicalMemory {
 
     pub fn write_u32(&self, addr: usize, val: u32) -> Result<(), VmError> {
         if addr + 4 > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let mut shard = self.shards[idx].write();
@@ -465,9 +496,9 @@ impl PhysicalMemory {
 
     pub fn write_u64(&self, addr: usize, val: u64) -> Result<(), VmError> {
         if addr + 8 > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
         let (idx, offset) = self.get_shard_index(addr);
         let mut shard = self.shards[idx].write();
@@ -484,9 +515,9 @@ impl PhysicalMemory {
 
     pub fn read_buf(&self, addr: usize, buf: &mut [u8]) -> Result<(), VmError> {
         if addr + buf.len() > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
 
         let mut current_addr = addr;
@@ -510,9 +541,9 @@ impl PhysicalMemory {
 
     pub fn write_buf(&self, addr: usize, buf: &[u8]) -> Result<(), VmError> {
         if addr + buf.len() > self.total_size {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(
-                GuestAddr(addr as u64),
-            )));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                addr as u64,
+            ))));
         }
 
         let mut current_addr = addr;
@@ -553,8 +584,6 @@ impl PhysicalMemory {
                 value: data.len().to_string(),
                 message: "Invalid data size for memory restore".to_string(),
             }));
-
-
         }
 
         let mut current_addr = 0;
@@ -567,7 +596,6 @@ impl PhysicalMemory {
         }
         Ok(())
     }
-
 }
 
 // MemoryAccess trait implementation for PhysicalMemory
@@ -613,7 +641,11 @@ impl MemoryAccess for PhysicalMemory {
 
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
         if data.len() != self.total_size {
-            return Err(format!("Restore failed: expected {} bytes, got {} bytes", self.total_size, data.len()));
+            return Err(format!(
+                "Restore failed: expected {} bytes, got {} bytes",
+                self.total_size,
+                data.len()
+            ));
         }
 
         let mut current_addr = 0;
@@ -802,10 +834,7 @@ impl SoftMmu {
         Ok(())
     }
 
-    fn check_mmio_region(
-        &self,
-        pa: GuestAddr,
-    ) -> Result<Option<(Arc<RwLock<Box<dyn MmioDevice>>>, u64)>, String> {
+    fn check_mmio_region(&self, pa: GuestAddr) -> Result<MmioCheckResult, String> {
         let mmio_regions = self.phys_mem.mmio_regions.read();
 
         for region in mmio_regions.iter() {
@@ -824,16 +853,16 @@ impl SoftMmu {
             Ok(op) => op,
             Err(_) => {
                 return Err(VmError::from(Fault::PageFault {
-                      addr: pa.to_guest_addr(),
-                      access_type: AccessType::Read,
-                      is_write: false,
-                      is_user: false,
-                  }));
+                    addr: pa.to_guest_addr(),
+                    access_type: AccessType::Read,
+                    is_write: false,
+                    is_user: false,
+                }));
             }
         };
 
         if let Some((device, offset)) = mmio_op {
-            return Ok((*device.read()).read(offset, size)?);
+            return (*device.read()).read(offset, size);
         }
 
         match size {
@@ -934,22 +963,26 @@ impl SoftMmu {
     }
 
     /// 虚拟地址到物理地址的翻译，支持访问类型
-    pub fn translate(&mut self, va: GuestAddr, access: AccessType) -> Result<GuestPhysAddr, VmError> {
+    pub fn translate(
+        &mut self,
+        va: GuestAddr,
+        access: AccessType,
+    ) -> Result<GuestPhysAddr, VmError> {
         match self.paging_mode {
             PagingMode::Bare => Ok(GuestPhysAddr(va.0)),
             _ => {
                 // 计算VPN（虚拟页号）
                 let vpn = va.0 >> PAGE_SHIFT;
-                
+
                 // 先检查TLB，使用不可变引用
                 let asid = self.asid;
-                
+
                 // 先从TLB中查找（使用不可变借用的TLB）
                 let tlb_result = match access {
                     AccessType::Execute => self.itlb.lookup(vpn, asid),
                     _ => self.dtlb.lookup(vpn, asid),
                 };
-                
+
                 if let Some((ppn, flags)) = tlb_result {
                     // 检查访问权限
                     match access {
@@ -982,9 +1015,9 @@ impl SoftMmu {
                     self.tlb_hits += 1;
                     return Ok(GuestPhysAddr(ppn << PAGE_SHIFT | (va.0 & (PAGE_SIZE - 1))));
                 }
-                
+
                 self.tlb_misses += 1;
-                
+
                 // TLB未命中，进行页表遍历
                 // 临时取出page_table_walker以避免同时可变借用self
                 let mut walker = match self.page_table_walker.take() {
@@ -995,28 +1028,27 @@ impl SoftMmu {
                             access_type: access,
                             is_write: access == AccessType::Write,
                             is_user: false,
-                        }))
+                        }));
                     }
                 };
-                
+
                 // 使用walker进行地址翻译
                 let (phys_addr, flags) = walker.walk(va, access, asid, self)?;
-                
+
                 // 将walker放回
                 self.page_table_walker = Some(walker);
-                
+
                 // 将翻译结果缓存到TLB中
                 let ppn = phys_addr.0 >> PAGE_SHIFT;
                 match access {
                     AccessType::Execute => self.itlb.insert(vpn, ppn, flags, asid),
                     _ => self.dtlb.insert(vpn, ppn, flags, asid),
                 }
-                
+
                 Ok(phys_addr)
             }
         }
     }
-
 }
 
 impl AddressTranslator for SoftMmu {
@@ -1024,17 +1056,17 @@ impl AddressTranslator for SoftMmu {
         // 调用不可变的translate方法
         SoftMmu::translate(self, va, access)
     }
-    
+
     fn flush_tlb(&mut self) {
         self.itlb.flush();
         self.dtlb.flush();
     }
-    
+
     fn flush_tlb_asid(&mut self, asid: u16) {
         self.itlb.flush_asid(asid);
         self.dtlb.flush_asid(asid);
     }
-    
+
     fn flush_tlb_page(&mut self, va: GuestAddr) {
         self.itlb.flush_page(va.0);
         self.dtlb.flush_page(va.0);
@@ -1073,10 +1105,7 @@ impl MemoryAccess for SoftMmu {
 
     fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
         // 如果是MMIO区域，需要特殊处理
-        let mmio_op = match self.check_mmio_region(pa) {
-            Ok(op) => op,
-            Err(_) => None,
-        };
+        let mmio_op = self.check_mmio_region(pa).unwrap_or_default();
 
         if let Some((device, offset)) = mmio_op {
             // 对于MMIO区域，逐字节读取
@@ -1128,8 +1157,7 @@ impl MemoryAccess for SoftMmu {
     }
 
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
-        self.phys_mem.restore(data)
-            .map_err(|e| e.to_string())
+        self.phys_mem.restore(data).map_err(|e| e.to_string())
     }
 }
 
@@ -1154,8 +1182,6 @@ impl MmuAsAny for SoftMmu {
     }
 }
 
-
-
 // ============================================================================
 // 页表构建辅助
 // ============================================================================
@@ -1172,7 +1198,10 @@ impl PageTableBuilder {
     pub fn new(start_addr: GuestPhysAddr) -> Self {
         Self {
             next_page: start_addr,
-            allocated_pages: Vec::new(),
+            #[cfg(feature = "no_std")]
+            allocated_pages: alloc::vec::Vec::new(),
+            #[cfg(not(feature = "no_std"))]
+            allocated_pages: std::vec::Vec::new(),
         }
     }
 
@@ -1237,6 +1266,7 @@ impl PageTableBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_core::ExecutionError;
 
     #[test]
     fn test_bare_mode() {
@@ -1244,14 +1274,18 @@ mod tests {
 
         // Bare 模式恒等映射
         assert_eq!(
-            mmu.translate(0x1000, AccessType::Read)
+            mmu.translate(GuestAddr(0x1000), AccessType::Read)
                 .expect("Operation failed"),
-            0x1000
+            GuestPhysAddr(0x1000)
         );
 
         // 写入和读取
-        mmu.write(0x100, 0xDEADBEEF, 4).expect("Operation failed");
-        assert_eq!(mmu.read(0x100, 4).expect("Operation failed"), 0xDEADBEEF);
+        mmu.write(GuestAddr(0x100), 0xDEADBEEF, 4)
+            .expect("Operation failed");
+        assert_eq!(
+            mmu.read(GuestAddr(0x100), 4).expect("Operation failed"),
+            0xDEADBEEF
+        );
     }
 
     #[test]
@@ -1261,11 +1295,11 @@ mod tests {
 
         // 设置 SV39 分页
         let root_table = 0x100000; // 根页表在 1MB
-        let mut builder = PageTableBuilder::new(root_table + PAGE_SIZE);
+        let mut builder = PageTableBuilder::new(GuestPhysAddr(root_table + PAGE_SIZE));
 
         // 初始化根页表
         for i in 0..PTES_PER_PAGE {
-            mmu.write_phys(root_table + i * PTE_SIZE, 0, 8)
+            mmu.write_phys(GuestPhysAddr(root_table + i * PTE_SIZE), 0, 8)
                 .expect("Operation failed");
         }
 
@@ -1274,7 +1308,13 @@ mod tests {
         let pa = 0x200000u64; // 2MB
         let flags = pte_flags::R | pte_flags::W | pte_flags::X | pte_flags::A | pte_flags::D;
         builder
-            .map_page_sv39(&mut mmu, va, pa, flags, root_table)
+            .map_page_sv39(
+                &mut mmu,
+                GuestAddr(va),
+                GuestPhysAddr(pa),
+                flags,
+                GuestPhysAddr(root_table),
+            )
             .expect("Operation failed");
 
         // 设置 satp
@@ -1283,9 +1323,9 @@ mod tests {
 
         // 测试地址翻译
         let translated = mmu
-            .translate(va + 0x100, AccessType::Read)
+            .translate(GuestAddr(va + 0x100), AccessType::Read)
             .expect("Operation failed");
-        assert_eq!(translated, pa + 0x100);
+        assert_eq!(translated, GuestPhysAddr(pa + 0x100));
     }
 
     #[test]
@@ -1293,12 +1333,12 @@ mod tests {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
 
         // 第一次访问（TLB miss）
-        mmu.translate(0x1000, AccessType::Read)
+        mmu.translate(GuestAddr(0x1000), AccessType::Read)
             .expect("Operation failed");
         let (hits1, _misses1) = mmu.tlb_stats();
 
         // 第二次访问（应该 TLB hit，但 Bare 模式不使用 TLB）
-        mmu.translate(0x1000, AccessType::Read)
+        mmu.translate(GuestAddr(0x1000), AccessType::Read)
             .expect("Operation failed");
         let (hits2, _misses2) = mmu.tlb_stats();
 
@@ -1310,42 +1350,43 @@ mod tests {
     fn test_alignment_checks() {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
         mmu.set_strict_align(true);
-        mmu.write(0x100, 0xAA, 1).expect("Operation failed");
-        assert!(mmu.read(0x100, 1).is_ok());
+        mmu.write(GuestAddr(0x100), 0xAA, 1)
+            .expect("Operation failed");
+        assert!(mmu.read(GuestAddr(0x100), 1).is_ok());
         assert!(matches!(
-            mmu.read(0x101, 2),
+            mmu.read(GuestAddr(0x101), 2),
             Err(VmError::Execution(ExecutionError::Fault(
-                Fault::AlignmentFault { .. }
+                Fault::AlignmentFault
             )))
         ));
         assert!(matches!(
-            mmu.read(0x102, 4),
+            mmu.read(GuestAddr(0x102), 4),
             Err(VmError::Execution(ExecutionError::Fault(
-                Fault::AlignmentFault { .. }
+                Fault::AlignmentFault
             )))
         ));
         assert!(matches!(
-            mmu.read(0x104, 8),
+            mmu.read(GuestAddr(0x104), 8),
             Err(VmError::Execution(ExecutionError::Fault(
-                Fault::AlignmentFault { .. }
+                Fault::AlignmentFault
             )))
         ));
         assert!(matches!(
-            mmu.write(0x101, 0xBB, 2),
+            mmu.write(GuestAddr(0x101), 0xBB, 2),
             Err(VmError::Execution(ExecutionError::Fault(
-                Fault::AlignmentFault { .. }
+                Fault::AlignmentFault
             )))
         ));
         assert!(matches!(
-            mmu.write(0x102, 0xCC, 4),
+            mmu.write(GuestAddr(0x102), 0xCC, 4),
             Err(VmError::Execution(ExecutionError::Fault(
-                Fault::AlignmentFault { .. }
+                Fault::AlignmentFault
             )))
         ));
         assert!(matches!(
-            mmu.write(0x104, 0xDD, 8),
+            mmu.write(GuestAddr(0x104), 0xDD, 8),
             Err(VmError::Execution(ExecutionError::Fault(
-                Fault::AlignmentFault { .. }
+                Fault::AlignmentFault
             )))
         ));
     }
@@ -1354,7 +1395,7 @@ mod tests {
     fn test_lr_sc_success() {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
         // Initialize memory at addr
-        let addr = 0x2000u64;
+        let addr = GuestAddr(0x2000u64);
         mmu.write(addr, 0x11, 1).expect("Operation failed");
         // Load-reserved
         let v = mmu.load_reserved(addr, 1).expect("Operation failed");
@@ -1377,14 +1418,19 @@ mod tests {
         let addr2 = base + 8; // same cache line
 
         // Initialize
-        mmu1.write(GuestAddr(addr1), 0x33, 1).expect("Operation failed");
-        mmu2.write(GuestAddr(addr2), 0x44, 1).expect("Operation failed");
+        mmu1.write(GuestAddr(addr1), 0x33, 1)
+            .expect("Operation failed");
+        mmu2.write(GuestAddr(addr2), 0x44, 1)
+            .expect("Operation failed");
 
         // mmu1 reserves addr1
-        let _ = mmu1.load_reserved(GuestAddr(addr1), 1).expect("Operation failed");
+        let _ = mmu1
+            .load_reserved(GuestAddr(addr1), 1)
+            .expect("Operation failed");
 
         // mmu2 writes to same cache line -> should invalidate mmu1's reservation
-        mmu2.write(GuestAddr(addr2), 0x55, 1).expect("Operation failed");
+        mmu2.write(GuestAddr(addr2), 0x55, 1)
+            .expect("Operation failed");
 
         // mmu1 store_conditional should fail
         let ok = mmu1
@@ -1392,9 +1438,11 @@ mod tests {
             .expect("Operation failed");
         assert!(!ok);
         // Memory remains unchanged at addr1
-        assert_eq!(mmu1.read(GuestAddr(addr1), 1).expect("Operation failed"), 0x33);
+        assert_eq!(
+            mmu1.read(GuestAddr(addr1), 1).expect("Operation failed"),
+            0x33
+        );
     }
 }
-
 
 pub mod mmu;

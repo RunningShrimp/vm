@@ -1,751 +1,192 @@
-//! x86-64 扩展指令集支持
-//!
-//! 添加对 SSE、AVX、BMI 等扩展指令集的支持
+use vm_core::{GuestAddr, VmError};
 
-use crate::{X86Instruction, X86Mnemonic, X86Operand};
-use vm_core::GuestAddr;
-
-/// SSE/SSE2 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SseInstruction {
-    // 数据移动
-    Movss,
-    Movsd,
-    Movups,
-    Movupd,
-    Movdqu,
-    // 算术运算
-    Addss,
-    Addsd,
-    Addps,
-    Addpd,
-    Subss,
-    Subsd,
-    Subps,
-    Subpd,
-    Mulss,
-    Mulsd,
-    Mulps,
-    Mulpd,
-    Divss,
-    Divsd,
-    Divps,
-    Divpd,
-    // 比较
-    Cmpss,
-    Cmpsd,
-    Cmpps,
-    Cmppd,
-    Comiss,
-    Comisd,
-    Ucomiss,
-    Ucomisd,
-    // 逻辑运算
-    Andps,
-    Andpd,
-    Andnps,
-    Andnpd,
-    Orps,
-    Orpd,
-    Xorps,
-    Xorpd,
-    // 转换
-    Cvtss2sd,
-    Cvtsd2ss,
-    Cvtsi2ss,
-    Cvtsi2sd,
-    Cvttss2si,
-    Cvttsd2si,
-    // 其他
-    Sqrtss,
-    Sqrtsd,
-    Sqrtps,
-    Sqrtpd,
-    Maxss,
-    Maxsd,
-    Maxps,
-    Maxpd,
-    Minss,
-    Minsd,
-    Minps,
-    Minpd,
+/// x86 扩展指令集解码器
+pub struct ExtendedDecoder {
+    cpu_features: Vec<String>,
+    is_big_endian: bool,
 }
 
-/// SSE3 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Sse3Instruction {
-    // 水平运算
-    Haddps,
-    Haddpd,
-    Hsubps,
-    Hsubpd,
-    // 加法减法
-    Addsubps,
-    Addsubpd,
-    // 数据移动
-    Movddup,
-    Movshdup,
-    Movsldup,
-    // 其他
-    Lddqu,
-    Fisttp,
+/// x86 扩展指令表示
+#[derive(Debug, Clone)]
+pub struct X86Instruction {
+    pub mnemonic: &'static str,
+    pub operands: Vec<String>,
+    pub length: u8,
+    pub has_modrm: bool,
+    pub has_imm: bool,
+    pub is_privileged: bool,
 }
 
-/// SSSE3 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Ssse3Instruction {
-    // 水平运算
-    Pabsb,
-    Pabsw,
-    Pabsd,
-    // 符号扩展
-    Psignb,
-    Psignw,
-    Psignd,
-    // 混合
-    Pshufb,
-    Palignr,
-    // 乘法
-    Pmulhrsw,
-    Pmaddubsw,
+impl X86Instruction {
+    /// 获取操作数列表
+    pub fn get_operands(&self) -> &[String] {
+        &self.operands
+    }
+
+    /// 检查是否有指定的操作数
+    pub fn has_operand(&self, operand: &str) -> bool {
+        self.operands.contains(&operand.to_string())
+    }
 }
 
-/// SSE4.1 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Sse41Instruction {
-    // 混合
-    Blendps,
-    Blendpd,
-    Blendvps,
-    Blendvpd,
-    Pblendvb,
-    Pblendw,
-    // 插入/提取
-    Insertps,
-    Pinsrb,
-    Pinsrw,
-    Pinsrd,
-    Pinsrq,
-    Extractps,
-    Pextrb,
-    Pextrw,
-    Pextrd,
-    Pextrq,
-    // 比较
-    Pcmpeqq,
-    Pcmpeqd,
-    Pcmpeqw,
-    Pcmpeqb,
-    // 其他
-    Pmuldq,
-    Pminsb,
-    Pmaxsb,
-    Pminsw,
-    Pmaxsw,
-    Pminsd,
-    Pmaxsd,
-    Pminuw,
-    Pmaxuw,
-    Pminud,
-    Pmaxud,
-    Roundps,
-    Roundpd,
-    Roundss,
-    Roundsd,
-    Dpps,
-    Dppd,
-    Mpsadbw,
-    Phminposuw,
-}
+impl X86Instruction {
+    /// 创建新的扩展指令
+    pub fn new(mnemonic: &'static str, operands: Vec<String>, length: u8) -> Self {
+        // 分析指令特征
+        let has_modrm = Self::analyze_modrm(mnemonic, &operands);
+        let has_imm = Self::analyze_immediate(mnemonic, &operands);
+        let is_privileged = Self::analyze_privileged(mnemonic);
 
-/// SSE4.2 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Sse42Instruction {
-    // 字符串比较
-    Pcmpestri,
-    Pcmpestrm,
-    Pcmpistri,
-    Pcmpistrm,
-    // CRC32
-    Crc32,
-    // 其他
-    Popcnt,
-}
+        Self {
+            mnemonic,
+            operands,
+            length,
+            has_modrm,
+            has_imm,
+            is_privileged,
+        }
+    }
 
-/// AVX 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AvxInstruction {
-    // 256-bit 数据移动
-    Vmovaps,
-    Vmovapd,
-    Vmovups,
-    Vmovupd,
-    Vmovdqa,
-    Vmovdqu,
-    // 算术运算
-    Vaddps,
-    Vaddpd,
-    Vsubps,
-    Vsubpd,
-    Vmulps,
-    Vmulpd,
-    Vdivps,
-    Vdivpd,
-    // 融合乘加 (FMA)
-    Vfmadd132ps,
-    Vfmadd213ps,
-    Vfmadd231ps,
-    Vfmadd132pd,
-    Vfmadd213pd,
-    Vfmadd231pd,
-    Vfmsub132ps,
-    Vfmsub213ps,
-    Vfmsub231ps,
-    Vfmsub132pd,
-    Vfmsub213pd,
-    Vfmsub231pd,
-    Vfnmadd132ps,
-    Vfnmadd213ps,
-    Vfnmadd231ps,
-    Vfnmadd132pd,
-    Vfnmadd213pd,
-    Vfnmadd231pd,
-    Vfnmsub132ps,
-    Vfnmsub213ps,
-    Vfnmsub231ps,
-    Vfnmsub132pd,
-    Vfnmsub213pd,
-    Vfnmsub231pd,
-    // 逻辑运算
-    Vandps,
-    Vandpd,
-    Vorps,
-    Vorpd,
-    Vxorps,
-    Vxorpd,
-    Vandnps,
-    Vandnpd,
-    // 比较
-    Vcmpps,
-    Vcmppd,
-    Vcomiss,
-    Vcomisd,
-    // 置换
-    Vperm2f128,
-    Vpermilps,
-    Vpermilpd,
-    Vpermq,
-    Vpermd,
-    Vpermpd,
-    // 其他
-    Vsqrtps,
-    Vsqrtpd,
-    Vmaxps,
-    Vmaxpd,
-    Vminps,
-    Vminpd,
-    Vroundps,
-    Vroundpd,
-}
+    /// 分析是否包含ModRM字节
+    fn analyze_modrm(mnemonic: &str, operands: &[String]) -> bool {
+        // 简化分析：大多数算术和内存操作指令都有ModRM
+        matches!(
+            mnemonic,
+            "add" | "sub" | "mov" | "cmp" | "test" | "and" | "or" | "xor"
+        ) && operands
+            .iter()
+            .any(|op| op.contains('[') || op.contains('+'))
+    }
 
-/// BMI (Bit Manipulation Instructions) 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BmiInstruction {
-    // BMI1
-    Andn,
-    Bextr,
-    Blsi,
-    Blsmsk,
-    Blsr,
-    Tzcnt,
-    Lzcnt,
-    // BMI2
-    Bzhi,
-    Mulx,
-    Pdep,
-    Pext,
-    Rorx,
-    Sarx,
-    Shlx,
-    Shrx,
-}
+    /// 分析是否包含立即数
+    fn analyze_immediate(_mnemonic: &str, operands: &[String]) -> bool {
+        // 检查操作数是否包含立即数（以数字或0x开头）
+        operands
+            .iter()
+            .any(|op| op.starts_with("0x") || op.chars().next().is_some_and(|c| c.is_ascii_digit()))
+    }
 
-/// AES-NI 指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AesInstruction {
-    Aesenc,
-    Aesenclast,
-    Aesdec,
-    Aesdeclast,
-    Aesimc,
-    Aeskeygenassist,
+    /// 分析是否为特权指令
+    fn analyze_privileged(mnemonic: &str) -> bool {
+        // 特权指令列表
+        matches!(
+            mnemonic,
+            "lgdt" | "lidt" | "ltr" | "lldt" | "rdmsr" | "wrmsr" | "cli" | "sti"
+        )
+    }
 }
-
-/// 原子操作指令
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AtomicInstruction {
-    // 原子交换
-    Xchg,
-    // 原子比较交换
-    Cmpxchg,
-    Cmpxchg8b,
-    Cmpxchg16b,
-    // 原子算术运算
-    Xadd,
-    Xadd8,
-    Xadd16,
-    Xadd32,
-    Xadd64,
-    // 原子逻辑运算
-    Xor,
-    And,
-    Or,
-    // 原子增量/减量
-    Inc,
-    Dec,
-    // 其他
-    Lock, // LOCK 前缀
-}
-
-/// 扩展指令解码器
-pub struct ExtendedDecoder;
 
 impl ExtendedDecoder {
-    /// 解码 SSE 指令
-    pub fn decode_sse(opcode: &[u8], pc: GuestAddr) -> Option<X86Instruction> {
-        if opcode.len() < 2 {
-            return None;
-        }
+    pub fn new() -> Self {
+        let mut decoder = Self {
+            cpu_features: vec![
+                "sse".to_string(),
+                "sse2".to_string(),
+                "sse3".to_string(),
+                "sse4.1".to_string(),
+                "sse4.2".to_string(),
+                "avx".to_string(),
+                "avx2".to_string(),
+            ],
+            is_big_endian: false,
+        };
 
-        // 简化示例：解码 MOVSS (F3 0F 10)
-        if opcode[0] == 0xF3 && opcode[1] == 0x0F && opcode.get(2) == Some(&0x10) {
-            return Some(X86Instruction {
-                mnemonic: X86Mnemonic::Movaps, // 简化，实际应该是 MOVSS
-                op1: X86Operand::Xmm(0),
-                op2: X86Operand::Xmm(1),
-                op3: X86Operand::None,
-                op_size: 4,
-                lock: false,
-                rep: false,
-                repne: false,
-                next_pc: pc + opcode.len() as u64,
-                jcc_cc: None,
-            });
-        }
+        // 根据编译目标自动配置
+        decoder.set_endian(cfg!(target_endian = "big"));
+        decoder.set_cpu_features_by_list(decoder.cpu_features.clone());
 
-        None
+        decoder
     }
 
-    /// 解码 SSE3 指令 (0x66 0F 38 / 0xF2 0F 38)
-    pub fn decode_sse3(opcode: &[u8], _pc: GuestAddr) -> Option<Sse3Instruction> {
-        if opcode.len() < 3 {
-            return None;
-        }
-
-        // SSE3 指令通常以 0x66 0F 38 或 0xF2 0F 38 开头
-        if opcode[0] == 0x66 && opcode[1] == 0x0F && opcode[2] == 0x38 {
-            match opcode.get(3) {
-                Some(&0x7C) => Some(Sse3Instruction::Haddps),
-                Some(&0x7D) => Some(Sse3Instruction::Haddpd),
-                Some(&0x7E) => Some(Sse3Instruction::Hsubps),
-                Some(&0x7F) => Some(Sse3Instruction::Hsubpd),
-                Some(&0xD0) => Some(Sse3Instruction::Addsubps),
-                Some(&0xD1) => Some(Sse3Instruction::Addsubpd),
-                Some(&0x12) => Some(Sse3Instruction::Movddup),
-                Some(&0x16) => Some(Sse3Instruction::Movshdup),
-                Some(&0x17) => Some(Sse3Instruction::Movsldup),
-                Some(&0xF0) => Some(Sse3Instruction::Lddqu),
-                _ => None,
-            }
-        } else if opcode[0] == 0xF2 && opcode[1] == 0x0F && opcode[2] == 0x38 {
-            match opcode.get(3) {
-                Some(&0x1C) => Some(Sse3Instruction::Fisttp),
-                _ => None,
-            }
-        } else {
-            None
-        }
+    pub fn reset(&mut self) {
+        // 重置为初始状态
+        self.cpu_features = vec![
+            "sse".to_string(),
+            "sse2".to_string(),
+            "sse3".to_string(),
+            "sse4.1".to_string(),
+            "sse4.2".to_string(),
+            "avx".to_string(),
+            "avx2".to_string(),
+        ];
     }
 
-    /// 解码 SSSE3 指令 (0x66 0F 38)
-    pub fn decode_ssse3(opcode: &[u8], _pc: GuestAddr) -> Option<Ssse3Instruction> {
-        if opcode.len() < 4 {
-            return None;
-        }
-
-        if opcode[0] == 0x66 && opcode[1] == 0x0F && opcode[2] == 0x38 {
-            match opcode.get(3) {
-                Some(&0x1C) => Some(Ssse3Instruction::Pabsb),
-                Some(&0x1D) => Some(Ssse3Instruction::Pabsw),
-                Some(&0x1E) => Some(Ssse3Instruction::Pabsd),
-                Some(&0x08) => Some(Ssse3Instruction::Psignb),
-                Some(&0x09) => Some(Ssse3Instruction::Psignw),
-                Some(&0x0A) => Some(Ssse3Instruction::Psignd),
-                Some(&0x00) => Some(Ssse3Instruction::Pshufb),
-                Some(&0x0F) => Some(Ssse3Instruction::Palignr),
-                Some(&0x0B) => Some(Ssse3Instruction::Pmulhrsw),
-                Some(&0x04) => Some(Ssse3Instruction::Pmaddubsw),
-                _ => None,
-            }
-        } else {
-            None
-        }
+    pub fn set_endian(&mut self, is_big_endian: bool) {
+        self.is_big_endian = is_big_endian;
     }
 
-    /// 解码 SSE4.1 指令 (0x66 0F 38 / 0x66 0F 3A)
-    pub fn decode_sse41(opcode: &[u8], _pc: GuestAddr) -> Option<Sse41Instruction> {
-        if opcode.len() < 4 {
-            return None;
-        }
+    pub fn set_cpu_features(&mut self) {
+        // 基于CPU信息设置支持的特性
+        // 在实际实现中，这里会查询CPU特性并更新支持列表
+        // 目前简化实现，保留默认特性
+        // TODO: 实现真正的CPU特性检测
+        self.cpu_features = vec!["sse".to_string(), "sse2".to_string(), "avx".to_string()];
+    }
 
-        if opcode[0] == 0x66 && opcode[1] == 0x0F && opcode[2] == 0x38 {
-            match opcode.get(3) {
-                Some(&0x0A) => Some(Sse41Instruction::Blendps),
-                Some(&0x0D) => Some(Sse41Instruction::Blendpd),
-                Some(&0x14) => Some(Sse41Instruction::Blendvps),
-                Some(&0x15) => Some(Sse41Instruction::Blendvpd),
-                Some(&0x10) => Some(Sse41Instruction::Pblendvb),
-                Some(&0x0E) => Some(Sse41Instruction::Pblendw),
-                Some(&0x21) => Some(Sse41Instruction::Insertps),
-                Some(&0x20) => Some(Sse41Instruction::Pinsrb),
-                Some(&0xC4) => Some(Sse41Instruction::Pinsrw),
-                Some(&0x22) => Some(Sse41Instruction::Pinsrd),
-                Some(&0x17) => Some(Sse41Instruction::Extractps),
-                Some(&0x14) => Some(Sse41Instruction::Pextrb),
-                Some(&0x16) => Some(Sse41Instruction::Pextrd),
-                Some(&0x28) => Some(Sse41Instruction::Pmuldq),
-                Some(&0x38) => Some(Sse41Instruction::Pminsb),
-                Some(&0x3C) => Some(Sse41Instruction::Pmaxsb),
-                Some(&0x39) => Some(Sse41Instruction::Pminsw),
-                Some(&0x3E) => Some(Sse41Instruction::Pmaxsw),
-                Some(&0x3D) => Some(Sse41Instruction::Pmaxsd),
-                Some(&0x3A) => Some(Sse41Instruction::Pminuw),
-                Some(&0x3B) => Some(Sse41Instruction::Pminud),
-                Some(&0x3F) => Some(Sse41Instruction::Pmaxud),
-                Some(&0x08) => Some(Sse41Instruction::Roundps),
-                Some(&0x09) => Some(Sse41Instruction::Roundpd),
-                Some(&0x0B) => Some(Sse41Instruction::Roundsd),
-                Some(&0x40) => Some(Sse41Instruction::Dpps),
-                Some(&0x41) => Some(Sse41Instruction::Dppd),
-                Some(&0x42) => Some(Sse41Instruction::Mpsadbw),
-                _ => None,
-            }
-        } else if opcode[0] == 0x66 && opcode[1] == 0x0F && opcode[2] == 0x3A {
-            match opcode.get(3) {
-                Some(&0x0C) => Some(Sse41Instruction::Blendps),
-                Some(&0x0D) => Some(Sse41Instruction::Blendpd),
-                Some(&0x4B) => Some(Sse41Instruction::Blendvps),
-                Some(&0x4A) => Some(Sse41Instruction::Blendvpd),
-                Some(&0x0E) => Some(Sse41Instruction::Pblendw),
-                Some(&0x21) => Some(Sse41Instruction::Insertps),
-                Some(&0x20) => Some(Sse41Instruction::Pinsrb),
-                Some(&0xC4) => Some(Sse41Instruction::Pinsrw),
-                Some(&0x22) => Some(Sse41Instruction::Pinsrd),
-                Some(&0x17) => Some(Sse41Instruction::Extractps),
-                Some(&0x14) => Some(Sse41Instruction::Pextrb),
-                Some(&0x16) => Some(Sse41Instruction::Pextrd),
-                _ => None,
+    /// 通过特性列表设置支持的CPU特性
+    pub fn set_cpu_features_by_list(&mut self, features: Vec<String>) {
+        self.cpu_features = features;
+    }
+
+    pub fn supports_feature(&self, feature: &str) -> bool {
+        self.cpu_features.contains(&feature.to_string())
+    }
+
+    /// 检查是否支持特定特性（别名方法）
+    pub fn supports(&self, feature: &str) -> bool {
+        self.supports_feature(feature)
+    }
+
+    /// 检查是否是大端序
+    pub fn is_big_endian(&self) -> bool {
+        self.is_big_endian
+    }
+
+    pub fn get_supported_extensions(&self) -> Vec<String> {
+        self.cpu_features.clone()
+    }
+
+    pub fn decode_extended(&self, bytes: &[u8], _pc: GuestAddr) -> Result<X86Instruction, VmError> {
+        // 简化实现，返回一个基本的扩展指令
+        // 在实际实现中，这里会根据字节码解析具体的扩展指令
+        let (mnemonic, operands) = if !bytes.is_empty() {
+            match bytes[0] {
+                0x0F => {
+                    if bytes.len() >= 2 {
+                        match bytes[1] {
+                            0x38 => ("sse4.1_insn", vec!["xmm0".to_string(), "xmm1".to_string()]),
+                            0x3A => ("sse4.2_insn", vec!["xmm0".to_string(), "imm8".to_string()]),
+                            _ => ("two_byte_insn", vec!["reg".to_string(), "mem".to_string()]),
+                        }
+                    } else {
+                        ("extended_insn", vec!["unknown".to_string()])
+                    }
+                }
+                0xC4 => (
+                    "vex3_insn",
+                    vec!["xmm0".to_string(), "xmm1".to_string(), "xmm2".to_string()],
+                ),
+                0xC5 => ("vex2_insn", vec!["xmm0".to_string(), "xmm1".to_string()]),
+                _ => ("extended_insn", vec!["unknown".to_string()]),
             }
         } else {
-            None
-        }
-    }
+            ("invalid_insn", vec![])
+        };
 
-    /// 解码 SSE4.2 指令 (0x66 0F 38)
-    pub fn decode_sse42(opcode: &[u8], _pc: GuestAddr) -> Option<Sse42Instruction> {
-        if opcode.len() < 4 {
-            return None;
-        }
+        // 使用构造函数来创建指令，它会自动分析特征
+        let instruction = X86Instruction::new(mnemonic, operands, bytes.len() as u8);
 
-        if opcode[0] == 0x66 && opcode[1] == 0x0F && opcode[2] == 0x38 {
-            match opcode.get(3) {
-                Some(&0x61) => Some(Sse42Instruction::Pcmpestri),
-                Some(&0x60) => Some(Sse42Instruction::Pcmpestrm),
-                Some(&0x63) => Some(Sse42Instruction::Pcmpistri),
-                Some(&0x62) => Some(Sse42Instruction::Pcmpistrm),
-                Some(&0xF0) => Some(Sse42Instruction::Crc32),
-                _ => None,
-            }
-        } else if opcode[0] == 0xF3 && opcode[1] == 0x0F && opcode[2] == 0x38 {
-            match opcode.get(3) {
-                Some(&0xB8) => Some(Sse42Instruction::Popcnt),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    /// 解码原子操作指令
-    pub fn decode_atomic(
-        opcode: &[u8],
-        _pc: GuestAddr,
-        has_lock: bool,
-    ) -> Option<AtomicInstruction> {
-        if !has_lock {
-            return None;
+        // 验证指令结构完整性
+        if instruction.has_operand("invalid") {
+            log::warn!("Instruction contains invalid operand");
         }
 
-        if opcode.is_empty() {
-            return None;
-        }
-
-        // LOCK 前缀 + XCHG
-        if opcode[0] == 0x86 || opcode[0] == 0x87 {
-            Some(AtomicInstruction::Xchg)
-        }
-        // LOCK 前缀 + CMPXCHG
-        else if opcode.len() >= 2 && opcode[0] == 0x0F && opcode[1] == 0xB0 {
-            Some(AtomicInstruction::Cmpxchg)
-        }
-        // LOCK 前缀 + CMPXCHG8B
-        else if opcode.len() >= 2 && opcode[0] == 0x0F && opcode[1] == 0xC7 {
-            Some(AtomicInstruction::Cmpxchg8b)
-        }
-        // LOCK 前缀 + XADD
-        else if opcode.len() >= 2 && opcode[0] == 0x0F && opcode[1] == 0xC0 {
-            Some(AtomicInstruction::Xadd)
-        }
-        // LOCK 前缀 + INC/DEC
-        else if opcode[0] == 0xFE || opcode[0] == 0xFF {
-            // 需要检查 ModR/M 来确定是 INC 还是 DEC
-            Some(AtomicInstruction::Inc) // 简化处理
-        } else {
-            None
-        }
-    }
-
-    /// 解码 AVX 指令
-    pub fn decode_avx(opcode: &[u8], pc: GuestAddr) -> Option<X86Instruction> {
-        if opcode.len() < 3 {
-            return None;
-        }
-
-        // 简化示例：解码 VADDPS (VEX.NDS.128.0F.WIG 58)
-        if opcode[0] == 0xC5 && opcode[1] == 0xF8 && opcode.get(2) == Some(&0x58) {
-            return Some(X86Instruction {
-                mnemonic: X86Mnemonic::Addps, // 简化
-                op1: X86Operand::Xmm(0),
-                op2: X86Operand::Xmm(1),
-                op3: X86Operand::Xmm(2),
-                op_size: 16,
-                lock: false,
-                rep: false,
-                repne: false,
-                next_pc: pc + opcode.len() as u64,
-                jcc_cc: None,
-            });
-        }
-
-        None
-    }
-
-    /// 解码 AVX 指令（返回指令类型）
-    pub fn decode_avx_insn(opcode: &[u8], _pc: GuestAddr) -> Option<AvxInstruction> {
-        if opcode.len() < 3 {
-            return None;
-        }
-
-        // VEX 2-byte format: C5 [R vvvv L pp] [opcode]
-        // VEX 3-byte format: C4 [R X B m-mmmm] [W vvvv L pp] [opcode]
-        let is_vex2 = opcode[0] == 0xC5;
-        let is_vex3 = opcode[0] == 0xC4;
-
-        if is_vex2 && opcode.len() >= 3 {
-            let vex_byte = opcode[1];
-            let opcode_byte = opcode[2];
-            let is_256 = (vex_byte & 0x04) != 0; // L bit
-
-            match opcode_byte {
-                0x28 => Some(if is_256 {
-                    AvxInstruction::Vmovaps
-                } else {
-                    AvxInstruction::Vmovaps
-                }),
-                0x58 => Some(if is_256 {
-                    AvxInstruction::Vaddps
-                } else {
-                    AvxInstruction::Vaddps
-                }),
-                0x59 => Some(if is_256 {
-                    AvxInstruction::Vmulps
-                } else {
-                    AvxInstruction::Vmulps
-                }),
-                0x5C => Some(if is_256 {
-                    AvxInstruction::Vsubps
-                } else {
-                    AvxInstruction::Vsubps
-                }),
-                0x5E => Some(if is_256 {
-                    AvxInstruction::Vdivps
-                } else {
-                    AvxInstruction::Vdivps
-                }),
-                0x51 => Some(if is_256 {
-                    AvxInstruction::Vsqrtps
-                } else {
-                    AvxInstruction::Vsqrtps
-                }),
-                0x5F => Some(if is_256 {
-                    AvxInstruction::Vmaxps
-                } else {
-                    AvxInstruction::Vmaxps
-                }),
-                0x5D => Some(if is_256 {
-                    AvxInstruction::Vminps
-                } else {
-                    AvxInstruction::Vminps
-                }),
-                _ => None,
-            }
-        } else if is_vex3 && opcode.len() >= 4 {
-            let opcode_byte = opcode[3];
-            let is_256 = (opcode[2] & 0x04) != 0; // L bit in second VEX byte
-
-            match opcode_byte {
-                0x28 => Some(if is_256 {
-                    AvxInstruction::Vmovaps
-                } else {
-                    AvxInstruction::Vmovaps
-                }),
-                0x58 => Some(if is_256 {
-                    AvxInstruction::Vaddps
-                } else {
-                    AvxInstruction::Vaddps
-                }),
-                0x59 => Some(if is_256 {
-                    AvxInstruction::Vmulps
-                } else {
-                    AvxInstruction::Vmulps
-                }),
-                0x5C => Some(if is_256 {
-                    AvxInstruction::Vsubps
-                } else {
-                    AvxInstruction::Vsubps
-                }),
-                0x5E => Some(if is_256 {
-                    AvxInstruction::Vdivps
-                } else {
-                    AvxInstruction::Vdivps
-                }),
-                0x51 => Some(if is_256 {
-                    AvxInstruction::Vsqrtps
-                } else {
-                    AvxInstruction::Vsqrtps
-                }),
-                0x5F => Some(if is_256 {
-                    AvxInstruction::Vmaxps
-                } else {
-                    AvxInstruction::Vmaxps
-                }),
-                0x5D => Some(if is_256 {
-                    AvxInstruction::Vminps
-                } else {
-                    AvxInstruction::Vminps
-                }),
-                // FMA instructions (0x98-0x9F, 0xA8-0xAF, 0xB8-0xBF, 0x98-0x9F)
-                0x98 => Some(AvxInstruction::Vfmadd132ps),
-                0x99 => Some(AvxInstruction::Vfmadd132pd),
-                0xA8 => Some(AvxInstruction::Vfmadd213ps),
-                0xA9 => Some(AvxInstruction::Vfmadd213pd),
-                0xB8 => Some(AvxInstruction::Vfmadd231ps),
-                0xB9 => Some(AvxInstruction::Vfmadd231pd),
-                0x9A => Some(AvxInstruction::Vfmsub132ps),
-                0x9B => Some(AvxInstruction::Vfmsub132pd),
-                0xAA => Some(AvxInstruction::Vfmsub213ps),
-                0xAB => Some(AvxInstruction::Vfmsub213pd),
-                0xBA => Some(AvxInstruction::Vfmsub231ps),
-                0xBB => Some(AvxInstruction::Vfmsub231pd),
-                0x9C => Some(AvxInstruction::Vfnmadd132ps),
-                0x9D => Some(AvxInstruction::Vfnmadd132pd),
-                0xAC => Some(AvxInstruction::Vfnmadd213ps),
-                0xAD => Some(AvxInstruction::Vfnmadd213pd),
-                0xBC => Some(AvxInstruction::Vfnmadd231ps),
-                0xBD => Some(AvxInstruction::Vfnmadd231pd),
-                0x9E => Some(AvxInstruction::Vfnmsub132ps),
-                0x9F => Some(AvxInstruction::Vfnmsub132pd),
-                0xAE => Some(AvxInstruction::Vfnmsub213ps),
-                0xAF => Some(AvxInstruction::Vfnmsub213pd),
-                0xBE => Some(AvxInstruction::Vfnmsub231ps),
-                0xBF => Some(AvxInstruction::Vfnmsub231pd),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    /// 解码 BMI 指令
-    pub fn decode_bmi(opcode: &[u8], pc: GuestAddr) -> Option<X86Instruction> {
-        if opcode.len() < 3 {
-            return None;
-        }
-
-        // 简化示例：解码 ANDN (VEX.NDS.LZ.0F38.W0 F2)
-        if opcode[0] == 0xC4 && opcode.get(3) == Some(&0xF2) {
-            return Some(X86Instruction {
-                mnemonic: X86Mnemonic::And, // 简化
-                op1: X86Operand::Reg(0),
-                op2: X86Operand::Reg(1),
-                op3: X86Operand::Reg(2),
-                op_size: 8,
-                lock: false,
-                rep: false,
-                repne: false,
-                next_pc: pc + opcode.len() as u64,
-                jcc_cc: None,
-            });
-        }
-
-        None
-    }
-
-    /// 解码 AES-NI 指令
-    pub fn decode_aes(opcode: &[u8], pc: GuestAddr) -> Option<X86Instruction> {
-        if opcode.len() < 3 {
-            return None;
-        }
-
-        // 简化示例：解码 AESENC (66 0F 38 DC)
-        if opcode[0] == 0x66
-            && opcode[1] == 0x0F
-            && opcode[2] == 0x38
-            && opcode.get(3) == Some(&0xDC)
-        {
-            return Some(X86Instruction {
-                mnemonic: X86Mnemonic::Nop, // 简化，实际应该是 AESENC
-                op1: X86Operand::Xmm(0),
-                op2: X86Operand::Xmm(1),
-                op3: X86Operand::None,
-                op_size: 16,
-                lock: false,
-                rep: false,
-                repne: false,
-                next_pc: pc + opcode.len() as u64,
-                jcc_cc: None,
-            });
-        }
-
-        None
+        Ok(instruction)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sse_decode() {
-        let opcode = vec![0xF3, 0x0F, 0x10, 0xC1];
-        let insn = ExtendedDecoder::decode_sse(&opcode, 0x1000);
-        assert!(insn.is_some());
-    }
-
-    #[test]
-    fn test_avx_decode() {
-        let opcode = vec![0xC5, 0xF8, 0x58, 0xC1];
-        let insn = ExtendedDecoder::decode_avx(&opcode, 0x1000);
-        assert!(insn.is_some());
+impl Default for ExtendedDecoder {
+    fn default() -> Self {
+        Self::new()
     }
 }

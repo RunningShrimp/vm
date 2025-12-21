@@ -1,5 +1,5 @@
 //! 虚拟机状态数据结构
-//! 
+//!
 //! 定义虚拟机的纯数据结构，符合DDD贫血模型原则。
 //! 所有业务逻辑应位于服务层（VirtualMachineService）。
 
@@ -100,3 +100,7 @@ impl<B: 'static> Clone for VirtualMachineState<B> {
         }
     }
 }
+
+/// VirtualMachine 类型别名，用于向后兼容
+#[cfg(not(feature = "no_std"))]
+pub type VirtualMachine<B> = VirtualMachineState<B>;

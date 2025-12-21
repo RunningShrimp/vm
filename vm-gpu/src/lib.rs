@@ -189,7 +189,7 @@ impl GpuCommandQueue {
         }
 
         let available_space = self.max_size - queue.len();
-        if available_space <= 0 {
+        if available_space == 0 {
             let mut stats = self.stats.lock().unwrap();
             stats.overflow_count += 1;
             drop(stats);

@@ -57,7 +57,9 @@ impl VmCoordinator {
         // Select a VM based on task type and load balancing strategy
         let selected_vm = match task_type {
             TaskType::CpuIntensive => self.select_cpu_intensive(&active_vms, &task_type).await,
-            TaskType::MemoryIntensive => self.select_memory_intensive(&active_vms, &task_type).await,
+            TaskType::MemoryIntensive => {
+                self.select_memory_intensive(&active_vms, &task_type).await
+            }
             TaskType::IoIntensive => self.select_least_loaded(&active_vms).await,
             _ => self.select_round_robin(&active_vms).await,
         };
@@ -80,7 +82,7 @@ impl VmCoordinator {
     pub async fn get_task_status(&self, task_id: &TaskId) -> Result<TaskStatus, anyhow::Error> {
         self.scheduler.get_task_status(task_id).await
     }
-    
+
     /// Get detailed task information
     pub async fn get_task_info(&self, task_id: &TaskId) -> Result<TaskInfo, anyhow::Error> {
         self.scheduler.get_task_info(task_id).await
@@ -90,7 +92,7 @@ impl VmCoordinator {
     pub async fn get_active_vms(&self) -> Vec<VmInfo> {
         self.discovery.get_active_vms().await
     }
-    
+
     /// Get the coordinator configuration
     pub fn get_config(&self) -> &DistributedArchitectureConfig {
         &self.config

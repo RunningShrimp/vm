@@ -567,7 +567,7 @@ mod tests {
         }
 
         let hot_blocks = collector.get_hot_blocks(10);
-        assert!(hot_blocks.len() > 0);
+        assert!(!hot_blocks.is_empty());
         assert_eq!(hot_blocks[0].block_id, 1);
     }
 
@@ -677,6 +677,6 @@ mod tests {
 
         let driver = AotOptimizationDriver::new(manager.collector.clone());
         let improvement = driver.estimate_improvement();
-        assert!(improvement >= 0.0 && improvement <= 100.0);
+        assert!((0.0..=100.0).contains(&improvement));
     }
 }

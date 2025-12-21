@@ -116,7 +116,10 @@ impl DashboardServer {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // 实现WebSocket推送逻辑
         // 这里需要实际的WebSocket连接管理
-        tracing::debug!("Pushing metrics to WebSocket clients: {:?}", metrics.timestamp);
+        tracing::debug!(
+            "Pushing metrics to WebSocket clients: {:?}",
+            metrics.timestamp
+        );
         Ok(())
     }
 }

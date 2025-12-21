@@ -36,7 +36,12 @@ impl FaultToleranceManager {
         // 2. If not, select another VM to retry the task
         // 3. If yes, mark the task as permanently failed
 
-        log::info!("Task {} failed: {}. Max retries configured: {}", task_id, reason, max_retries);
+        log::info!(
+            "Task {} failed: {}. Max retries configured: {}",
+            task_id,
+            reason,
+            max_retries
+        );
 
         // For now, we'll return None to indicate no retry
         Ok(None)

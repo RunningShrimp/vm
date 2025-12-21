@@ -129,10 +129,13 @@ impl IoStats {
     }
 }
 
+/// I/O 处理器类型
+pub type SharedIoHandler = Arc<Mutex<Box<dyn IoHandler>>>;
+
 /// I/O 事件循环
 pub struct IoEventLoop {
     /// 注册的文件描述符和处理器映射
-    handlers: Arc<RwLock<HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>>,
+    handlers: Arc<RwLock<HashMap<i32, SharedIoHandler>>>,
     /// 事件队列
     event_queue: Arc<Mutex<VecDeque<IoEvent>>>,
     /// I/O 统计信息
@@ -444,9 +447,11 @@ mod tests {
 
     #[test]
     fn test_io_stats_average_latency() {
-        let mut stats = IoStats::default();
-        stats.events_processed = 100;
-        stats.total_latency_ns = 1_000_000_000; // 1 second
+        let stats = IoStats {
+            events_processed: 100,
+            total_latency_ns: 1_000_000_000, // 1 second
+            ..Default::default()
+        };
 
         let avg_us = stats.avg_latency_us();
         assert!(avg_us > 9999.0 && avg_us < 10001.0); // ~10000 us
@@ -454,9 +459,11 @@ mod tests {
 
     #[test]
     fn test_io_stats_throughput() {
-        let mut stats = IoStats::default();
-        stats.events_processed = 1000;
-        stats.total_latency_ns = 1_000_000; // 1ms
+        let stats = IoStats {
+            events_processed: 1000,
+            total_latency_ns: 1_000_000, // 1ms
+            ..Default::default()
+        };
 
         let throughput = stats.throughput();
         assert!(throughput > 900_000.0); // ~1 million ops/sec

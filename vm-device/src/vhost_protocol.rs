@@ -373,7 +373,8 @@ impl VhostFrontend {
     /// 协商特性
     pub fn negotiate_features(&mut self, backend_features: u64) -> u64 {
         let negotiated = self.supported_features & backend_features;
-        self.negotiated_features.store(negotiated, std::sync::atomic::Ordering::Relaxed);
+        self.negotiated_features
+            .store(negotiated, std::sync::atomic::Ordering::Relaxed);
         *self.feature_negotiations.lock().unwrap() += 1;
         negotiated
     }
@@ -398,18 +399,16 @@ impl VhostFrontend {
     /// 处理后端消息
     pub fn handle_backend_message(&self, message: &VhostMessage) -> bool {
         *self.messages_processed.lock().unwrap() += 1;
-        
+
         // 根据消息类型进行相应的处理
         match message.msg_type {
             // 处理特性协商消息
             VhostMessageType::SetFeatures => {
                 *self.feature_negotiations.lock().unwrap() += 1;
                 // 更新协商的特性
-                self.negotiated_features.store(
-                    message.payload,
-                    std::sync::atomic::Ordering::Relaxed
-                );
-            },
+                self.negotiated_features
+                    .store(message.payload, std::sync::atomic::Ordering::Relaxed);
+            }
             // 处理队列更新消息
             VhostMessageType::SetVringAddr => {
                 if let Some(queue_idx) = message.queue_index {
@@ -419,18 +418,18 @@ impl VhostFrontend {
                         // 可以在这里添加队列更新逻辑
                     }
                 }
-            },
+            }
             // 处理队列通知消息
             VhostMessageType::SetVringCall => {
                 // 处理队列通知更新
                 let _ = message.payload; // 记录状态
-            },
+            }
             // 其他消息类型
             _ => {
                 // 忽略其他消息类型
             }
         }
-        
+
         true
     }
 
@@ -456,7 +455,9 @@ impl VhostFrontend {
     /// 诊断报告
     pub fn diagnostic_report(&self) -> String {
         let (messages, negotiations) = self.stats();
-        let negotiated = self.negotiated_features.load(std::sync::atomic::Ordering::Relaxed);
+        let negotiated = self
+            .negotiated_features
+            .load(std::sync::atomic::Ordering::Relaxed);
         format!(
             "VhostFrontend: features={:016x}, negotiated={:016x}, queues={}, messages={}, negotiations={}",
             self.supported_features,

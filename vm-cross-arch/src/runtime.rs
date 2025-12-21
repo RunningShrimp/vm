@@ -5,6 +5,7 @@
 use super::Architecture;
 use std::fmt;
 use vm_core::{ExecMode, GuestArch, VmError};
+use tracing;
 
 /// Host架构检测结果
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,7 +211,7 @@ mod tests {
     fn test_host_arch_detection() {
         let host = HostArch::detect();
         assert_ne!(host, HostArch::Unknown);
-        println!("Detected host architecture: {}", host);
+        tracing::info!("Detected host architecture: {}", host);
     }
 
     #[test]

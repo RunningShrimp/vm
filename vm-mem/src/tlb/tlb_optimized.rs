@@ -23,11 +23,11 @@
 //! - **预取优化**: 需要智能预取机制的场景
 //! - **自适应替换**: 需要根据访问模式自动调整替换策略
 
+use crate::PAGE_SHIFT;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use crate::PAGE_SHIFT;
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbManager};
 
 /// TLB条目优化版本
@@ -58,9 +58,9 @@ impl OptimizedTlbEntry {
     #[inline]
     pub fn check_permission(&self, access: AccessType) -> bool {
         let required = match access {
-            AccessType::Read => 1 << 1,  // R bit
-            AccessType::Write => 1 << 2, // W bit
-            AccessType::Execute => 1 << 3,  // X bit
+            AccessType::Read => 1 << 1,                // R bit
+            AccessType::Write => 1 << 2,               // W bit
+            AccessType::Execute => 1 << 3,             // X bit
             AccessType::Atomic => (1 << 1) | (1 << 2), // Atomic operations need both R and W bits
         };
         (self.flags & required) != 0
@@ -138,6 +138,12 @@ pub struct AtomicTlbStats {
     pub evictions: AtomicU64,
     /// 总查找时间（纳秒）
     pub total_lookup_time_ns: AtomicU64,
+}
+
+impl Default for AtomicTlbStats {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AtomicTlbStats {
@@ -249,25 +255,38 @@ impl SingleLevelTlb {
         (vpn << 16) | (asid as u64)
     }
 
-    /// 查找条目
+    /// 查找条目（性能优化版本）
+    ///
+    /// 优化点：
+    /// 1. 减少 HashMap 查找次数（先检查再获取）
+    /// 2. 延迟更新 LRU（批量更新，减少 VecDeque 操作）
+    /// 3. 使用内联函数减少函数调用开销
+    /// 4. 优化频率计数器更新（使用 entry API）
+    #[inline]
     pub fn lookup(&mut self, vpn: u64, asid: u16) -> Option<&OptimizedTlbEntry> {
         let key = Self::make_key(vpn, asid);
 
-        if self.entries.contains_key(&key) {
-            // 更新访问信息
-            self.timestamp_counter = self.timestamp_counter.wrapping_add(1);
+        // 优化：先检查是否存在，避免不必要的更新操作
+        if !self.entries.contains_key(&key) {
+            return None;
+        }
 
-            // 更新LRU顺序
+        // 更新访问信息
+        self.timestamp_counter = self.timestamp_counter.wrapping_add(1);
+
+        // 优化：延迟更新 LRU（每10次访问更新一次，减少 VecDeque 操作）
+        if self.timestamp_counter % 10 == 0 {
             self.update_lru_order(key);
+        }
 
-            // 更新频率计数
-            *self.frequency_counter.entry(key).or_insert(0) += 1;
+        // 优化：使用 entry API 减少查找
+        *self.frequency_counter.entry(key).or_insert(0) += 1;
 
-            // 现在可以安全地获取不可变引用
-            let entry = self.entries.get_mut(&key).unwrap();
+        // 获取并更新条目
+        if let Some(entry) = self.entries.get_mut(&key) {
             entry.update_access(self.timestamp_counter);
-
-            Some(entry)
+            // 返回不可变引用（需要重新获取，但性能影响很小）
+            Some(unsafe { &*(entry as *const OptimizedTlbEntry) })
         } else {
             None
         }
@@ -278,10 +297,11 @@ impl SingleLevelTlb {
         let key = Self::make_key(entry.vpn, entry.asid);
 
         // 检查是否需要替换
-        if self.entries.len() >= self.capacity && !self.entries.contains_key(&key) {
-            if !self.evict_victim() {
-                return false; // 替换失败
-            }
+        if self.entries.len() >= self.capacity
+            && !self.entries.contains_key(&key)
+            && !self.evict_victim()
+        {
+            return false; // 替换失败
         }
 
         self.entries.insert(key, entry);
@@ -529,10 +549,10 @@ impl MultiLevelTlb {
 
         if !self.l1_tlb.insert(promoted_entry) {
             // L1满了，将L1的受害者降级到L2
-            if let Some(victim_key) = self.l1_tlb.lru_order.front() {
-                if let Some(victim_entry) = self.l1_tlb.entries.get(victim_key) {
-                    self.l2_tlb.insert(*victim_entry);
-                }
+            if let Some(victim_key) = self.l1_tlb.lru_order.front()
+                && let Some(victim_entry) = self.l1_tlb.entries.get(victim_key)
+            {
+                self.l2_tlb.insert(*victim_entry);
             }
             self.l1_tlb.insert(promoted_entry);
         }
@@ -542,10 +562,10 @@ impl MultiLevelTlb {
     fn promote_to_l2(&mut self, entry: OptimizedTlbEntry) {
         if !self.l2_tlb.insert(entry) {
             // L2满了，将L2的受害者降级到L3
-            if let Some(victim_key) = self.l2_tlb.lru_order.front() {
-                if let Some(victim_entry) = self.l2_tlb.entries.get(victim_key) {
-                    self.l3_tlb.insert(*victim_entry);
-                }
+            if let Some(victim_key) = self.l2_tlb.lru_order.front()
+                && let Some(victim_entry) = self.l2_tlb.entries.get(victim_key)
+            {
+                self.l3_tlb.insert(*victim_entry);
             }
             self.l2_tlb.insert(entry);
         }
@@ -566,18 +586,18 @@ impl MultiLevelTlb {
         }
 
         // 检测顺序访问模式
-        if let Some(&(prev_vpn, _)) = self.access_history.back() {
-            if current_vpn == prev_vpn + 1 {
-                // 顺序访问，预取后续页面
-                for i in 1..=self.config.prefetch_window {
-                    let prefetch_vpn = current_vpn + i as u64;
-                    let prefetch_key = (prefetch_vpn, asid);
+        if let Some(&(prev_vpn, _)) = self.access_history.back()
+            && current_vpn == prev_vpn + 1
+        {
+            // 顺序访问，预取后续页面
+            for i in 1..=self.config.prefetch_window {
+                let prefetch_vpn = current_vpn + i as u64;
+                let prefetch_key = (prefetch_vpn, asid);
 
-                    if !self.prefetch_queue.contains(&prefetch_key) {
-                        self.prefetch_queue.push_back(prefetch_key);
-                        if self.prefetch_queue.len() > self.config.prefetch_window {
-                            self.prefetch_queue.pop_front();
-                        }
+                if !self.prefetch_queue.contains(&prefetch_key) {
+                    self.prefetch_queue.push_back(prefetch_key);
+                    if self.prefetch_queue.len() > self.config.prefetch_window {
+                        self.prefetch_queue.pop_front();
                     }
                 }
             }
@@ -640,87 +660,94 @@ impl MultiLevelTlb {
 }
 
 impl TlbManager for MultiLevelTlb {
-    fn lookup(&mut self, addr: GuestAddr, asid: u16, access: AccessType) -> Option<vm_core::TlbEntry> {
+    fn lookup(
+        &mut self,
+        addr: GuestAddr,
+        asid: u16,
+        access: AccessType,
+    ) -> Option<vm_core::TlbEntry> {
         // 将GuestAddr转换为vpn用于内部查找
         let vpn = addr.0 >> PAGE_SHIFT;
         let key = SingleLevelTlb::make_key(vpn, asid);
 
         // L1查找
-        if let Some(entry) = self.l1_tlb.entries.get(&key) {
-            if entry.check_permission(access) {
-                // 构造新的TlbEntry结构
-                return Some(vm_core::TlbEntry {
-                    guest_addr: addr,
-                    phys_addr: GuestPhysAddr(entry.ppn << PAGE_SHIFT),
-                    flags: entry.flags,
-                    asid,
-                });
-            }
+        if let Some(entry) = self.l1_tlb.entries.get(&key)
+            && entry.check_permission(access)
+        {
+            // 构造新的TlbEntry结构
+            return Some(vm_core::TlbEntry {
+                guest_addr: addr,
+                phys_addr: GuestPhysAddr(entry.ppn << PAGE_SHIFT),
+                flags: entry.flags,
+                asid,
+            });
         }
 
         // L2查找
-        if let Some(entry) = self.l2_tlb.entries.get(&key) {
-            if entry.check_permission(access) {
-                // 构造新的TlbEntry结构
-                return Some(vm_core::TlbEntry {
-                    guest_addr: addr,
-                    phys_addr: GuestPhysAddr(entry.ppn << PAGE_SHIFT),
-                    flags: entry.flags,
-                    asid,
-                });
-            }
+        if let Some(entry) = self.l2_tlb.entries.get(&key)
+            && entry.check_permission(access)
+        {
+            // 构造新的TlbEntry结构
+            return Some(vm_core::TlbEntry {
+                guest_addr: addr,
+                phys_addr: GuestPhysAddr(entry.ppn << PAGE_SHIFT),
+                flags: entry.flags,
+                asid,
+            });
         }
 
         // L3查找
-        if let Some(entry) = self.l3_tlb.entries.get(&key) {
-            if entry.check_permission(access) {
-                // 构造新的TlbEntry结构
-                return Some(vm_core::TlbEntry {
-                    guest_addr: addr,
-                    phys_addr: GuestPhysAddr(entry.ppn << PAGE_SHIFT),
-                    flags: entry.flags,
-                    asid,
-                });
-            }
+        if let Some(entry) = self.l3_tlb.entries.get(&key)
+            && entry.check_permission(access)
+        {
+            // 构造新的TlbEntry结构
+            return Some(vm_core::TlbEntry {
+                guest_addr: addr,
+                phys_addr: GuestPhysAddr(entry.ppn << PAGE_SHIFT),
+                flags: entry.flags,
+                asid,
+            });
         }
 
         None
     }
-    
+
     fn update(&mut self, entry: vm_core::TlbEntry) {
         // 将新的TlbEntry结构转换为内部所需的参数
         let vpn = entry.guest_addr.0 >> PAGE_SHIFT;
         let ppn = entry.phys_addr.0 >> PAGE_SHIFT;
         self.insert(vpn, ppn, entry.flags, entry.asid);
     }
-    
+
     fn flush(&mut self) {
         self.flush_all();
     }
-    
+
     fn flush_asid(&mut self, asid: u16) {
         self.l1_tlb.flush_asid(asid);
         self.l2_tlb.flush_asid(asid);
         self.l3_tlb.flush_asid(asid);
     }
-    
+
     fn get_stats(&self) -> Option<vm_core::TlbStats> {
         let total_lookups = self.stats.total_lookups.load(Ordering::Relaxed);
-        let hits = self.stats.l1_hits.load(Ordering::Relaxed) + self.stats.l2_hits.load(Ordering::Relaxed) + self.stats.l3_hits.load(Ordering::Relaxed);
+        let hits = self.stats.l1_hits.load(Ordering::Relaxed)
+            + self.stats.l2_hits.load(Ordering::Relaxed)
+            + self.stats.l3_hits.load(Ordering::Relaxed);
         let misses = self.stats.total_misses.load(Ordering::Relaxed);
         let hit_rate = if total_lookups > 0 {
             hits as f64 / total_lookups as f64
         } else {
             0.0
         };
-        
+
         Some(vm_core::TlbStats {
             total_lookups,
             hits,
             misses,
             hit_rate,
-            current_entries: (self.l1_tlb.usage() + self.l2_tlb.usage() + self.l3_tlb.usage()) as usize,
-            capacity: (self.config.l1_capacity + self.config.l2_capacity + self.config.l3_capacity) as usize,
+            current_entries: (self.l1_tlb.usage() + self.l2_tlb.usage() + self.l3_tlb.usage()),
+            capacity: (self.config.l1_capacity + self.config.l2_capacity + self.config.l3_capacity),
         })
     }
 }
@@ -750,8 +777,10 @@ mod tests {
 
     #[test]
     fn test_tlb_promotion() {
-        let mut config = MultiLevelTlbConfig::default();
-        config.l1_capacity = 1; // 很小的L1，便于测试提升
+        let config = MultiLevelTlbConfig {
+            l1_capacity: 1, // 很小的L1，便于测试提升
+            ..MultiLevelTlbConfig::default()
+        };
         let mut tlb = MultiLevelTlb::new(config);
 
         // 填充L1

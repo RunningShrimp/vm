@@ -61,13 +61,15 @@ fn check_generated_code() {
     }
 
     // 检查生成的ARM64前端代码
-    let arm64_frontend_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("arm64_frontend_generated.rs");
+    let arm64_frontend_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("arm64_frontend_generated.rs");
     if arm64_frontend_path.exists() {
         println!("cargo:rerun-if-changed=arm64_frontend_generated.rs");
     }
 
     // 检查生成的RISC-V前端代码
-    let riscv_frontend_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("riscv_frontend_generated.rs");
+    let riscv_frontend_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("riscv_frontend_generated.rs");
     if riscv_frontend_path.exists() {
         println!("cargo:rerun-if-changed=riscv_frontend_generated.rs");
     }

@@ -12,10 +12,10 @@ use vm_core::{Decoder, ExecStatus, ExecutionEngine, GuestAddr, VmError, VmResult
 use vm_engine_interpreter::{ExecInterruptAction, Interpreter};
 use vm_engine_jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr, Jit};
 // use vm_frontend_riscv64::RiscvDecoder; // Replaced by DecoderFactory
+use super::decoder_factory::DecoderFactory;
+use vm_core::GuestArch;
 use vm_ir::Terminator;
 use vm_mem::SoftMmu;
-use vm_core::GuestArch;
-use super::decoder_factory::DecoderFactory;
 
 #[cfg(feature = "async")]
 use vm_runtime::CoroutineScheduler;
@@ -179,92 +179,94 @@ pub fn run_sync(
         #[cfg(feature = "async")]
         if let Some(scheduler) = ctx.coroutine_scheduler.as_ref() {
             // 使用协程调度器执行多vCPU任务
-                let mut handles = Vec::with_capacity(vcpu_count);
-                for _i in 0..vcpu_count {
-                    let mut local_mmu = base_mmu.clone();
-                    let debug_local = debug;
-                    let mut thread_pc = pc;
-                    let run_flag = Arc::clone(&ctx.run_flag);
-                    let pause_flag = Arc::clone(&ctx.pause_flag);
-                    let guest_arch = ctx.guest_arch;
+            let mut handles = Vec::with_capacity(vcpu_count);
+            for _i in 0..vcpu_count {
+                let mut local_mmu = base_mmu.clone();
+                let debug_local = debug;
+                let mut thread_pc = pc;
+                let run_flag = Arc::clone(&ctx.run_flag);
+                let pause_flag = Arc::clone(&ctx.pause_flag);
+                let guest_arch = ctx.guest_arch;
 
-                    // 将async任务包装为同步闭包以适配CoroutineScheduler
-                    let task = move || {
-                        // 在闭包内部创建一个新的运行时来执行异步任务
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .expect("Failed to create runtime");
-                        
-                        rt.block_on(async move {
-                            let mut interp = Interpreter::new();
-                            interp.set_reg(0, 0);
-                            let mut decoder = DecoderFactory::create(guest_arch);
-                            for step in 0..max_steps {
-                                if !run_flag.load(Ordering::Relaxed) {
-                                    break;
-                                }
-                                if pause_flag.load(Ordering::Relaxed) {
-                                    break;
-                                }
-                                match decoder.decode(&local_mmu, thread_pc) {
-                                    Ok(block) => {
-                                        let _res = interp.run(&mut local_mmu, &block);
-                                        if matches!(_res.status, ExecStatus::InterruptPending) {
-                                            thread_pc = _res.next_pc;
-                                            continue;
-                                        }
-                                        if let ExecStatus::Fault(ref _f) = _res.status {}
-                                        if debug_local && step % 1000 == 0 {
-                                            debug!("[CPU {} Step {}] PC={:#x}", _i, step, thread_pc);
-                                        }
-                                        match &block.term {
-                                            Terminator::Jmp { target } => {
-                                                if *target == thread_pc {
-                                                    break;
-                                                }
-                                                thread_pc = *target;
-                                            }
-                                            Terminator::CondJmp {
-                                                cond,
-                                                target_true,
-                                                target_false,
-                                            } => {
-                                                if interp.get_reg(*cond) != 0 {
-                                                    thread_pc = *target_true;
-                                                } else {
-                                                    thread_pc = *target_false;
-                                                }
-                                            }
-                                            Terminator::JmpReg { base, offset } => {
-                                                let base_val = interp.get_reg(*base);
-                                                thread_pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
-                                            }
-                                            Terminator::Ret | Terminator::Fault { .. } => {
+                // 将async任务包装为同步闭包以适配CoroutineScheduler
+                let task = move || {
+                    // 在闭包内部创建一个新的运行时来执行异步任务
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to create runtime");
+
+                    rt.block_on(async move {
+                        let mut interp = Interpreter::new();
+                        interp.set_reg(0, 0);
+                        let mut decoder = DecoderFactory::create(guest_arch);
+                        for step in 0..max_steps {
+                            if !run_flag.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            if pause_flag.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            match decoder.decode(&local_mmu, thread_pc) {
+                                Ok(block) => {
+                                    let _res = interp.run(&mut local_mmu, &block);
+                                    if matches!(_res.status, ExecStatus::InterruptPending) {
+                                        thread_pc = _res.next_pc;
+                                        continue;
+                                    }
+                                    if let ExecStatus::Fault(ref _f) = _res.status {}
+                                    if debug_local && step % 1000 == 0 {
+                                        debug!("[CPU {} Step {}] PC={:#x}", _i, step, thread_pc);
+                                    }
+                                    match &block.term {
+                                        Terminator::Jmp { target } => {
+                                            if *target == thread_pc {
                                                 break;
                                             }
-                                            _ => thread_pc += 4,
+                                            thread_pc = *target;
                                         }
-                                    }
-                                    Err(_) => {
-                                        break;
+                                        Terminator::CondJmp {
+                                            cond,
+                                            target_true,
+                                            target_false,
+                                        } => {
+                                            if interp.get_reg(*cond) != 0 {
+                                                thread_pc = *target_true;
+                                            } else {
+                                                thread_pc = *target_false;
+                                            }
+                                        }
+                                        Terminator::JmpReg { base, offset } => {
+                                            let base_val = interp.get_reg(*base);
+                                            thread_pc = vm_core::GuestAddr(
+                                                (base_val as i64 + offset) as u64,
+                                            );
+                                        }
+                                        Terminator::Ret | Terminator::Fault { .. } => {
+                                            break;
+                                        }
+                                        _ => thread_pc += 4,
                                     }
                                 }
-                                // 让出控制权，允许其他协程执行
-                                tokio::task::yield_now().await;
+                                Err(_) => {
+                                    break;
+                                }
                             }
-                        });
-                    };
+                            // 让出控制权，允许其他协程执行
+                            tokio::task::yield_now().await;
+                        }
+                    });
+                };
 
-                    // 使用协程调度器提交任务（高优先级）
-                    let coroutine = scheduler.submit_task(vm_runtime::Priority::High, task);
-                    // 将协程转换为JoinHandle以保持接口一致性
-                    handles.push(tokio::task::spawn(async move {
-                        // 等待协程完成执行
-                        // 注意：这里我们需要一种方式来等待协程完成，但CoroutineScheduler的API没有直接提供这种方式
-                        // 作为临时解决方案，我们简单地睡眠一段时间
-                        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-                    }));
+                // 使用协程调度器提交任务（高优先级）
+                let coroutine = scheduler.submit_task(vm_runtime::Priority::High, task);
+                // 将协程转换为JoinHandle以保持接口一致性
+                handles.push(tokio::task::spawn(async move {
+                    // 等待协程完成执行
+                    // 注意：这里我们需要一种方式来等待协程完成，但CoroutineScheduler的API没有直接提供这种方式
+                    // 作为临时解决方案，我们简单地睡眠一段时间
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+                }));
             }
             // 等待所有协程完成
             for handle in handles {
@@ -328,7 +330,8 @@ pub fn run_sync(
                                     }
                                     Terminator::JmpReg { base, offset } => {
                                         let base_val = interp.get_reg(*base);
-                                        thread_pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
+                                        thread_pc =
+                                            vm_core::GuestAddr((base_val as i64 + offset) as u64);
                                     }
                                     Terminator::Ret | Terminator::Fault { .. } => {
                                         break;
@@ -408,7 +411,9 @@ pub fn run_sync(
                                         }
                                         Terminator::JmpReg { base, offset } => {
                                             let base_val = interp.get_reg(*base);
-                                            thread_pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
+                                            thread_pc = vm_core::GuestAddr(
+                                                (base_val as i64 + offset) as u64,
+                                            );
                                         }
                                         Terminator::Ret | Terminator::Fault { .. } => {
                                             break;
@@ -493,12 +498,12 @@ pub async fn run_async(
                         debug!("[Async Step {}] PC={:#x}", step, pc);
                         tdebug!(step=?step, pc=?pc, "service:run_async_tick");
                     }
-                    if hybrid && step % 1000 == 0 {
-                        if let Some(_j) = jit.as_ref() {
-                            if let Ok(mut snapshot) = ctx.adaptive_snapshot.lock() {
-                                *snapshot = Some(AdaptiveThresholdStats::default());
-                            }
-                        }
+                    if hybrid
+                        && step % 1000 == 0
+                        && let Some(_j) = jit.as_ref()
+                        && let Ok(mut snapshot) = ctx.adaptive_snapshot.lock()
+                    {
+                        *snapshot = Some(AdaptiveThresholdStats::default());
                     }
                     pc = res.next_pc;
                 }
@@ -539,7 +544,7 @@ pub async fn run_async(
                         .enable_all()
                         .build()
                         .expect("Failed to create runtime");
-                    
+
                     rt.block_on(async move {
                         let mut interp = Interpreter::new();
                         interp.set_reg(0, 0);

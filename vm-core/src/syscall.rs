@@ -3,8 +3,12 @@
 //! 实现对 Linux、Windows 和 macOS 系统调用的模拟
 
 use crate::{GuestAddr, GuestRegs, MMU};
+
+#[cfg(not(feature = "no_std"))]
 use std::fs::{File, OpenOptions};
+#[cfg(not(feature = "no_std"))]
 use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(not(feature = "no_std"))]
 use std::sync::{Arc, Mutex};
 
 /// 系统调用结果
@@ -84,12 +88,12 @@ type SendtoArgs = (
 
 /// 系统调用参数结构体：recvfrom
 type RecvfromArgs = (
-    i32,        // sockfd
-    u64,        // buf
-    usize,      // len
-    i32,        // flags
-    u64,        // src_addr
-    *mut u32,   // addrlen
+    i32,      // sockfd
+    u64,      // buf
+    usize,    // len
+    i32,      // flags
+    u64,      // src_addr
+    *mut u32, // addrlen
 );
 
 /// 系统调用参数结构体：splice
@@ -363,11 +367,25 @@ impl SyscallHandler {
             42 => self.sys_connect(args[0] as i32, args[1], args[2] as u32, mmu), // connect
             43 => self.sys_accept(args[0] as i32, args[1], args[2] as *mut u32, mmu), // accept
             44 => self.sys_sendto(
-                (args[0] as i32, args[1], args[2] as usize, args[3] as i32, args[4], args[5] as u32),
+                (
+                    args[0] as i32,
+                    args[1],
+                    args[2] as usize,
+                    args[3] as i32,
+                    args[4],
+                    args[5] as u32,
+                ),
                 mmu,
             ), // sendto
             45 => self.sys_recvfrom(
-                (args[0] as i32, args[1], args[2] as usize, args[3] as i32, args[4], args[5] as *mut u32),
+                (
+                    args[0] as i32,
+                    args[1],
+                    args[2] as usize,
+                    args[3] as i32,
+                    args[4],
+                    args[5] as *mut u32,
+                ),
                 mmu,
             ), // recvfrom
             46 => self.sys_sendmsg(args[0] as i32, args[1], args[2] as i32, mmu), // sendmsg
@@ -554,7 +572,10 @@ impl SyscallHandler {
                 args[4] as i32,
                 mmu,
             ), // putpmsg
-            182 => self.sys_afs_syscall((args[0] as i32, args[1], args[2], args[3], args[4], args[5]), mmu), // afs_syscall
+            182 => self.sys_afs_syscall(
+                (args[0] as i32, args[1], args[2], args[3], args[4], args[5]),
+                mmu,
+            ), // afs_syscall
             183 => self.sys_tuxcall((args[0], args[1], args[2], args[3], args[4], args[5]), mmu), // tuxcall
             184 => self.sys_security((args[0], args[1], args[2], args[3], args[4], args[5]), mmu), // security
             186 => self.sys_gettid(), // gettid
@@ -595,7 +616,14 @@ impl SyscallHandler {
             200 => self.sys_tkill(args[0] as i32, args[1] as i32), // tkill
             201 => self.sys_time(args[0], mmu),                 // time
             202 => self.sys_futex(
-                (args[0], args[1] as i32, args[2] as i32, args[3], args[4], args[5] as u32),
+                (
+                    args[0],
+                    args[1] as i32,
+                    args[2] as i32,
+                    args[3],
+                    args[4],
+                    args[5] as u32,
+                ),
                 mmu,
             ), // futex
             203 => self.sys_sched_setaffinity(args[0] as i32, args[1] as usize, args[2], mmu), // sched_setaffinity
@@ -662,7 +690,14 @@ impl SyscallHandler {
             235 => self.sys_utimes(args[0], args[1], mmu),                          // utimes
             236 => self.sys_vserver(args[0], args[1], args[2], args[3], args[4], args[5]), // vserver
             237 => self.sys_mbind(
-                (args[0], args[1] as usize, args[2] as i32, args[3], args[4] as usize, args[5] as u32),
+                (
+                    args[0],
+                    args[1] as usize,
+                    args[2] as i32,
+                    args[3],
+                    args[4] as usize,
+                    args[5] as u32,
+                ),
                 mmu,
             ), // mbind
             238 => self.sys_set_mempolicy(args[0] as i32, args[1], args[2] as usize, mmu), // set_mempolicy
@@ -739,14 +774,27 @@ impl SyscallHandler {
                 mmu,
             ), // pselect6
             271 => self.sys_ppoll(
-                (args[0], args[1] as usize, args[2], args[3], args[4] as usize),
+                (
+                    args[0],
+                    args[1] as usize,
+                    args[2],
+                    args[3],
+                    args[4] as usize,
+                ),
                 mmu,
             ), // ppoll
             272 => self.sys_unshare(args[0] as i32, mmu), // unshare
             273 => self.sys_set_robust_list(args[0], args[1] as usize, mmu), // set_robust_list
             274 => self.sys_get_robust_list(args[0] as i32, args[1], args[2] as *mut usize, mmu), // get_robust_list
             275 => self.sys_splice(
-                (args[0] as i32, args[1], args[2] as i32, args[3], args[4] as usize, args[5] as u32),
+                (
+                    args[0] as i32,
+                    args[1],
+                    args[2] as i32,
+                    args[3],
+                    args[4] as usize,
+                    args[5] as u32,
+                ),
                 mmu,
             ), // splice
             276 => self.sys_tee(
@@ -768,9 +816,29 @@ impl SyscallHandler {
                 args[3] as u32,
                 mmu,
             ), // vmsplice
-            279 => self.sys_move_pages((args[0] as i32, args[1] as usize, args[2], args[3], args[4], args[5] as i32), mmu), // move_pages
+            279 => self.sys_move_pages(
+                (
+                    args[0] as i32,
+                    args[1] as usize,
+                    args[2],
+                    args[3],
+                    args[4],
+                    args[5] as i32,
+                ),
+                mmu,
+            ), // move_pages
             280 => self.sys_utimensat(args[0] as i32, args[1], args[2], args[3] as i32, mmu), // utimensat
-            281 => self.sys_epoll_pwait((args[0] as i32, args[1], args[2] as i32, args[3] as i32, args[4], args[5] as usize), mmu), // epoll_pwait
+            281 => self.sys_epoll_pwait(
+                (
+                    args[0] as i32,
+                    args[1],
+                    args[2] as i32,
+                    args[3] as i32,
+                    args[4],
+                    args[5] as usize,
+                ),
+                mmu,
+            ), // epoll_pwait
             282 => self.sys_signalfd(args[0] as i32, args[1], args[2] as i32, mmu), // signalfd
             283 => self.sys_timerfd_create(args[0] as i32, args[1] as i32), // timerfd_create
             284 => self.sys_eventfd(args[0] as u32, args[1] as i32),        // eventfd
@@ -844,8 +912,28 @@ impl SyscallHandler {
             307 => self.sys_sendmmsg(args[0] as i32, args[1], args[2] as u32, args[3] as i32, mmu), // sendmmsg
             308 => self.sys_setns(args[0] as i32, args[1] as i32), // setns
             309 => self.sys_getcpu(args[0], args[1], args[2] as *mut u32, mmu), // getcpu
-            310 => self.sys_process_vm_readv((args[0] as i32, args[1], args[2] as usize, args[3], args[4] as usize, args[5]), mmu), // process_vm_readv
-            311 => self.sys_process_vm_writev((args[0] as i32, args[1], args[2] as usize, args[3], args[4] as usize, args[5]), mmu), // process_vm_writev
+            310 => self.sys_process_vm_readv(
+                (
+                    args[0] as i32,
+                    args[1],
+                    args[2] as usize,
+                    args[3],
+                    args[4] as usize,
+                    args[5],
+                ),
+                mmu,
+            ), // process_vm_readv
+            311 => self.sys_process_vm_writev(
+                (
+                    args[0] as i32,
+                    args[1],
+                    args[2] as usize,
+                    args[3],
+                    args[4] as usize,
+                    args[5],
+                ),
+                mmu,
+            ), // process_vm_writev
             312 => self.sys_kcmp(
                 args[0] as i32,
                 args[1] as i32,
@@ -1215,6 +1303,7 @@ impl SyscallHandler {
     }
 
     /// mmap - 内存映射
+    #[allow(clippy::too_many_arguments)]
     fn sys_mmap(
         &mut self,
         _addr: u64,
@@ -1376,7 +1465,10 @@ impl SyscallHandler {
             }
         }
         // 写入null terminator
-        if mmu.write_bulk(GuestAddr(buf + cwd_bytes.len() as u64), &[0]).is_err() {
+        if mmu
+            .write_bulk(GuestAddr(buf + cwd_bytes.len() as u64), &[0])
+            .is_err()
+        {
             return SyscallResult::Error(-14); // EFAULT
         }
 
@@ -1720,20 +1812,12 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_sendto(
-        &mut self,
-        args: SendtoArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_sendto(&mut self, args: SendtoArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_sockfd, _buf, _len, _flags, _dest_addr, _addrlen) = args;
         SyscallResult::Error(-38)
     }
 
-    fn sys_recvfrom(
-        &mut self,
-        args: RecvfromArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_recvfrom(&mut self, args: RecvfromArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_sockfd, _buf, _len, _flags, _src_addr, _addrlen) = args;
         SyscallResult::Error(-38)
     }
@@ -2606,29 +2690,17 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_afs_syscall(
-        &mut self,
-        args: AfsSyscallArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_afs_syscall(&mut self, args: AfsSyscallArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_a, _b, _c, _d, _e, _f) = args;
         SyscallResult::Error(-38)
     }
 
-    fn sys_tuxcall(
-        &mut self,
-        args: TuxcallArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_tuxcall(&mut self, args: TuxcallArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_a, _b, _c, _d, _e, _f) = args;
         SyscallResult::Error(-38)
     }
 
-    fn sys_security(
-        &mut self,
-        args: SecurityArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_security(&mut self, args: SecurityArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_a, _b, _c, _d, _e, _f) = args;
         SyscallResult::Error(-38)
     }
@@ -2760,11 +2832,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_futex(
-        &mut self,
-        args: FutexArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_futex(&mut self, args: FutexArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_uaddr, _futex_op, _val, _timeout, _uaddr2, _val3) = args;
         SyscallResult::Error(-38)
     }
@@ -2879,11 +2947,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_epoll_pwait(
-        &mut self,
-        args: EpollPwaitArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_epoll_pwait(&mut self, args: EpollPwaitArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_epfd, _events, _maxevents, _timeout, _sigmask, _sigsetsize) = args;
         SyscallResult::Error(-38)
     }
@@ -3006,11 +3070,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_mbind(
-        &mut self,
-        args: MbindArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_mbind(&mut self, args: MbindArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_start, _len, _mode, _nodemask, _maxnode, _flags) = args;
         SyscallResult::Error(-38)
     }
@@ -3358,20 +3418,12 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_pselect6(
-        &mut self,
-        args: Pselect6Args,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_pselect6(&mut self, args: Pselect6Args, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_n, _inp, _outp, _exp, _tsp, _sigmask) = args;
         SyscallResult::Error(-38)
     }
 
-    fn sys_ppoll(
-        &mut self,
-        args: PpollArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_ppoll(&mut self, args: PpollArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_ufds, _nfds, _tsp, _sigmask, _sigsetsize) = args;
         SyscallResult::Error(-38)
     }
@@ -3399,11 +3451,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_splice(
-        &mut self,
-        args: SpliceArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_splice(&mut self, args: SpliceArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_fd_in, _off_in, _fd_out, _off_out, _len, _flags) = args;
         SyscallResult::Error(-38)
     }
@@ -3433,11 +3481,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_move_pages(
-        &mut self,
-        args: MovePagesArgs,
-        _mmu: &mut dyn MMU,
-    ) -> SyscallResult {
+    fn sys_move_pages(&mut self, args: MovePagesArgs, _mmu: &mut dyn MMU) -> SyscallResult {
         let (_pid, _nr_pages, _pages, _nodes, _status, _flags) = args;
         SyscallResult::Error(-38)
     }

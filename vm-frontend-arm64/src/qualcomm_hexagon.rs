@@ -275,7 +275,7 @@ mod tests {
         let decoder = HexagonDecoder::new();
         // 构造 HEX_ADD 指令：dst=0, src1=1, src2=2
         let insn = 0xE2_00_01_02;
-        let result = decoder.decode(insn, 0x1000);
+        let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
         assert!(result.is_ok());
         if let Ok(Some(HexagonInstruction::HexAdd { dst, src1, src2 })) = result {
             assert_eq!(dst, 0);

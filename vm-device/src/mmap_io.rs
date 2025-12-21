@@ -50,6 +50,12 @@ pub struct MmapDeviceIo {
     page_size: usize,
 }
 
+impl Default for MmapDeviceIo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MmapDeviceIo {
     /// 创建新的 mmap 设备 I/O 管理器
     pub fn new() -> Self {
@@ -181,7 +187,7 @@ impl MmapDeviceIo {
     /// 获取映射区域的可变直接切片（零复制写入）
     pub fn get_slice_mut<'a>(
         &self,
-        region: &'a MmapRegion,
+        region: &'a mut MmapRegion,
         offset: usize,
         len: usize,
     ) -> Result<&'a mut [u8], MmapError> {

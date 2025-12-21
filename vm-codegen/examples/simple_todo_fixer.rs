@@ -6,26 +6,26 @@ use std::fs;
 
 fn main() -> Result<(), std::io::Error> {
     println!("开始解决关键TODO项...");
-    
+
     // 解决vm-engine-jit中的性能优化TODO项
     fix_performance_optimizer_todos()?;
-    
+
     // 解决vm-desktop中的显示TODO项
     fix_display_todos()?;
-    
+
     println!("关键TODO项解决完成！");
-    
+
     Ok(())
 }
 
 fn fix_performance_optimizer_todos() -> Result<(), std::io::Error> {
     println!("修复vm-engine-jit中的性能优化TODO项...");
-    
+
     let file_path = "../vm-engine-jit/src/performance_optimizer.rs";
     let content = fs::read_to_string(file_path)?;
     let lines: Vec<&str> = content.lines().collect();
     let mut new_content = String::new();
-    
+
     for line in lines {
         if line.contains("TODO: 实现缓存配置调整") {
             new_content.push_str("            // 根据局部性调整缓存策略\n");
@@ -43,7 +43,8 @@ fn fix_performance_optimizer_todos() -> Result<(), std::io::Error> {
             continue;
         } else if line.contains("TODO: 实现热点代码预取") {
             new_content.push_str("            // 识别热点代码并预取\n");
-            new_content.push_str("            if let Some(hotspots) = self.identify_hotspots(&stats) {\n");
+            new_content
+                .push_str("            if let Some(hotspots) = self.identify_hotspots(&stats) {\n");
             new_content.push_str("                for hotspot in hotspots {\n");
             new_content.push_str("                    self.prefetch_hot_code(hotspot);\n");
             new_content.push_str("                }\n");
@@ -51,9 +52,13 @@ fn fix_performance_optimizer_todos() -> Result<(), std::io::Error> {
         } else if line.contains("TODO: 实现分配策略调整") {
             new_content.push_str("            // 根据使用模式调整寄存器分配策略\n");
             new_content.push_str("            if stats.register_pressure > 0.8 {\n");
-            new_content.push_str("                self.set_allocation_strategy(AllocationStrategy::SpillHeavy);\n");
+            new_content.push_str(
+                "                self.set_allocation_strategy(AllocationStrategy::SpillHeavy);\n",
+            );
             new_content.push_str("            } else if stats.register_pressure < 0.3 {\n");
-            new_content.push_str("                self.set_allocation_strategy(AllocationStrategy::Aggressive);\n");
+            new_content.push_str(
+                "                self.set_allocation_strategy(AllocationStrategy::Aggressive);\n",
+            );
             new_content.push_str("            }\n");
         } else if line.contains("TODO: 实现重命名优化") {
             new_content.push_str("            // 根据依赖图优化寄存器重命名\n");
@@ -64,21 +69,28 @@ fn fix_performance_optimizer_todos() -> Result<(), std::io::Error> {
             new_content.push_str("        // 实现寄存器重命名算法\n");
             new_content.push_str("        pub fn rename_registers(&mut self, block: &mut IRBlock) -> Result<(), VmError> {\n");
             new_content.push_str("            let mut rename_map = HashMap::new();\n");
-            new_content.push_str("            let mut next_virtual_reg = self.physical_regs.len();\n");
+            new_content
+                .push_str("            let mut next_virtual_reg = self.physical_regs.len();\n");
             new_content.push_str("            \n");
             new_content.push_str("            for instruction in &mut block.instructions {\n");
             new_content.push_str("                // 重命名源寄存器\n");
-            new_content.push_str("                for src_reg in instruction.get_source_regs_mut() {\n");
+            new_content
+                .push_str("                for src_reg in instruction.get_source_regs_mut() {\n");
             new_content.push_str("                    if !rename_map.contains_key(src_reg) {\n");
-            new_content.push_str("                        rename_map.insert(*src_reg, next_virtual_reg);\n");
+            new_content.push_str(
+                "                        rename_map.insert(*src_reg, next_virtual_reg);\n",
+            );
             new_content.push_str("                        next_virtual_reg += 1;\n");
             new_content.push_str("                    }\n");
             new_content.push_str("                    *src_reg = rename_map[src_reg];\n");
             new_content.push_str("                }\n");
             new_content.push_str("                \n");
             new_content.push_str("                // 重命名目标寄存器\n");
-            new_content.push_str("                if let Some(dst_reg) = instruction.get_dest_reg_mut() {\n");
-            new_content.push_str("                    rename_map.insert(*dst_reg, next_virtual_reg);\n");
+            new_content.push_str(
+                "                if let Some(dst_reg) = instruction.get_dest_reg_mut() {\n",
+            );
+            new_content
+                .push_str("                    rename_map.insert(*dst_reg, next_virtual_reg);\n");
             new_content.push_str("                    *dst_reg = next_virtual_reg;\n");
             new_content.push_str("                    next_virtual_reg += 1;\n");
             new_content.push_str("                }\n");
@@ -102,7 +114,9 @@ fn fix_performance_optimizer_todos() -> Result<(), std::io::Error> {
             new_content.push_str("        // 实现指令重排序算法\n");
             new_content.push_str("        pub fn reorder_instructions(&mut self, block: &mut IRBlock) -> Result<(), VmError> {\n");
             new_content.push_str("            // 构建依赖图\n");
-            new_content.push_str("            let dependency_graph = self.build_dependency_graph(block)?;\n");
+            new_content.push_str(
+                "            let dependency_graph = self.build_dependency_graph(block)?;\n",
+            );
             new_content.push_str("            \n");
             new_content.push_str("            // 使用拓扑排序重排序指令\n");
             new_content.push_str("            let sorted_instructions = self.topological_sort(&dependency_graph)?;\n");
@@ -142,25 +156,25 @@ fn fix_performance_optimizer_todos() -> Result<(), std::io::Error> {
             new_content.push_str("        }\n");
         } else {
             new_content.push_str(line);
-            new_content.push_str("\n");
+            new_content.push('\n');
         }
     }
-    
+
     // 写回文件
     fs::write(file_path, new_content)?;
     println!("已修复vm-engine-jit中的性能优化TODO项");
-    
+
     Ok(())
 }
 
 fn fix_display_todos() -> Result<(), std::io::Error> {
     println!("修复vm-desktop中的显示TODO项...");
-    
+
     let file_path = "../vm-desktop/src/display.rs";
     let content = fs::read_to_string(file_path)?;
     let lines: Vec<&str> = content.lines().collect();
     let mut new_content = String::new();
-    
+
     for line in lines {
         if line.contains("TODO: Implement framebuffer rendering") {
             new_content.push_str("        // 实现帧缓冲区渲染\n");
@@ -174,14 +188,19 @@ fn fix_display_todos() -> Result<(), std::io::Error> {
             new_content.push_str("        let mut png_data = Vec::new();\n");
             new_content.push_str("        \n");
             new_content.push_str("        // 创建简单的PNG编码器\n");
-            new_content.push_str("        let encoder = image::codecs::png::PngEncoder::new(&mut png_data);\n");
+            new_content.push_str(
+                "        let encoder = image::codecs::png::PngEncoder::new(&mut png_data);\n",
+            );
             new_content.push_str("        \n");
             new_content.push_str("        // 将原始数据转换为图像格式\n");
             new_content.push_str("        let img = image::ImageBuffer::from_raw(width, height, raw_data.to_vec())\n");
-            new_content.push_str("            .ok_or(\"Failed to create image buffer\".to_string())?;\n");
+            new_content
+                .push_str("            .ok_or(\"Failed to create image buffer\".to_string())?;\n");
             new_content.push_str("        \n");
             new_content.push_str("        // 编码为PNG\n");
-            new_content.push_str("        encoder.encode(&img, width, height, image::ColorType::Rgb8)?;\n");
+            new_content.push_str(
+                "        encoder.encode(&img, width, height, image::ColorType::Rgb8)?;\n",
+            );
             new_content.push_str("        \n");
             new_content.push_str("        Ok(png_data)\n");
         } else if line.contains("TODO: Implement ANSI escape sequence parsing") {
@@ -194,27 +213,39 @@ fn fix_display_todos() -> Result<(), std::io::Error> {
             new_content.push_str("        while i < text.len() {\n");
             new_content.push_str("            if text.chars().nth(i) == Some('\\x1b') {\n");
             new_content.push_str("                // 检测到转义序列\n");
-            new_content.push_str("                if i + 1 < text.len() && text.chars().nth(i+1) == Some('[') {\n");
+            new_content.push_str(
+                "                if i + 1 < text.len() && text.chars().nth(i+1) == Some('[') {\n",
+            );
             new_content.push_str("                    // CSI序列\n");
-            new_content.push_str("                    let seq_end = text[i..].find('m').unwrap_or(text.len());\n");
+            new_content.push_str(
+                "                    let seq_end = text[i..].find('m').unwrap_or(text.len());\n",
+            );
             new_content.push_str("                    let seq = &text[i..i+seq_end];\n");
             new_content.push_str("                    \n");
             new_content.push_str("                    // 解析颜色代码\n");
             new_content.push_str("                    if seq.contains(\"31m\") {\n");
-            new_content.push_str("                        result.push(\"<span style=\\\"color:red\\\">\");\n");
+            new_content.push_str(
+                "                        result.push(\"<span style=\\\"color:red\\\">\");\n",
+            );
             new_content.push_str("                    } else if seq.contains(\"32m\") {\n");
-            new_content.push_str("                        result.push(\"<span style=\\\"color:green\\\">\");\n");
+            new_content.push_str(
+                "                        result.push(\"<span style=\\\"color:green\\\">\");\n",
+            );
             new_content.push_str("                    } else if seq.contains(\"0m\") {\n");
             new_content.push_str("                        result.push(\"</span>\");\n");
             new_content.push_str("                    }\n");
             new_content.push_str("                    \n");
             new_content.push_str("                    i += seq_end;\n");
             new_content.push_str("                } else {\n");
-            new_content.push_str("                    result.push(text.chars().nth(i).unwrap().to_string());\n");
+            new_content.push_str(
+                "                    result.push(text.chars().nth(i).unwrap().to_string());\n",
+            );
             new_content.push_str("                    i += 1;\n");
             new_content.push_str("                }\n");
             new_content.push_str("            } else {\n");
-            new_content.push_str("                result.push(text.chars().nth(i).unwrap().to_string());\n");
+            new_content.push_str(
+                "                result.push(text.chars().nth(i).unwrap().to_string());\n",
+            );
             new_content.push_str("                i += 1;\n");
             new_content.push_str("            }\n");
             new_content.push_str("        }\n");
@@ -222,13 +253,13 @@ fn fix_display_todos() -> Result<(), std::io::Error> {
             new_content.push_str("        Ok(result.join(\"\"))\n");
         } else {
             new_content.push_str(line);
-            new_content.push_str("\n");
+            new_content.push('\n');
         }
     }
-    
+
     // 写回文件
     fs::write(file_path, new_content)?;
     println!("已修复vm-desktop中的显示TODO项");
-    
+
     Ok(())
 }

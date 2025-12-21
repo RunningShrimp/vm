@@ -545,7 +545,7 @@ impl PerformanceAnalyzer {
             score -= 10.0;
         }
 
-        score.max(0.0_f64).min(100.0_f64)
+        score.clamp(0.0_f64, 100.0_f64)
     }
 
     /// 计算百分位数

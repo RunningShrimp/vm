@@ -1,11 +1,11 @@
 //! Common optimization framework for VM cross-architecture translation
-//! 
+//!
 //! This module provides a unified optimization pipeline with composable passes
 //! that can be applied to IR blocks for cross-architecture translation.
 
-use vm_error::{Architecture, RegId};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+use vm_error::{Architecture, RegId};
 
 /// Errors that can occur during optimization
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -172,7 +172,11 @@ pub trait OptimizationPass {
     fn dependencies(&self) -> Vec<&'static str>;
 
     /// Apply this optimization pass to an IR block
-    fn apply(&self, block: &mut IRBlock, context: &OptimizationContext) -> Result<OptimizationResult, OptimizationError>;
+    fn apply(
+        &self,
+        block: &mut IRBlock,
+        context: &OptimizationContext,
+    ) -> Result<OptimizationResult, OptimizationError>;
 
     /// Get the optimization level required for this pass
     fn required_level(&self) -> OptimizationLevel;
@@ -222,6 +226,7 @@ impl OptimizationPipeline {
     }
 
     /// Run the optimization pipeline on a list of blocks
+    #[allow(clippy::ptr_arg)]
     pub fn run(&mut self, blocks: &mut Vec<IRBlock>) -> Result<PipelineStats, OptimizationError> {
         let start_time = std::time::Instant::now();
         self.stats.total_passes = self.passes.len();
@@ -236,7 +241,7 @@ impl OptimizationPipeline {
             }
 
             // Check dependencies
-            if !self.check_dependencies(pass) {
+            if !self.check_dependencies(pass.as_ref()) {
                 continue;
             }
 
@@ -248,8 +253,10 @@ impl OptimizationPipeline {
                     Ok(result) => {
                         if result.success {
                             self.stats.successful_passes += 1;
-                            self.stats.total_instructions_removed += result.metrics.instructions_removed;
-                            self.stats.total_instructions_added += result.metrics.instructions_added;
+                            self.stats.total_instructions_removed +=
+                                result.metrics.instructions_removed;
+                            self.stats.total_instructions_added +=
+                                result.metrics.instructions_added;
                             self.stats.total_cycles_saved += result.metrics.cycles_saved;
                         } else {
                             pass_success = false;
@@ -288,7 +295,12 @@ impl OptimizationPipeline {
         let mut visiting = HashSet::new();
 
         for pass in &self.passes {
-            self.visit_pass(pass, &mut sorted_names, &mut visited, &mut visiting)?;
+            self.visit_pass(
+                pass.as_ref(),
+                &mut sorted_names,
+                &mut visited,
+                &mut visiting,
+            )?;
         }
 
         // Reorder passes based on sorted names
@@ -305,7 +317,7 @@ impl OptimizationPipeline {
     /// Visit a pass for topological sorting
     fn visit_pass(
         &self,
-        pass: &Box<dyn OptimizationPass>,
+        pass: &dyn OptimizationPass,
         sorted: &mut Vec<String>,
         visited: &mut HashSet<String>,
         visiting: &mut HashSet<String>,
@@ -313,9 +325,10 @@ impl OptimizationPipeline {
         let name = pass.name();
 
         if visiting.contains(name) {
-            return Err(OptimizationError::DependencyNotSatisfied(
-                format!("Circular dependency detected for pass '{}'", name)
-            ));
+            return Err(OptimizationError::DependencyNotSatisfied(format!(
+                "Circular dependency detected for pass '{}'",
+                name
+            )));
         }
 
         if visited.contains(name) {
@@ -325,13 +338,18 @@ impl OptimizationPipeline {
         visiting.insert(name.to_string());
 
         for dep in pass.dependencies() {
-            let dep_pass = self.passes.iter()
+            let dep_pass = self
+                .passes
+                .iter()
                 .find(|p| p.name() == dep)
-                .ok_or_else(|| OptimizationError::DependencyNotSatisfied(
-                    format!("Dependency '{}' not found for pass '{}'", dep, name)
-                ))?;
-            
-            self.visit_pass(dep_pass, sorted, visited, visiting)?;
+                .ok_or_else(|| {
+                    OptimizationError::DependencyNotSatisfied(format!(
+                        "Dependency '{}' not found for pass '{}'",
+                        dep, name
+                    ))
+                })?;
+
+            self.visit_pass(dep_pass.as_ref(), sorted, visited, visiting)?;
         }
 
         visiting.remove(name);
@@ -342,7 +360,7 @@ impl OptimizationPipeline {
     }
 
     /// Check if all dependencies of a pass are satisfied
-    fn check_dependencies(&self, pass: &Box<dyn OptimizationPass>) -> bool {
+    fn check_dependencies(&self, pass: &dyn OptimizationPass) -> bool {
         for dep in pass.dependencies() {
             if !self.passes.iter().any(|p| p.name() == dep) {
                 return false;
@@ -353,7 +371,6 @@ impl OptimizationPipeline {
 }
 
 /// Common optimization passes
-
 /// Dead code elimination pass
 #[derive(Debug)]
 pub struct DeadCodeEliminationPass;
@@ -375,12 +392,20 @@ impl OptimizationPass for DeadCodeEliminationPass {
         vec![]
     }
 
-    fn apply(&self, block: &mut IRBlock, _context: &OptimizationContext) -> Result<OptimizationResult, OptimizationError> {
+    fn apply(
+        &self,
+        block: &mut IRBlock,
+        _context: &OptimizationContext,
+    ) -> Result<OptimizationResult, OptimizationError> {
         let mut removed = 0;
         let mut live_instructions = HashSet::new();
-        
+
         // Mark live instructions (simplified)
-        let instruction_ids: Vec<_> = block.instructions.iter().map(|instr| instr.id.clone()).collect();
+        let instruction_ids: Vec<_> = block
+            .instructions
+            .iter()
+            .map(|instr| instr.id.clone())
+            .collect();
         for instr_id in &instruction_ids {
             if let Some(instr) = block.instructions.iter().find(|i| &i.id == instr_id) {
                 if instr.flags.is_terminal || instr.opcode == "store" {
@@ -440,31 +465,33 @@ impl OptimizationPass for ConstantFoldingPass {
         vec![]
     }
 
-    fn apply(&self, block: &mut IRBlock, _context: &OptimizationContext) -> Result<OptimizationResult, OptimizationError> {
+    fn apply(
+        &self,
+        block: &mut IRBlock,
+        _context: &OptimizationContext,
+    ) -> Result<OptimizationResult, OptimizationError> {
         let mut folded = 0;
-        
+
         // Simplified constant folding
         for instr in &mut block.instructions {
             match instr.opcode.as_str() {
                 "add" => {
-                    if let (Some(IROperand::Immediate(a)), Some(IROperand::Immediate(b))) = 
-                        (instr.operands.get(1), instr.operands.get(2)) {
+                    if let (Some(IROperand::Immediate(a)), Some(IROperand::Immediate(b))) =
+                        (instr.operands.get(1), instr.operands.get(2))
+                    {
                         instr.opcode = "mov".to_string();
-                        instr.operands = vec![
-                            instr.operands[0].clone(),
-                            IROperand::Immediate(a + b)
-                        ];
+                        instr.operands =
+                            vec![instr.operands[0].clone(), IROperand::Immediate(a + b)];
                         folded += 1;
                     }
                 }
                 "sub" => {
-                    if let (Some(IROperand::Immediate(a)), Some(IROperand::Immediate(b))) = 
-                        (instr.operands.get(1), instr.operands.get(2)) {
+                    if let (Some(IROperand::Immediate(a)), Some(IROperand::Immediate(b))) =
+                        (instr.operands.get(1), instr.operands.get(2))
+                    {
                         instr.opcode = "mov".to_string();
-                        instr.operands = vec![
-                            instr.operands[0].clone(),
-                            IROperand::Immediate(a - b)
-                        ];
+                        instr.operands =
+                            vec![instr.operands[0].clone(), IROperand::Immediate(a - b)];
                         folded += 1;
                     }
                 }
@@ -514,23 +541,27 @@ impl OptimizationPass for CommonSubexpressionEliminationPass {
         vec!["constant_folding"]
     }
 
-    fn apply(&self, block: &mut IRBlock, _context: &OptimizationContext) -> Result<OptimizationResult, OptimizationError> {
+    fn apply(
+        &self,
+        block: &mut IRBlock,
+        _context: &OptimizationContext,
+    ) -> Result<OptimizationResult, OptimizationError> {
         let mut eliminated = 0;
         let mut expressions = HashMap::new();
-        
+
         // Find common subexpressions (simplified)
         for instr in &mut block.instructions {
             let key = format!("{}:{:?}", instr.opcode, instr.operands);
-            
+
             if let Some(existing_reg) = expressions.get(&key) {
                 // Replace with existing result
                 instr.opcode = "mov".to_string();
                 instr.operands = vec![
                     instr.operands[0].clone(),
-                    IROperand::Register(*existing_reg)
+                    IROperand::Register(*existing_reg),
                 ];
                 eliminated += 1;
-            } else if let Some(IROperand::Register(reg)) = instr.operands.get(0) {
+            } else if let Some(IROperand::Register(reg)) = instr.operands.first() {
                 expressions.insert(key, *reg);
             }
         }
@@ -577,24 +608,28 @@ impl OptimizationPass for InstructionSchedulingPass {
         vec!["common_subexpression_elimination"]
     }
 
-    fn apply(&self, block: &mut IRBlock, _context: &OptimizationContext) -> Result<OptimizationResult, OptimizationError> {
+    fn apply(
+        &self,
+        block: &mut IRBlock,
+        _context: &OptimizationContext,
+    ) -> Result<OptimizationResult, OptimizationError> {
         // Simplified instruction scheduling
         let mut scheduled = Vec::new();
         let mut dependencies = HashMap::new();
-        
+
         // Build dependency graph
         for (i, instr) in block.instructions.iter().enumerate() {
             let mut deps = HashSet::new();
-            
+
             for operand in &instr.operands {
                 if let IROperand::Register(reg) = operand {
                     deps.insert(*reg);
                 }
             }
-            
+
             dependencies.insert(i, deps);
         }
-        
+
         // Schedule instructions (simplified)
         let mut scheduled_indices = HashSet::new();
         while scheduled_indices.len() < block.instructions.len() {
@@ -602,12 +637,12 @@ impl OptimizationPass for InstructionSchedulingPass {
                 if scheduled_indices.contains(&i) {
                     continue;
                 }
-                
+
                 let deps = dependencies.get(&i).unwrap();
                 let can_schedule = deps.iter().all(|&reg| {
                     !scheduled_indices.iter().any(|&scheduled_idx| {
                         let instr: &IRInstruction = &block.instructions[scheduled_idx];
-                        let operand: Option<&IROperand> = instr.operands.get(0);
+                        let operand: Option<&IROperand> = instr.operands.first();
                         if let Some(IROperand::Register(scheduled_reg)) = operand {
                             *scheduled_reg == reg
                         } else {
@@ -615,7 +650,7 @@ impl OptimizationPass for InstructionSchedulingPass {
                         }
                     })
                 });
-                
+
                 if can_schedule {
                     scheduled.push(instr.clone());
                     scheduled_indices.insert(i);
@@ -623,7 +658,7 @@ impl OptimizationPass for InstructionSchedulingPass {
                 }
             }
         }
-        
+
         block.instructions = scheduled;
 
         Ok(OptimizationResult {
@@ -656,7 +691,7 @@ mod tests {
         let context = OptimizationContext::new(Architecture::X86_64, Architecture::ARM64)
             .with_optimization_level(OptimizationLevel::Aggressive)
             .with_feature("avx512", true);
-        
+
         assert_eq!(context.source_arch, Architecture::X86_64);
         assert_eq!(context.target_arch, Architecture::ARM64);
         assert_eq!(context.optimization_level, OptimizationLevel::Aggressive);
@@ -667,10 +702,10 @@ mod tests {
     fn test_dead_code_elimination() {
         let pass = DeadCodeEliminationPass;
         assert_eq!(pass.name(), "dead_code_elimination");
-        assert!(pass.should_run(&OptimizationContext::new(
-            Architecture::X86_64, 
-            Architecture::ARM64
-        ).with_optimization_level(OptimizationLevel::Basic)));
+        assert!(pass.should_run(
+            &OptimizationContext::new(Architecture::X86_64, Architecture::ARM64)
+                .with_optimization_level(OptimizationLevel::Basic)
+        ));
         assert_eq!(pass.required_level(), OptimizationLevel::Basic);
     }
 
@@ -679,29 +714,27 @@ mod tests {
         let pass = ConstantFoldingPass;
         let mut block = IRBlock {
             id: "test".to_string(),
-            instructions: vec![
-                IRInstruction {
-                    id: "1".to_string(),
-                    opcode: "add".to_string(),
-                    operands: vec![
-                        IROperand::Register(0),
-                        IROperand::Immediate(10),
-                        IROperand::Immediate(20),
-                    ],
-                    flags: IRFlags::default(),
-                    metadata: HashMap::new(),
-                },
-            ],
+            instructions: vec![IRInstruction {
+                id: "1".to_string(),
+                opcode: "add".to_string(),
+                operands: vec![
+                    IROperand::Register(0),
+                    IROperand::Immediate(10),
+                    IROperand::Immediate(20),
+                ],
+                flags: IRFlags::default(),
+                metadata: HashMap::new(),
+            }],
             predecessors: Vec::new(),
             successors: Vec::new(),
             loop_header: false,
             loop_depth: 0,
             frequency: 1.0,
         };
-        
+
         let context = OptimizationContext::new(Architecture::X86_64, Architecture::ARM64);
         let result = pass.apply(&mut block, &context).unwrap();
-        
+
         assert!(result.success);
         assert!(result.changed);
         assert_eq!(block.instructions[0].opcode, "mov");
@@ -712,33 +745,31 @@ mod tests {
     fn test_optimization_pipeline() {
         let context = OptimizationContext::new(Architecture::X86_64, Architecture::ARM64)
             .with_optimization_level(OptimizationLevel::Standard);
-        
+
         let mut pipeline = OptimizationPipeline::new(context);
         pipeline.add_pass(Box::new(ConstantFoldingPass));
         pipeline.add_pass(Box::new(DeadCodeEliminationPass));
-        
+
         let mut blocks = vec![IRBlock {
             id: "test".to_string(),
-            instructions: vec![
-                IRInstruction {
-                    id: "1".to_string(),
-                    opcode: "add".to_string(),
-                    operands: vec![
-                        IROperand::Register(0),
-                        IROperand::Immediate(10),
-                        IROperand::Immediate(20),
-                    ],
-                    flags: IRFlags::default(),
-                    metadata: HashMap::new(),
-                },
-            ],
+            instructions: vec![IRInstruction {
+                id: "1".to_string(),
+                opcode: "add".to_string(),
+                operands: vec![
+                    IROperand::Register(0),
+                    IROperand::Immediate(10),
+                    IROperand::Immediate(20),
+                ],
+                flags: IRFlags::default(),
+                metadata: HashMap::new(),
+            }],
             predecessors: Vec::new(),
             successors: Vec::new(),
             loop_header: false,
             loop_depth: 0,
             frequency: 1.0,
         }];
-        
+
         let stats = pipeline.run(&mut blocks).unwrap();
         assert_eq!(stats.total_passes, 2);
         assert!(stats.successful_passes > 0);

@@ -32,6 +32,8 @@ pub enum RuntimeCommand {
 pub enum RuntimeState {
     /// 未启动
     Stopped,
+    /// 正在初始化
+    Initialized,
     /// 正在运行
     Running,
     /// 已暂停
@@ -207,7 +209,7 @@ impl RuntimeController {
             RuntimeState::Paused => {
                 self.paused.store(true, Ordering::Release);
             }
-            RuntimeState::Stopped | RuntimeState::ShuttingDown => {
+            RuntimeState::Stopped | RuntimeState::ShuttingDown | RuntimeState::Initialized => {
                 self.running.store(false, Ordering::Release);
                 self.paused.store(false, Ordering::Release);
             }
@@ -262,6 +264,10 @@ pub enum RuntimeEvent {
     SnapshotSaved(String),
     /// 快照已加载
     SnapshotLoaded(String),
+    /// 定时器事件
+    Timer,
+    /// I/O 事件
+    Io,
     /// 错误
     Error(String),
 }
@@ -286,6 +292,8 @@ impl RuntimeEventListener for LogEventListener {
             RuntimeEvent::Reset => log::info!("VM reset"),
             RuntimeEvent::SnapshotSaved(name) => log::info!("Snapshot saved: {}", name),
             RuntimeEvent::SnapshotLoaded(name) => log::info!("Snapshot loaded: {}", name),
+            RuntimeEvent::Timer => log::debug!("Timer event"),
+            RuntimeEvent::Io => log::debug!("I/O event"),
             RuntimeEvent::Error(msg) => log::error!("Runtime error: {}", msg),
         }
     }
@@ -308,7 +316,7 @@ mod tests {
         assert!(controller.is_running());
 
         controller.pause().expect("Pause command should succeed");
-        let cmd = controller
+        let _cmd = controller
             .process_commands()
             .expect("Expected pause command");
         controller.pause().expect("Pause command should succeed");
@@ -316,6 +324,8 @@ mod tests {
             .process_commands()
             .expect("Expected pause command");
         assert_eq!(cmd, RuntimeCommand::Pause);
+        let _ = cmd; // Used in assertion above
+        let _ = cmd; // Used in assertion above
     }
 
     #[test]

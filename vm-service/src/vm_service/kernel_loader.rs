@@ -16,9 +16,7 @@ pub fn load_kernel(
         })
     })?;
 
-    mmu_guard
-        .write_bulk(load_addr, data)
-        .map_err(|f| VmError::from(f))?;
+    mmu_guard.write_bulk(load_addr, data)?;
 
     Ok(())
 }
@@ -72,5 +70,3 @@ pub async fn load_kernel_file_async(
     // 使用异步MMU写入内存
     load_kernel_async(mmu, &data, load_addr).await
 }
-
-

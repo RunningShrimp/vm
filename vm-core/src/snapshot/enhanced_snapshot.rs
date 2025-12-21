@@ -3,25 +3,25 @@
 //! This module provides comprehensive snapshot management including
 //! snapshot creation, persistence, and snapshot-based event replay optimization.
 
-#[cfg(feature = "enhanced-event-sourcing")]
-use std::sync::Arc;
-#[cfg(feature = "enhanced-event-sourcing")]
-use std::collections::HashMap;
-#[cfg(feature = "enhanced-event-sourcing")]
-use std::path::{Path, PathBuf};
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(feature = "no_std")))]
 use async_trait::async_trait;
-#[cfg(feature = "async")]
-use tokio::sync::RwLock;
-#[cfg(feature = "enhanced-event-sourcing")]
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "enhanced-event-sourcing")]
+#[cfg(all(feature = "enhanced-event-sourcing", not(feature = "no_std")))]
+use bincode::{deserialize, serialize};
+#[cfg(all(feature = "enhanced-event-sourcing", not(feature = "no_std")))]
 use chrono::{DateTime, Utc};
-#[cfg(feature = "enhanced-event-sourcing")]
-use bincode::serde::{serialize, deserialize};
+#[cfg(all(feature = "enhanced-event-sourcing", not(feature = "no_std")))]
+use serde::{Deserialize, Serialize};
+#[cfg(all(feature = "enhanced-event-sourcing", not(feature = "no_std")))]
+use std::collections::HashMap;
+#[cfg(all(feature = "enhanced-event-sourcing", not(feature = "no_std")))]
+use std::path::{Path, PathBuf};
+#[cfg(all(feature = "enhanced-event-sourcing", not(feature = "no_std")))]
+use std::sync::Arc;
+#[cfg(all(feature = "async", not(feature = "no_std")))]
+use tokio::sync::RwLock;
 
 #[cfg(feature = "enhanced-event-sourcing")]
-use crate::error::{VmError, CoreError};
+use crate::error::{CoreError, VmError};
 
 // 暂时注释掉不存在的模块引用
 // use crate::aggregate_root::{VirtualMachineAggregate, AggregateRoot};
@@ -97,22 +97,22 @@ pub struct SnapshotData {
 pub trait SnapshotStore: Send + Sync {
     /// Store a snapshot
     async fn store_snapshot(&self, snapshot: SnapshotData) -> VmResult<()>;
-    
+
     /// Retrieve the latest snapshot for a VM
     async fn get_latest_snapshot(&self, vm_id: &str) -> VmResult<Option<SnapshotData>>;
-    
+
     /// Retrieve a specific snapshot version
     async fn get_snapshot(&self, vm_id: &str, version: u64) -> VmResult<Option<SnapshotData>>;
-    
+
     /// List all snapshots for a VM
     async fn list_snapshots(&self, vm_id: &str) -> VmResult<Vec<SnapshotMetadata>>;
-    
+
     /// Delete a snapshot
     async fn delete_snapshot(&self, vm_id: &str, version: u64) -> VmResult<()>;
-    
+
     /// Delete old snapshots based on retention policy
     async fn cleanup_old_snapshots(&self, vm_id: &str) -> VmResult<u64>;
-    
+
     /// Get snapshot count for a VM
     async fn get_snapshot_count(&self, vm_id: &str) -> VmResult<u64>;
 }
@@ -130,10 +130,11 @@ impl FileSnapshotStore {
     /// Create a new file-based snapshot store
     pub async fn new(config: SnapshotConfig) -> VmResult<Self> {
         // Create snapshot directory if it doesn't exist
-        std::fs::create_dir_all(&config.snapshot_dir)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        std::fs::create_dir_all(&config.snapshot_dir).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to create snapshot directory: {}", e),
-            }))?;
+            })
+        })?;
 
         let store = Self {
             config: config.clone(),
@@ -148,16 +149,18 @@ impl FileSnapshotStore {
 
     /// Load existing snapshot metadata from disk
     async fn load_metadata(&self) -> VmResult<()> {
-        let entries = std::fs::read_dir(&self.config.snapshot_dir)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        let entries = std::fs::read_dir(&self.config.snapshot_dir).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to read snapshot directory: {}", e),
-            }))?;
+            })
+        })?;
 
         for entry in entries {
-            let entry = entry
-                .map_err(|e| VmError::Core(CoreError::IoError {
+            let entry = entry.map_err(|e| {
+                VmError::Core(CoreError::IoError {
                     message: format!("Failed to read directory entry: {}", e),
-                }))?;
+                })
+            })?;
 
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) == Some("meta") {
@@ -170,26 +173,30 @@ impl FileSnapshotStore {
 
     /// Load metadata from a .meta file
     async fn load_metadata_file(&self, path: &Path) -> VmResult<()> {
-        let mut file = std::fs::File::open(path)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        let mut file = std::fs::File::open(path).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to open metadata file: {}", e),
-            }))?;
+            })
+        })?;
 
         let mut contents = String::new();
-        file.read_to_string(&mut contents)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        file.read_to_string(&mut contents).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to read metadata file: {}", e),
-            }))?;
+            })
+        })?;
 
-#[cfg(feature = "enhanced-event-sourcing")]
-#[cfg(feature = "enhanced-event-sourcing")]
-        let metadata: SnapshotMetadata = serde_json::from_str(&contents)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        #[cfg(feature = "enhanced-event-sourcing")]
+        #[cfg(feature = "enhanced-event-sourcing")]
+        let metadata: SnapshotMetadata = serde_json::from_str(&contents).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to parse metadata file: {}", e),
-            }))?;
+            })
+        })?;
 
         let mut metadata_cache = self.metadata_cache.write().await;
-        metadata_cache.entry(metadata.vm_id.clone())
+        metadata_cache
+            .entry(metadata.vm_id.clone())
             .or_insert_with(Vec::new)
             .push(metadata);
 
@@ -198,21 +205,26 @@ impl FileSnapshotStore {
 
     /// Get snapshot file path
     fn get_snapshot_file_path(&self, vm_id: &str, version: u64) -> PathBuf {
-        self.config.snapshot_dir.join(format!("{}_snapshot_{:010}.snap", vm_id, version))
+        self.config
+            .snapshot_dir
+            .join(format!("{}_snapshot_{:010}.snap", vm_id, version))
     }
 
     /// Get metadata file path
     fn get_metadata_file_path(&self, vm_id: &str, version: u64) -> PathBuf {
-        self.config.snapshot_dir.join(format!("{}_snapshot_{:010}.meta", vm_id, version))
+        self.config
+            .snapshot_dir
+            .join(format!("{}_snapshot_{:010}.meta", vm_id, version))
     }
 
     /// Compress snapshot data if compression is enabled
     fn compress_snapshot_data(&self, data: &[u8]) -> VmResult<Vec<u8>> {
         if self.config.enable_compression {
-            let compressed = miniz_oxide::deflate::compress_to_vec_zlib(data, 6)
-                .map_err(|e| VmError::Core(CoreError::IoError {
+            let compressed = miniz_oxide::deflate::compress_to_vec_zlib(data, 6).map_err(|e| {
+                VmError::Core(CoreError::IoError {
                     message: format!("Failed to compress snapshot data: {:?}", e),
-                }))?;
+                })
+            })?;
             Ok(compressed)
         } else {
             Ok(data.to_vec())
@@ -222,10 +234,11 @@ impl FileSnapshotStore {
     /// Decompress snapshot data if compression was used
     fn decompress_snapshot_data(&self, data: &[u8]) -> VmResult<Vec<u8>> {
         if self.config.enable_compression {
-            let decompressed = miniz_oxide::inflate::decompress_to_vec_zlib(data)
-                .map_err(|e| VmError::Core(CoreError::IoError {
+            let decompressed = miniz_oxide::inflate::decompress_to_vec_zlib(data).map_err(|e| {
+                VmError::Core(CoreError::IoError {
                     message: format!("Failed to decompress snapshot data: {:?}", e),
-                }))?;
+                })
+            })?;
             Ok(decompressed)
         } else {
             Ok(data.to_vec())
@@ -234,9 +247,9 @@ impl FileSnapshotStore {
 
     /// Calculate checksum for snapshot data
     fn calculate_checksum(&self, data: &[u8]) -> String {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
-        
+        use std::hash::{Hash, Hasher};
+
         let mut hasher = DefaultHasher::new();
         data.hash(&mut hasher);
         format!("{:x}", hasher.finish())
@@ -246,13 +259,13 @@ impl FileSnapshotStore {
     async fn update_metadata_cache(&self, metadata: SnapshotMetadata) {
         let mut cache = self.metadata_cache.write().await;
         let vm_snapshots = cache.entry(metadata.vm_id.clone()).or_insert_with(Vec::new);
-        
+
         // Remove existing entry with same version if present
         vm_snapshots.retain(|m| m.snapshot_version != metadata.snapshot_version);
-        
+
         // Add new metadata
         vm_snapshots.push(metadata);
-        
+
         // Sort by version
         vm_snapshots.sort_by_key(|m| m.snapshot_version);
     }
@@ -270,28 +283,32 @@ impl SnapshotStore for FileSnapshotStore {
 
         // Write snapshot file
         let snapshot_path = self.get_snapshot_file_path(vm_id, version);
-        std::fs::write(&snapshot_path, compressed_data)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        std::fs::write(&snapshot_path, compressed_data).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to write snapshot file: {}", e),
-            }))?;
+            })
+        })?;
 
         // Write metadata file
         let metadata_path = self.get_metadata_file_path(vm_id, version);
-#[cfg(feature = "enhanced-event-sourcing")]
-#[cfg(feature = "enhanced-event-sourcing")]
-        let metadata_json = serde_json::to_string_pretty(&snapshot.metadata)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        #[cfg(feature = "enhanced-event-sourcing")]
+        #[cfg(feature = "enhanced-event-sourcing")]
+        let metadata_json = serde_json::to_string_pretty(&snapshot.metadata).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to serialize metadata: {}", e),
-            }))?;
+            })
+        })?;
 
-        let metadata_json = serde_json::to_string(&metadata)
-                .map_err(|e| VmError::Core(CoreError::IoError {
-                    message: format!("Failed to serialize metadata: {}", e),
-                }))?;
-            std::fs::write(&metadata_path, &metadata_json)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        let metadata_json = serde_json::to_string(&metadata).map_err(|e| {
+            VmError::Core(CoreError::IoError {
+                message: format!("Failed to serialize metadata: {}", e),
+            })
+        })?;
+        std::fs::write(&metadata_path, &metadata_json).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to write metadata file: {}", e),
-            }))?;
+            })
+        })?;
 
         // Update metadata cache
         self.update_metadata_cache(snapshot.metadata.clone()).await;
@@ -304,10 +321,12 @@ impl SnapshotStore for FileSnapshotStore {
 
     async fn get_latest_snapshot(&self, vm_id: &str) -> VmResult<Option<SnapshotData>> {
         let metadata_cache = self.metadata_cache.read().await;
-        
+
         if let Some(snapshots) = metadata_cache.get(vm_id) {
             if let Some(latest_metadata) = snapshots.last() {
-                return self.get_snapshot(vm_id, latest_metadata.snapshot_version).await;
+                return self
+                    .get_snapshot(vm_id, latest_metadata.snapshot_version)
+                    .await;
             }
         }
 
@@ -316,32 +335,35 @@ impl SnapshotStore for FileSnapshotStore {
 
     async fn get_snapshot(&self, vm_id: &str, version: u64) -> VmResult<Option<SnapshotData>> {
         let snapshot_path = self.get_snapshot_file_path(vm_id, version);
-        
+
         if !snapshot_path.exists() {
             return Ok(None);
         }
 
         // Read snapshot data
-        let compressed_data = std::fs::read(&snapshot_path)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        let compressed_data = std::fs::read(&snapshot_path).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to read snapshot file: {}", e),
-            }))?;
+            })
+        })?;
 
         // Decompress if needed
         let aggregate_data = self.decompress_snapshot_data(&compressed_data)?;
 
         // Read metadata
         let metadata_path = self.get_metadata_file_path(vm_id, version);
-        let metadata_json = std::fs::read_to_string(&metadata_path)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        let metadata_json = std::fs::read_to_string(&metadata_path).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to read metadata file: {}", e),
-            }))?;
+            })
+        })?;
 
         #[cfg(feature = "enhanced-event-sourcing")]
-        let metadata: SnapshotMetadata = serde_json::from_str(&metadata_json)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        let metadata: SnapshotMetadata = serde_json::from_str(&metadata_json).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to parse metadata: {}", e),
-            }))?;
+            })
+        })?;
 
         // Verify checksum
         let calculated_checksum = self.calculate_checksum(&aggregate_data);
@@ -349,7 +371,7 @@ impl SnapshotStore for FileSnapshotStore {
             return Err(VmError::Core(CoreError::InvalidState {
                 message: "Snapshot checksum verification failed".to_string(),
                 current: calculated_checksum,
-                expected: metadata.checksum.clone()
+                expected: metadata.checksum.clone(),
             }));
         }
 
@@ -361,7 +383,7 @@ impl SnapshotStore for FileSnapshotStore {
 
     async fn list_snapshots(&self, vm_id: &str) -> VmResult<Vec<SnapshotMetadata>> {
         let metadata_cache = self.metadata_cache.read().await;
-        
+
         if let Some(snapshots) = metadata_cache.get(vm_id) {
             Ok(snapshots.clone())
         } else {
@@ -373,19 +395,21 @@ impl SnapshotStore for FileSnapshotStore {
         // Delete snapshot file
         let snapshot_path = self.get_snapshot_file_path(vm_id, version);
         if snapshot_path.exists() {
-            std::fs::remove_file(&snapshot_path)
-                .map_err(|e| VmError::Core(CoreError::IoError {
+            std::fs::remove_file(&snapshot_path).map_err(|e| {
+                VmError::Core(CoreError::IoError {
                     message: format!("Failed to delete snapshot file: {}", e),
-                }))?;
+                })
+            })?;
         }
 
         // Delete metadata file
         let metadata_path = self.get_metadata_file_path(vm_id, version);
         if metadata_path.exists() {
-            std::fs::remove_file(&metadata_path)
-                .map_err(|e| VmError::Core(CoreError::IoError {
+            std::fs::remove_file(&metadata_path).map_err(|e| {
+                VmError::Core(CoreError::IoError {
                     message: format!("Failed to delete metadata file: {}", e),
-                }))?;
+                })
+            })?;
         }
 
         // Update metadata cache
@@ -402,13 +426,16 @@ impl SnapshotStore for FileSnapshotStore {
         let metadata_cache = self.metadata_cache.read().await;
 
         if let Some(snapshots) = metadata_cache.get(vm_id) {
-#[cfg(feature = "enhanced-event-sourcing")]
-            #[cfg(feature = "enhanced-event-sourcing")]            let cutoff_date = Utc::now() - chrono::Duration::days(self.config.retention_days as i64);
-            
+            #[cfg(feature = "enhanced-event-sourcing")]
+            #[cfg(feature = "enhanced-event-sourcing")]
+            let cutoff_date =
+                Utc::now() - chrono::Duration::days(self.config.retention_days as i64);
+
             // Delete snapshots older than retention period
             for metadata in snapshots {
                 if metadata.created_at < chrono::Utc::now() - chrono::Duration::days(7) {
-                    self.delete_snapshot(vm_id, metadata.snapshot_version).await?;
+                    self.delete_snapshot(vm_id, metadata.snapshot_version)
+                        .await?;
                     deleted_count += 1;
                 }
             }
@@ -418,7 +445,8 @@ impl SnapshotStore for FileSnapshotStore {
                 let snapshots_to_keep = snapshots.len() - self.config.max_snapshots_per_vm;
                 for i in 0..snapshots_to_keep {
                     if let Some(metadata) = snapshots.get(i) {
-                        self.delete_snapshot(vm_id, metadata.snapshot_version).await?;
+                        self.delete_snapshot(vm_id, metadata.snapshot_version)
+                            .await?;
                         deleted_count += 1;
                     }
                 }
@@ -430,7 +458,7 @@ impl SnapshotStore for FileSnapshotStore {
 
     async fn get_snapshot_count(&self, vm_id: &str) -> VmResult<u64> {
         let metadata_cache = self.metadata_cache.read().await;
-        
+
         if let Some(snapshots) = metadata_cache.get(vm_id) {
             Ok(snapshots.len() as u64)
         } else {
@@ -471,10 +499,11 @@ impl SnapshotManager {
         let current_version = aggregate.version();
 
         // Serialize aggregate state
-        let aggregate_data = serialize(aggregate)
-            .map_err(|e| VmError::Core(CoreError::IoError {
+        let aggregate_data = serialize(aggregate).map_err(|e| {
+            VmError::Core(CoreError::IoError {
                 message: format!("Failed to serialize aggregate: {}", e),
-            }))?;
+            })
+        })?;
 
         // Calculate checksum
         let checksum = self.calculate_checksum(&aggregate_data);
@@ -488,10 +517,9 @@ impl SnapshotManager {
             file_size: aggregate_data.len() as u64,
             compressed: self.config.enable_compression,
             checksum,
-#[cfg(feature = "enhanced-event-sourcing")]
-#[cfg(feature = "enhanced-event-sourcing")]
-            metadata: serde_json::to_string(&aggregate.get_metadata())
-                .unwrap_or_default(),
+            #[cfg(feature = "enhanced-event-sourcing")]
+            #[cfg(feature = "enhanced-event-sourcing")]
+            metadata: serde_json::to_string(&aggregate.get_metadata()).unwrap_or_default(),
         };
 
         // Create snapshot data
@@ -514,26 +542,36 @@ impl SnapshotManager {
     ) -> VmResult<VirtualMachineAggregate> {
         // Get snapshot (latest or specific version)
         let snapshot = if let Some(v) = version {
-            self.snapshot_store.get_snapshot(vm_id, v).await?
-                .ok_or_else(|| VmError::Core(CoreError::InvalidState {
-                    message: format!("Snapshot version {} not found", v),
-                    current: "N/A".to_string(),
-                    expected: format!("Snapshot version {}", v),
-                }))?
+            self.snapshot_store
+                .get_snapshot(vm_id, v)
+                .await?
+                .ok_or_else(|| {
+                    VmError::Core(CoreError::InvalidState {
+                        message: format!("Snapshot version {} not found", v),
+                        current: "N/A".to_string(),
+                        expected: format!("Snapshot version {}", v),
+                    })
+                })?
         } else {
-            self.snapshot_store.get_latest_snapshot(vm_id).await?
-                .ok_or_else(|| VmError::Core(CoreError::InvalidState {
-                    message: format!("No snapshots found for VM {}", vm_id),
-                    current: "N/A".to_string(),
-                    expected: "At least one snapshot".to_string(),
-                }))?
+            self.snapshot_store
+                .get_latest_snapshot(vm_id)
+                .await?
+                .ok_or_else(|| {
+                    VmError::Core(CoreError::InvalidState {
+                        message: format!("No snapshots found for VM {}", vm_id),
+                        current: "N/A".to_string(),
+                        expected: "At least one snapshot".to_string(),
+                    })
+                })?
         };
 
         // Deserialize aggregate
-        let aggregate: VirtualMachineAggregate = deserialize(&snapshot.aggregate_data)
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to deserialize aggregate: {}", e),
-            }))?;
+        let aggregate: VirtualMachineAggregate =
+            deserialize(&snapshot.aggregate_data).map_err(|e| {
+                VmError::Core(CoreError::IoError {
+                    message: format!("Failed to deserialize aggregate: {}", e),
+                })
+            })?;
 
         Ok(aggregate)
     }
@@ -545,27 +583,36 @@ impl SnapshotManager {
         target_version: Option<u64>,
     ) -> VmResult<VirtualMachineAggregate> {
         // Get latest snapshot
-        let snapshot = self.snapshot_store.get_latest_snapshot(vm_id).await?
-            .ok_or_else(|| VmError::Core(CoreError::InvalidState {
-                message: format!("No snapshots found for VM {}", vm_id),
-                current: "N/A".to_string(),
-                expected: "At least one snapshot".to_string(),
-            }))?;
+        let snapshot = self
+            .snapshot_store
+            .get_latest_snapshot(vm_id)
+            .await?
+            .ok_or_else(|| {
+                VmError::Core(CoreError::InvalidState {
+                    message: format!("No snapshots found for VM {}", vm_id),
+                    current: "N/A".to_string(),
+                    expected: "At least one snapshot".to_string(),
+                })
+            })?;
 
         // Restore aggregate from snapshot
         let mut aggregate: VirtualMachineAggregate = deserialize(&snapshot.aggregate_data)
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to deserialize aggregate: {}", e),
-            }))?;
+            .map_err(|e| {
+                VmError::Core(CoreError::IoError {
+                    message: format!("Failed to deserialize aggregate: {}", e),
+                })
+            })?;
 
         // Get events since snapshot
         let from_sequence = snapshot.metadata.snapshot_version + 1;
         let to_sequence = target_version.unwrap_or(u64::MAX);
-        
+
         let events = if to_sequence == u64::MAX {
             self.event_store.get_events(vm_id, from_sequence).await?
         } else {
-            self.event_store.get_events_range(vm_id, from_sequence, to_sequence).await?
+            self.event_store
+                .get_events_range(vm_id, from_sequence, to_sequence)
+                .await?
         };
 
         // Apply events to aggregate
@@ -600,10 +647,10 @@ impl SnapshotManager {
     pub async fn get_snapshot_stats(&self, vm_id: &str) -> VmResult<SnapshotStats> {
         let snapshots = self.snapshot_store.list_snapshots(vm_id).await?;
         let snapshot_count = snapshots.len() as u64;
-        
+
         let total_size: u64 = snapshots.iter().map(|s| s.file_size).sum();
         let latest_version = snapshots.last().map(|s| s.snapshot_version).unwrap_or(0);
-        
+
         Ok(SnapshotStats {
             snapshot_count,
             total_size_bytes: total_size,
@@ -615,9 +662,9 @@ impl SnapshotManager {
 
     /// Calculate checksum for data
     fn calculate_checksum(&self, data: &[u8]) -> String {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
-        
+        use std::hash::{Hash, Hasher};
+
         let mut hasher = DefaultHasher::new();
         data.hash(&mut hasher);
         format!("{:x}", hasher.finish())
@@ -814,7 +861,7 @@ mod tests {
         // Retrieve snapshot
         let retrieved = store.get_snapshot(vm_id, 100).await.unwrap();
         assert!(retrieved.is_some());
-        
+
         let retrieved_data = retrieved.unwrap();
         assert_eq!(retrieved_data.aggregate_data, snapshot_data.aggregate_data);
         assert_eq!(retrieved_data.metadata.vm_id, vm_id);

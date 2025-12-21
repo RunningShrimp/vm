@@ -157,15 +157,23 @@ impl VectorDecoder {
         let _vm = (insn >> 25) & 0x1;
         let _funct3 = (insn >> 12) & 0x7;
 
-        // 简化实现：将向量操作映射到标量操作
-        // 实际实现应该使用 SIMD 库或向量寄存器
+        // 提取向量元素大小（从 funct6 或指令格式推断）
+        // 对于向量指令，元素大小通常由 vtype 寄存器决定，这里简化处理
+        let element_size = Self::extract_element_size(insn);
+
+        // 将向量指令映射到 IR 的向量操作
         match Self::decode(insn) {
             Some(VectorInstruction::Vadd) => {
                 // vadd.vv: vd = vs1 + vs2
                 let dst = reg_file.write(rd as usize);
                 let src1 = reg_file.read(rs1 as usize);
                 let src2 = reg_file.read(rs2 as usize);
-                builder.push(IROp::Add { dst, src1, src2 });
+                builder.push(IROp::VecAdd {
+                    dst,
+                    src1,
+                    src2,
+                    element_size,
+                });
                 builder.set_term(Terminator::Jmp { target: pc + 4 });
                 Ok(builder.build_ref())
             }
@@ -173,7 +181,12 @@ impl VectorDecoder {
                 let dst = reg_file.write(rd as usize);
                 let src1 = reg_file.read(rs1 as usize);
                 let src2 = reg_file.read(rs2 as usize);
-                builder.push(IROp::Sub { dst, src1, src2 });
+                builder.push(IROp::VecSub {
+                    dst,
+                    src1,
+                    src2,
+                    element_size,
+                });
                 builder.set_term(Terminator::Jmp { target: pc + 4 });
                 Ok(builder.build_ref())
             }
@@ -181,11 +194,17 @@ impl VectorDecoder {
                 let dst = reg_file.write(rd as usize);
                 let src1 = reg_file.read(rs1 as usize);
                 let src2 = reg_file.read(rs2 as usize);
-                builder.push(IROp::Mul { dst, src1, src2 });
+                builder.push(IROp::VecMul {
+                    dst,
+                    src1,
+                    src2,
+                    element_size,
+                });
                 builder.set_term(Terminator::Jmp { target: pc + 4 });
                 Ok(builder.build_ref())
             }
             Some(VectorInstruction::Vand) => {
+                // 向量逻辑操作映射到标量操作（IR 中没有向量逻辑操作）
                 let dst = reg_file.write(rd as usize);
                 let src1 = reg_file.read(rs1 as usize);
                 let src2 = reg_file.read(rs2 as usize);
@@ -272,12 +291,198 @@ impl VectorDecoder {
                 builder.set_term(Terminator::Jmp { target: pc + 4 });
                 Ok(builder.build_ref())
             }
+            Some(VectorInstruction::Vdiv) => {
+                // vdiv.vv: vd = vs1 / vs2
+                // 注意：IR 中没有向量除法操作，映射到标量除法
+                // 向量除法通常是有符号的
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                builder.push(IROp::Div { dst, src1, src2, signed: true });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vsll) => {
+                // vsll.vv: vd = vs1 << vs2
+                let dst = reg_file.write(rd as usize);
+                let src = reg_file.read(rs1 as usize);
+                let shreg = reg_file.read(rs2 as usize);
+                builder.push(IROp::Sll { dst, src, shreg });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vsrl) => {
+                // vsrl.vv: vd = vs1 >> vs2 (逻辑右移)
+                let dst = reg_file.write(rd as usize);
+                let src = reg_file.read(rs1 as usize);
+                let shreg = reg_file.read(rs2 as usize);
+                builder.push(IROp::Srl { dst, src, shreg });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vsra) => {
+                // vsra.vv: vd = vs1 >> vs2 (算术右移)
+                let dst = reg_file.write(rd as usize);
+                let src = reg_file.read(rs1 as usize);
+                let shreg = reg_file.read(rs2 as usize);
+                builder.push(IROp::Sra { dst, src, shreg });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vmseq) => {
+                // vmseq.vv: vd = (vs1 == vs2)
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                builder.push(IROp::CmpEq { dst, lhs: src1, rhs: src2 });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vmsne) => {
+                // vmsne.vv: vd = (vs1 != vs2)
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                builder.push(IROp::CmpNe { dst, lhs: src1, rhs: src2 });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vmslt) => {
+                // vmslt.vv: vd = (vs1 < vs2)
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                builder.push(IROp::CmpLt { dst, lhs: src1, rhs: src2 });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vmsle) => {
+                // vmsle.vv: vd = (vs1 <= vs2)
+                // IR 中没有 <= 操作，使用 !(vs1 > vs2) 或 (vs1 < vs2) || (vs1 == vs2)
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                // 简化：使用 CmpGe 的逆
+                builder.push(IROp::CmpGe { dst, lhs: src2, rhs: src1 });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vmsgt) => {
+                // vmsgt.vv: vd = (vs1 > vs2)
+                // 使用 CmpLt 的逆：vs1 > vs2 等价于 vs2 < vs1
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                builder.push(IROp::CmpLt { dst, lhs: src2, rhs: src1 });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vmsge) => {
+                // vmsge.vv: vd = (vs1 >= vs2)
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                builder.push(IROp::CmpGe { dst, lhs: src1, rhs: src2 });
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vredsum)
+            | Some(VectorInstruction::Vredmax)
+            | Some(VectorInstruction::Vredmin)
+            | Some(VectorInstruction::Vredand)
+            | Some(VectorInstruction::Vredor)
+            | Some(VectorInstruction::Vredxor) => {
+                // 向量归约指令：将向量归约为标量
+                // 简化实现：映射到标量操作（实际应该实现真正的归约）
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = reg_file.read(rs2 as usize);
+                match Self::decode(insn) {
+                    Some(VectorInstruction::Vredsum) => {
+                        builder.push(IROp::Add { dst, src1, src2 });
+                    }
+                    Some(VectorInstruction::Vredmax) | Some(VectorInstruction::Vredmin) => {
+                        // 归约最大/最小值需要特殊处理，这里简化
+                        // 使用 CmpGe 来比较
+                        builder.push(IROp::CmpGe { dst, lhs: src1, rhs: src2 });
+                    }
+                    Some(VectorInstruction::Vredand) => {
+                        builder.push(IROp::And { dst, src1, src2 });
+                    }
+                    Some(VectorInstruction::Vredor) => {
+                        builder.push(IROp::Or { dst, src1, src2 });
+                    }
+                    Some(VectorInstruction::Vredxor) => {
+                        builder.push(IROp::Xor { dst, src1, src2 });
+                    }
+                    _ => {}
+                }
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
+            Some(VectorInstruction::Vmand)
+            | Some(VectorInstruction::Vmor)
+            | Some(VectorInstruction::Vmxor)
+            | Some(VectorInstruction::Vmnot) => {
+                // 向量掩码操作：操作掩码寄存器
+                let dst = reg_file.write(rd as usize);
+                let src1 = reg_file.read(rs1 as usize);
+                let src2 = if matches!(
+                    Self::decode(insn),
+                    Some(VectorInstruction::Vmnot)
+                ) {
+                    src1 // Vmnot 只需要一个源操作数
+                } else {
+                    reg_file.read(rs2 as usize)
+                };
+                match Self::decode(insn) {
+                    Some(VectorInstruction::Vmand) => {
+                        builder.push(IROp::And { dst, src1, src2 });
+                    }
+                    Some(VectorInstruction::Vmor) => {
+                        builder.push(IROp::Or { dst, src1, src2 });
+                    }
+                    Some(VectorInstruction::Vmxor) => {
+                        builder.push(IROp::Xor { dst, src1, src2 });
+                    }
+            Some(VectorInstruction::Vmnot) => {
+                // Vmnot: vd = !vs1
+                builder.push(IROp::Not { dst, src: src1 });
+            }
+                    _ => {}
+                }
+                builder.set_term(Terminator::Jmp { target: pc + 4 });
+                Ok(builder.build_ref())
+            }
             _ => Err(VmError::Execution(
                 vm_core::ExecutionError::InvalidInstruction {
                     opcode: insn as u64,
                     pc,
                 },
             )),
+        }
+    }
+
+    /// 提取向量元素大小
+    /// 
+    /// 从指令编码中推断元素大小，或使用默认值
+    pub fn extract_element_size(insn: u32) -> u8 {
+        let funct6 = (insn >> 26) & 0x3f;
+        let funct3 = (insn >> 12) & 0x7;
+
+        // 对于加载/存储指令，可以从 funct6 的低3位推断元素大小
+        if funct3 == 0b000 || funct3 == 0b101 {
+            match funct6 & 0x7 {
+                0b000000 => 1,  // 8位
+                0b000101 => 2,  // 16位
+                0b000110 => 4,  // 32位
+                0b000111 => 8,  // 64位
+                _ => 4,         // 默认32位
+            }
+        } else {
+            // 对于其他向量指令，默认使用32位元素
+            // 实际应该从 vtype 寄存器读取 SEW
+            4
         }
     }
 }
@@ -289,8 +494,10 @@ mod tests {
     #[test]
     fn test_vector_decode() {
         // VADD.VV vd, vs1, vs2
-        // opcode=0x57, funct6=0b000000, vm=0, vs2=0, vs1=0, vd=0
-        let insn = 0x00000057 | (0b000000 << 26) | (0 << 25) | (0 << 20) | (0 << 15) | (0 << 7);
+        // opcode=0x57, funct6=0b000000, funct3=0b001, vm=0, vs2=0, vs1=0, vd=0
+        let insn: u32 = 0x57 // opcode
+            | (0b001 << 12) // funct3 for OP-VV
+            | (0b000000 << 26); // funct6 for VADD.VV
         assert_eq!(VectorDecoder::decode(insn), Some(VectorInstruction::Vadd));
     }
 }

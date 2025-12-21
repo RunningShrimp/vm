@@ -1,6 +1,7 @@
 //! 执行引擎接口定义
 
-use crate::{Configurable, ExecResult, GuestAddr, HotStats, Observable, VmComponent, VmError};use vm_core::VcpuStateContainer;
+use crate::{Configurable, ExecResult, GuestAddr, HotStats, Observable, VmComponent, VmError};
+use vm_core::VcpuStateContainer;
 use vm_ir::IRBlock;
 
 /// 执行引擎配置
@@ -214,7 +215,9 @@ impl Observable for InterpreterEngine {
 
     fn subscribe(
         &mut self,
-        _callback: Box<dyn Fn(&Self::State, &Self::Event) + Send + Sync>,
+        #[allow(clippy::type_complexity)] _callback: Box<
+            dyn Fn(&Self::State, &Self::Event) + Send + Sync,
+        >,
     ) -> crate::SubscriptionId {
         // 简化实现
         0

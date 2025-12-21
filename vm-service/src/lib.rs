@@ -1,16 +1,16 @@
 pub mod device_service;
 pub mod vm_service;
 
-use log::{info};
+use log::info;
 use std::sync::{Arc, Mutex};
-use tracing::{info as tinfo};
+use tracing::info as tinfo;
 
 use crate::device_service::DeviceService;
 use crate::vm_service::VirtualMachineService;
 use vm_core::vm_state::VirtualMachineState;
 use vm_core::{VmConfig, VmError};
+use vm_engine_interpreter::{ExecInterruptAction, Interpreter};
 use vm_ir::IRBlock;
-use vm_engine_interpreter::{Interpreter, ExecInterruptAction};
 use vm_mem::SoftMmu;
 
 /// VmService - 薄包装层
@@ -42,7 +42,8 @@ impl VmService {
 
         // Create MMU
         let mmu = SoftMmu::new(config.memory_size, false);
-        let vm_state: VirtualMachineState<IRBlock> = VirtualMachineState::new(config.clone(), Box::new(mmu));
+        let vm_state: VirtualMachineState<IRBlock> =
+            VirtualMachineState::new(config.clone(), Box::new(mmu));
         let mmu_arc = vm_state.mmu.clone();
 
         // 初始化设备服务
@@ -77,7 +78,8 @@ impl VmService {
 
     pub fn load_kernel(&mut self, path: &str, addr: u64) -> Result<(), VmError> {
         info!("Loading kernel from {} to {:#x}", path, addr);
-        self.vm_service.load_kernel_file(path, vm_core::GuestAddr(addr))
+        self.vm_service
+            .load_kernel_file(path, vm_core::GuestAddr(addr))
     }
 
     pub fn load_test_program(&mut self, code_base: u64) -> Result<(), VmError> {
@@ -98,7 +100,8 @@ impl VmService {
             encode_jal(0, 0),                     // j . (halt)
         ];
 
-        self.vm_service.load_test_program(vm_core::GuestAddr(code_base))
+        self.vm_service
+            .load_test_program(vm_core::GuestAddr(code_base))
     }
 
     pub fn run(&mut self, start_pc: u64) -> Result<(), VmError> {
@@ -141,7 +144,9 @@ impl VmService {
     }
 
     pub async fn run_async(&mut self, start_pc: u64) -> Result<(), VmError> {
-        self.vm_service.run_async(vm_core::GuestAddr(start_pc)).await
+        self.vm_service
+            .run_async(vm_core::GuestAddr(start_pc))
+            .await
     }
 
     pub fn create_snapshot(

@@ -1,4 +1,14 @@
 #!/bin/bash
+# 性能测试脚本（带超时保护）
+
+set -e
+
+# 获取脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WITH_TIMEOUT="${SCRIPT_DIR}/with_timeout.sh"
+
+# 确保 with_timeout.sh 可执行
+chmod +x "${WITH_TIMEOUT}" 2>/dev/null || true
 
 # 性能和压力测试运行脚本
 # 
@@ -70,13 +80,13 @@ run_unit_performance_tests() {
     local RESULTS_DIR=$1
     log_info "运行单元测试中的性能测试..."
     
-    # 运行性能回归测试
-    log_info "运行性能回归测试..."
-    cargo test --test performance_regression --release -- --nocapture 2>&1 | tee "${RESULTS_DIR}/unit_tests/performance_regression.log"
+    # 运行性能回归测试（超时5分钟）
+    log_info "运行性能回归测试（超时5分钟）..."
+    "${WITH_TIMEOUT}" 300 cargo test --test performance_regression --release -- --nocapture 2>&1 | tee "${RESULTS_DIR}/unit_tests/performance_regression.log"
     
-    # 运行性能压力测试
-    log_info "运行性能压力测试..."
-    cargo test --test performance_stress_tests --release -- --nocapture 2>&1 | tee "${RESULTS_DIR}/unit_tests/performance_stress_tests.log"
+    # 运行性能压力测试（超时5分钟）
+    log_info "运行性能压力测试（超时5分钟）..."
+    "${WITH_TIMEOUT}" 300 cargo test --test performance_stress_tests --release -- --nocapture 2>&1 | tee "${RESULTS_DIR}/unit_tests/performance_stress_tests.log"
     
     log_success "单元测试中的性能测试完成"
 }
@@ -86,21 +96,21 @@ run_benchmarks() {
     local RESULTS_DIR=$1
     log_info "运行基准测试..."
     
-    # 运行综合性能基准测试
-    log_info "运行综合性能基准测试..."
-    cargo bench --bench comprehensive_performance_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/comprehensive_performance.json"
+    # 运行综合性能基准测试（超时30分钟）
+    log_info "运行综合性能基准测试（超时30分钟）..."
+    "${WITH_TIMEOUT}" 1800 cargo bench --bench comprehensive_performance_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/comprehensive_performance.json"
     
-    # 运行JIT基准测试
-    log_info "运行JIT基准测试..."
-    cargo bench --bench comprehensive_jit_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/jit_performance.json"
+    # 运行JIT基准测试（超时30分钟）
+    log_info "运行JIT基准测试（超时30分钟）..."
+    "${WITH_TIMEOUT}" 1800 cargo bench --bench comprehensive_jit_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/jit_performance.json"
     
-    # 运行跨架构基准测试
-    log_info "运行跨架构基准测试..."
-    cargo bench --bench cross_arch_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/cross_arch_performance.json"
+    # 运行跨架构基准测试（超时30分钟）
+    log_info "运行跨架构基准测试（超时30分钟）..."
+    "${WITH_TIMEOUT}" 1800 cargo bench --bench cross_arch_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/cross_arch_performance.json"
     
-    # 运行内存基准测试
-    log_info "运行内存基准测试..."
-    cargo bench --bench memory_optimization_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/memory_performance.json"
+    # 运行内存基准测试（超时30分钟）
+    log_info "运行内存基准测试（超时30分钟）..."
+    "${WITH_TIMEOUT}" 1800 cargo bench --bench memory_optimization_benchmark -- --output-format json 2>&1 | tee "${RESULTS_DIR}/benchmarks/memory_performance.json"
     
     log_success "基准测试完成"
 }
@@ -110,21 +120,21 @@ run_stress_tests() {
     local RESULTS_DIR=$1
     log_info "运行压力测试..."
     
-    # 创建压力测试可执行文件
-    log_info "构建压力测试可执行文件..."
-    cargo build --release --package vm-stress-test-runner --bin stress_test_runner
+    # 创建压力测试可执行文件（超时10分钟）
+    log_info "构建压力测试可执行文件（超时10分钟）..."
+    "${WITH_TIMEOUT}" 600 cargo build --release --package vm-stress-test-runner --bin stress_test_runner
     
-    # 运行短期压力测试（5分钟）
-    log_info "运行短期压力测试（5分钟）..."
-    timeout 300 ./vm-stress-test-runner/target/release/stress_test_runner --duration 300 --threads 4 --output "${RESULTS_DIR}/stress_tests/short_term.json" 2>&1 | tee "${RESULTS_DIR}/stress_tests/short_term.log"
+    # 运行短期压力测试（5分钟，超时6分钟）
+    log_info "运行短期压力测试（5分钟，超时6分钟）..."
+    "${WITH_TIMEOUT}" 360 ./vm-stress-test-runner/target/release/stress_test_runner --duration 300 --threads 4 --output "${RESULTS_DIR}/stress_tests/short_term.json" 2>&1 | tee "${RESULTS_DIR}/stress_tests/short_term.log"
     
-    # 运行中期压力测试（30分钟）
-    log_info "运行中期压力测试（30分钟）..."
-    timeout 1800 ./vm-stress-test-runner/target/release/stress_test_runner --duration 1800 --threads 8 --output "${RESULTS_DIR}/stress_tests/medium_term.json" 2>&1 | tee "${RESULTS_DIR}/stress_tests/medium_term.log"
+    # 运行中期压力测试（30分钟，超时35分钟）
+    log_info "运行中期压力测试（30分钟，超时35分钟）..."
+    "${WITH_TIMEOUT}" 2100 ./vm-stress-test-runner/target/release/stress_test_runner --duration 1800 --threads 8 --output "${RESULTS_DIR}/stress_tests/medium_term.json" 2>&1 | tee "${RESULTS_DIR}/stress_tests/medium_term.log"
     
-    # 运行资源泄漏测试
-    log_info "运行资源泄漏测试..."
-    ./vm-stress-test-runner/target/release/stress_test_runner --test resource_leak --output "${RESULTS_DIR}/stress_tests/resource_leak.json" 2>&1 | tee "${RESULTS_DIR}/stress_tests/resource_leak.log"
+    # 运行资源泄漏测试（超时10分钟）
+    log_info "运行资源泄漏测试（超时10分钟）..."
+    "${WITH_TIMEOUT}" 600 ./vm-stress-test-runner/target/release/stress_test_runner --test resource_leak --output "${RESULTS_DIR}/stress_tests/resource_leak.json" 2>&1 | tee "${RESULTS_DIR}/stress_tests/resource_leak.log"
     
     log_success "压力测试完成"
 }

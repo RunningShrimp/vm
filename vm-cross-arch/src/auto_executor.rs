@@ -4,8 +4,10 @@
 
 use super::{CrossArchConfig, CrossArchStrategy};
 use std::fmt;
+use tracing::{info, warn};
 use vm_core::{ExecMode, ExecutionEngine, GuestAddr, GuestArch, MMU, VmError};
 use vm_engine_interpreter::Interpreter;
+use vm_engine_jit::Jit;
 use vm_ir::IRBlock;
 
 /// 统一解码器trait（统一不同架构的解码器接口）
@@ -40,9 +42,7 @@ impl AutoExecutor {
         // 1. 自动检测并创建跨架构配置
         let config = CrossArchConfig::auto_detect(guest_arch)?;
 
-        println!("🔍 架构检测结果:");
-        println!("  {}", config);
-        println!("  策略: {:?}", config.strategy);
+        info!("🔍 架构检测结果: {}, 策略: {:?}", config, config.strategy);
 
         // 2. 根据guest架构创建解码器
         let decoder: Box<dyn UnifiedDecoder> = match guest_arch {
@@ -54,21 +54,55 @@ impl AutoExecutor {
         // 3. 根据策略和执行模式创建执行引擎
         let exec_mode = exec_mode.unwrap_or_else(|| config.recommended_exec_mode());
         let engine: Box<dyn ExecutionEngine<IRBlock>> = match exec_mode {
-            ExecMode::Interpreter => Box::new(Interpreter::new()),
-            ExecMode::JIT => {
-                // 注意：需要启用vm-engine-jit模块
-                // 由于jit feature可能未启用，总是回退到解释器
-                // 实际使用时可以通过feature启用JIT
+            ExecMode::Interpreter => {
+                info!("Using interpreter execution engine");
                 Box::new(Interpreter::new())
+            }
+            ExecMode::JIT => {
+                // vm-engine-jit 是强依赖，可以直接使用
+                info!("Using JIT execution engine");
+                // 如果 JIT 初始化失败，会回退到解释器
+                // 这里我们直接创建，让 Jit::new() 处理初始化
+                Box::new(Jit::new())
             }
             ExecMode::HardwareAssisted => {
                 if config.strategy == CrossArchStrategy::Native {
                     // 同架构可以使用硬件加速
-                    println!("✅ 使用硬件加速（同架构）");
-                    // 注意：需要实现硬件加速引擎
-                    Box::new(Interpreter::new()) // 临时回退
+                    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+                    {
+                        use vm_accel::{select, AccelKind};
+                        let (kind, _accel) = select();
+                        match kind {
+                            AccelKind::Kvm | AccelKind::Hvf | AccelKind::Whpx => {
+                                info!("Hardware acceleration available: {:?}", kind);
+                                // 尝试创建硬件加速执行引擎
+                                match super::hardware_accel_engine::HardwareAccelEngine::new() {
+                                    Ok(engine) => {
+                                        info!("Hardware acceleration engine created successfully");
+                                        Box::new(engine)
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            "Failed to create hardware acceleration engine: {:?}, falling back to interpreter",
+                                            e
+                                        );
+                                        Box::new(Interpreter::new())
+                                    }
+                                }
+                            }
+                            AccelKind::None => {
+                                warn!("Hardware acceleration not available, falling back to interpreter");
+                                Box::new(Interpreter::new())
+                            }
+                        }
+                    }
+                    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+                    {
+                        warn!("HardwareAssisted mode not supported on this platform, falling back to interpreter");
+                        Box::new(Interpreter::new())
+                    }
                 } else {
-                    println!("⚠️  跨架构不支持硬件加速，回退到解释器");
+                    warn!("HardwareAssisted mode not supported for cross-architecture execution, falling back to interpreter");
                     Box::new(Interpreter::new())
                 }
             }
@@ -223,7 +257,7 @@ mod tests {
         assert!(executor.is_ok());
 
         let executor = executor.unwrap();
-        println!("Created executor: {}", executor);
+        info!("Created executor: {}", executor);
         assert!(executor.config().is_supported());
     }
 }

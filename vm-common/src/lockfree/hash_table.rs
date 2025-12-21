@@ -55,11 +55,11 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
     pub fn with_capacity(capacity: usize) -> Self {
         let size = capacity.next_power_of_two();
         let mut buckets = Vec::with_capacity(size);
-        
+
         for _ in 0..size {
             buckets.push(AtomicPtr::new(ptr::null_mut()));
         }
-        
+
         Self {
             buckets,
             size: AtomicUsize::new(size),
@@ -73,11 +73,11 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
     pub fn insert(&self, key: K, value: V) -> Result<(), HashMapError> {
         let hash = self.calculate_hash(&key);
         let bucket_index = self.get_bucket_index(hash);
-        
+
         loop {
             let bucket = &self.buckets[bucket_index];
             let head = bucket.load(Ordering::Acquire);
-            
+
             // 检查是否已存在相同键
             if let Some(existing) = self.find_node_in_bucket(head, &key) {
                 // 键已存在，更新值
@@ -86,32 +86,32 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
                 }
                 return Ok(());
             }
-            
+
             // 创建新节点
             let new_node = Box::into_raw(Box::new(HashNode::new(key.clone(), value.clone(), hash)));
-            
+
             // 设置新节点的next指针
             unsafe {
                 (*new_node).next.store(head, Ordering::Relaxed);
             }
-            
+
             // 尝试将新节点设置为桶头
-            if bucket.compare_exchange_weak(
-                head,
-                new_node,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ).is_ok() {
+            if bucket
+                .compare_exchange_weak(head, new_node, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
                 self.element_count.fetch_add(1, Ordering::Relaxed);
-                
+
                 // 检查是否需要扩容
                 self.check_and_resize();
-                
+
                 return Ok(());
             }
-            
+
             // CAS失败，释放新节点并重试
-            unsafe { let _ = Box::from_raw(new_node); }
+            unsafe {
+                drop(Box::from_raw(new_node));
+            }
         }
     }
 
@@ -119,70 +119,69 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
     pub fn get(&self, key: &K) -> Option<V> {
         let hash = self.calculate_hash(key);
         let bucket_index = self.get_bucket_index(hash);
-        
+
         let bucket = &self.buckets[bucket_index];
         let head = bucket.load(Ordering::Acquire);
-        
-        if let Some(node) = self.find_node_in_bucket(head, key) {
-            Some(unsafe { (*node).value.clone() })
-        } else {
-            None
-        }
+
+        self.find_node_in_bucket(head, key)
+            .map(|node| unsafe { (*node).value.clone() })
     }
 
     /// 删除键值对
     pub fn remove(&self, key: &K) -> Option<V> {
         let hash = self.calculate_hash(key);
         let bucket_index = self.get_bucket_index(hash);
-        
+
         let bucket = &self.buckets[bucket_index];
-        
+
         loop {
             let head = bucket.load(Ordering::Acquire);
-            
+
             if head.is_null() {
                 return None;
             }
-            
+
             // 查找要删除的节点及其前驱
             let (prev, target) = self.find_node_with_prev(head, key);
-            
+
             if target.is_null() {
                 return None;
             }
-            
+
             // 获取目标节点的下一个节点
             let next = unsafe { (*target).next.load(Ordering::Acquire) };
-            
+
             // 尝试删除节点
             if prev.is_null() {
                 // 删除头节点
-                if bucket.compare_exchange_weak(
-                    head,
-                    next,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                ).is_ok() {
+                if bucket
+                    .compare_exchange_weak(head, next, Ordering::Release, Ordering::Relaxed)
+                    .is_ok()
+                {
                     self.element_count.fetch_sub(1, Ordering::Relaxed);
                     let value = unsafe { ptr::read(&(*target).value) };
-                    unsafe { let _ = Box::from_raw(target); }
+                    unsafe {
+                        drop(Box::from_raw(target));
+                    }
                     return Some(value);
                 }
             } else {
                 // 删除中间节点
-                if unsafe { (*prev).next.compare_exchange_weak(
-                    target,
-                    next,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                ).is_ok() } {
+                if unsafe {
+                    (*prev)
+                        .next
+                        .compare_exchange_weak(target, next, Ordering::Release, Ordering::Relaxed)
+                        .is_ok()
+                } {
                     self.element_count.fetch_sub(1, Ordering::Relaxed);
                     let value = unsafe { ptr::read(&(*target).value) };
-                    unsafe { let _ = Box::from_raw(target); }
+                    unsafe {
+                        drop(Box::from_raw(target));
+                    }
                     return Some(value);
                 }
             }
-            
+
             // CAS失败，重试
         }
     }
@@ -211,16 +210,18 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
     pub fn clear(&self) {
         for bucket in &self.buckets {
             let mut head = bucket.load(Ordering::Acquire);
-            
+
             while !head.is_null() {
                 let next = unsafe { (*head).next.load(Ordering::Acquire) };
-                unsafe { let _ = Box::from_raw(head); }
+                unsafe {
+                    drop(Box::from_raw(head));
+                }
                 head = next;
             }
-            
+
             bucket.store(ptr::null_mut(), Ordering::Release);
         }
-        
+
         self.element_count.store(0, Ordering::Relaxed);
     }
 
@@ -238,38 +239,46 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
     }
 
     /// 在桶中查找节点
-    fn find_node_in_bucket(&self, head: *mut HashNode<K, V>, key: &K) -> Option<*mut HashNode<K, V>> {
+    fn find_node_in_bucket(
+        &self,
+        head: *mut HashNode<K, V>,
+        key: &K,
+    ) -> Option<*mut HashNode<K, V>> {
         let mut current = head;
-        
+
         while !current.is_null() {
             let node = unsafe { &*current };
-            
+
             if node.hash == self.calculate_hash(key) && node.key == *key {
                 return Some(current);
             }
-            
+
             current = node.next.load(Ordering::Acquire);
         }
-        
+
         None
     }
 
     /// 查找节点及其前驱
-    fn find_node_with_prev(&self, head: *mut HashNode<K, V>, key: &K) -> (*mut HashNode<K, V>, *mut HashNode<K, V>) {
+    fn find_node_with_prev(
+        &self,
+        head: *mut HashNode<K, V>,
+        key: &K,
+    ) -> (*mut HashNode<K, V>, *mut HashNode<K, V>) {
         let mut prev = ptr::null_mut();
         let mut current = head;
-        
+
         while !current.is_null() {
             let node = unsafe { &*current };
-            
+
             if node.hash == self.calculate_hash(key) && node.key == *key {
                 return (prev, current);
             }
-            
+
             prev = current;
             current = node.next.load(Ordering::Acquire);
         }
-        
+
         (prev, ptr::null_mut())
     }
 
@@ -277,7 +286,7 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
     fn check_and_resize(&self) {
         let current_size = self.size.load(Ordering::Relaxed);
         let element_count = self.element_count.load(Ordering::Relaxed);
-        
+
         if element_count as f64 / current_size as f64 > self.resize_threshold {
             self.resize(current_size * 2);
         }
@@ -287,12 +296,16 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> LockFreeHashMap
     fn resize(&self, new_size: usize) {
         // 简化实现：实际无锁扩容更复杂
         // 这里只是示意，实际生产环境需要更复杂的实现
-        if self.size.compare_exchange(
-            self.size.load(Ordering::Relaxed),
-            new_size,
-            Ordering::Release,
-            Ordering::Relaxed,
-        ).is_ok() {
+        if self
+            .size
+            .compare_exchange(
+                self.size.load(Ordering::Relaxed),
+                new_size,
+                Ordering::Release,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+        {
             // 扩容成功，需要重新分配所有节点
             // 实际实现需要更复杂的逻辑来保证无锁
         }
@@ -304,13 +317,15 @@ impl<K: Send + Sync, V: Send + Sync> Drop for LockFreeHashMap<K, V> {
         // 手动实现clear逻辑，避免trait bound问题
         for bucket in &self.buckets {
             let mut head = bucket.load(Ordering::Acquire);
-            
+
             while !head.is_null() {
                 let next = unsafe { (*head).next.load(Ordering::Acquire) };
-                unsafe { let _ = Box::from_raw(head); }
+                unsafe {
+                    drop(Box::from_raw(head));
+                }
                 head = next;
             }
-            
+
             bucket.store(ptr::null_mut(), Ordering::Release);
         }
     }
@@ -368,11 +383,11 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> StripedHashMap<
     /// 创建指定分片数量的分片哈希表
     pub fn with_shards(shard_count: usize) -> Self {
         let mut shards = Vec::with_capacity(shard_count);
-        
+
         for _ in 0..shard_count {
             shards.push(LockFreeHashMap::new());
         }
-        
+
         Self {
             shards,
             shard_count,
@@ -429,6 +444,12 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> StripedHashMap<
     }
 }
 
+impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> Default for StripedHashMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 缓存感知哈希表
 pub struct CacheAwareHashMap<K: Send + Sync, V: Send + Sync> {
     /// 内部哈希表
@@ -460,28 +481,28 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> CacheAwareHashM
     /// 获取值
     pub fn get(&self, key: &K) -> Option<V> {
         let result = self.inner.get(key);
-        
+
         // 更新访问计数
         self.access_count.fetch_add(1, Ordering::Relaxed);
-        
+
         // 检查是否为热点键
         if result.is_some() {
             self.update_hot_keys(key);
         }
-        
+
         result
     }
 
     /// 删除键值对
     pub fn remove(&self, key: &K) -> Option<V> {
         let result = self.inner.remove(key);
-        
+
         // 从热点键集合中移除
         if result.is_some() {
             let mut hot_keys = self.hot_keys.lock().unwrap();
             hot_keys.remove(key);
         }
-        
+
         result
     }
 
@@ -509,11 +530,11 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> CacheAwareHashM
     /// 更新热点键
     fn update_hot_keys(&self, key: &K) {
         let access_count = self.access_count.load(Ordering::Relaxed);
-        
+
         // 简化的热点检测逻辑
-        if access_count % 100 == 0 {
+        if access_count.is_multiple_of(100) {
             let mut hot_keys = self.hot_keys.lock().unwrap();
-            
+
             if hot_keys.len() < self.cache_size {
                 hot_keys.insert(key.clone());
             }
@@ -601,31 +622,31 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> InstrumentedLoc
     /// 插入键值对
     pub fn insert(&self, key: K, value: V) -> Result<(), HashMapError> {
         let result = self.inner.insert(key, value);
-        
+
         if result.is_ok() {
             self.stats.insert_count.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         result
     }
 
     /// 获取值
     pub fn get(&self, key: &K) -> Option<V> {
         let result = self.inner.get(key);
-        
+
         self.stats.get_count.fetch_add(1, Ordering::Relaxed);
-        
+
         result
     }
 
     /// 删除键值对
     pub fn remove(&self, key: &K) -> Option<V> {
         let result = self.inner.remove(key);
-        
+
         if result.is_some() {
             self.stats.remove_count.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         result
     }
 
@@ -655,7 +676,9 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> InstrumentedLoc
     }
 }
 
-impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> Default for InstrumentedLockFreeHashMap<K, V> {
+impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> Default
+    for InstrumentedLockFreeHashMap<K, V>
+{
     fn default() -> Self {
         Self::new()
     }
@@ -670,97 +693,97 @@ mod tests {
     #[test]
     fn test_basic_hashmap() {
         let map = LockFreeHashMap::new();
-        
+
         // 测试空表
         assert!(map.is_empty());
         assert_eq!(map.len(), 0);
         assert!(map.get(&1).is_none());
-        
+
         // 测试插入
         map.insert(1, "one").unwrap();
         map.insert(2, "two").unwrap();
         map.insert(3, "three").unwrap();
-        
+
         assert!(!map.is_empty());
         assert_eq!(map.len(), 3);
-        
+
         // 测试获取
         assert_eq!(map.get(&1), Some("one"));
         assert_eq!(map.get(&2), Some("two"));
         assert_eq!(map.get(&3), Some("three"));
         assert!(map.get(&4).is_none());
-        
+
         // 测试删除
         assert_eq!(map.remove(&2), Some("two"));
         assert_eq!(map.get(&2), None);
         assert_eq!(map.len(), 2);
-        
+
         // 测试包含键
         assert!(map.contains_key(&1));
         assert!(!map.contains_key(&2));
-        
+
         println!("基本哈希表测试通过");
     }
 
     #[test]
     fn test_striped_hashmap() {
         let map = StripedHashMap::with_shards(4);
-        
+
         // 测试插入
         map.insert(1, "one").unwrap();
         map.insert(2, "two").unwrap();
         map.insert(3, "three").unwrap();
-        
+
         // 测试获取
         assert_eq!(map.get(&1), Some("one"));
         assert_eq!(map.get(&2), Some("two"));
         assert_eq!(map.get(&3), Some("three"));
-        
+
         // 测试大小
         assert_eq!(map.len(), 3);
         assert!(!map.is_empty());
-        
+
         println!("分片哈希表测试通过");
     }
 
     #[test]
     fn test_cache_aware_hashmap() {
         let map = CacheAwareHashMap::new(2);
-        
+
         // 测试插入
         map.insert(1, "one").unwrap();
         map.insert(2, "two").unwrap();
         map.insert(3, "three").unwrap();
-        
+
         // 测试获取
         assert_eq!(map.get(&1), Some("one"));
         assert_eq!(map.get(&2), Some("two"));
         assert_eq!(map.get(&3), Some("three"));
-        
+
         // 测试热点键
         let hot_keys = map.get_hot_keys();
         println!("热点键: {:?}", hot_keys);
-        
+
         println!("缓存感知哈希表测试通过");
     }
 
     #[test]
     fn test_instrumented_hashmap() {
         let map = InstrumentedLockFreeHashMap::new();
-        
+
         // 执行一些操作
         map.insert(1, "one").unwrap();
         map.insert(2, "two").unwrap();
         map.get(&1);
         map.get(&2);
         map.remove(&1);
-        
+
         // 检查统计信息
         let stats = map.get_stats();
         assert_eq!(stats.insert_count, 2);
         assert_eq!(stats.get_count, 2);
         assert_eq!(stats.remove_count, 1);
-        
+
         println!("带统计信息的哈希表测试通过");
     }
 
@@ -768,7 +791,7 @@ mod tests {
     fn test_concurrent_hashmap() {
         let map = Arc::new(LockFreeHashMap::new());
         let mut handles = Vec::new();
-        
+
         // 生产者线程
         for i in 0..4 {
             let map = map.clone();
@@ -779,7 +802,7 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         // 消费者线程
         for i in 0..4 {
             let map = map.clone();
@@ -790,15 +813,15 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         // 等待所有线程完成
         for handle in handles {
             handle.join().unwrap();
         }
-        
+
         // 验证结果
-        assert!(map.len() > 0);
-        
+        assert!(!map.is_empty());
+
         println!("并发哈希表测试通过");
     }
 }

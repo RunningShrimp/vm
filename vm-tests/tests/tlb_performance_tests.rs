@@ -24,8 +24,8 @@ fn test_tlb_basic_performance() {
     for i in 0..512 {
         let gva = (i as u64) * 0x1000; // 页对齐
         let gpa = 0x100000 + (i as u64) * 0x1000;
-        let walk_result = create_test_walk_result(gpa, 4096);
-        tlb.insert(walk_result, gva, 0);
+        let walk_result = create_test_walk_result(GuestAddr(gpa), 4096);
+        tlb.insert(walk_result, GuestAddr(gva), 0);
     }
 
     println!("TLB Basic Performance Test:");
@@ -39,7 +39,7 @@ fn test_tlb_basic_performance() {
 
     for i in 0..10000 {
         let gva = (i % 512) as u64 * 0x1000;
-        if tlb.lookup(gva, 0).is_some() {
+        if tlb.lookup(GuestAddr(gva), 0).is_some() {
             hits += 1;
         }
     }
@@ -76,8 +76,8 @@ fn test_tlb_replace_strategies() {
         for i in 0..300 {
             let gva = (i as u64) * 0x1000;
             let gpa = 0x200000 + (i as u64) * 0x1000;
-            let walk_result = create_test_walk_result(gpa, 4096);
-            tlb.insert(walk_result, gva, i as u16);
+            let walk_result = create_test_walk_result(GuestAddr(gpa), 4096);
+            tlb.insert(walk_result, GuestAddr(gva), i as u16);
         }
 
         // 随机访问测试
@@ -86,7 +86,7 @@ fn test_tlb_replace_strategies() {
 
         for i in 0..2000 {
             let gva = ((i * 123) % 400) as u64 * 0x1000; // 伪随机访问
-            if tlb.lookup(gva, (i % 100) as u16).is_some() {
+            if tlb.lookup(GuestAddr(gva), (i % 100) as u16).is_some() {
                 hits += 1;
             }
         }
@@ -131,7 +131,7 @@ fn test_adaptive_tlb_auto_resize() {
     for i in 0..800 {
         let gva = (i as u64) * 0x1000;
         let gpa = 0x300000 + (i as u64) * 0x1000;
-        let walk_result = create_test_walk_result(gpa, 4096);
+        let walk_result = create_test_walk_result(GuestAddr(gpa), 4096);
         tlb.insert(walk_result, gva, i as u16);
 
         if tlb.capacity() != last_capacity {
@@ -176,7 +176,7 @@ fn test_tlb_efficiency_score() {
     for i in 0..1024 {
         let gva = (i as u64) * 0x1000;
         let gpa = 0x400000 + (i as u64) * 0x1000;
-        let walk_result = create_test_walk_result(gpa, 4096);
+        let walk_result = create_test_walk_result(GuestAddr(gpa), 4096);
         tlb.insert(walk_result, gva, i as u16);
     }
 
@@ -193,7 +193,7 @@ fn test_tlb_efficiency_score() {
             ((i * 17 + 123) % 1024) as u64 * 0x1000
         };
 
-        if tlb.lookup(gva, 0).is_some() {
+        if tlb.lookup(GuestAddr(gva), 0).is_some() {
             hits += 1;
         }
     }
@@ -236,7 +236,7 @@ fn test_tlb_memory_efficiency() {
         for i in 0..(capacity * 8 / 10) {
             let gva = (i as u64) * 0x1000;
             let gpa = 0x500000 + (i as u64) * 0x1000;
-            let walk_result = create_test_walk_result(gpa, 4096);
+            let walk_result = create_test_walk_result(GuestAddr(gpa), 4096);
             tlb.insert(walk_result, gva, 0);
         }
 

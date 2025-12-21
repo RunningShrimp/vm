@@ -565,7 +565,7 @@ mod tests {
         assert_eq!(buf2.len(), 4096);
 
         pool.release(buf1.clone());
-        let buf3 = pool.allocate();
+        let _buf3 = pool.allocate();
 
         assert_eq!(pool.available_count(), 3);
     }
@@ -626,13 +626,13 @@ mod tests {
 
         let buf1 = pool.allocate();
         let buf2 = pool.allocate();
-        let buf3 = pool.allocate();
+        let _buf3 = pool.allocate();
 
         pool.release(buf1);
         pool.release(buf2);
 
-        let buf4 = pool.allocate();
-        let buf5 = pool.allocate();
+        let _buf4 = pool.allocate();
+        let _buf5 = pool.allocate();
 
         let (allocs, reuses) = pool.stats();
         assert_eq!(allocs, 0);

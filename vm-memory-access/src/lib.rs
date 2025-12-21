@@ -1,16 +1,20 @@
 //! Common memory access abstraction for VM cross-architecture translation
-//! 
+//!
 //! This module provides unified memory access patterns, alignment handling,
 //! and endianness conversion across different architectures.
 
-use vm_error::{Architecture, RegId};
 use std::collections::HashMap;
 use thiserror::Error;
+use vm_error::{Architecture, RegId};
 
 /// Errors that can occur during memory access operations
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum MemoryError {
-    #[error("Memory access alignment violation: address {:#x} not aligned to {} bytes", _0, _1)]
+    #[error(
+        "Memory access alignment violation: address {:#x} not aligned to {} bytes",
+        _0,
+        _1
+    )]
     AlignmentViolation(u64, u64),
     #[error("Memory access out of bounds: address {:#x}, size {}", _0, _1)]
     OutOfBounds(u64, usize),
@@ -266,8 +270,8 @@ impl DefaultMemoryAccessOptimizer {
         };
 
         let vector_width = match architecture {
-            Architecture::X86_64 => 32, // AVX-512
-            Architecture::ARM64 => 32,  // SVE2
+            Architecture::X86_64 => 32,  // AVX-512
+            Architecture::ARM64 => 32,   // SVE2
             Architecture::RISCV64 => 32, // V extension
         };
 
@@ -310,8 +314,9 @@ impl MemoryAccessOptimizer for DefaultMemoryAccessOptimizer {
 
         // Check for cache line optimization
         let address = pattern.offset as u64;
-        if address % self.cache_line_size != 0 {
-            let aligned_address = (address + self.cache_line_size - 1) & !(self.cache_line_size - 1);
+        if !address.is_multiple_of(self.cache_line_size) {
+            let aligned_address =
+                (address + self.cache_line_size - 1) & !(self.cache_line_size - 1);
             optimized.offset = aligned_address as i64;
             optimization_type = OptimizationType::CacheLineOptimized;
             performance_gain += 0.1 * arch_factor; // 10% improvement adjusted for architecture
@@ -356,8 +361,9 @@ impl MemoryAccessOptimizer for DefaultMemoryAccessOptimizer {
     }
 
     fn suggest_fixes(&self, issues: &[AlignmentIssue]) -> Vec<Fix> {
-        issues.iter().map(|issue| {
-            match issue.severity {
+        issues
+            .iter()
+            .map(|issue| match issue.severity {
                 IssueSeverity::Critical => Fix {
                     fix_type: FixType::AlignAddress,
                     description: "Align the address to the required boundary".to_string(),
@@ -373,8 +379,8 @@ impl MemoryAccessOptimizer for DefaultMemoryAccessOptimizer {
                     description: "Use unaligned access if supported".to_string(),
                     cost_estimate: FixCost::Low,
                 },
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     fn name(&self) -> &'static str {
@@ -401,7 +407,7 @@ pub enum Endianness {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConversionStrategy {
     Direct,      // Direct byte swapping
-    Optimized,    // Optimized for common patterns
+    Optimized,   // Optimized for common patterns
     Lazy,        // Convert on demand
     Precomputed, // Precompute conversion tables
 }
@@ -432,10 +438,7 @@ impl EndiannessConverter {
     /// Convert a single value
     pub fn convert_value<T>(&self, value: &mut T) -> Result<(), MemoryError> {
         let data = unsafe {
-            std::slice::from_raw_parts_mut(
-                value as *mut T as *mut u8,
-                std::mem::size_of::<T>(),
-            )
+            std::slice::from_raw_parts_mut(value as *mut T as *mut u8, std::mem::size_of::<T>())
         };
         self.convert(data)
     }
@@ -495,6 +498,12 @@ pub struct MemoryAccessAnalyzer {
     statistics: HashMap<String, u64>,
 }
 
+impl Default for MemoryAccessAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryAccessAnalyzer {
     pub fn new() -> Self {
         Self {
@@ -506,7 +515,7 @@ impl MemoryAccessAnalyzer {
     /// Add a memory access pattern for analysis
     pub fn add_pattern(&mut self, pattern: MemoryAccessPattern) {
         self.patterns.push(pattern.clone());
-        
+
         // Update statistics
         let key = format!("{:?}_{:?}", pattern.width, pattern.access_type);
         *self.statistics.entry(key).or_insert(0) += 1;
@@ -522,27 +531,28 @@ impl MemoryAccessAnalyzer {
 
         for pattern in &self.patterns {
             total_accesses += 1;
-            
+
             if pattern.alignment == Alignment::Unaligned {
                 unaligned_accesses += 1;
             }
-            
+
             if pattern.flags.is_atomic {
                 atomic_accesses += 1;
             }
-            
+
             if matches!(pattern.width, AccessWidth::Vector(_)) {
                 vector_accesses += 1;
             }
-            
+
             let size = pattern.size();
             *size_distribution.entry(size).or_insert(0) += 1;
         }
 
-        let most_common_size = size_distribution.iter()
+        let most_common_size = size_distribution
+            .iter()
             .max_by_key(|(_, &count)| count)
             .map(|(&size, _)| size);
-            
+
         AnalysisResult {
             total_accesses,
             unaligned_accesses,
@@ -580,7 +590,7 @@ mod tests {
         let pattern = MemoryAccessPattern::new(0, 0x1000, AccessWidth::Word)
             .with_alignment(Alignment::Aligned4)
             .with_access_type(AccessType::Read);
-        
+
         assert_eq!(pattern.size(), 4);
         assert_eq!(pattern.required_alignment(), 4);
     }
@@ -592,7 +602,7 @@ mod tests {
             Endianness::Big,
             ConversionStrategy::Direct,
         );
-        
+
         let mut data = vec![0x12, 0x34, 0x56, 0x78];
         converter.convert(&mut data).unwrap();
         assert_eq!(data, vec![0x78, 0x56, 0x34, 0x12]);
@@ -603,7 +613,7 @@ mod tests {
         let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
         let pattern = MemoryAccessPattern::new(0, 0x1001, AccessWidth::Word)
             .with_alignment(Alignment::Unaligned);
-        
+
         let result = optimizer.optimize_access_pattern(&pattern);
         assert!(result.performance_gain > 0.0);
         assert_ne!(result.optimization_type, OptimizationType::NoOptimization);
@@ -612,11 +622,11 @@ mod tests {
     #[test]
     fn test_memory_access_analyzer() {
         let mut analyzer = MemoryAccessAnalyzer::new();
-        
+
         analyzer.add_pattern(MemoryAccessPattern::new(0, 0x1000, AccessWidth::Word));
         analyzer.add_pattern(MemoryAccessPattern::new(1, 0x1004, AccessWidth::DoubleWord));
         analyzer.add_pattern(MemoryAccessPattern::new(2, 0x1008, AccessWidth::Word));
-        
+
         let result = analyzer.analyze();
         assert_eq!(result.total_accesses, 3);
         assert_eq!(result.most_common_size, Some(4));

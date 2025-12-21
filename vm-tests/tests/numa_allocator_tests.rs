@@ -243,7 +243,7 @@ fn test_numa_memory_efficiency() {
             // 模拟内存使用统计更新
             if i % 100 == 0 {
                 allocator
-                    .update_node_memory_usage(i, (block_count * block_size) / nodes.len() as u64);
+                    .update_node_memory_usage(i, (block_count * block_size) / nodes.len());
             }
         }
 
@@ -340,80 +340,4 @@ fn test_numa_multi_threaded_performance() {
         allocs_per_sec > 10000.0,
         "Multi-threaded allocation should be fast"
     );
-}
-
-impl NumaAllocator {
-    /// 获取总的可用内存
-    pub fn total_available_memory(&self) -> u64 {
-        self.nodes.iter().map(|n| n.available_memory).sum()
-    }
-
-    /// 模拟内存分配（在真实实现中会调用底层分配器）
-    pub fn allocate(&self, size: usize) -> Option<usize> {
-        // 简化的内存分配模拟
-        match self.policy {
-            NumaAllocPolicy::Local => {
-                if let Some(node_id) = Self::current_node() {
-                    if let Some(node) = self.nodes.get(node_id) {
-                        if node.available_memory >= size as u64 {
-                            return Some(node_id);
-                        }
-                    }
-                }
-                // 回退到其他节点
-                for (i, node) in self.nodes.iter().enumerate() {
-                    if node.available_memory >= size as u64 {
-                        return Some(i);
-                    }
-                }
-            }
-            NumaAllocPolicy::Interleave => {
-                // 轮询分配 - 使用简单哈希代替rand
-                let hash = (size as usize).wrapping_mul(31) % self.nodes.len();
-                if let Some(node) = self.nodes.get(hash) {
-                    if node.available_memory >= size as u64 {
-                        return Some(hash);
-                    }
-                }
-            }
-            NumaAllocPolicy::Bind(node_id) => {
-                if let Some(node) = self.nodes.get(node_id) {
-                    if node.available_memory >= size as u64 {
-                        return Some(node_id);
-                    }
-                }
-            }
-            NumaAllocPolicy::Preferred(node_id) => {
-                if let Some(node) = self.nodes.get(node_id) {
-                    if node.available_memory >= size as u64 {
-                        return Some(node_id);
-                    }
-                }
-                // 回退到本地分配
-                if let Some(local_id) = Self::current_node() {
-                    if let Some(node) = self.nodes.get(local_id) {
-                        if node.available_memory >= size as u64 {
-                            return Some(local_id);
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    /// 更新节点内存使用统计
-    pub fn update_node_memory_usage(&self, node_id: usize, used: u64) {
-        if let Some(node) = self.nodes.get_mut(node_id) {
-            if used <= node.available_memory {
-                node.available_memory -= used;
-            }
-        }
-    }
-
-    /// 获取分配统计信息
-    pub fn stats(&self) -> &NumaAllocStats {
-        &self.stats
-    }
 }

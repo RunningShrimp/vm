@@ -10,7 +10,11 @@ pub enum ConfigValidationError {
     /// 内存大小无效
     InvalidMemorySize { size: usize, min: usize, max: usize },
     /// vCPU数量无效
-    InvalidVcpuCount { count: usize, min: usize, max: usize },
+    InvalidVcpuCount {
+        count: usize,
+        min: usize,
+        max: usize,
+    },
     /// 架构不支持
     UnsupportedArchitecture { arch: GuestArch },
     /// 执行模式与架构不兼容
@@ -221,10 +225,12 @@ mod tests {
     #[test]
     fn test_validate_memory_size() {
         let validator = ConfigValidator::default();
-        let mut config = VmConfig::default();
+        let mut config = VmConfig {
+            memory_size: 128 * 1024 * 1024, // 128MB
+            ..VmConfig::default()
+        };
 
         // 测试有效内存大小
-        config.memory_size = 128 * 1024 * 1024; // 128MB
         assert!(validator.validate(&config).is_ok());
 
         // 测试内存太小
@@ -239,10 +245,12 @@ mod tests {
     #[test]
     fn test_validate_vcpu_count() {
         let validator = ConfigValidator::default();
-        let mut config = VmConfig::default();
+        let mut config = VmConfig {
+            vcpu_count: 4,
+            ..VmConfig::default()
+        };
 
         // 测试有效vCPU数量
-        config.vcpu_count = 4;
         assert!(validator.validate(&config).is_ok());
 
         // 测试vCPU数量为0
@@ -257,10 +265,11 @@ mod tests {
     #[test]
     fn test_validate_and_fix() {
         let validator = ConfigValidator::default();
-        let mut config = VmConfig::default();
+        let config = VmConfig {
+            memory_size: 512, // 太小
+            ..VmConfig::default()
+        };
 
-        // 设置无效的内存大小
-        config.memory_size = 512; // 太小
         let fixed_config = validator.validate_and_fix(config).unwrap();
         assert_eq!(fixed_config.memory_size, validator.min_memory_size);
     }

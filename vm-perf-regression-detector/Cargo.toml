@@ -13,16 +13,17 @@ vm-engine-jit = { path = "../vm-engine-jit" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
 anyhow = "1.0"
-thiserror = "1.0"
-clap = { version = "4.0", features = ["derive"] }
+thiserror = "2.0"
+clap = { version = "4.5", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
-rusqlite = { version = "0.28", features = ["chrono"] }
+rusqlite = { version = "0.28", features = ["bundled", "chrono"] }
 plotters = "0.3"
-statrs = "0.16"
-num_cpus = "1.0"
-tempfile = "3.0"
+statrs = "0.18"
+num_cpus = "1.17"
+tempfile = "3.23"
+libsqlite3-sys = "0.28"
 
 [[bin]]
 name = "vm-perf-regression-detector"

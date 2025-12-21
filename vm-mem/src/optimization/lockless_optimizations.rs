@@ -118,6 +118,12 @@ pub struct LockFreeQueue<T> {
 unsafe impl<T: Send> Send for LockFreeQueue<T> {}
 unsafe impl<T: Send> Sync for LockFreeQueue<T> {}
 
+impl<T> Default for LockFreeQueue<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> LockFreeQueue<T> {
     pub fn new() -> Self {
         let dummy = Box::into_raw(Box::new(Node {

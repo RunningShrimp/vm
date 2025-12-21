@@ -11,11 +11,39 @@ use vm_engine_interpreter::Interpreter;
 use vm_ir::{IRBuilder, IROp, MemFlags};
 use vm_mem::SoftMmu;
 
-use super::setup_utils::create_simple_ir_block;
+use vm_tests::test_utils::{IRBlockBuilder, TestVmConfigBuilder};
 
 /// 创建一个简单的执行引擎用于测试
 fn create_test_engine() -> Box<dyn ExecutionEngine<vm_ir::IRBlock>> {
     Box::new(Interpreter::new())
+}
+
+fn create_simple_ir_block(pc: u64) -> vm_ir::IRBlock {
+    let mut builder = vm_ir::IRBuilder::new(vm_core::GuestAddr(pc));
+
+    // 添加一些简单的算术运算
+    builder.push(vm_ir::IROp::Add {
+        dst: 0,
+        src1: 1,
+        src2: 2,
+    });
+    builder.push(vm_ir::IROp::Mul {
+        dst: 0,
+        src1: 0,
+        src2: 3,
+    });
+    builder.push(vm_ir::IROp::Sub {
+        dst: 0,
+        src1: 0,
+        src2: 1,
+    });
+
+    // 设置一些初始寄存器值
+    builder.push(vm_ir::IROp::MovImm { dst: 1, imm: 42 });
+    builder.push(vm_ir::IROp::MovImm { dst: 2, imm: 24 });
+    builder.push(vm_ir::IROp::MovImm { dst: 3, imm: 10 });
+
+    builder.build()
 }
 
 /// 测试不同vCPU数量下的性能扩展
@@ -30,7 +58,7 @@ fn test_multi_vcpu_scaling() {
         let start = Instant::now();
 
         // 创建共享内存
-        let mut mmu = SoftMmu::new(64 * 1024 * 1024); // 64MB内存
+        let mut mmu = SoftMmu::new(64 * 1024 * 1024, false); // 64MB内存
 
         // 为每个vCPU创建相同的IR块（简单的算术运算）
         let blocks: Vec<vm_ir::IRBlock> = (0..vcpu_count)
@@ -38,7 +66,7 @@ fn test_multi_vcpu_scaling() {
             .collect();
 
         // 创建多vCPU执行器
-        let mut executor = vm_core::MultiVcpuExecutor::new(
+        let mut executor = vm_core::MultiVcpuExecutor::new_legacy(
             vcpu_count,
             Arc::new(Mutex::new(Box::new(mmu) as Box<dyn MMU>)),
             create_test_engine,
@@ -145,7 +173,7 @@ fn test_parallel_consistency() {
     let vcpu_count = 4;
 
     // 创建共享内存
-    let mut mmu = SoftMmu::new(16 * 1024 * 1024); // 16MB内存
+    let mut mmu = SoftMmu::new(16 * 1024 * 1024, false); // 16MB内存
 
     // 创建带有内存共享操作的IR块
     let mut blocks = Vec::new();
@@ -181,7 +209,7 @@ fn test_parallel_consistency() {
     }
 
     // 创建多vCPU执行器
-    let mut executor = vm_core::MultiVcpuExecutor::new(
+    let mut executor = vm_core::MultiVcpuExecutor::new_legacy(
         vcpu_count,
         Arc::new(Mutex::new(Box::new(mmu) as Box<dyn MMU>)),
         create_test_engine,
@@ -211,7 +239,7 @@ fn test_many_vcpu_stress() {
     let start = Instant::now();
 
     // 创建更大的内存
-    let mut mmu = SoftMmu::new(256 * 1024 * 1024); // 256MB内存
+    let mut mmu = SoftMmu::new(256 * 1024 * 1024, false); // 256MB内存
 
     // 创建简单的IR块
     let blocks: Vec<vm_ir::IRBlock> = (0..large_vcpu_count)
@@ -219,7 +247,7 @@ fn test_many_vcpu_stress() {
         .collect();
 
     // 创建大容量多vCPU执行器
-    let mut executor = vm_core::MultiVcpuExecutor::new(
+    let mut executor = vm_core::MultiVcpuExecutor::new_legacy(
         large_vcpu_count,
         Arc::new(Mutex::new(Box::new(mmu) as Box<dyn MMU>)),
         create_test_engine,

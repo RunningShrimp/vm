@@ -51,6 +51,7 @@ pub struct ConfigManager {
     /// 验证器
     validators: HashMap<String, Box<dyn ConfigValidator + Send + Sync>>,
     /// 配置监听器
+    #[allow(clippy::type_complexity)]
     listeners: Vec<Box<dyn Fn(&str, &ConfigItem) + Send + Sync>>,
 }
 
@@ -300,6 +301,29 @@ mod tests {
         pub value: i32,
     }
 
+    struct TestValidator;
+
+    impl ConfigValidator for TestValidator {
+        fn validate(&self, _key: &str, value: &serde_json::Value) -> Result<(), VmError> {
+            if let Some(num) = value
+                .as_object()
+                .and_then(|obj| obj.get("value"))
+                .and_then(|val| val.as_i64())
+                && num < 0
+            {
+                return Err(VmError::Core(vm_core::CoreError::Config {
+                    message: "Value must be non-negative".to_string(),
+                    path: Some("value".to_string()),
+                }));
+            }
+            Ok(())
+        }
+
+        fn supported_keys(&self) -> Vec<String> {
+            vec!["test.invalid".to_string(), "test.valid".to_string()]
+        }
+    }
+
     impl ComponentConfig for TestConfig {
         fn component_name() -> &'static str {
             "test"
@@ -356,10 +380,41 @@ mod tests {
 
     #[test]
     fn test_config_validation() {
-        let manager = ConfigManager::new();
+        let mut manager = ConfigManager::new();
+
+        // 注册验证器
+        manager.register_validator("test.invalid", Box::new(TestValidator));
+        manager.register_validator("test.valid", Box::new(TestValidator));
+
         let invalid_config = TestConfig { value: -1 };
 
         // 验证应该失败
         assert!(invalid_config.validate().is_err());
+
+        // 测试将无效配置设置到管理器中的情况
+        let config_value = serde_json::to_value(invalid_config).unwrap();
+        let result = manager.set(
+            "test.invalid".to_string(),
+            config_value,
+            ConfigSource::Runtime,
+            true,
+            "Test invalid config".to_string(),
+        );
+        assert!(result.is_err(), "Setting invalid config should fail");
+
+        // 测试有效配置
+        let valid_config = TestConfig { value: 10 };
+        assert!(valid_config.validate().is_ok());
+
+        // 测试将有效配置设置到管理器中
+        let valid_value = serde_json::to_value(valid_config).unwrap();
+        let result = manager.set(
+            "test.valid".to_string(),
+            valid_value,
+            ConfigSource::Runtime,
+            true,
+            "Test valid config".to_string(),
+        );
+        assert!(result.is_ok(), "Setting valid config should succeed");
     }
 }

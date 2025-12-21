@@ -2,7 +2,6 @@
 //!
 //! 实现零拷贝I/O优化，包括内存映射、DMA优化和缓冲区管理。
 
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use vm_core::{GuestAddr, GuestPhysAddr, MMU, VmError};
@@ -139,7 +138,11 @@ impl ZeroCopyIoOptimizer {
     }
 
     /// 获取或创建零拷贝缓冲区
-    pub fn get_or_create_buffer(&mut self, guest_addr: GuestAddr, size: usize) -> Result<u64, VmError> {
+    pub fn get_or_create_buffer(
+        &mut self,
+        guest_addr: GuestAddr,
+        size: usize,
+    ) -> Result<u64, VmError> {
         let buffer_id = self.generate_buffer_id();
 
         // 检查缓存
@@ -171,17 +174,18 @@ impl ZeroCopyIoOptimizer {
         let mut buffer = ZeroCopyBuffer::new(buffer_id, guest_addr, size);
 
         // 如果启用DMA优化且大小超过阈值，尝试预映射
-        if self.config.enable_dma_optimization && size >= self.config.premapping_threshold {
-            if let Some(mmu) = &mut self.mmu {
-                // 使用MMU将虚拟地址转换为物理地址
-                if let Ok(phys_addr) = mmu.translate(guest_addr, vm_core::AccessType::Read) {
-                    buffer.guest_phys_addr = Some(phys_addr);
-                    buffer.mapped = true;
-                    
-                    // 更新映射统计
-                    let mut stats = self.stats.write().unwrap();
-                    stats.mappings += 1;
-                }
+        if self.config.enable_dma_optimization
+            && size >= self.config.premapping_threshold
+            && let Some(mmu) = &mut self.mmu
+        {
+            // 使用MMU将虚拟地址转换为物理地址
+            if let Ok(phys_addr) = mmu.translate(guest_addr, vm_core::AccessType::Read) {
+                buffer.guest_phys_addr = Some(phys_addr);
+                buffer.mapped = true;
+
+                // 更新映射统计
+                let mut stats = self.stats.write().unwrap();
+                stats.mappings += 1;
             }
         }
 
@@ -208,19 +212,19 @@ impl ZeroCopyIoOptimizer {
     pub fn release_buffer(&self, buffer_id: u64) -> Result<(), VmError> {
         let mut cache = self.buffer_cache.write().unwrap();
 
-        if let Some(buffer) = cache.get_mut(&buffer_id) {
-            if buffer.dec_ref() {
-                // 引用计数为0，取消映射
-                if buffer.mapped {
-                    let mut stats = self.stats.write().unwrap();
-                    stats.unmappings += 1;
-                }
-
-                cache.remove(&buffer_id);
-
+        if let Some(buffer) = cache.get_mut(&buffer_id)
+            && buffer.dec_ref()
+        {
+            // 引用计数为0，取消映射
+            if buffer.mapped {
                 let mut stats = self.stats.write().unwrap();
-                stats.total_buffers = stats.total_buffers.saturating_sub(1);
+                stats.unmappings += 1;
             }
+
+            cache.remove(&buffer_id);
+
+            let mut stats = self.stats.write().unwrap();
+            stats.total_buffers = stats.total_buffers.saturating_sub(1);
         }
 
         Ok(())
@@ -270,7 +274,12 @@ impl ZeroCopyIoOptimizer {
     }
 
     /// 执行DMA传输
-    pub fn dma_transfer(
+    ///
+    /// # Safety
+    /// 调用者必须确保 `host_addr` 指向至少 `size` 字节的有效内存。
+    /// 对于写入操作，内存必须是可写的；对于读取操作，内存必须是可读的。
+    /// 在函数执行期间，内存必须保持有效。
+    pub unsafe fn dma_transfer(
         &self,
         buffer_id: u64,
         host_addr: *mut u8,
@@ -311,13 +320,15 @@ impl ZeroCopyIoOptimizer {
                 // 模拟DMA写入操作，使用物理地址作为参考
                 unsafe {
                     // 使用物理地址的低8位作为写入值，模拟地址相关的传输
-                    let write_value = (phys_addr.0 as u8) & 0xFF;
+                    let write_value = phys_addr.0 as u8;
+                    // Safety: host_addr 由调用者保证有效，且指向至少 size 字节的有效内存
                     std::ptr::write_volatile(host_addr, write_value);
                 }
             } else {
                 // DMA读取：从guest物理地址读到host地址
                 // 模拟DMA读取操作，记录物理地址
                 unsafe {
+                    // Safety: host_addr 由调用者保证有效，且指向至少 size 字节的有效内存
                     let _read_value = std::ptr::read_volatile(host_addr);
                     // 可以在实际实现中使用phys_addr进行物理内存访问
                     let _ = phys_addr; // 确保编译器知道我们使用了物理地址
@@ -350,11 +361,11 @@ impl ZeroCopyIoOptimizer {
             .collect();
 
         for id in expired {
-            if let Some(buffer) = cache.remove(&id) {
-                if buffer.mapped {
-                    let mut stats = self.stats.write().unwrap();
-                    stats.unmappings += 1;
-                }
+            if let Some(buffer) = cache.remove(&id)
+                && buffer.mapped
+            {
+                let mut stats = self.stats.write().unwrap();
+                stats.unmappings += 1;
             }
         }
     }
@@ -382,10 +393,11 @@ impl ZeroCopyIoOptimizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_core::GuestAddr;
 
     #[test]
     fn test_zero_copy_buffer_lifecycle() {
-        let mut buffer = ZeroCopyBuffer::new(1, 0x1000, 4096);
+        let mut buffer = ZeroCopyBuffer::new(1, GuestAddr(0x1000), 4096);
 
         assert_eq!(buffer.ref_count(), 1);
         assert!(!buffer.is_expired(std::time::Duration::from_secs(1)));
@@ -412,10 +424,12 @@ mod tests {
     #[test]
     fn test_buffer_creation_and_release() {
         let config = ZeroCopyConfig::default();
-        let optimizer = ZeroCopyIoOptimizer::new(config);
+        let mut optimizer = ZeroCopyIoOptimizer::new(config);
 
         // 创建缓冲区
-        let buffer_id = optimizer.get_or_create_buffer(0x1000, 4096).unwrap();
+        let buffer_id = optimizer
+            .get_or_create_buffer(GuestAddr(0x1000), 4096)
+            .unwrap();
 
         {
             let stats = optimizer.stats();
@@ -424,7 +438,9 @@ mod tests {
         }
 
         // 再次获取相同缓冲区（应该命中缓存）
-        let buffer_id2 = optimizer.get_or_create_buffer(0x1000, 4096).unwrap();
+        let buffer_id2 = optimizer
+            .get_or_create_buffer(GuestAddr(0x1000), 4096)
+            .unwrap();
         assert_eq!(buffer_id, buffer_id2);
 
         {

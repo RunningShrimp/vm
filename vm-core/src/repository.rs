@@ -312,9 +312,9 @@ impl InMemoryAggregateRepository {
         // 解析exec_mode
         let exec_mode = if snapshot.exec_mode.contains("Jit") || snapshot.exec_mode.contains("JIT")
         {
-            ExecMode::Jit
-        } else if snapshot.exec_mode.contains("Hybrid") {
-            ExecMode::Hybrid
+            ExecMode::JIT
+        } else if snapshot.exec_mode.contains("Hybrid") || snapshot.exec_mode.contains("Hardware") {
+            ExecMode::HardwareAssisted
         } else if snapshot.exec_mode.contains("Accel") {
             ExecMode::Accelerated
         } else {

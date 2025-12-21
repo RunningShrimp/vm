@@ -8,6 +8,8 @@ path = "src/lib.rs"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
+# alloc is a built-in Rust core library
+hashbrown = { version = "0.16", optional = true }
 memmap2 = { version = "0.9", optional = true }
 libc = "0.2"
 lru = "0.16"
@@ -17,6 +19,8 @@ crossbeam = "0.8"
 async-trait = { version = "0.1", optional = true }
 tokio = { version = "1.48", features = ["fs", "io-util", "sync"], optional = true }
 thiserror = "2.0"
+log = "0.4"
+tracing = "0.1"
 
 [dev-dependencies]
 criterion = "0.8"
@@ -29,12 +33,23 @@ harness = false
 name = "tlb_optimized"
 harness = false
 
+[[bench]]
+name = "tlb_performance"
+harness = false
+
 [features]
 default = ["std", "tlb-basic"]
+# Standard library support
 std = []
+no_std = ["hashbrown"]
+# Async support
 async = ["tokio", "async-trait"]
+# Memory mapping
 memmap = ["memmap2"]
-no_std = []
+# TLB implementation levels
 tlb-basic = []
 tlb-optimized = []
 tlb-concurrent = []
+# GC and memory optimizer modules (merged from separate packages)
+gc-optimizer = []
+memory-optimizer = []

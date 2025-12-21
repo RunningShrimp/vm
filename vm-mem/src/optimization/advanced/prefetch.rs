@@ -2,14 +2,14 @@
 //!
 //! 实现高效的地址翻译预取和缓存机制
 
+use crate::mmu::{PageTableFlags, PageWalkResult};
 use crate::{GuestAddr, VmError};
-use crate::mmu::{PageWalkResult, PageTableFlags};
-use vm_core::AccessType;
+use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use vm_core::AccessType;
 
 /// 预取策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,11 +119,14 @@ impl AccessHistory {
         let mut differences = Vec::with_capacity(addresses.len() - 1);
 
         for i in 1..addresses.len() {
-            differences.push(addresses[i].0.wrapping_sub(addresses[i-1].0));
+            differences.push(addresses[i].0.wrapping_sub(addresses[i - 1].0));
         }
 
         // 检查是否为顺序访问
-        let sequential_count = differences.iter().filter(|&&diff| diff == 4096 || diff == 1).count();
+        let sequential_count = differences
+            .iter()
+            .filter(|&&diff| diff == 4096 || diff == 1)
+            .count();
         if sequential_count as f64 / differences.len() as f64 > 0.8 {
             return AccessPattern::Sequential;
         }
@@ -131,7 +134,10 @@ impl AccessHistory {
         // 检查是否为步长访问
         if differences.len() >= 2 {
             let first_diff = differences[0];
-            let stride_count = differences.iter().filter(|&&diff| diff == first_diff).count();
+            let stride_count = differences
+                .iter()
+                .filter(|&&diff| diff == first_diff)
+                .count();
             if stride_count as f64 / differences.len() as f64 > 0.8 {
                 return AccessPattern::Strided { stride: first_diff };
             }
@@ -221,8 +227,12 @@ impl Clone for PrefetchStats {
             prefetch_count: AtomicU64::new(self.prefetch_count.load(Ordering::Relaxed)),
             prefetch_hits: AtomicU64::new(self.prefetch_hits.load(Ordering::Relaxed)),
             prefetch_misses: AtomicU64::new(self.prefetch_misses.load(Ordering::Relaxed)),
-            total_translation_time_ns: AtomicU64::new(self.total_translation_time_ns.load(Ordering::Relaxed)),
-            avg_translation_time_ns: AtomicU64::new(self.avg_translation_time_ns.load(Ordering::Relaxed)),
+            total_translation_time_ns: AtomicU64::new(
+                self.total_translation_time_ns.load(Ordering::Relaxed),
+            ),
+            avg_translation_time_ns: AtomicU64::new(
+                self.avg_translation_time_ns.load(Ordering::Relaxed),
+            ),
         }
     }
 }
@@ -304,17 +314,18 @@ pub struct TranslationPrefetcher {
     /// 统计信息
     stats: Arc<PrefetchStats>,
     /// 地址翻译函数
-    translate_fn: Box<dyn Fn(GuestAddr, u16, AccessType) -> Result<PageWalkResult, VmError> + Send + Sync>,
+    translate_fn:
+        Box<dyn Fn(GuestAddr, u16, AccessType) -> Result<PageWalkResult, VmError> + Send + Sync>,
 }
 
 impl TranslationPrefetcher {
     /// 创建新的预取器
-    pub fn new<F>(
-        config: PrefetchConfig,
-        translate_fn: F,
-    ) -> Self
+    pub fn new<F>(config: PrefetchConfig, translate_fn: F) -> Self
     where
-        F: Fn(GuestAddr, u16, AccessType) -> Result<PageWalkResult, VmError> + Send + Sync + 'static,
+        F: Fn(GuestAddr, u16, AccessType) -> Result<PageWalkResult, VmError>
+            + Send
+            + Sync
+            + 'static,
     {
         Self {
             config,
@@ -329,7 +340,10 @@ impl TranslationPrefetcher {
     /// 使用默认配置创建预取器
     pub fn with_default_config<F>(translate_fn: F) -> Self
     where
-        F: Fn(GuestAddr, u16, AccessType) -> Result<PageWalkResult, VmError> + Send + Sync + 'static,
+        F: Fn(GuestAddr, u16, AccessType) -> Result<PageWalkResult, VmError>
+            + Send
+            + Sync
+            + 'static,
     {
         Self::new(PrefetchConfig::default(), translate_fn)
     }
@@ -345,32 +359,39 @@ impl TranslationPrefetcher {
     }
 
     /// 翻译地址（带预取）
-    pub fn translate(&self, gva: GuestAddr, asid: u16, access_type: AccessType) -> Result<TranslationResult, VmError> {
+    pub fn translate(
+        &self,
+        gva: GuestAddr,
+        asid: u16,
+        access_type: AccessType,
+    ) -> Result<TranslationResult, VmError> {
         let start_time = Instant::now();
-        
+
         // 更新统计信息
-        self.stats.total_translations.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .total_translations
+            .fetch_add(1, Ordering::Relaxed);
 
         // 检查缓存
         let page_base = GuestAddr(gva.0 & !(4096 - 1)); // 页对齐
         let cache_key = (page_base, asid);
-        
+
         {
-            let cache = self.translation_cache.lock().unwrap();
+            let cache = self.translation_cache.lock();
             if let Some(cached_result) = cache.get(&cache_key) {
                 self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
-                
+
                 // 更新访问历史
                 self.update_access_history(gva, asid, access_type);
-                
+
                 // 触发预取
                 self.trigger_prefetch(gva, asid, access_type);
-                
+
                 return Ok(TranslationResult {
                     gva,
                     gpa: cached_result.gpa + (gva - cached_result.gva),
                     page_size: cached_result.page_size,
-                    flags: cached_result.flags.clone(),
+                    flags: cached_result.flags,
                     from_cache: true,
                     translation_time_ns: start_time.elapsed().as_nanos() as u64,
                 });
@@ -380,21 +401,26 @@ impl TranslationPrefetcher {
         // 缓存未命中，进行翻译
         let page_walk_result = (self.translate_fn)(gva, asid, access_type)?;
         let translation_time = start_time.elapsed().as_nanos() as u64;
-        
+
         // 更新统计信息
-        self.stats.total_translation_time_ns.fetch_add(translation_time, Ordering::Relaxed);
+        self.stats
+            .total_translation_time_ns
+            .fetch_add(translation_time, Ordering::Relaxed);
 
         // 更新缓存
         {
-            let mut cache = self.translation_cache.lock().unwrap();
-            cache.insert(cache_key, TranslationResult {
-                gva: page_base,
-                gpa: GuestAddr(page_walk_result.gpa & !(4096 - 1)),
-                page_size: page_walk_result.page_size,
-                flags: page_walk_result.flags.clone(),
-                from_cache: false,
-                translation_time_ns: translation_time,
-            });
+            let mut cache = self.translation_cache.lock();
+            cache.insert(
+                cache_key,
+                TranslationResult {
+                    gva: page_base,
+                    gpa: GuestAddr(page_walk_result.gpa & !(4096 - 1)),
+                    page_size: page_walk_result.page_size,
+                    flags: page_walk_result.flags,
+                    from_cache: false,
+                    translation_time_ns: translation_time,
+                },
+            );
         }
 
         // 更新访问历史
@@ -415,17 +441,17 @@ impl TranslationPrefetcher {
 
     /// 更新访问历史
     fn update_access_history(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
-        let mut histories = self.access_history.lock().unwrap();
-        let history = histories.entry(asid).or_insert_with(|| {
-            AccessHistory::new(self.config.access_history_size)
-        });
+        let mut histories = self.access_history.lock();
+        let history = histories
+            .entry(asid)
+            .or_insert_with(|| AccessHistory::new(self.config.access_history_size));
         history.add_access(gva, access_type);
     }
 
     /// 触发预取
     fn trigger_prefetch(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
         match self.config.strategy {
-            PrefetchStrategy::None => return,
+            PrefetchStrategy::None => (),
             PrefetchStrategy::FixedDistance => self.prefetch_fixed_distance(gva, asid, access_type),
             PrefetchStrategy::Adaptive => self.prefetch_adaptive(gva, asid, access_type),
             PrefetchStrategy::PatternBased => self.prefetch_pattern_based(gva, asid, access_type),
@@ -437,7 +463,7 @@ impl TranslationPrefetcher {
     fn prefetch_fixed_distance(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
         let page_size = 4096;
         let current_page = gva.0 & !(page_size - 1);
-        
+
         for i in 1..=self.config.fixed_distance {
             let prefetch_gva = GuestAddr(current_page + i as u64 * page_size);
             self.enqueue_prefetch_request(prefetch_gva, asid, access_type);
@@ -446,24 +472,25 @@ impl TranslationPrefetcher {
 
     /// 自适应预取
     fn prefetch_adaptive(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
-        let histories = self.access_history.lock().unwrap();
+        let histories = self.access_history.lock();
         if let Some(history) = histories.get(&asid) {
             let pattern = history.analyze_pattern();
-            
+
             match pattern {
                 AccessPattern::Sequential => {
                     // 顺序访问，预取后续几页
                     let page_size = 4096;
                     let current_page = gva.0 & !(page_size - 1);
-                    
+
                     // 根据历史命中率调整预取距离
                     let stats = self.stats.snapshot();
-                    let prefetch_distance = if stats.prefetch_hit_rate() > self.config.prefetch_hit_threshold {
-                        self.config.max_distance.min(self.config.fixed_distance * 2)
-                    } else {
-                        self.config.fixed_distance
-                    };
-                    
+                    let prefetch_distance =
+                        if stats.prefetch_hit_rate() > self.config.prefetch_hit_threshold {
+                            self.config.max_distance.min(self.config.fixed_distance * 2)
+                        } else {
+                            self.config.fixed_distance
+                        };
+
                     for i in 1..=prefetch_distance {
                         let prefetch_gva = GuestAddr(current_page + i as u64 * page_size);
                         self.enqueue_prefetch_request(prefetch_gva, asid, access_type);
@@ -483,32 +510,32 @@ impl TranslationPrefetcher {
 
     /// 基于模式的预取
     fn prefetch_pattern_based(&self, _gva: GuestAddr, asid: u16, access_type: AccessType) {
-        let histories = self.access_history.lock().unwrap();
-        if let Some(history) = histories.get(&asid) {
-            if let Some(next_addr) = history.predict_next_address() {
-                self.enqueue_prefetch_request(next_addr, asid, access_type);
-            }
+        let histories = self.access_history.lock();
+        if let Some(history) = histories.get(&asid)
+            && let Some(next_addr) = history.predict_next_address()
+        {
+            self.enqueue_prefetch_request(next_addr, asid, access_type);
         }
     }
 
     /// 流式预取
     fn prefetch_stream_based(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
         // 检查是否为连续访问
-        let histories = self.access_history.lock().unwrap();
-        if let Some(history) = histories.get(&asid) {
-            if history.addresses.len() >= 2 {
-                let last_addr = *history.addresses.back().unwrap();
-                let second_last_addr = history.addresses[history.addresses.len() - 2];
-                
-                // 如果是连续页访问，预取后续流
-                if (last_addr.0 & !(4096 - 1)) == (second_last_addr.0 & !(4096 - 1)) + 4096 {
-                    let page_size = 4096;
-                    let current_page = gva.0 & !(page_size - 1);
-                    
-                    for i in 1..=self.config.fixed_distance {
-                        let prefetch_gva = GuestAddr(current_page + i as u64 * page_size);
-                        self.enqueue_prefetch_request(prefetch_gva, asid, access_type);
-                    }
+        let histories = self.access_history.lock();
+        if let Some(history) = histories.get(&asid)
+            && history.addresses.len() >= 2
+        {
+            let last_addr = *history.addresses.back().unwrap();
+            let second_last_addr = history.addresses[history.addresses.len() - 2];
+
+            // 如果是连续页访问，预取后续流
+            if (last_addr.0 & !(4096 - 1)) == (second_last_addr.0 & !(4096 - 1)) + 4096 {
+                let page_size = 4096;
+                let current_page = gva.0 & !(page_size - 1);
+
+                for i in 1..=self.config.fixed_distance {
+                    let prefetch_gva = GuestAddr(current_page + i as u64 * page_size);
+                    self.enqueue_prefetch_request(prefetch_gva, asid, access_type);
                 }
             }
         }
@@ -516,20 +543,20 @@ impl TranslationPrefetcher {
 
     /// 将预取请求加入队列
     fn enqueue_prefetch_request(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
-        let mut queue = self.prefetch_queue.lock().unwrap();
-        
+        let mut queue = self.prefetch_queue.lock();
+
         // 检查队列大小
         if queue.len() >= self.config.prefetch_queue_size {
             return;
         }
-        
+
         // 检查是否已在队列中
         for request in queue.iter() {
             if request.gva == gva && request.asid == asid {
                 return;
             }
         }
-        
+
         // 添加到队列
         queue.push_back(TranslationRequest {
             gva,
@@ -538,20 +565,20 @@ impl TranslationPrefetcher {
             timestamp: Instant::now(),
             is_prefetch: true,
         });
-        
+
         self.stats.prefetch_count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 处理预取队列
     pub fn process_prefetch_queue(&self) {
-        let mut queue = self.prefetch_queue.lock().unwrap();
+        let mut queue = self.prefetch_queue.lock();
         let now = Instant::now();
         let timeout = Duration::from_millis(self.config.prefetch_timeout_ms);
-        
+
         // 收集超时的请求
         let mut expired_requests = Vec::new();
         let mut remaining_requests = VecDeque::new();
-        
+
         while let Some(request) = queue.pop_front() {
             if now.duration_since(request.timestamp) > timeout {
                 expired_requests.push(request);
@@ -559,13 +586,13 @@ impl TranslationPrefetcher {
                 remaining_requests.push_back(request);
             }
         }
-        
+
         // 更新队列
         *queue = remaining_requests;
-        
+
         // 处理超时的请求
         drop(queue); // 释放锁
-        
+
         for request in expired_requests {
             self.process_prefetch_request(request);
         }
@@ -575,30 +602,33 @@ impl TranslationPrefetcher {
     fn process_prefetch_request(&self, request: TranslationRequest) {
         let page_base = GuestAddr(request.gva.0 & !(4096 - 1)); // 页对齐
         let cache_key = (page_base, request.asid);
-        
+
         // 检查是否已在缓存中
         {
-            let cache = self.translation_cache.lock().unwrap();
+            let cache = self.translation_cache.lock();
             if cache.contains_key(&cache_key) {
                 self.stats.prefetch_hits.fetch_add(1, Ordering::Relaxed);
                 return;
             }
         }
-        
+
         // 执行预取翻译
         match (self.translate_fn)(request.gva, request.asid, request.access_type) {
             Ok(page_walk_result) => {
                 // 更新缓存
-                let mut cache = self.translation_cache.lock().unwrap();
-                cache.insert(cache_key, TranslationResult {
-                    gva: page_base,
-                    gpa: GuestAddr(page_walk_result.gpa & !(4096 - 1)),
-                    page_size: page_walk_result.page_size,
-                    flags: page_walk_result.flags,
-                    from_cache: false,
-                    translation_time_ns: 0,
-                });
-                
+                let mut cache = self.translation_cache.lock();
+                cache.insert(
+                    cache_key,
+                    TranslationResult {
+                        gva: page_base,
+                        gpa: GuestAddr(page_walk_result.gpa & !(4096 - 1)),
+                        page_size: page_walk_result.page_size,
+                        flags: page_walk_result.flags,
+                        from_cache: false,
+                        translation_time_ns: 0,
+                    },
+                );
+
                 self.stats.prefetch_hits.fetch_add(1, Ordering::Relaxed);
             }
             Err(_) => {
@@ -609,13 +639,13 @@ impl TranslationPrefetcher {
 
     /// 清理翻译缓存
     pub fn clear_cache(&self) {
-        let mut cache = self.translation_cache.lock().unwrap();
+        let mut cache = self.translation_cache.lock();
         cache.clear();
     }
 
     /// 清理访问历史
     pub fn clear_history(&self) {
-        let mut histories = self.access_history.lock().unwrap();
+        let mut histories = self.access_history.lock();
         histories.clear();
     }
 }
@@ -625,7 +655,11 @@ mod tests {
     use super::*;
     use crate::mmu::PageTableFlags;
 
-    fn mock_translate_fn(gva: GuestAddr, _asid: u16, _access_type: AccessType) -> Result<PageWalkResult, VmError> {
+    fn mock_translate_fn(
+        gva: GuestAddr,
+        _asid: u16,
+        _access_type: AccessType,
+    ) -> Result<PageWalkResult, VmError> {
         Ok(PageWalkResult {
             gpa: gva + 0x1000_0000,
             page_size: 4096,
@@ -636,20 +670,20 @@ mod tests {
     #[test]
     fn test_access_history() {
         let mut history = AccessHistory::new(5);
-        
-        history.add_access(0x1000, AccessType::Read);
-        history.add_access(0x2000, AccessType::Read);
-        history.add_access(0x3000, AccessType::Read);
-        
+
+        history.add_access(GuestAddr(0x1000), AccessType::Read);
+        history.add_access(GuestAddr(0x2000), AccessType::Read);
+        history.add_access(GuestAddr(0x3000), AccessType::Read);
+
         assert_eq!(history.addresses.len(), 3);
-        assert_eq!(history.addresses[0], 0x1000);
-        assert_eq!(history.addresses[2], 0x3000);
-        
+        assert_eq!(history.addresses[0], GuestAddr(0x1000));
+        assert_eq!(history.addresses[2], GuestAddr(0x3000));
+
         let pattern = history.analyze_pattern();
         assert_eq!(pattern, AccessPattern::Sequential);
-        
+
         let next_addr = history.predict_next_address();
-        assert_eq!(next_addr, Some(0x4000));
+        assert_eq!(next_addr, Some(GuestAddr(0x4000)));
     }
 
     #[test]
@@ -662,18 +696,22 @@ mod tests {
     #[test]
     fn test_translation() {
         let prefetcher = TranslationPrefetcher::with_default_config(mock_translate_fn);
-        
-        let result = prefetcher.translate(0x1000, 0, AccessType::Read).unwrap();
-        assert_eq!(result.gva, 0x1000);
-        assert_eq!(result.gpa, 0x1000_1000);
+
+        let result = prefetcher
+            .translate(GuestAddr(0x1000), 0, AccessType::Read)
+            .unwrap();
+        assert_eq!(result.gva, GuestAddr(0x1000));
+        assert_eq!(result.gpa, GuestAddr(0x1000_1000));
         assert!(!result.from_cache);
-        
+
         // 第二次翻译应该命中缓存
-        let result = prefetcher.translate(0x1000, 0, AccessType::Read).unwrap();
-        assert_eq!(result.gva, 0x1000);
-        assert_eq!(result.gpa, 0x1000_1000);
+        let result = prefetcher
+            .translate(GuestAddr(0x1000), 0, AccessType::Read)
+            .unwrap();
+        assert_eq!(result.gva, GuestAddr(0x1000));
+        assert_eq!(result.gpa, GuestAddr(0x1000_1000));
         assert!(result.from_cache);
-        
+
         let stats = prefetcher.get_stats();
         assert_eq!(stats.total_translations, 2);
         assert_eq!(stats.cache_hits, 1);
@@ -686,7 +724,7 @@ mod tests {
             fixed_distance: 3,
             ..Default::default()
         };
-        
+
         assert_eq!(config.strategy, PrefetchStrategy::FixedDistance);
         assert_eq!(config.fixed_distance, 3);
     }

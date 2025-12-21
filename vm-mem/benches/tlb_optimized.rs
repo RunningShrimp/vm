@@ -2,15 +2,13 @@
 //!
 //! 测试多级TLB和并发TLB的性能表现
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use parking_lot::RwLock;
+use std::hint::black_box;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
-use vm_core::{AccessType, MMU};
-use vm_mem::{
-    ConcurrentTlbConfig, MmuOptimizationStrategy, MultiLevelTlbConfig, SoftMmu, UnifiedMmu,
-    UnifiedMmuConfig,
-};
+use vm_core::{AccessType, mmu_traits::AddressTranslator};
+use vm_mem::{MmuOptimizationStrategy, MultiLevelTlbConfig, SoftMmu, UnifiedMmu, UnifiedMmuConfig};
 
 /// 基准测试：原始TLB vs 多级TLB
 fn bench_multilevel_vs_original(c: &mut Criterion) {
@@ -22,13 +20,13 @@ fn bench_multilevel_vs_original(c: &mut Criterion) {
     // 多级TLB优化的MMU
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::MultiLevel,
-        multilevel_tlb_config: MultiLevelTlbConfig {
+        unified_tlb_config: MultiLevelTlbConfig {
             l1_capacity: 64,
             l2_capacity: 256,
             l3_capacity: 1024,
             ..Default::default()
-        },
-        concurrent_tlb_config: ConcurrentTlbConfig::default(),
+        }
+        .into(),
         ..Default::default()
     };
     let mut multilevel_mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -36,16 +34,16 @@ fn bench_multilevel_vs_original(c: &mut Criterion) {
     // 预热阶段
     for i in 0..1000 {
         let addr = (i * 4096) as u64;
-        let _ = original_mmu.translate(addr, AccessType::Read);
-        let _ = multilevel_mmu.translate(addr, AccessType::Read);
+        let _ = original_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
+        let _ = multilevel_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
 
     // 基准测试
     group.bench_function("original_tlb", |b| {
         b.iter(|| {
             for i in 0..1000 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = original_mmu.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let _ = original_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -53,8 +51,8 @@ fn bench_multilevel_vs_original(c: &mut Criterion) {
     group.bench_function("multilevel_tlb", |b| {
         b.iter(|| {
             for i in 0..1000 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = multilevel_mmu.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let _ = multilevel_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -69,29 +67,28 @@ fn bench_concurrent_tlb(c: &mut Criterion) {
     // 并发TLB配置
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::Concurrent,
-        concurrent_tlb_config: ConcurrentTlbConfig {
-            sharded_capacity: 4096,
-            shard_count: 16,
-            fast_path_capacity: 64,
-            ..Default::default()
-        },
-        multilevel_tlb_config: MultiLevelTlbConfig::default(),
         ..Default::default()
     };
-    let concurrent_mmu = Arc::new(UnifiedMmu::new(64 * 1024 * 1024, false, config));
+    let concurrent_mmu = Arc::new(RwLock::new(UnifiedMmu::new(
+        64 * 1024 * 1024,
+        false,
+        config,
+    )));
 
     // 预热
     for i in 0..1000 {
         let addr = (i * 4096) as u64;
-        let _ = concurrent_mmu.translate(addr, AccessType::Read);
+        let mut mmu_guard = concurrent_mmu.write();
+        let _ = mmu_guard.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
 
     // 单线程基准
     group.bench_function("concurrent_single_thread", |b| {
         b.iter(|| {
             for i in 0..1000 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = concurrent_mmu.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let mut mmu_guard = concurrent_mmu.write();
+                let _ = mmu_guard.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -111,7 +108,9 @@ fn bench_concurrent_tlb(c: &mut Criterion) {
                         let handle = thread::spawn(move || {
                             for i in 0..iterations_per_thread {
                                 let addr = ((t * iterations_per_thread + i) * 4096) as u64;
-                                let _ = mmu_clone.translate(addr, AccessType::Read);
+                                let mut mmu_guard = mmu_clone.write();
+                                let _ =
+                                    mmu_guard.translate(vm_core::GuestAddr(addr), AccessType::Read);
                             }
                         });
                         handles.push(handle);
@@ -135,8 +134,7 @@ fn bench_hybrid_strategy(c: &mut Criterion) {
     // 混合策略配置
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::Hybrid,
-        multilevel_tlb_config: MultiLevelTlbConfig::default(),
-        concurrent_tlb_config: ConcurrentTlbConfig::default(),
+        unified_tlb_config: MultiLevelTlbConfig::default().into(),
         enable_prefetch: true,
         prefetch_window: 4,
         ..Default::default()
@@ -146,15 +144,15 @@ fn bench_hybrid_strategy(c: &mut Criterion) {
     // 预热
     for i in 0..1000 {
         let addr = (i * 4096) as u64;
-        let _ = hybrid_mmu.translate(addr, AccessType::Read);
+        let _ = hybrid_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
 
     group.bench_function("hybrid_with_prefetch", |b| {
         b.iter(|| {
             // 顺序访问模式（测试预取效果）
             for i in 0..1000 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = hybrid_mmu.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let _ = hybrid_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -164,7 +162,7 @@ fn bench_hybrid_strategy(c: &mut Criterion) {
             // 随机访问模式
             for i in 0..1000 {
                 let addr = black_box(((i * 17) % 1000 * 4096) as u64);
-                let _ = hybrid_mmu.translate(addr, AccessType::Read);
+                let _ = hybrid_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -180,13 +178,13 @@ fn bench_tlb_hit_rates(c: &mut Criterion) {
     for working_set_size in [64, 256, 1024, 4096].iter() {
         let config = UnifiedMmuConfig {
             strategy: MmuOptimizationStrategy::MultiLevel,
-            multilevel_tlb_config: MultiLevelTlbConfig {
+            unified_tlb_config: MultiLevelTlbConfig {
                 l1_capacity: *working_set_size / 4,
                 l2_capacity: *working_set_size / 2,
                 l3_capacity: *working_set_size,
                 ..Default::default()
-            },
-            concurrent_tlb_config: ConcurrentTlbConfig::default(),
+            }
+            .into(),
             ..Default::default()
         };
         let mut mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -194,7 +192,7 @@ fn bench_tlb_hit_rates(c: &mut Criterion) {
         // 预热工作集
         for i in 0..*working_set_size {
             let addr = (i * 4096) as u64;
-            let _ = mmu.translate(addr, AccessType::Read);
+            let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
         }
 
         group.bench_with_input(
@@ -211,7 +209,7 @@ fn bench_tlb_hit_rates(c: &mut Criterion) {
                             // 冷地址：随机访问
                             black_box(((i * 13) % working_set_size * 4096) as u64)
                         };
-                        let _ = mmu.translate(addr, AccessType::Read);
+                        let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
                     }
                 })
             },
@@ -246,8 +244,8 @@ fn bench_prefetch_effectiveness(c: &mut Criterion) {
     group.bench_function("no_prefetch_sequential", |b| {
         b.iter(|| {
             for i in 0..1000 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = mmu_no_prefetch.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let _ = mmu_no_prefetch.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -255,8 +253,8 @@ fn bench_prefetch_effectiveness(c: &mut Criterion) {
     group.bench_function("with_prefetch_sequential", |b| {
         b.iter(|| {
             for i in 0..1000 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = mmu_with_prefetch.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let _ = mmu_with_prefetch.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -278,15 +276,15 @@ fn bench_memory_access_patterns(c: &mut Criterion) {
     // 预热
     for i in 0..1000 {
         let addr = (i * 4096) as u64;
-        let _ = mmu.translate(addr, AccessType::Read);
+        let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
 
     // 顺序访问
     group.bench_function("sequential_access", |b| {
         b.iter(|| {
             for i in 0..1000 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = mmu.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -296,7 +294,7 @@ fn bench_memory_access_patterns(c: &mut Criterion) {
         b.iter(|| {
             for i in 0..1000 {
                 let addr = black_box(((i * 17) % 1000 * 4096) as u64);
-                let _ = mmu.translate(addr, AccessType::Read);
+                let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -306,7 +304,7 @@ fn bench_memory_access_patterns(c: &mut Criterion) {
         b.iter(|| {
             for i in 0..1000 {
                 let addr = black_box(((i * 31) % 1000 * 4096) as u64);
-                let _ = mmu.translate(addr, AccessType::Read);
+                let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });
@@ -321,13 +319,13 @@ fn bench_tlb_capacity_impact(c: &mut Criterion) {
     for capacity in [128, 512, 1024, 2048, 4096].iter() {
         let config = UnifiedMmuConfig {
             strategy: MmuOptimizationStrategy::MultiLevel,
-            multilevel_tlb_config: MultiLevelTlbConfig {
+            unified_tlb_config: MultiLevelTlbConfig {
                 l1_capacity: *capacity / 4,
                 l2_capacity: *capacity / 2,
                 l3_capacity: *capacity,
                 ..Default::default()
-            },
-            concurrent_tlb_config: ConcurrentTlbConfig::default(),
+            }
+            .into(),
             ..Default::default()
         };
         let mut mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -335,7 +333,7 @@ fn bench_tlb_capacity_impact(c: &mut Criterion) {
         // 预热到容量的80%
         for i in 0..(*capacity * 8 / 10) {
             let addr = (i * 4096) as u64;
-            let _ = mmu.translate(addr, AccessType::Read);
+            let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
         }
 
         group.bench_with_input(
@@ -346,7 +344,7 @@ fn bench_tlb_capacity_impact(c: &mut Criterion) {
                     // 在工作集内访问
                     for i in 0..1000 {
                         let addr = black_box(((i % (*capacity * 8 / 10)) * 4096) as u64);
-                        let _ = mmu.translate(addr, AccessType::Read);
+                        let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
                     }
                 })
             },
@@ -366,14 +364,14 @@ fn bench_latency_analysis(c: &mut Criterion) {
     // 预热
     for i in 0..100 {
         let addr = (i * 4096) as u64;
-        let _ = mmu.translate(addr, AccessType::Read);
+        let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
 
     // 测量单次翻译延迟
     group.bench_function("single_translation_latency", |b| {
         b.iter(|| {
             let addr = black_box(0x1000);
-            let _ = mmu.translate(addr, AccessType::Read);
+            let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
         })
     });
 
@@ -381,8 +379,8 @@ fn bench_latency_analysis(c: &mut Criterion) {
     group.bench_function("batch_translation_latency", |b| {
         b.iter(|| {
             for i in 0..100 {
-                let addr = black_box((i * 4096) as u64);
-                let _ = mmu.translate(addr, AccessType::Read);
+                let addr = std::hint::black_box((i * 4096) as u64);
+                let _ = mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         })
     });

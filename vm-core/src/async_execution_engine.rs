@@ -24,7 +24,6 @@
 //! }
 //! ```
 
-#[allow(unused_imports)]
 use crate::{ExecResult, GuestAddr, VmError};
 
 #[cfg(feature = "async")]

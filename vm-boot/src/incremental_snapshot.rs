@@ -128,16 +128,16 @@ impl IncrementalSnapshotManager {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().and_then(|s| s.to_str()) == Some("meta") {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    let metadata_json = std::fs::read_to_string(&path)?;
-                    if let Ok(metadata) = serde_json::from_str::<SnapshotMetadata>(&metadata_json) {
-                        self.snapshots.insert(stem.to_string(), metadata);
+            if path.extension().and_then(|s| s.to_str()) == Some("meta")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                let metadata_json = std::fs::read_to_string(&path)?;
+                if let Ok(metadata) = serde_json::from_str::<SnapshotMetadata>(&metadata_json) {
+                    self.snapshots.insert(stem.to_string(), metadata);
 
-                        // 如果启用索引，加载索引
-                        if self.config.enable_index {
-                            self.load_snapshot_index(stem)?;
-                        }
+                    // 如果启用索引，加载索引
+                    if self.config.enable_index {
+                        self.load_snapshot_index(stem)?;
                     }
                 }
             }
@@ -521,8 +521,9 @@ impl IncrementalSnapshotManager {
 
     /// 获取快照统计信息
     pub fn get_snapshot_stats(&self, snapshot_id: &str) -> Option<SnapshotStats> {
-        if let Some(metadata) = self.snapshots.get(snapshot_id) {
-            Some(SnapshotStats {
+        self.snapshots
+            .get(snapshot_id)
+            .map(|metadata| SnapshotStats {
                 id: metadata.id.clone(),
                 size: metadata.snapshot_size,
                 memory_size: metadata.memory_size,
@@ -534,9 +535,6 @@ impl IncrementalSnapshotManager {
                 dirty_pages: metadata.dirty_pages,
                 created_at: metadata.created_at,
             })
-        } else {
-            None
-        }
     }
 
     /// 清理旧快照（保留最近的N个）

@@ -6,12 +6,69 @@ use std::collections::HashMap;
 use vm_core::{Decoder, GuestAddr, MMU, VmError};
 use vm_ir::{IRBlock, IRBuilder, Terminator};
 
+// 代码生成配置模块
+pub mod config;
+pub use config::{CodegenMode, CodegenStats, CompilationOptions, OptimizationLevel};
+
+// Cranelift代码生成模块
+#[cfg(feature = "cranelift-backend")]
+pub mod codegen_cranelift;
+#[cfg(feature = "cranelift-backend")]
+pub use codegen_cranelift::CraneliftCodeGenerator;
+
 // 导出前端生成器
 pub mod frontend_generator;
 pub use frontend_generator::{
-    FrontendCodeGenerator, GenericInstruction,
-    create_instruction_spec, create_instruction_set
+    FrontendCodeGenerator, GenericInstruction, create_instruction_set, create_instruction_spec,
 };
+
+/// 指令规范
+#[derive(Debug, Clone)]
+pub struct InstructionSpec {
+    /// 指令助记符
+    pub mnemonic: String,
+    /// 指令描述
+    pub description: String,
+    /// 位掩码
+    pub mask: u32,
+    /// 位模式
+    pub pattern: u32,
+    /// 处理代码
+    pub handler_code: String,
+}
+
+/// 指令集定义
+pub struct InstructionSet {
+    pub name: String,
+    pub instructions: Vec<InstructionSpec>,
+}
+
+impl InstructionSet {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            instructions: Vec::new(),
+        }
+    }
+
+    pub fn add_instruction(&mut self, spec: InstructionSpec) {
+        self.instructions.push(spec);
+    }
+
+    pub fn get_instruction(&self, mnemonic: &str) -> Option<&InstructionSpec> {
+        self.instructions
+            .iter()
+            .find(|spec| spec.mnemonic == mnemonic)
+    }
+
+    pub fn len(&self) -> usize {
+        self.instructions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
+    }
+}
 
 /// 指令字段提取器
 pub trait FieldExtractor {
@@ -35,10 +92,16 @@ impl FieldExtractor for StandardFieldExtractor {
     }
 }
 
+/// 指令处理函数类型别名
+type InstructionHandler<F> =
+    Box<dyn Fn(&mut IRBuilder, u64, &F) -> Result<(), VmError> + Send + Sync>;
+
+/// 指令工厂函数类型别名
+type InstructionFactory<I> = Box<dyn Fn(&str, GuestAddr, bool, bool) -> I + Send + Sync>;
+
 /// 指令模式匹配器
 pub struct PatternMatcher<F: FieldExtractor> {
-    patterns:
-        HashMap<u64, Box<dyn Fn(&mut IRBuilder, u64, &F) -> Result<(), VmError> + Send + Sync>>,
+    patterns: HashMap<u64, InstructionHandler<F>>,
     extractor: F,
 }
 
@@ -77,14 +140,11 @@ impl<F: FieldExtractor> PatternMatcher<F> {
 /// 通用指令解码器
 pub struct GenericDecoder<F: FieldExtractor, I> {
     matcher: PatternMatcher<F>,
-    instruction_factory: Box<dyn Fn(&str, GuestAddr, bool, bool) -> I + Send + Sync>,
+    instruction_factory: InstructionFactory<I>,
 }
 
 impl<F: FieldExtractor + 'static, I> GenericDecoder<F, I> {
-    pub fn new(
-        extractor: F,
-        instruction_factory: Box<dyn Fn(&str, GuestAddr, bool, bool) -> I + Send + Sync>,
-    ) -> Self {
+    pub fn new(extractor: F, instruction_factory: InstructionFactory<I>) -> Self {
         Self {
             matcher: PatternMatcher::new(extractor),
             instruction_factory,
@@ -235,39 +295,7 @@ impl CodeGenerator {
     }
 }
 
-/// 指令规范
-#[derive(Debug, Clone)]
-pub struct InstructionSpec {
-    /// 指令助记符
-    pub mnemonic: String,
-    /// 指令描述
-    pub description: String,
-    /// 位掩码
-    pub mask: u32,
-    /// 位模式
-    pub pattern: u32,
-    /// 处理代码
-    pub handler_code: String,
-}
-
-/// 指令集定义
-pub struct InstructionSet {
-    pub name: String,
-    pub instructions: Vec<InstructionSpec>,
-}
-
 impl InstructionSet {
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            instructions: Vec::new(),
-        }
-    }
-
-    pub fn add_instruction(&mut self, spec: InstructionSpec) {
-        self.instructions.push(spec);
-    }
-
     /// 生成解码器代码
     pub fn generate_decoder(&self, config: &CodegenConfig) -> String {
         let mut generator = CodeGenerator::new(config.clone());
@@ -277,7 +305,6 @@ impl InstructionSet {
 }
 
 /// 宏辅助函数
-
 /// 创建指令规范
 #[macro_export]
 macro_rules! instruction_spec {
@@ -335,14 +362,14 @@ mod tests {
             0x14000000, // B指令opcode
             |builder, insn, extractor| {
                 let imm26 = extractor.extract_field(insn, 0, 26) as i32;
-                let offset = ((imm26 << 6) as i32 >> 6) * 4;
-                let target = builder.pc().wrapping_add(offset as u64);
+                let offset = (imm26 << 6 >> 6) * 4;
+                let target = builder.block.start_pc.wrapping_add(offset as u64);
                 builder.set_term(Terminator::Jmp { target });
                 Ok(())
             },
         );
 
-        let mut builder = IRBuilder::new(0x1000);
+        let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
 
         // 测试匹配
         let b_insn = 0x14000000; // B指令

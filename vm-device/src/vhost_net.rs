@@ -5,6 +5,12 @@ pub struct VhostNet {
     queues: Vec<Queue>,
 }
 
+impl Default for VhostNet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VhostNet {
     pub fn new() -> Self {
         Self {

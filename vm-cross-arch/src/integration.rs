@@ -96,7 +96,8 @@ impl CrossArchVm {
     /// 加载代码到内存
     pub fn load_code(&mut self, addr: u64, code: &[u8]) -> Result<(), VmError> {
         for (i, byte) in code.iter().enumerate() {
-            self.mmu.write(GuestAddr(addr + i as u64), *byte as u64, 1)?;
+            self.mmu
+                .write(GuestAddr(addr + i as u64), *byte as u64, 1)?;
         }
         Ok(())
     }

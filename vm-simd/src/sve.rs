@@ -314,9 +314,9 @@ pub fn sve_mul(a: &[u32], b: &[u32], pred: &SvePredicate) -> Vec<u32> {
 /// SVE 向量归约加法 (ADDV)
 pub fn sve_addv(a: &[u32], pred: &SvePredicate) -> u32 {
     let mut sum = 0u32;
-    for i in 0..a.len() {
+    for (i, &value) in a.iter().enumerate() {
         if pred.test(i) {
-            sum = sum.wrapping_add(a[i]);
+            sum = sum.wrapping_add(value);
         }
     }
     sum
@@ -327,9 +327,9 @@ pub fn sve_smaxv(a: &[i32], pred: &SvePredicate) -> i32 {
     let mut max_val = i32::MIN;
     let mut found = false;
 
-    for i in 0..a.len() {
-        if pred.test(i) && (!found || a[i] > max_val) {
-            max_val = a[i];
+    for (i, &value) in a.iter().enumerate() {
+        if pred.test(i) && (!found || value > max_val) {
+            max_val = value;
             found = true;
         }
     }

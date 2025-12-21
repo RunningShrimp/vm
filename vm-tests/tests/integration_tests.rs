@@ -1,4 +1,4 @@
-use vm_core::{ExecMode, GuestArch, MMU, VirtualMachine, VmConfig};
+use vm_core::{ExecMode, GuestArch, GuestAddr, MemoryAccess, VmConfig, vm_state::VirtualMachineState};
 use vm_ir::IRBlock;
 /// 集成测试 - 虚拟机完整生命周期测试
 ///
@@ -18,13 +18,13 @@ fn test_vm_initialization() {
     };
 
     let mmu = SoftMmu::new(config.memory_size, false);
-    let vm: VirtualMachine<IRBlock> = VirtualMachine::with_mmu(config.clone(), Box::new(mmu));
+    let vm: VirtualMachineState<IRBlock> = VirtualMachineState::new(config.clone(), Box::new(mmu));
 
     // 验证 VM 配置
-    assert_eq!(vm.config().guest_arch, GuestArch::Riscv64);
-    assert_eq!(vm.config().memory_size, 1024 * 1024);
-    assert_eq!(vm.config().vcpu_count, 1);
-    assert_eq!(vm.config().exec_mode, ExecMode::Interpreter);
+    assert_eq!(vm.config.guest_arch, GuestArch::Riscv64);
+    assert_eq!(vm.config.memory_size, 1024 * 1024);
+    assert_eq!(vm.config.vcpu_count, 1);
+    assert_eq!(vm.config.exec_mode, ExecMode::Interpreter);
 }
 
 /// 内存映射测试
@@ -33,7 +33,7 @@ fn test_memory_mapping() {
     let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // 测试基本的读写操作
-    let test_addr = 0x1000;
+    let test_addr = GuestAddr(0x1000);
     let test_value = 0x12345678u64;
 
     // 写入
@@ -51,7 +51,7 @@ fn test_memory_mapping() {
 fn test_bulk_memory_operations() {
     let mut mmu = SoftMmu::new(1024 * 1024, false);
 
-    let test_addr = 0x2000;
+    let test_addr = GuestAddr(0x2000);
     let test_data = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
     // 批量写入
@@ -78,10 +78,10 @@ fn test_mmio_device_mapping() {
 
     // 创建设备
     let virtio = VirtioBlock::new();
-    let mmio = VirtioBlockMmio::new(virtio);
+    let mmio = VirtioBlockMmio::new();
 
     // 映射 MMIO 区域
-    let mmio_base = 0x10000000;
+    let mmio_base = GuestAddr(0x10000000);
     let mmio_size = 0x1000;
     mmu.map_mmio(mmio_base, mmio_size, Box::new(mmio));
 
@@ -102,7 +102,7 @@ fn test_vm_startup_shutdown() {
     };
 
     let mmu = SoftMmu::new(config.memory_size, false);
-    let vm: VirtualMachine<IRBlock> = VirtualMachine::with_mmu(config, Box::new(mmu));
+    let vm: VirtualMachine<IRBlock> = VirtualMachine::new(config, Box::new(mmu));
 
     // 获取 MMU 锁以确保能正确访问
     let mmu_ref = vm.mmu();
@@ -122,7 +122,7 @@ fn test_vm_memory_layout() {
     };
 
     let mmu = SoftMmu::new(config.memory_size, false);
-    let vm: VirtualMachine<IRBlock> = VirtualMachine::with_mmu(config, Box::new(mmu));
+    let vm: VirtualMachine<IRBlock> = VirtualMachine::new(config, Box::new(mmu));
 
     let mmu_ref = vm.mmu();
     let mut mmu = mmu_ref.lock().expect("Failed to acquire MMU lock");
@@ -178,7 +178,7 @@ fn test_multi_vcpu_config() {
 fn test_execution_modes() {
     let modes = vec![
         (ExecMode::Interpreter, "Interpreter"),
-        (ExecMode::Jit, "JIT"),
+        (ExecMode::JIT, "JIT"),
     ];
 
     for (exec_mode, desc) in modes {
@@ -227,7 +227,7 @@ fn test_vm_config_persistence() {
         guest_arch: GuestArch::Riscv64,
         memory_size: 2 * 1024 * 1024,
         vcpu_count: 2,
-        exec_mode: ExecMode::Jit,
+        exec_mode: ExecMode::JIT,
         ..Default::default()
     };
 

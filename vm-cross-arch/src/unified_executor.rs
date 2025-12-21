@@ -2,9 +2,7 @@
 //!
 //! 整合AOT、JIT、解释器，提供统一的跨架构执行接口
 
-use super::{
-    CacheConfig, CacheOptimizer, CachePolicy, CrossArchRuntime, CrossArchRuntimeConfig,
-};
+use super::{CacheConfig, CacheOptimizer, CachePolicy, CrossArchRuntime, CrossArchRuntimeConfig};
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -96,14 +94,34 @@ impl UnifiedExecutor {
 
         // 1. 优先使用AOT代码（如果可用）
         if let Some(aot_code) = self.check_aot_cache(pc) {
-            self.stats.aot_executions += 1;
-            return self.execute_aot_code(pc, &aot_code);
+            // 检查是否可以真正执行AOT代码
+            if aot_code.code.is_empty() {
+                // AOT块为空，说明是占位实现，不统计为AOT命中
+                tracing::warn!(
+                    pc = pc.0,
+                    "AOT cache hit but block is empty (placeholder), falling back to interpreter"
+                );
+            } else {
+                // 尝试执行AOT代码（如果执行失败会降级并调整统计）
+                self.stats.aot_executions += 1;
+                return self.execute_aot_code(pc, &aot_code);
+            }
         }
 
         // 2. 其次使用JIT代码（如果可用）
-        if let Some(jit_code) = self.check_jit_cache(pc) {
-            self.stats.jit_executions += 1;
-            return self.execute_jit_code(pc, &jit_code);
+        if let Some(jit_block) = self.check_jit_cache(pc) {
+            // 检查是否可以真正执行JIT代码
+            if jit_block.code.is_empty() {
+                // JIT块为空，说明是占位实现，不统计为JIT命中
+                tracing::warn!(
+                    pc = pc.0,
+                    "JIT cache hit but block is empty (placeholder), falling back to interpreter"
+                );
+            } else {
+                // 尝试执行JIT代码（如果执行失败会降级并调整统计）
+                self.stats.jit_executions += 1;
+                return self.execute_jit_code(pc, &jit_block);
+            }
         }
 
         // 3. 最后使用解释器
@@ -112,76 +130,126 @@ impl UnifiedExecutor {
     }
 
     /// 检查AOT缓存
-    fn check_aot_cache(&self, pc: GuestAddr) -> Option<Vec<u8>> {
+    /// 
+    /// 返回强类型的 ExecutableBlock，如果缓存命中。
+    fn check_aot_cache(&self, pc: GuestAddr) -> Option<vm_engine_jit::ExecutableBlock> {
         // 首先检查AOT加载器（如果已加载镜像）
-        if let Some(ref loader) = self.aot_loader {
-            if let Some(block) = loader.lookup_block(pc) {
-                // 将代码块转换为字节码（用于缓存）
-                // 注意：在实际实现中，应该直接使用host_addr执行，而不是转换为Vec<u8>
-                unsafe {
-                    let code_slice = std::slice::from_raw_parts(block.host_addr, block.size);
-                    return Some(code_slice.to_vec());
-                }
+        if let Some(ref loader) = self.aot_loader
+            && let Some(block) = loader.lookup_block(pc)
+        {
+            // 将代码块转换为 ExecutableBlock
+            // 注意：在实际实现中，应该直接使用host_addr执行，而不是复制代码
+            unsafe {
+                let code_slice = std::slice::from_raw_parts(block.host_addr, block.size);
+                return Some(vm_engine_jit::ExecutableBlock::new(
+                    code_slice.to_vec(),
+                    0, // entry_offset
+                ));
             }
         }
 
         // 回退到缓存优化器
-        self.aot_cache
-            .lock()
-            .ok()
-            .and_then(|mut cache| cache.get(pc))
+        // 注意：aot_cache 当前可能仍使用 Vec<u8>，需要后续迁移
+        // 临时实现：返回 None，等待缓存迁移完成
+        None
     }
 
     /// 检查JIT缓存
-    fn check_jit_cache(&self, pc: GuestAddr) -> Option<Vec<u8>> {
-        self.jit_cache
-            .lock()
-            .ok()
-            .and_then(|mut cache| cache.get(pc))
+    /// 
+    /// 返回强类型的 ExecutableBlock，如果缓存命中。
+    fn check_jit_cache(&self, pc: GuestAddr) -> Option<vm_engine_jit::ExecutableBlock> {
+        self.runtime.get_jit_cached_block(pc)
     }
 
     /// 执行AOT代码
-    fn execute_aot_code(&mut self, pc: GuestAddr, code: &[u8]) -> Result<ExecResult, VmError> {
-        tracing::debug!(pc = pc.0, code_size = code.len(), "Executing AOT code");
+    /// 
+    /// **当前实现状态**: 占位实现，实际仍回退到解释器执行。
+    /// 真正的AOT执行需要将 `ExecutableBlock` 的入口点转换为函数指针并直接调用。
+    /// 
+    /// TODO: 实现真正的AOT代码执行路径，包括：
+    /// - 从 ExecutableBlock 获取入口点指针
+    /// - 转换为函数指针
+    /// - 设置调用约定和参数
+    /// - 直接调用编译后的代码
+    /// - 处理返回值和异常
+    fn execute_aot_code(&mut self, pc: GuestAddr, block: &vm_engine_jit::ExecutableBlock) -> Result<ExecResult, VmError> {
+        tracing::debug!(pc = pc.0, code_size = block.code_size, "Attempting AOT execution");
 
         // 优先使用AOT加载器中的代码块（如果可用）
-        if let Some(ref loader) = self.aot_loader {
-            if let Some(block) = loader.lookup_block(pc) {
-                // 使用AOT加载器中的代码块执行
-                // 注意：这里需要将host_addr转换为函数指针并调用
-                // 当前实现使用运行时执行，但标记为AOT执行
-                tracing::debug!(
-                    pc = pc.0,
-                    host_addr = block.host_addr as u64,
-                    size = block.size,
-                    "Found AOT code block in loader"
-                );
-                return self.runtime.execute_block(pc);
-            }
+        if let Some(ref loader) = self.aot_loader
+            && let Some(aot_block) = loader.lookup_block(pc)
+        {
+            // TODO: 实现真正的AOT代码执行
+            // 当前实现：回退到解释器，但记录降级原因
+            tracing::warn!(
+                pc = pc.0,
+                host_addr = aot_block.host_addr as u64,
+                size = aot_block.size,
+                "AOT code found but execution not implemented, falling back to interpreter"
+            );
+            return self.runtime.execute_block(pc);
         }
 
-        // 回退到运行时执行（使用缓存的字节码）
+        // 尝试使用传入的 ExecutableBlock 执行
         // 在完整实现中，应该：
-        // 1. 将字节码加载到可执行内存
+        // 1. 从 ExecutableBlock 获取入口点指针
         // 2. 转换为函数指针
         // 3. 调用函数
+        if !block.code.is_empty() {
+            tracing::warn!(
+                pc = pc.0,
+                code_size = block.code_size,
+                "ExecutableBlock available but execution not implemented, falling back to interpreter"
+            );
+        } else {
+            tracing::warn!(
+                pc = pc.0,
+                "ExecutableBlock is empty, falling back to interpreter"
+            );
+        }
+        // 降级到解释器执行
+        self.stats.aot_executions = self.stats.aot_executions.saturating_sub(1);
+        self.stats.interpreter_executions += 1;
         self.runtime.execute_block(pc)
     }
 
     /// 执行JIT代码
-    fn execute_jit_code(&mut self, pc: GuestAddr, code: &[u8]) -> Result<ExecResult, VmError> {
-        // 注意：当前实现中，CacheOptimizer存储的是字节码，不是可执行代码
-        // 在实际生产环境中，应该存储函数指针或代码指针
-        // 这里我们使用运行时来执行代码块，但标记为JIT执行
-        tracing::debug!(pc = pc.0, code_size = code.len(), "Executing JIT code");
+    /// 
+    /// **当前实现状态**: 占位实现，实际仍回退到解释器执行。
+    /// 真正的JIT执行需要从 `ExecutableBlock` 中获取入口点并直接调用。
+    /// 
+    /// TODO: 实现真正的JIT代码执行路径，包括：
+    /// - 从 ExecutableBlock 获取 entry_ptr
+    /// - 将 entry_ptr 转换为函数指针
+    /// - 设置调用约定和参数
+    /// - 直接调用编译后的代码
+    /// - 处理返回值和异常
+    fn execute_jit_code(&mut self, pc: GuestAddr, block: &vm_engine_jit::ExecutableBlock) -> Result<ExecResult, VmError> {
+        tracing::debug!(
+            pc = pc.0,
+            code_size = block.code_size,
+            entry_offset = block.entry_offset,
+            "Attempting JIT execution"
+        );
 
-        // 实际执行：由于缓存中存储的是字节码而非可执行代码，
-        // 我们需要通过运行时来执行。在完整实现中，应该：
-        // 1. 将字节码加载到可执行内存
-        // 2. 转换为函数指针
-        // 3. 调用函数
-        //
-        // 当前实现：使用运行时执行，但统计为JIT执行
+        // TODO: 实现真正的JIT代码执行
+        // 当前实现：回退到解释器，但记录降级原因
+        if block.code.is_empty() {
+            tracing::warn!(
+                pc = pc.0,
+                "JIT block is empty (placeholder), falling back to interpreter"
+            );
+        } else {
+            tracing::warn!(
+                pc = pc.0,
+                code_size = block.code_size,
+                "JIT code found but execution not implemented, falling back to interpreter"
+            );
+        }
+        
+        // 降级到解释器执行
+        self.stats.interpreter_executions += 1;
+        self.stats.jit_executions = self.stats.jit_executions.saturating_sub(1);
         self.runtime.execute_block(pc)
     }
 

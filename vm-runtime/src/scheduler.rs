@@ -17,6 +17,9 @@ use crossbeam_queue::SegQueue;
 use parking_lot::Mutex;
 use uuid::Uuid;
 
+/// Type alias for complex task callback type
+type TaskCallback = dyn Fn() + Send + Sync;
+
 /// Legacy compatibility types and functions
 /// These are provided for backward compatibility with the deprecated gmp module
 #[derive(Debug, Clone, Copy)]
@@ -142,7 +145,7 @@ pub struct Coroutine {
     /// 执行次数
     execution_count: Arc<AtomicU64>,
     /// 执行的任务（可重入的回调函数）
-    task: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>,
+    task: Arc<Mutex<Option<Box<TaskCallback>>>>,
 }
 
 impl Coroutine {
@@ -362,14 +365,14 @@ impl WorkerThread {
 
         let handle = thread::spawn(move || {
             // 绑定到CPU核心
-            if let Some(core_ids) = core_affinity::get_core_ids() {
-                if worker_id < core_ids.len() {
-                    let core_id = core_ids[worker_id];
-                    if !core_affinity::set_for_current(core_id) {
-                        eprintln!("[Worker {}] Failed to bind to CPU core", worker_id);
-                    } else {
-                        tracing::info!("[Worker {}] Bound to CPU core {:?}", worker_id, core_id);
-                    }
+            if let Some(core_ids) = core_affinity::get_core_ids()
+                && worker_id < core_ids.len()
+            {
+                let core_id = core_ids[worker_id];
+                if !core_affinity::set_for_current(core_id) {
+                    eprintln!("[Worker {}] Failed to bind to CPU core", worker_id);
+                } else {
+                    tracing::info!("[Worker {}] Bound to CPU core {:?}", worker_id, core_id);
                 }
             }
 
@@ -469,13 +472,13 @@ impl Reactor {
 
         let handle = thread::spawn(move || {
             // 绑定到最后一个CPU核心
-            if let Some(core_ids) = core_affinity::get_core_ids() {
-                if let Some(core_id) = core_ids.last() {
-                    if !core_affinity::set_for_current(*core_id) {
-                        eprintln!("[Reactor {}] Failed to bind to CPU core", reactor_id);
-                    } else {
-                        tracing::info!("[Reactor {}] Bound to CPU core {:?}", reactor_id, core_id);
-                    }
+            if let Some(core_ids) = core_affinity::get_core_ids()
+                && let Some(core_id) = core_ids.last()
+            {
+                if !core_affinity::set_for_current(*core_id) {
+                    eprintln!("[Reactor {}] Failed to bind to CPU core", reactor_id);
+                } else {
+                    tracing::info!("[Reactor {}] Bound to CPU core {:?}", reactor_id, core_id);
                 }
             }
 

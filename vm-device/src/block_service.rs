@@ -76,7 +76,6 @@ impl BlockDeviceService {
             capacity: capacity_sectors,
             sector_size,
             read_only,
-            ..Default::default()
         };
         Self {
             device: Arc::new(Mutex::new(device)),
@@ -111,7 +110,6 @@ impl BlockDeviceService {
             capacity,
             sector_size,
             read_only,
-            ..Default::default()
         };
 
         let path_str = path.as_ref().to_string_lossy().to_string();
@@ -284,7 +282,7 @@ impl BlockDeviceService {
             Ok(v) => v,
             Err(_) => return BlockStatus::IoErr,
         };
-        let sector = match mmu.read_u64(req_addr.0 + 8) {
+        let sector = match mmu.read(req_addr + 8, 8) {
             Ok(v) => v,
             Err(_) => return BlockStatus::IoErr,
         };
@@ -352,8 +350,8 @@ impl BlockDeviceService {
 
             match result {
                 Ok(buffer) => {
-                    // 将数据写入客户端内存
-                    if let Err(_) = mmu.write_bulk(data_addr, &buffer) {
+                    // 将数据写入客户端内存，使用批量接口
+                    if mmu.write_slice(data_addr.0, &buffer).is_err() {
                         return BlockStatus::IoErr;
                     }
                     BlockStatus::Ok
@@ -384,7 +382,7 @@ impl BlockDeviceService {
         // 发送异步读取请求
         {
             let io_tx = self.io_tx.lock().await;
-            if let Some(ref sender) = io_tx.as_ref() {
+            if let Some(sender) = io_tx.as_ref() {
                 sender
                     .send(AsyncIoRequest::Read {
                         sector,
@@ -430,7 +428,7 @@ impl BlockDeviceService {
         let device = tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(self.device.lock());
-        
+
         // 检查只读状态
         if device.read_only {
             return BlockStatus::IoErr;
@@ -443,7 +441,7 @@ impl BlockDeviceService {
 
         // 从客户端内存读取数据
         let mut buffer = vec![0u8; data_len as usize];
-        if let Err(_) = mmu.read_bulk(data_addr, &mut buffer) {
+        if mmu.read_bulk(data_addr, &mut buffer).is_err() {
             return BlockStatus::IoErr;
         }
 
@@ -499,7 +497,7 @@ impl BlockDeviceService {
         // 发送异步写入请求
         {
             let io_tx = self.io_tx.lock().await;
-            if let Some(ref sender) = io_tx.as_ref() {
+            if let Some(sender) = io_tx.as_ref() {
                 sender
                     .send(AsyncIoRequest::Write {
                         sector,
@@ -587,7 +585,7 @@ impl BlockDeviceService {
         // 发送异步刷新请求
         {
             let io_tx = self.io_tx.lock().await;
-            if let Some(ref sender) = io_tx.as_ref() {
+            if let Some(sender) = io_tx.as_ref() {
                 sender
                     .send(AsyncIoRequest::Flush {
                         req_id,
@@ -636,8 +634,8 @@ impl BlockDeviceService {
         status_addr: GuestAddr,
     ) -> BlockStatus {
         // 1. 读取请求头
-        let req_type = match mmu.read_u32(req_addr.0) {
-            Ok(v) => v,
+        let req_type = match mmu.read(req_addr, 4) {
+            Ok(v) => v as u32,
             Err(_) => return BlockStatus::IoErr,
         };
         let sector = match mmu.read(req_addr + 8, 8) {
@@ -693,7 +691,7 @@ impl BlockDeviceService {
         tokio::task::yield_now().await;
 
         // 将数据写入客户端内存
-        if let Err(_) = mmu.write_bulk(data_addr, &buffer) {
+        if mmu.write_bulk(data_addr, &buffer).is_err() {
             return BlockStatus::IoErr;
         }
 
@@ -722,7 +720,7 @@ impl BlockDeviceService {
 
         // 从客户端内存读取数据
         let mut buffer = vec![0u8; data_len as usize];
-        if let Err(_) = mmu.read_bulk(data_addr, &mut buffer) {
+        if mmu.read_bulk(data_addr, &mut buffer).is_err() {
             return BlockStatus::IoErr;
         }
 

@@ -13,6 +13,23 @@ categories.workspace = true
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
+regex = "1.12"
+tracing = { workspace = true, optional = true }
+
+# Cranelift依赖（可选）
+cranelift = { workspace = true, optional = true }
+cranelift-module = { workspace = true, optional = true }
+cranelift-codegen = { workspace = true, optional = true }
+cranelift-frontend = { workspace = true, optional = true }
+cranelift-native = { workspace = true, optional = true }
+cranelift-jit = { workspace = true, optional = true }
+target-lexicon = { workspace = true, optional = true }
+
+[features]
+default = ["direct-backend"]
+direct-backend = []
+cranelift-backend = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-native", "dep:cranelift-jit", "dep:target-lexicon", "dep:tracing"]
+llvm-backend = ["vm-ir/llvm"]
 
 [[example]]
 name = "arm64_instructions"

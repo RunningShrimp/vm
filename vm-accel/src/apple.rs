@@ -189,15 +189,15 @@ impl AppleOptimizer {
         if self.config.enable_amx {
             log::info!("  - AMX (Apple Matrix): enabled");
             // 使用 AMX 加速矩阵运算
-            if let Some(amx_ext) = self.extension_detector.find_extension("Apple AMX") {
-                if amx_ext.is_available() {
-                    let features = amx_ext.get_features();
-                    log::info!(
-                        "    - Supports matrix ops: {}",
-                        features.supports_matrix_ops
-                    );
-                    log::info!("    - Max vector width: {} bits", features.max_vector_width);
-                }
+            if let Some(amx_ext) = self.extension_detector.find_extension("Apple AMX")
+                && amx_ext.is_available()
+            {
+                let features = amx_ext.get_features();
+                log::info!(
+                    "    - Supports matrix ops: {}",
+                    features.supports_matrix_ops
+                );
+                log::info!("    - Max vector width: {} bits", features.max_vector_width);
             }
         }
 

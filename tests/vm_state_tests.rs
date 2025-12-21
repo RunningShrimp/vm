@@ -217,7 +217,7 @@ mod tests {
     fn create_test_vm_state() -> VirtualMachine<TestBlock> {
         let config = create_test_config();
         let mmu = Box::new(MockMMU::new(config.memory_size));
-        VirtualMachine::with_mmu(config, mmu)
+        VirtualMachine::new(config, mmu)
     }
 
     #[test]
@@ -505,7 +505,7 @@ mod tests {
                 guest_arch: GuestArch::Riscv64,
                 memory_size: 512 * 1024, // 512KB
                 vcpu_count: 2,
-                exec_mode: ExecMode::Jit,
+                exec_mode: ExecMode::JIT,
                 enable_accel: true,
                 ..Default::default()
             },
@@ -521,7 +521,7 @@ mod tests {
                 guest_arch: GuestArch::X86_64,
                 memory_size: 4 * 1024 * 1024, // 4MB
                 vcpu_count: 8,
-                exec_mode: ExecMode::Hybrid,
+                exec_mode: ExecMode::HardwareAssisted,
                 enable_accel: true,
                 ..Default::default()
             },

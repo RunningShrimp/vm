@@ -11,7 +11,8 @@ use libloading::Library;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use vm_core::VmError;
 
 /// 插件管理器
@@ -161,14 +162,12 @@ impl PluginManager {
 
         // 检查权限
         self.security_manager
-            .read()
-            .unwrap()
+            .blocking_read()
             .check_permissions(&metadata.permissions)?;
 
         // 解析依赖
         self.dependency_resolver
-            .write()
-            .unwrap()
+            .blocking_write()
             .resolve_dependencies(&metadata)?;
 
         // 创建插件实例
@@ -189,8 +188,7 @@ impl PluginManager {
         // 创建通信通道
         let (channel, _handle) = PluginChannel::new();
         self.plugin_channels
-            .write()
-            .unwrap()
+            .blocking_write()
             .insert(metadata.id.clone(), channel);
 
         // 初始化插件上下文
@@ -210,8 +208,7 @@ impl PluginManager {
 
         // 注册到依赖解析器
         self.dependency_resolver
-            .write()
-            .unwrap()
+            .blocking_write()
             .register_plugin(plugin_id.clone(), metadata.version.clone());
 
         Ok(plugin_id)
@@ -228,7 +225,7 @@ impl PluginManager {
             }
 
             // 移除通信通道
-            self.plugin_channels.write().unwrap().remove(plugin_id);
+            self.plugin_channels.write().await.remove(plugin_id);
 
             // 移除库（会触发卸载）
             self.loaded_libraries.remove(plugin_id);
@@ -236,7 +233,7 @@ impl PluginManager {
             // 从依赖解析器注销
             self.dependency_resolver
                 .write()
-                .unwrap()
+                .await
                 .unregister_plugin(plugin_id);
 
             instance.state = PluginState::Unloaded;
@@ -253,7 +250,7 @@ impl PluginManager {
         message_type: String,
         data: serde_json::Value,
     ) -> Result<(), VmError> {
-        let channels = self.plugin_channels.read().unwrap();
+        let channels = self.plugin_channels.blocking_read();
         if let Some(channel) = channels.get(to) {
             let message = PluginMessage {
                 from: from.to_string(),
@@ -284,7 +281,7 @@ impl PluginManager {
         message_type: String,
         data: serde_json::Value,
     ) -> Result<(), VmError> {
-        let channels = self.plugin_channels.read().unwrap();
+        let channels = self.plugin_channels.blocking_read();
         let message = PluginMessage {
             from: from.to_string(),
             to: None,
@@ -339,7 +336,7 @@ impl PluginManager {
         }
 
         // 发布到事件总线
-        self.context.event_bus.write().unwrap().publish(&event);
+        self.context.event_bus.blocking_write().publish(&event);
 
         Ok(())
     }
@@ -728,19 +725,28 @@ impl PluginManager {
 
     /// 处理所有插件的消息
     pub async fn process_plugin_messages(&mut self) -> Result<(), VmError> {
-        let channels = self.plugin_channels.clone();
-        let mut channel_handles = channels.write().unwrap();
-
-        // 获取需要处理的插件ID列表
-        let plugin_ids: Vec<String> = channel_handles.keys().cloned().collect();
+        // 获取需要处理的插件ID列表（在锁外）
+        let plugin_ids: Vec<String> = {
+            let channels = self.plugin_channels.read().await;
+            channels.keys().cloned().collect()
+        };
 
         for plugin_id in plugin_ids {
+            // 检查插件是否存在
             if let Some(instance) = self.loaded_plugins.get_mut(&plugin_id)
                 && let Some(ref mut plugin) = instance.handle
-                && let Some(channel) = channel_handles.get_mut(&plugin_id)
             {
-                // 处理该插件的消息
-                if let Err(e) = channel.process_messages(&plugin_id, plugin.as_mut()).await {
+                // 在需要时获取通道锁
+                let result = {
+                    let mut channels = self.plugin_channels.write().await;
+                    if let Some(channel) = channels.get_mut(&plugin_id) {
+                        channel.process_messages(&plugin_id, plugin.as_mut()).await
+                    } else {
+                        Ok(())
+                    }
+                };
+
+                if let Err(e) = result {
                     tracing::warn!(
                         "Failed to process messages for plugin {}: {:?}",
                         plugin_id,

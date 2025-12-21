@@ -1,10 +1,76 @@
 use crate::{Fault, GuestAddr};
 
-// Re-export commonly used error types
-use std::backtrace::Backtrace;
-use std::error::Error;
+#[cfg(feature = "no_std")]
+use core::fmt;
+#[cfg(not(feature = "no_std"))]
 use std::fmt;
+
+#[cfg(feature = "no_std")]
+use alloc::boxed::Box;
+#[cfg(not(feature = "no_std"))]
+use std::boxed::Box;
+
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
+#[cfg(not(feature = "no_std"))]
+use std::vec::Vec;
+
+#[cfg(feature = "no_std")]
+use alloc::string::String;
+#[cfg(not(feature = "no_std"))]
+use std::string::String;
+
+#[cfg(feature = "no_std")]
+use alloc::format;
+#[cfg(feature = "no_std")]
+use alloc::sync::Arc;
+#[cfg(not(feature = "no_std"))]
+use std::format;
+#[cfg(not(feature = "no_std"))]
 use std::sync::Arc;
+
+#[cfg(not(feature = "no_std"))]
+use std::string::ToString;
+
+#[cfg(not(feature = "no_std"))]
+use std::backtrace::Backtrace;
+#[cfg(not(feature = "no_std"))]
+use std::error::Error;
+
+// Provide a minimal Error trait for no_std environment
+#[cfg(feature = "no_std")]
+pub trait Error: core::fmt::Debug + core::fmt::Display {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+#[cfg(feature = "no_std")]
+impl<T> Error for T where T: core::fmt::Debug + core::fmt::Display {}
+
+// Provide a minimal Backtrace type for no_std environment
+#[cfg(feature = "no_std")]
+#[derive(Debug, Clone)]
+pub struct Backtrace;
+
+#[cfg(feature = "no_std")]
+impl Backtrace {
+    pub fn capture() -> Self {
+        Backtrace
+    }
+}
+
+// Helper function to convert &str to String in no_std environment
+#[cfg(feature = "no_std")]
+pub fn str_to_string(s: &str) -> alloc::string::String {
+    s.into()
+}
+
+// Helper function to convert &'static str to String in no_std environment
+#[cfg(feature = "no_std")]
+pub fn static_str_to_string(s: &'static str) -> alloc::string::String {
+    s.into()
+}
 
 /// 统一的虚拟机错误类型
 ///
@@ -372,8 +438,16 @@ impl fmt::Display for CoreError {
             CoreError::InvalidConfig { message, field } => {
                 write!(f, "Invalid configuration: {} (field: {})", message, field)
             }
-            CoreError::InvalidState { message, current, expected } => {
-                write!(f, "Invalid state: {} (current: {}, expected: {})", message, current, expected)
+            CoreError::InvalidState {
+                message,
+                current,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "Invalid state: {} (current: {}, expected: {})",
+                    message, current, expected
+                )
             }
             CoreError::NotSupported { feature, module } => {
                 write!(f, "Feature '{}' not supported in {}", feature, module)
@@ -406,7 +480,11 @@ impl fmt::Display for CoreError {
             CoreError::Concurrency { message, operation } => {
                 write!(f, "Concurrency error during '{}': {}", operation, message)
             }
-            CoreError::InvalidParameter { name, value, message } => {
+            CoreError::InvalidParameter {
+                name,
+                value,
+                message,
+            } => {
                 write!(f, "Invalid parameter '{}='{}': {}", name, value, message)
             }
         }
@@ -598,6 +676,7 @@ impl fmt::Display for PlatformError {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 impl Error for VmError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -613,10 +692,15 @@ impl Error for VmError {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 impl Error for CoreError {}
+#[cfg(not(feature = "no_std"))]
 impl Error for MemoryError {}
+#[cfg(not(feature = "no_std"))]
 impl Error for ExecutionError {}
+#[cfg(not(feature = "no_std"))]
 impl Error for DeviceError {}
+#[cfg(not(feature = "no_std"))]
 impl Error for PlatformError {}
 
 // ============================================================================
@@ -653,6 +737,7 @@ impl From<PlatformError> for VmError {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 impl From<std::io::Error> for VmError {
     fn from(e: std::io::Error) -> Self {
         VmError::Io(e.to_string())
@@ -669,6 +754,9 @@ impl From<String> for VmError {
     fn from(s: String) -> Self {
         VmError::Core(CoreError::Internal {
             message: s,
+            #[cfg(feature = "no_std")]
+            module: static_str_to_string("unknown"),
+            #[cfg(not(feature = "no_std"))]
             module: "unknown".to_string(),
         })
     }
@@ -683,8 +771,18 @@ impl PartialEq for VmError {
             (VmError::Device(a), VmError::Device(b)) => a == b,
             (VmError::Platform(a), VmError::Platform(b)) => a == b,
             (VmError::Io(a), VmError::Io(b)) => a == b,
-            (VmError::WithContext { error: a, context: ca, .. }, 
-             VmError::WithContext { error: b, context: cb, .. }) => a == b && ca == cb,
+            (
+                VmError::WithContext {
+                    error: a,
+                    context: ca,
+                    ..
+                },
+                VmError::WithContext {
+                    error: b,
+                    context: cb,
+                    ..
+                },
+            ) => a == b && ca == cb,
             (VmError::Multiple(a), VmError::Multiple(b)) => a == b,
             _ => false,
         }
@@ -694,7 +792,13 @@ impl PartialEq for VmError {
 impl From<&str> for VmError {
     fn from(s: &str) -> Self {
         VmError::Core(CoreError::Internal {
+            #[cfg(feature = "no_std")]
+            message: str_to_string(s),
+            #[cfg(not(feature = "no_std"))]
             message: s.to_string(),
+            #[cfg(feature = "no_std")]
+            module: static_str_to_string("unknown"),
+            #[cfg(not(feature = "no_std"))]
             module: "unknown".to_string(),
         })
     }
@@ -727,6 +831,9 @@ where
             let vm_err = e.into();
             VmError::WithContext {
                 error: Box::new(vm_err),
+                #[cfg(feature = "no_std")]
+                context: str_to_string(ctx),
+                #[cfg(not(feature = "no_std"))]
                 context: ctx.to_string(),
                 backtrace: Some(Arc::new(Backtrace::capture())),
             }
@@ -761,6 +868,7 @@ pub trait VmResultExt<T> {
         S: Into<String>;
 }
 
+#[cfg(not(feature = "no_std"))]
 impl<T> VmResultExt<T> for Result<T, std::io::Error> {
     fn vm_context(self, ctx: &str) -> Result<T, VmError> {
         self.context(ctx)
@@ -852,6 +960,9 @@ where
             Err(error) if attempts >= max_attempts => {
                 return Err(VmError::WithContext {
                     error: Box::new(error),
+                    #[cfg(feature = "no_std")]
+                    context: format!("Failed after {} attempts", attempts),
+                    #[cfg(not(feature = "no_std"))]
                     context: format!("Failed after {} attempts", attempts),
                     backtrace: Some(Arc::new(Backtrace::capture())),
                 });
@@ -875,6 +986,7 @@ where
                 };
 
                 if delay > 0 {
+                    #[cfg(not(feature = "no_std"))]
                     std::thread::sleep(std::time::Duration::from_millis(delay));
                 }
             }
@@ -922,6 +1034,11 @@ impl ErrorCollector {
     /// 获取错误数量
     pub fn len(&self) -> usize {
         self.errors.len()
+    }
+
+    /// 检查是否为空
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
     }
 
     /// 获取错误列表

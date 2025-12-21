@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 use vm_core::vm_state::VirtualMachineState;
-use vm_core::{VmError, VmResult, VmLifecycleState};
+use vm_core::{VmError, VmLifecycleState, VmResult};
 
 /// 启动虚拟机
 pub fn start<B: 'static>(state: Arc<Mutex<VirtualMachineState<B>>>) -> VmResult<()> {
@@ -13,7 +13,9 @@ pub fn start<B: 'static>(state: Arc<Mutex<VirtualMachineState<B>>>) -> VmResult<
         })
     })?;
 
-    if state_guard.state() != VmLifecycleState::Created && state_guard.state() != VmLifecycleState::Paused {
+    if state_guard.state() != VmLifecycleState::Created
+        && state_guard.state() != VmLifecycleState::Paused
+    {
         return Err(VmError::Core(vm_core::CoreError::Config {
             message: "VM not in startable state".to_string(),
             path: None,

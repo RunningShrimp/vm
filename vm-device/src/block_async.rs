@@ -15,8 +15,6 @@
 //! vm-device = { path = "../vm-device", features = ["async-io"] }
 //! ```
 
-#![cfg(feature = "async-io")]
-
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -75,22 +73,17 @@ pub struct BatchResult {
 }
 
 /// IO 优先级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum IoPriority {
     /// 低优先级（后台操作）
     Low = 0,
     /// 普通优先级
+    #[default]
     Normal = 1,
     /// 高优先级（交互式操作）
     High = 2,
     /// 实时优先级
     Realtime = 3,
-}
-
-impl Default for IoPriority {
-    fn default() -> Self {
-        IoPriority::Normal
-    }
 }
 
 /// 批量读取请求

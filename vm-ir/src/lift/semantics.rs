@@ -105,8 +105,7 @@ impl FlagsState {
 }
 
 /// x86-64 指令语义实现
-pub struct X86_64Semantics {
-}
+pub struct X86_64Semantics {}
 
 impl Default for X86_64Semantics {
     fn default() -> Self {
@@ -116,8 +115,7 @@ impl Default for X86_64Semantics {
 
 impl X86_64Semantics {
     pub fn new() -> Self {
-        Self {
-        }
+        Self {}
     }
 
     fn operand_to_ir(&self, op: &OperandType) -> LiftResult<String> {
@@ -328,13 +326,11 @@ store i64 %pop_value, i64* {}"#,
 
     fn lift_imul(&self, instr: &Instruction, ctx: &mut LiftingContext) -> LiftResult<String> {
         if instr.operands.len() < 2 {
-            return Err(
-                VmError::Core(CoreError::DecodeError {
-                    message: "IMUL requires at least 2 operands".to_string(),
-                    position: None,
-                    module: "vm-ir".to_string(),
-                }),
-            );
+            return Err(VmError::Core(CoreError::DecodeError {
+                message: "IMUL requires at least 2 operands".to_string(),
+                position: None,
+                module: "vm-ir".to_string(),
+            }));
         }
 
         let dst = self.operand_to_ir(&instr.operands[0])?;
@@ -684,10 +680,10 @@ store i64 %pop_value, i64* {}"#,
     fn lift_adc(&self, instr: &Instruction, ctx: &mut LiftingContext) -> LiftResult<String> {
         if instr.operands.len() != 2 {
             return Err(VmError::Core(CoreError::DecodeError {
-            message: "ADD requires 2 operands".to_string(),
-            position: None,
-            module: "vm-ir".to_string(),
-        }));
+                message: "ADD requires 2 operands".to_string(),
+                position: None,
+                module: "vm-ir".to_string(),
+            }));
         }
 
         let dst = self.operand_to_ir(&instr.operands[0])?;
@@ -995,7 +991,15 @@ impl Semantics for X86_64Semantics {
 /// ARM64 指令语义实现（框架）
 pub struct ARM64SemanticsImpl;
 impl ARM64SemanticsImpl {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for ARM64SemanticsImpl {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl Semantics for ARM64SemanticsImpl {
     fn lift(&self, instr: &Instruction, _ctx: &mut LiftingContext) -> LiftResult<String> {
@@ -1012,7 +1016,15 @@ impl Semantics for ARM64SemanticsImpl {
 pub struct RISCV64Semantics;
 pub struct RISCV64SemanticsImpl;
 impl RISCV64SemanticsImpl {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for RISCV64SemanticsImpl {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Semantics for RISCV64Semantics {

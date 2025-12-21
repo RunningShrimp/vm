@@ -3,9 +3,8 @@
 //! 定义虚拟机领域的核心事件，遵循DDD事件驱动架构原则。
 //! 所有领域事件都是不可变的，表示已经发生的事实。
 
+use crate::GuestAddr;
 use crate::VmLifecycleState;
-#[allow(unused_imports)]
-use crate::{GuestAddr, VmError};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 

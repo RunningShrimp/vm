@@ -101,6 +101,7 @@ impl AccelFallbackManager {
     ///
     /// let manager = AccelFallbackManager::new();
     /// ```
+    #[allow(clippy::arc_with_non_send_sync)]
     pub fn new() -> Self {
         Self {
             resources: Arc::new(RefCell::new(PreallocatedResources::new())),
@@ -282,9 +283,10 @@ mod tests {
     fn test_fallback_execute_unsupported() {
         let manager = AccelFallbackManager::new();
 
-        let result = manager.fallback_execute(FallbackError::UnsupportedInstruction, 0x1000);
+        let result =
+            manager.fallback_execute(FallbackError::UnsupportedInstruction, GuestAddr(0x1000));
         assert!(result.success);
-        assert_eq!(result.pc, 0x1004);
+        assert_eq!(result.pc, GuestAddr(0x1004));
         assert_eq!(manager.fallback_count(), 1);
     }
 
@@ -292,7 +294,7 @@ mod tests {
     fn test_fallback_execute_io_error() {
         let manager = AccelFallbackManager::new();
 
-        let result = manager.fallback_execute(FallbackError::IoError, 0x1000);
+        let result = manager.fallback_execute(FallbackError::IoError, GuestAddr(0x1000));
         assert!(!result.success);
         assert_eq!(result.error, Some(FallbackError::IoError));
         assert_eq!(manager.fallback_count(), 1);

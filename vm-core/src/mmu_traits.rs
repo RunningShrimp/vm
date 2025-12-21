@@ -4,6 +4,30 @@
 
 use crate::{AccessType, GuestAddr, GuestPhysAddr, MmioDevice, VmError};
 
+#[cfg(feature = "no_std")]
+use alloc::boxed::Box;
+#[cfg(feature = "no_std")]
+use alloc::string::String;
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
+
+#[cfg(not(feature = "no_std"))]
+use std::boxed::Box;
+#[cfg(not(feature = "no_std"))]
+use std::string::String;
+#[cfg(not(feature = "no_std"))]
+use std::vec::Vec;
+
+#[cfg(feature = "no_std")]
+use core::ptr;
+#[cfg(not(feature = "no_std"))]
+use std::ptr;
+
+#[cfg(feature = "no_std")]
+use core::any;
+#[cfg(not(feature = "no_std"))]
+use std::any;
+
 /// 地址翻译器
 ///
 /// 负责虚拟地址到物理地址的翻译
@@ -68,7 +92,7 @@ pub trait MemoryAccess: Send + Sync {
         unsafe {
             let src_ptr = pa.0 as *const u8;
             let dst_ptr = buf.as_mut_ptr();
-            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, buf.len());
+            ptr::copy_nonoverlapping(src_ptr, dst_ptr, buf.len());
         }
         Ok(())
     }
@@ -79,7 +103,7 @@ pub trait MemoryAccess: Send + Sync {
         unsafe {
             let dst_ptr = pa.0 as *mut u8;
             let src_ptr = buf.as_ptr();
-            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, buf.len());
+            ptr::copy_nonoverlapping(src_ptr, dst_ptr, buf.len());
         }
         Ok(())
     }
@@ -109,31 +133,17 @@ pub trait MmioManager: Send + Sync {
 ///
 /// 用于向下转型到具体实现类型
 pub trait MmuAsAny: Send + Sync {
-    fn as_any(&self) -> &dyn std::any::Any;
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+    fn as_any(&self) -> &dyn any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn any::Any;
 }
 
 /// 统一的MMU trait
 ///
 /// 组合所有必要接口
-pub trait MMU:
-    AddressTranslator
-    + MemoryAccess
-    + MmioManager
-    + MmuAsAny
-    + Send
-    + 'static
-{
+pub trait MMU: AddressTranslator + MemoryAccess + MmioManager + MmuAsAny + Send + 'static {
     // 所有方法已在各个trait中定义
 }
 
 // 为实现了所有子trait的类型自动实现MMU trait
-impl<T> MMU for T where
-    T: AddressTranslator
-        + MemoryAccess
-        + MmioManager
-        + MmuAsAny
-        + Send
-        + 'static
-{
-}
+impl<T> MMU for T where T: AddressTranslator + MemoryAccess + MmioManager + MmuAsAny + Send + 'static
+{}

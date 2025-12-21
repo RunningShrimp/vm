@@ -1,24 +1,25 @@
 [package]
 name = "vm-accel"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 raw-cpuid = { version = "11", optional = true }
-num_cpus = "1.17"
-log = "0.4"
-thiserror = "2.0"
+num_cpus.workspace = true
+log.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
 vm-core = { path = "../vm-core" }
-parking_lot = "0.12"
-serde = { version = "1.0", features = ["derive"] }
+parking_lot.workspace = true
+serde.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 kvm-ioctls = { version = "0.24", optional = true }
 kvm-bindings = { version = "0.14", optional = true }
-libc = "0.2"
+libc.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
+libc.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = ["Win32_System_Hypervisor"], optional = true }
@@ -26,6 +27,6 @@ windows = { version = "0.62", features = ["Win32_System_Hypervisor"], optional =
 [features]
 default = []
 cpuid = ["raw-cpuid"]
-# kvm = ["kvm-ioctls", "kvm-bindings"]  # Temporarily disabled due to compatibility issues
+kvm = ["kvm-ioctls", "kvm-bindings"]
 hvf = []
 whpx = ["windows"]

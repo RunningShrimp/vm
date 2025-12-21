@@ -3,10 +3,10 @@
 //! 支持三种架构（AMD64、ARM64、RISC-V64）两两之间的AOT编译
 
 use super::{Architecture, PerformanceConfig, PerformanceOptimizer};
-use vm_engine_jit::aot::{AotBuilder, CodegenMode, CompilationOptions};
 use std::collections::HashMap;
 use std::path::Path;
 use vm_core::{GuestAddr, VmError};
+use vm_engine_jit::aot::{AotBuilder, CodegenMode, CompilationOptions};
 use vm_ir::IRBlock;
 use vm_ir::lift::ISA;
 
@@ -76,7 +76,7 @@ impl CrossArchAotCompiler {
             optimization_level: config.optimization_level,
             target_isa,
             enable_applicability_check: true,
-            codegen_mode: config.codegen_mode.clone(),
+            codegen_mode: config.codegen_mode,
             enable_parallel_compilation: false,
             parallel_threads: 1,
             respect_dependencies: true,

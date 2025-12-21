@@ -67,6 +67,12 @@ pub struct VirtioNet {
     device_features_sel: u32,
 }
 
+impl Default for VirtioNet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VirtioNet {
     /// 创建新的网络设备
     pub fn new() -> Self {
@@ -205,7 +211,7 @@ impl VirtioNet {
                     } // Skip write-only descriptors (shouldn't be in TX)
 
                     let mut buf = vec![0u8; desc.len as usize];
-                    if let Ok(_) = MmuUtil::read_slice(mmu, desc.addr, &mut buf) {
+                    if MmuUtil::read_slice(mmu, desc.addr, &mut buf).is_ok() {
                         packet_data.extend_from_slice(&buf);
                     }
                 }
@@ -255,7 +261,7 @@ impl VirtioNet {
         }
 
         // 然后尝试获取一个空闲的描述符
-        { 
+        {
             let queue = &mut self.queues[0];
             if let Some(chain) = queue.pop(mmu) {
                 chains.push(chain);
@@ -266,7 +272,7 @@ impl VirtioNet {
         if let (Some(packet), Some(chain)) = (packets.pop(), chains.pop()) {
             // 将数据包发送给客人
             let mut bytes_written = 0;
-            
+
             for desc in chain.descs {
                 if (desc.flags & 1) == 0 {
                     continue; // Skip read-only descriptors
@@ -275,21 +281,22 @@ impl VirtioNet {
                 let available_space = desc.len as usize;
                 let remaining_packet = &packet[bytes_written..];
                 let write_size = std::cmp::min(available_space, remaining_packet.len());
-                
-                if write_size > 0 {
-                    if let Ok(_) = MmuUtil::write_slice(mmu, desc.addr, &remaining_packet[..write_size]) {
-                        bytes_written += write_size;
-                    }
+
+                if write_size > 0
+                    && let Ok(_) =
+                        MmuUtil::write_slice(mmu, desc.addr, &remaining_packet[..write_size])
+                {
+                    bytes_written += write_size;
                 }
 
                 if bytes_written >= packet.len() {
                     break;
                 }
             }
-            
+
             // 更新 Used Ring
             self.queues[0].add_used(mmu, chain.head_index, bytes_written as u32);
-            
+
             // 触发中断
             self.interrupt_status |= 1;
         } else if !packets.is_empty() {
@@ -315,7 +322,7 @@ impl From<NetLegacyError> for VmError {
             )),
             NetLegacyError::Io(e) => VmError::Platform(PlatformError::IoError(e.to_string())),
             NetLegacyError::Tap(msg) => VmError::Platform(PlatformError::IoError(
-                std::io::Error::new(std::io::ErrorKind::Other, msg).to_string(),
+                std::io::Error::other(msg).to_string(),
             )),
         }
     }
@@ -432,9 +439,7 @@ impl crate::virtio::VirtioDevice for VirtioNet {
         // 需要转换内部队列类型到 virtio::Queue
         // 这里我们假设内部队列和 virtio::Queue 结构兼容
         let queue = &mut self.queues[index];
-        unsafe {
-            std::mem::transmute(queue)
-        }
+        unsafe { std::mem::transmute(queue) }
     }
 
     /// 处理所有队列
@@ -474,10 +479,16 @@ impl SmoltcpBackend {
 
     pub fn send(&mut self, data: &[u8]) -> Result<(), VmError> {
         self.tx_buffer.push(data.to_vec());
-        log::debug!("smoltcp: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} sent {} bytes", 
-                   self.mac[0], self.mac[1], self.mac[2], 
-                   self.mac[3], self.mac[4], self.mac[5], 
-                   data.len());
+        log::debug!(
+            "smoltcp: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} sent {} bytes",
+            self.mac[0],
+            self.mac[1],
+            self.mac[2],
+            self.mac[3],
+            self.mac[4],
+            self.mac[5],
+            data.len()
+        );
         Ok(())
     }
 
@@ -621,8 +632,8 @@ mod tests {
     fn test_virtio_net_creation() {
         let net = VirtioNet::new();
 
-        assert_eq!(net.read(0x00, 4), 0x74726976); // Magic
-        assert_eq!(net.read(0x08, 4), 1); // Device ID
+        assert_eq!(net.read(0x00, 4).unwrap(), 0x74726976); // Magic
+        assert_eq!(net.read(0x08, 4).unwrap(), 1); // Device ID
         assert_eq!(net.config.mac, [0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
     }
 

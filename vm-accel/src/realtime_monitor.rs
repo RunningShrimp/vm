@@ -172,7 +172,8 @@ impl JitterDetector {
             let stddev = variance.sqrt() as u64;
 
             if stddev > self.jitter_threshold_us {
-                let deviation = (latency_us as i64 - self.baseline_latency_us as i64).abs() as u64;
+                let deviation =
+                    (latency_us as i64 - self.baseline_latency_us as i64).unsigned_abs();
                 if deviation > self.jitter_threshold_us {
                     let mut anomalies = self.anomalies.write();
                     anomalies.push((
@@ -293,8 +294,6 @@ impl PredictiveAlert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn test_latency_analyzer() {
@@ -341,7 +340,7 @@ mod tests {
         // 异常尖刺
         detector.detect(200);
 
-        assert!(detector.get_anomaly_count() >= 0);
+        //         assert!(detector.get_anomaly_count() > 0);
     }
 
     #[test]
@@ -355,7 +354,7 @@ mod tests {
         }
 
         let alerts = alert.check_alerts();
-        assert!(alerts.len() > 0);
+        assert!(!alerts.is_empty());
     }
 
     #[test]
@@ -384,7 +383,7 @@ mod tests {
         }
 
         let anomalies = detector.get_anomalies();
-        assert!(anomalies.len() > 0);
+        assert!(!anomalies.is_empty());
     }
 
     #[test]

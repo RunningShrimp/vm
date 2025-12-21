@@ -1,8 +1,7 @@
 //! 使用前端代码生成器生成RISC-V前端代码的示例
 
 use vm_codegen::{
-    CodegenConfig, FrontendCodeGenerator, 
-    create_instruction_spec, create_instruction_set
+    CodegenConfig, FrontendCodeGenerator, create_instruction_set, create_instruction_spec,
 };
 
 fn main() {
@@ -16,7 +15,7 @@ fn main() {
             0x37,
             r#"let imm = ((insn & 0xfffff000) as i32) as i64;
                 let rd = ((insn >> 7) & 0x1f) as u32;
-                b.push(IROp::AddImm { dst: rd, src: 0, imm });"#
+                b.push(IROp::AddImm { dst: rd, src: 0, imm });"#,
         ),
         // ADDI
         create_instruction_spec(
@@ -27,7 +26,7 @@ fn main() {
             r#"let imm = ((insn as i32) >> 20) as i64;
                 let rs1 = ((insn >> 15) & 0x1f) as u32;
                 let rd = ((insn >> 7) & 0x1f) as u32;
-                b.push(IROp::AddImm { dst: rd, src: rs1, imm });"#
+                b.push(IROp::AddImm { dst: rd, src: rs1, imm });"#,
         ),
         // ADD/SUB/MUL/DIV等R-type指令
         create_instruction_spec(
@@ -57,7 +56,7 @@ fn main() {
                     (4, 0x00) => IROp::Xor { dst: rd, src1: rs1, src2: rs2 }, // XOR
                     _ => return Ok(false),
                 };
-                b.push(irop);"#
+                b.push(irop);"#,
         ),
         // LOAD指令
         create_instruction_spec(
@@ -87,7 +86,7 @@ fn main() {
                     offset: imm,
                     size,
                     flags: MemFlags::default()
-                });"#
+                });"#,
         ),
         // STORE指令
         create_instruction_spec(
@@ -115,7 +114,7 @@ fn main() {
                     offset: imm,
                     size,
                     flags: MemFlags::default()
-                });"#
+                });"#,
         ),
         // BRANCH指令
         create_instruction_spec(
@@ -132,7 +131,7 @@ fn main() {
                 let rs1 = ((insn >> 15) & 0x1f) as u32;
                 let funct3 = ((insn >> 12) & 0x7) as u32;
 
-                let target = b.pc().wrapping_add(imm as u64);
+                let target = b.start_pc.wrapping_add(imm as u64);
                 let cond_reg = 32; // Temporary register for condition
 
                 match funct3 {
@@ -141,7 +140,7 @@ fn main() {
                         b.set_term(Terminator::CondJmp {
                             cond: cond_reg,
                             target_true: target,
-                            target_false: b.pc() + 4
+                            target_false: b.start_pc + 4
                         });
                     }
                     0x1 => { // BNE
@@ -149,7 +148,7 @@ fn main() {
                         b.set_term(Terminator::CondJmp {
                             cond: cond_reg,
                             target_true: target,
-                            target_false: b.pc() + 4
+                            target_false: b.start_pc + 4
                         });
                     }
                     0x4 => { // BLT
@@ -157,7 +156,7 @@ fn main() {
                         b.set_term(Terminator::CondJmp {
                             cond: cond_reg,
                             target_true: target,
-                            target_false: b.pc() + 4
+                            target_false: b.start_pc + 4
                         });
                     }
                     0x5 => { // BGE
@@ -165,7 +164,7 @@ fn main() {
                         b.set_term(Terminator::CondJmp {
                             cond: cond_reg,
                             target_true: target,
-                            target_false: b.pc() + 4
+                            target_false: b.start_pc + 4
                         });
                     }
                     0x6 => { // BLTU
@@ -173,7 +172,7 @@ fn main() {
                         b.set_term(Terminator::CondJmp {
                             cond: cond_reg,
                             target_true: target,
-                            target_false: b.pc() + 4
+                            target_false: b.start_pc + 4
                         });
                     }
                     0x7 => { // BGEU
@@ -181,11 +180,11 @@ fn main() {
                         b.set_term(Terminator::CondJmp {
                             cond: cond_reg,
                             target_true: target,
-                            target_false: b.pc() + 4
+                            target_false: b.start_pc + 4
                         });
                     }
                     _ => {}
-                }"#
+                }"#,
         ),
         // JAL
         create_instruction_spec(
@@ -200,10 +199,10 @@ fn main() {
                     | (((i >> 20) & 0x1) << 11)
                     | (((i >> 12) & 0xff) << 12);
                 let imm = sext21(imm);
-                let target = b.pc().wrapping_add(imm as u64);
+                let target = b.start_pc.wrapping_add(imm as u64);
 
-                b.push(IROp::MovImm { dst: rd, imm: b.pc() + 4 });
-                b.set_term(Terminator::Jmp { target });"#
+                b.push(IROp::MovImm { dst: rd, imm: b.start_pc + 4 });
+                b.set_term(Terminator::Jmp { target });"#,
         ),
         // SYSTEM指令 (ECALL/EBREAK)
         create_instruction_spec(
@@ -227,7 +226,7 @@ fn main() {
                         }
                     }
                     _ => {} // CSR instructions would go here
-                }"#
+                }"#,
         ),
     ];
 
@@ -256,6 +255,7 @@ fn main() {
 }
 
 // RISC-V符号扩展辅助函数
+#[allow(dead_code)]
 fn sext21(x: u32) -> i64 {
     if ((x >> 20) & 1) != 0 {
         (x as i64) | (!0i64 << 21)

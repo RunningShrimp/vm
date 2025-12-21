@@ -9,7 +9,7 @@ use vm_engine_jit::Jit;
 use vm_ir::{IRBlock, IROp, Terminator};
 
 /// 创建测试用的IR块
-fn create_test_ir_block(pc: u64, complexity: usize) -> IRBlock {
+fn create_test_ir_block(pc: GuestAddr, complexity: usize) -> IRBlock {
     let mut builder = vm_ir::IRBuilder::new(pc);
 
     for i in 0..complexity {
@@ -105,7 +105,7 @@ fn test_jit_basic_performance() {
     let complexities = [10, 50, 100, 200, 500];
 
     for &complexity in complexities.iter() {
-        let ir_block = create_test_ir_block(0x1000, complexity);
+        let ir_block = create_test_ir_block(GuestAddr(0x1000), complexity);
 
         // 预热执行
         for _ in 0..10 {
@@ -139,7 +139,7 @@ fn test_jit_basic_performance() {
 #[test]
 fn test_jit_hotspot_detection() {
     let mut jit = Jit::new();
-    let ir_block = create_test_ir_block(0x2000, 50);
+    let ir_block = create_test_ir_block(GuestAddr(0x2000), 50);
 
     println!("JIT Hotspot Detection Test:");
 
@@ -182,7 +182,7 @@ fn test_jit_hotspot_detection() {
 #[test]
 fn test_jit_consistency() {
     let mut jit = Jit::new();
-    let ir_block = create_test_ir_block(0x3000, 30);
+    let ir_block = create_test_ir_block(GuestAddr(0x3000), 30);
 
     println!("JIT Consistency Test:");
 
@@ -216,7 +216,7 @@ fn test_jit_consistency() {
 fn test_jit_vs_interpreter_performance() {
     use vm_engine_interpreter::Interpreter;
 
-    let ir_block = create_test_ir_block(0x3000, 100);
+    let ir_block = create_test_ir_block(GuestAddr(0x3000), 100);
     let mut jit = Jit::new();
     let mut interpreter = Interpreter::new();
 
@@ -272,7 +272,7 @@ fn test_jit_memory_efficiency() {
 
     // 创建大量不同的IR块来测试内存使用
     let blocks: Vec<IRBlock> = (0..200)
-        .map(|i| create_test_ir_block(0x4000 + i as u64 * 0x100, 20))
+        .map(|i| create_test_ir_block(GuestAddr(0x4000 + i as u64 * 0x100), 20))
         .collect();
 
     // 执行所有块
@@ -305,6 +305,8 @@ fn test_jit_memory_efficiency() {
     );
 }
 
+use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, GuestAddr, GuestPhysAddr, VmError, AccessType};
+
 /// 模拟MMU用于测试
 struct MockMMU {
     // 简化的模拟MMU实现
@@ -316,33 +318,31 @@ impl MockMMU {
     }
 }
 
-impl MMU for MockMMU {
-    fn translate(&mut self, addr: u64, access: vm_core::AccessType) -> Result<u64, vm_core::Fault> {
+impl AddressTranslator for MockMMU {
+    fn translate(&mut self, addr: GuestAddr, _access: AccessType) -> Result<GuestPhysAddr, VmError> {
         // 模拟地址翻译（直接返回）
-        Ok(addr)
-    }
-
-    fn fetch_insn(&self, pc: u64) -> Result<u64, vm_core::Fault> {
-        // 模拟指令获取
-        Ok(pc & 0xFFFFFFFF)
-    }
-
-    fn read(&self, pa: u64, size: u8) -> Result<u64, vm_core::Fault> {
-        // 模拟内存读取
-        Ok(pa.wrapping_mul(size as u64) & 0xFF)
-    }
-
-    fn write(&mut self, pa: u64, val: u64, size: u8) -> Result<(), vm_core::Fault> {
-        // 模拟内存写入
-        Ok(())
-    }
-
-    fn map_mmio(&mut self, addr: u64, size: u64, device: Box<(dyn vm_core::MmioDevice + 'static)>) {
-        // 模拟MMIO映射
+        Ok(GuestPhysAddr(addr.0))
     }
 
     fn flush_tlb(&mut self) {
         // 模拟TLB刷新
+    }
+}
+
+impl MemoryAccess for MockMMU {
+    fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, VmError> {
+        // 模拟指令获取
+        Ok(pc.0 & 0xFFFFFFFF)
+    }
+
+    fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
+        // 模拟内存读取
+        Ok(pa.0.wrapping_mul(size as u64) & 0xFF)
+    }
+
+    fn write(&mut self, _pa: GuestAddr, _val: u64, _size: u8) -> Result<(), VmError> {
+        // 模拟内存写入
+        Ok(())
     }
 
     fn memory_size(&self) -> usize {
@@ -350,19 +350,26 @@ impl MMU for MockMMU {
     }
 
     fn dump_memory(&self) -> Vec<u8> {
-        vec![0; 1024 * 1024] // 返回空内存数据
+        vec![0; 1024]
     }
 
-    fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
-        // 模拟内存恢复
+    fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
         Ok(())
     }
+}
 
-    fn as_any(&self) -> &(dyn std::any::Any + 'static) {
+impl MmioManager for MockMMU {
+    fn map_mmio(&self, _addr: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
+        // 模拟MMIO映射
+    }
+}
+
+impl MmuAsAny for MockMMU {
+    fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static) {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
 }
@@ -370,7 +377,7 @@ impl MMU for MockMMU {
 #[test]
 fn test_jit_compilation_cache() {
     let mut jit = Jit::new();
-    let ir_block = create_test_ir_block(0x5000, 30);
+    let ir_block = create_test_ir_block(GuestAddr(0x5000), 30);
 
     println!("JIT Compilation Cache Test:");
 

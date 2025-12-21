@@ -3,6 +3,29 @@
 //! This service encapsulates business logic related to translation strategy selection
 //! and architecture compatibility validation for cross-architecture translation.
 //!
+//! ## 当前实现状态（阶段1）
+//!
+//! **⚠️ 注意：当前实现是占位实现，提供接口结构但未实现完整的业务规则验证。**
+//!
+//! ### 已实现功能
+//! - 翻译策略类型定义（`TranslationStrategy`）
+//! - 翻译上下文结构（`TranslationContext`）
+//! - 兼容性检查结果（`CompatibilityResult`）
+//!
+//! ### 未实现的关键功能（阶段2目标）
+//! - **业务规则验证**: `TranslationBusinessRule` trait 的完整实现
+//! - **策略选择算法**: 基于架构、性能要求等选择最优策略
+//! - **兼容性深度检查**: 详细的架构特性兼容性分析
+//!
+//! ### 迁移决策
+//!
+//! 当前实现保留在主线中，但明确标记为占位实现。
+//! 未来可以选择：
+//! 1. **补齐业务规则**: 实现完整的 `TranslationBusinessRule` 和策略选择逻辑
+//! 2. **迁移到experimental**: 如果决定暂时不实现，可以迁移到 `experimental` feature
+//!
+//! 当前决策：保留在主线，但添加明确的文档说明和 TODO 标记。
+//!
 //! NOTE: This is a placeholder module. TranslationBusinessRule and related rules are
 //! not yet implemented. To be completed in a future phase.
 

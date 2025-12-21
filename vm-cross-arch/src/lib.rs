@@ -2,6 +2,27 @@
 //!
 //! 实现不同架构之间等价转换层，支持AMD64、ARM64、RISC-V64架构指令之间的转换。
 //!
+//! ## 快速开始
+//!
+//! 推荐使用 [`UnifiedExecutor`] 作为统一执行入口：
+//!
+//! ```rust,ignore
+//! use vm_cross_arch::UnifiedExecutor;
+//! use vm_core::{GuestArch, GuestAddr};
+//!
+//! // 创建统一执行器（自动选择最佳执行策略：AOT > JIT > 解释器）
+//! let mut executor = UnifiedExecutor::auto_create(GuestArch::X86_64, 64 * 1024 * 1024)?;
+//!
+//! // 执行代码
+//! let result = executor.execute(GuestAddr(0x1000))?;
+//! ```
+//!
+//! ## 执行器说明
+//!
+//! - **[`UnifiedExecutor`]** (推荐): 统一执行入口，自动选择 AOT > JIT > 解释器
+//! - [`AutoExecutor`]: 自动架构检测执行器，用于更细粒度的控制
+//! - [`CrossArchRuntime`]: 底层跨架构运行时，供高级用户使用
+//!
 //! ## 架构设计
 //!
 //! ```text
@@ -21,6 +42,23 @@
 //! - **寄存器映射**: 智能映射源架构寄存器到目标架构寄存器
 //! - **内存对齐优化**: 自动处理不同架构间的内存对齐差异
 //! - **指令并行优化**: 识别和优化可并行执行的指令
+//!
+//! ## OS级执行支持状态
+//!
+//! **⚠️ 当前状态（阶段1）**: 本项目当前**不支持**完整的OS级跨架构执行。
+//!
+//! ### 当前能力
+//! - ✅ 跨架构指令翻译（AMD64 ↔ ARM64 ↔ RISC-V64）
+//! - ✅ 基本块级执行（解释器模式）
+//! - ✅ 最小系统调用支持（write/exit，仅用于测试）
+//!
+//! ### 未实现的关键能力（阶段2目标）
+//! - ❌ **OS引导链**: 镜像加载、页表初始化、特权态设置
+//! - ❌ **异常/中断处理**: 异常向量表、中断注入、异常返回
+//! - ❌ **设备模型**: 最小设备集（console/timer/block/net）
+//! - ❌ **完整系统调用**: 文件I/O、进程管理、内存管理等
+//!
+//! 详见 [`os_support`] 模块文档了解详细的能力清单和实现计划。
 //!
 //! ## 性能优化
 //!
@@ -62,8 +100,8 @@
 //!
 //! // 创建转换器
 //! let translator = ArchTranslator::with_config(
-//!     SourceArch::X86_64, 
-//!     TargetArch::ARM64, 
+//!     SourceArch::X86_64,
+//!     TargetArch::ARM64,
 //!     config
 //! );
 //!
@@ -115,10 +153,15 @@
 //! - SIMD指令: V (向量扩展)
 //! - 系统指令: ECALL, EBREAK
 
+mod adaptive_optimizer;
 mod auto_executor;
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+mod hardware_accel_engine;
 mod block_cache;
-mod refactored_encoder;
 mod cache_optimizer;
+mod direct_execution;
+mod enhanced_block_cache;
+mod hot_path_optimizer;
 mod cross_arch_aot;
 mod cross_arch_runtime;
 mod encoder;
@@ -129,58 +172,91 @@ mod ir_optimizer;
 mod memory_alignment_optimizer;
 mod optimized_register_allocator;
 mod os_support;
+mod syscall_compat;
+mod signal_compat;
+mod filesystem_compat;
+mod network_compat;
+mod memory_model;
+mod interrupt_handler;
 mod performance_optimizer;
+mod refactored_encoder;
 mod register_mapping;
 mod runtime;
 mod smart_register_allocator;
 mod target_specific_optimizer;
-mod adaptive_optimizer;
 mod translator;
+#[cfg(test)]
+mod translation_coverage_tests;
+#[cfg(test)]
+mod riscv_vector_encoder_tests;
+mod consistency_tests;
 mod unified_executor;
 mod vm_service_ext;
 
-pub use auto_executor::{AutoExecutor, UnifiedDecoder};
-pub use block_cache::{CacheReplacementPolicy, CrossArchBlockCache, SourceBlockKey, TranslatedBlock};
-pub use cache_optimizer::{CacheConfig, CacheOptimizer, CachePolicy};
-pub use cross_arch_aot::{CrossArchAotCompiler, CrossArchAotConfig, CrossArchAotStats};
-pub use instruction_parallelism::{
-    DependencyType, DependencyEdge, InstructionNode, ParallelGroup, ResourceRequirements,
-    ParallelismStats, InstructionParallelizer
-};
-pub use memory_alignment_optimizer::{
-    AlignmentInfo, Endianness, EndiannessConversionStrategy, MemoryAccessPattern,
-    MemoryAlignmentOptimizer, MemoryOptimizationStats as OptimizationStats, IROpExt
-};
-pub use ir_optimizer::{
-    IROptimizer, OptimizationStats as IROptimizationStats, SubExpression, BinaryOp, UnaryOp, Operand
-};
-pub use target_specific_optimizer::{
-    TargetSpecificOptimizer, OptimizationStats as TargetOptimizationStats
-};
 pub use adaptive_optimizer::{
-    AdaptiveOptimizer, OptimizationStats as AdaptiveOptimizationStats, HotspotDetector, Hotspot,
-    PerformanceProfiler, PerformanceData, PerformanceTrend, ProfilingConfig, ProfilingSession,
-    PerformanceSample, TieredCompiler, CompilationTier, TieredCompilationStrategy,
-    TierTriggerCondition, CompilationRecord, DynamicRecompiler, RecompilationStrategy,
-    RecompilationRecord, CachedCode
+    AdaptiveOptimizer, CachedCode, CompilationRecord, CompilationTier, DynamicRecompiler, Hotspot,
+    HotspotDetector, OptimizationStats as AdaptiveOptimizationStats, PerformanceData,
+    PerformanceProfiler, PerformanceSample, PerformanceTrend, ProfilingConfig, ProfilingSession,
+    RecompilationRecord, RecompilationStrategy, TierTriggerCondition, TieredCompilationStrategy,
+    TieredCompiler,
 };
-pub use optimized_register_allocator::{OptimizedRegisterMapper, RegisterLifetime, RegisterCopy, TempRegisterUsage};
+pub use auto_executor::{AutoExecutor, UnifiedDecoder};
+pub use block_cache::{
+    CacheReplacementPolicy, CrossArchBlockCache, SourceBlockKey, TranslatedBlock,
+};
+pub use cache_optimizer::{CacheConfig, CacheOptimizer, CachePolicy};
+pub use direct_execution::DirectExecutionOptimizer;
+pub use enhanced_block_cache::{EnhancedBlockCache, EnhancedReplacementPolicy};
+pub use hot_path_optimizer::{HotPathOptimizer, HotPathStats};
+pub use direct_execution::DirectExecutionOptimizer;
+pub use cross_arch_aot::{CrossArchAotCompiler, CrossArchAotConfig, CrossArchAotStats};
 pub use cross_arch_runtime::{
     AotIntegrationConfig, CrossArchRuntime, CrossArchRuntimeConfig, GcIntegrationConfig,
     JitIntegrationConfig,
 };
 pub use encoder::{ArchEncoder, Arm64Encoder, Riscv64Encoder, X86_64Encoder};
+pub use instruction_parallelism::{
+    DependencyEdge, DependencyType, InstructionNode, InstructionParallelizer, ParallelGroup,
+    ParallelismStats, ResourceRequirements,
+};
 pub use integration::{CrossArchVm, CrossArchVmBuilder};
+pub use ir_optimizer::{
+    BinaryOp, IROptimizer, Operand, OptimizationStats as IROptimizationStats, SubExpression,
+    UnaryOp,
+};
+pub use memory_alignment_optimizer::{
+    AlignmentInfo, Endianness, EndiannessConversionStrategy, IROpExt, MemoryAccessPattern,
+    MemoryAlignmentOptimizer, MemoryOptimizationStats as OptimizationStats,
+};
+pub use optimized_register_allocator::{
+    OptimizedRegisterMapper, RegisterCopy, RegisterLifetime, TempRegisterUsage,
+};
 pub use os_support::{
     DeviceEmulator, DeviceType, InterruptController, LinuxSyscallHandler, SyscallHandler,
 };
+pub use signal_compat::{
+    Signal, SignalAction, SignalCompatibilityLayer,
+};
+pub use filesystem_compat::{
+    FileInfo, FileMode, FilesystemCompatibilityLayer, FilesystemOperations, OpenFlags,
+};
+pub use network_compat::{
+    NetworkCompatibilityLayer, NetworkStackOperations, SocketAddress, SocketDomain,
+    SocketInfo, SocketOption, SocketOptionLevel, SocketProtocol, SocketType,
+};
+pub use syscall_compat::{
+    SyscallArgConverter, SyscallCompatibilityLayer, SyscallNumberMapper,
+};
 pub use performance_optimizer::{PerformanceConfig, PerformanceOptimizer};
 pub use register_mapping::{RegisterMapper, RegisterMapping};
+pub use runtime::{CrossArchConfig, CrossArchStrategy, HostArch};
 pub use smart_register_allocator::{
     CallingConvention, InterferenceNode, RegisterAllocationStats, RegisterClass, RegisterInfo,
     SmartRegisterMapper,
 };
-pub use runtime::{CrossArchConfig, CrossArchStrategy, HostArch};
+pub use target_specific_optimizer::{
+    OptimizationStats as TargetOptimizationStats, TargetSpecificOptimizer,
+};
 pub use translator::{ArchTranslator, SourceArch, TargetArch, TranslationError};
 pub use unified_executor::{ExecutionStats, UnifiedExecutor};
 pub use vm_service_ext::{VmConfigExt, create_auto_vm_config};
@@ -291,3 +367,5 @@ mod tests {
 
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod os_compat_tests;

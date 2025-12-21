@@ -359,11 +359,108 @@ impl NumaAllocator {
     pub fn stats(&self) -> &NumaAllocStats {
         &self.stats
     }
+
+    /// 获取总的可用内存
+    pub fn total_available_memory(&self) -> u64 {
+        self.nodes.iter().map(|n| n.available_memory).sum()
+    }
+
+    /// 模拟内存分配（在真实实现中会调用底层分配器）
+    pub fn allocate_simulated(&self, size: usize) -> Option<usize> {
+        // 简化的内存分配模拟
+        match self.policy {
+            NumaAllocPolicy::Local => {
+                if let Some(node_id) = Self::current_node()
+                    && let Some(node) = self.nodes.get(node_id)
+                    && node.available_memory >= size as u64
+                {
+                    self.stats
+                        .local_allocs
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return Some(node_id);
+                }
+                // 回退到其他节点
+                for (i, node) in self.nodes.iter().enumerate() {
+                    if node.available_memory >= size as u64 {
+                        self.stats
+                            .remote_allocs
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        return Some(i);
+                    }
+                }
+            }
+            NumaAllocPolicy::Interleave => {
+                // 轮询分配 - 使用简单哈希代替rand
+                if self.nodes.is_empty() {
+                    return None;
+                }
+                let hash = size.wrapping_mul(31) % self.nodes.len();
+                if let Some(node) = self.nodes.get(hash)
+                    && node.available_memory >= size as u64
+                {
+                    self.stats
+                        .local_allocs
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return Some(hash);
+                }
+            }
+            NumaAllocPolicy::Bind(node_id) => {
+                if let Some(node) = self.nodes.get(node_id)
+                    && node.available_memory >= size as u64
+                {
+                    self.stats
+                        .local_allocs
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return Some(node_id);
+                }
+            }
+            NumaAllocPolicy::Preferred(node_id) => {
+                if let Some(node) = self.nodes.get(node_id)
+                    && node.available_memory >= size as u64
+                {
+                    self.stats
+                        .local_allocs
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return Some(node_id);
+                }
+                // 回退到本地分配
+                if let Some(local_id) = Self::current_node()
+                    && let Some(node) = self.nodes.get(local_id)
+                    && node.available_memory >= size as u64
+                {
+                    self.stats
+                        .remote_allocs
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return Some(local_id);
+                }
+            }
+        }
+
+        self.stats
+            .failed_allocs
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        None
+    }
+
+    /// 更新节点内存使用统计
+    pub fn update_node_memory_usage(&mut self, node_id: usize, used: u64) {
+        if let Some(node) = self.nodes.get_mut(node_id)
+            && used <= node.available_memory
+        {
+            node.available_memory -= used;
+        }
+    }
 }
 
 /// 全局 NUMA 分配器（可选）
 pub struct GlobalNumaAllocator {
     allocator: std::sync::OnceLock<NumaAllocator>,
+}
+
+impl Default for GlobalNumaAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GlobalNumaAllocator {
@@ -373,17 +470,20 @@ impl GlobalNumaAllocator {
             allocator: std::sync::OnceLock::new(),
         }
     }
-    
+
     /// 初始化全局分配器
     pub fn init(&self, nodes: Vec<NumaNodeInfo>, policy: NumaAllocPolicy) {
-        self.allocator.get_or_init(|| NumaAllocator::new(nodes, policy));
+        self.allocator
+            .get_or_init(|| NumaAllocator::new(nodes, policy));
     }
-    
+
     /// 获取全局分配器实例
     fn get_allocator(&self) -> &NumaAllocator {
-        self.allocator.get().expect("GlobalNumaAllocator not initialized")
+        self.allocator
+            .get()
+            .expect("GlobalNumaAllocator not initialized")
     }
-    
+
     /// 自动检测NUMA节点并初始化
     #[cfg(target_os = "linux")]
     pub fn auto_init(&self, policy: NumaAllocPolicy) -> Result<(), String> {
@@ -391,7 +491,7 @@ impl GlobalNumaAllocator {
         self.init(nodes, policy);
         Ok(())
     }
-    
+
     /// 检测系统NUMA节点
     #[cfg(target_os = "linux")]
     fn detect_numa_nodes(&self) -> Result<Vec<NumaNodeInfo>, String> {
@@ -405,14 +505,14 @@ impl GlobalNumaAllocator {
                     cpu_mask: (1 << libc::numa_num_configured_cpus()) - 1,
                 }]);
             }
-            
+
             let mut nodes = Vec::new();
             let max_node = libc::numa_max_node();
-            
+
             for node_id in 0..=max_node {
                 let node_mask = libc::numa_node_to_cpus(node_id);
                 let total_memory = self.get_node_memory(node_id);
-                
+
                 nodes.push(NumaNodeInfo {
                     node_id: node_id as usize,
                     total_memory,
@@ -420,11 +520,11 @@ impl GlobalNumaAllocator {
                     cpu_mask: node_mask,
                 });
             }
-            
+
             Ok(nodes)
         }
     }
-    
+
     /// 获取系统总内存
     #[cfg(target_os = "linux")]
     fn get_system_memory(&self) -> u64 {
@@ -437,7 +537,7 @@ impl GlobalNumaAllocator {
             }
         }
     }
-    
+
     /// 获取指定节点的内存
     #[cfg(target_os = "linux")]
     fn get_node_memory(&self, node_id: i32) -> u64 {
@@ -450,7 +550,7 @@ impl GlobalNumaAllocator {
             }
         }
     }
-    
+
     /// 自动检测NUMA节点并初始化（非Linux平台）
     #[cfg(not(target_os = "linux"))]
     pub fn auto_init(&self, policy: NumaAllocPolicy) -> Result<(), String> {
@@ -517,33 +617,32 @@ pub fn global_numa_stats() -> Option<&'static NumaAllocStats> {
 }
 
 /// 使用全局NUMA分配器的示例
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use vm_mem::{init_global_numa_allocator, NumaAllocPolicy};
-/// 
+///
 /// // 初始化全局NUMA分配器，使用本地分配策略
 /// init_global_numa_allocator(NumaAllocPolicy::Local).expect("Failed to initialize NUMA allocator");
-/// 
+///
 /// // 现在可以使用全局分配器进行内存分配
 /// // 实际使用时需要通过#[global_allocator]属性设置
 /// ```
-/// 
+///
 /// # Note
-/// 
+///
 /// 要使用全局NUMA分配器，需要在程序入口处添加：
 /// ```rust
 /// #[global_allocator]
 /// static GLOBAL_NUMA: vm_mem::GlobalNumaAllocator = vm_mem::GlobalNumaAllocator::new();
-/// 
+///
 /// fn main() {
 ///     vm_mem::init_global_numa_allocator(vm_mem::NumaAllocPolicy::Local)
 ///         .expect("Failed to initialize NUMA allocator");
 ///     // ... 应用程序代码
 /// }
 /// ```
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,7 +712,6 @@ mod tests {
         // 测试小块分配
         let layout = Layout::from_size_align(64, 8).unwrap();
         let ptr = allocator.allocate(layout).unwrap();
-        assert!(!ptr.as_ptr().is_null());
 
         // 验证统计信息
         let stats = allocator.stats();
@@ -634,7 +732,6 @@ mod tests {
         // 测试大块分配
         let layout = Layout::from_size_align(1024 * 1024, 4096).unwrap();
         let ptr = allocator.allocate(layout).unwrap();
-        assert!(!ptr.as_ptr().is_null());
         allocator.deallocate(ptr, 1024 * 1024);
     }
 
@@ -683,7 +780,7 @@ mod tests {
             cpu_mask: 0xFF,
         }];
 
-        let allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Bind(0));
+        let _allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Bind(0));
 
         // 绑定到不存在的节点
         let bind_allocator = NumaAllocator::new(vec![], NumaAllocPolicy::Bind(999));
@@ -737,10 +834,10 @@ mod benchmarks {
 
         let config = BenchmarkConfig::default();
 
-        println!("=== NUMA Allocation Performance Benchmark ===");
+        tracing::info!("=== NUMA Allocation Performance Benchmark ===");
 
         for &policy in &[NumaAllocPolicy::Local, NumaAllocPolicy::Interleave] {
-            println!("\nTesting policy: {:?}", policy);
+            tracing::info!("\nTesting policy: {:?}", policy);
 
             let allocator = NumaAllocator::new(nodes.clone(), policy);
 
@@ -757,6 +854,9 @@ mod benchmarks {
                 let start = Instant::now();
                 let mut successful_allocs = 0;
 
+                // 设置最小测量时间，用于性能优化决策
+                let _min_measurement_time = Duration::from_nanos(100); // 100ns
+
                 for _ in 0..config.iterations {
                     let layout = Layout::from_size_align(size, 8).unwrap();
                     if let Ok(ptr) = allocator.allocate(layout) {
@@ -766,7 +866,13 @@ mod benchmarks {
                 }
 
                 let duration = start.elapsed();
-                let avg_time = duration.as_nanos() as f64 / successful_allocs as f64;
+
+                // 只在分配次数超过阈值时计算平均时间，避免除零错误
+                let avg_time = if successful_allocs > 0 {
+                    duration.as_nanos() as f64 / successful_allocs as f64
+                } else {
+                    0.0
+                };
 
                 println!(
                     "  Size {} bytes: {} ns/alloc ({} successful)",
@@ -873,19 +979,12 @@ mod gc_integration_tests {
         // 测试NUMA分配器功能（模拟GC使用场景）
         let layout = Layout::from_size_align(1024, 8).unwrap();
         let ptr = numa_allocator.allocate(layout).unwrap();
-        assert!(!ptr.as_ptr().is_null());
 
         // 释放内存
         numa_allocator.deallocate(ptr, 1024);
 
         // 验证统计
-        let stats = numa_allocator.stats();
-        assert!(
-            stats
-                .local_allocs
-                .load(std::sync::atomic::Ordering::Relaxed)
-                >= 0
-        );
+        let _stats = numa_allocator.stats();
     }
 
     #[test]

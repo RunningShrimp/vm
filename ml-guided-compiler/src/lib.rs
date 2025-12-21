@@ -438,7 +438,7 @@ mod tests {
         };
 
         let score = model.predict(&features);
-        assert!(score >= 0.0 && score <= 3.0);
+        assert!((0.0..=3.0).contains(&score));
 
         let tier = model.predict_tier(&features);
         assert!(matches!(
@@ -575,10 +575,10 @@ mod tests {
     fn test_ml_compiler_multiple_decisions() {
         let compiler = MLGuidedCompiler::new();
 
-        for i in 0..100 {
+        for i in 0..100u64 {
             let features = BlockFeatures {
                 size_bytes: (i * 100) as u32,
-                execution_count: i as u64 * 100,
+                execution_count: i * 100,
                 ..Default::default()
             };
 

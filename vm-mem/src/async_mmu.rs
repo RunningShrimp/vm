@@ -2,10 +2,25 @@
 //!
 //! 提供异步版本的MMU接口，使用tokio异步运行时优化I/O操作
 
+#[cfg(feature = "no_std")]
+extern crate alloc;
+#[cfg(feature = "no_std")]
+extern crate hashbrown;
+
+#[cfg(feature = "no_std")]
+use alloc::sync::Arc;
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
+#[cfg(feature = "no_std")]
+use hashbrown::HashMap;
+#[cfg(not(feature = "no_std"))]
 use std::collections::HashMap;
+#[cfg(not(feature = "no_std"))]
 use std::sync::Arc;
-use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MMU};
+#[cfg(not(feature = "no_std"))]
+use std::vec::Vec;
 use vm_core::error::VmError;
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MMU};
 
 #[cfg(feature = "async")]
 use parking_lot::RwLock as AsyncRwLock;
@@ -193,7 +208,7 @@ impl AsyncTlbLookup {
                 let required = match access {
                     AccessType::Read => 1 << 1,
                     AccessType::Write => 1 << 2,
-                    AccessType::Exec => 1 << 3,
+                    AccessType::Execute => 1 << 3,
                     AccessType::Atomic => (1 << 1) | (1 << 2), // Atomic operations need both R and W bits
                 };
                 if (flags & required) != 0 {
@@ -303,13 +318,18 @@ impl AsyncPageTableWalker {
         access: AccessType,
         mmu: &dyn AsyncMMU,
     ) -> Result<(GuestPhysAddr, u64), VmError> {
+        // 记录页表基址，用于调试
+        log::debug!(
+            "Page table walk starting from base address: 0x{:x}",
+            self.page_table_base.0
+        );
         let vpn = va >> 12; // PAGE_SHIFT = 12
 
         // 1. 先查缓存
         {
             let cache = self.cache.read();
             if let Some(&(pa, flags)) = cache.get(&vpn) {
-                return Ok((pa, flags));
+                return Ok((GuestPhysAddr(pa), flags));
             }
         }
 
@@ -322,11 +342,11 @@ impl AsyncPageTableWalker {
         {
             let mut cache = self.cache.write();
             if cache.len() < self.cache_size {
-                cache.insert(vpn, (pa, flags));
+                cache.insert(vpn, (pa.0, flags));
             } else {
                 // 如果缓存已满，清空缓存（简化实现，实际应该使用LRU等策略）
                 cache.clear();
-                cache.insert(vpn, (pa, flags));
+                cache.insert(vpn, (pa.0, flags));
             }
         }
 
@@ -347,22 +367,27 @@ impl AsyncPageTableWalker {
 pub mod async_file_io {
     use std::path::Path;
     use vm_core::error::VmError;
+    use vm_core::{AccessType, GuestAddr};
 
     /// 异步读取文件到内存
     pub async fn read_file_to_memory<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, VmError> {
         use tokio::io::AsyncReadExt;
         let mut file = tokio::fs::File::open(path).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Read,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             })
         })?;
 
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Read,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             })
         })?;
 
@@ -373,22 +398,28 @@ pub mod async_file_io {
     pub async fn write_memory_to_file<P: AsRef<Path>>(path: P, data: &[u8]) -> Result<(), VmError> {
         use tokio::io::AsyncWriteExt;
         let mut file = tokio::fs::File::create(path).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Read,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             })
         })?;
         file.write_all(data).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Write,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Write,
+                is_write: true,
+                is_user: false,
             })
         })?;
 
         file.sync_all().await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Write,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Write,
+                is_write: true,
+                is_user: false,
             })
         })?;
 
@@ -403,9 +434,11 @@ pub mod async_file_io {
     ) -> Result<Vec<u8>, VmError> {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
         let mut file = tokio::fs::File::open(path).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Read,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             })
         })?;
 
@@ -413,17 +446,21 @@ pub mod async_file_io {
         file.seek(tokio::io::SeekFrom::Start(offset))
             .await
             .map_err(|_e| {
-                VmError::from(vm_core::Fault::AccessViolation {
-                    addr: 0,
-                    access: AccessType::Read,
+                VmError::from(vm_core::Fault::PageFault {
+                    addr: GuestAddr(0),
+                    access_type: AccessType::Read,
+                    is_write: false,
+                    is_user: false,
                 })
             })?;
 
         let mut buffer = vec![0u8; size];
         file.read_exact(&mut buffer).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Read,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Read,
+                is_write: false,
+                is_user: false,
             })
         })?;
 
@@ -441,9 +478,11 @@ pub mod async_file_io {
             .open(path)
             .await
             .map_err(|_e| {
-                VmError::from(vm_core::Fault::AccessViolation {
-                    addr: 0,
-                    access: AccessType::Write,
+                VmError::from(vm_core::Fault::PageFault {
+                    addr: GuestAddr(0),
+                    access_type: AccessType::Write,
+                    is_write: true,
+                    is_user: false,
                 })
             })?;
 
@@ -452,16 +491,20 @@ pub mod async_file_io {
         file.seek(tokio::io::SeekFrom::Start(offset))
             .await
             .map_err(|_e| {
-                VmError::from(vm_core::Fault::AccessViolation {
-                    addr: 0,
-                    access: AccessType::Read,
+                VmError::from(vm_core::Fault::PageFault {
+                    addr: GuestAddr(0),
+                    access_type: AccessType::Read,
+                    is_write: false,
+                    is_user: false,
                 })
             })?;
 
         file.write_all(data).await.map_err(|_e| {
-            VmError::from(vm_core::Fault::AccessViolation {
-                addr: 0,
-                access: AccessType::Write,
+            VmError::from(vm_core::Fault::PageFault {
+                addr: GuestAddr(0),
+                access_type: AccessType::Write,
+                is_write: true,
+                is_user: false,
             })
         })?;
 

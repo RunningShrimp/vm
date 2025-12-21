@@ -20,20 +20,20 @@ vm-engine-interpreter = { path = "../vm-engine-interpreter" }
 vm-mem = { path = "../vm-mem" }
 vm-boot = { path = "../vm-boot" }
 vm-engine-jit = { path = "../vm-engine-jit" }
-vm-encoding = { path = "../vm-encoding" }
-vm-register = { path = "../vm-register" }
-vm-memory-access = { path = "../vm-memory-access" }
-vm-instruction-patterns = { path = "../vm-instruction-patterns" }
-vm-optimization = { path = "../vm-optimization" }
+# vm-encoding, vm-register, vm-memory-access 已合并到 vm-core
+# vm-instruction-patterns 已合并到 vm-ir
+# vm-optimization 已合并到 vm-engine-jit
 vm-error = { path = "../vm-error" }
 thiserror = "2.0"
 tracing = "0.1"
-bincode = "2.0"
-fastrand = "2.0"
+parking_lot.workspace = true
+bincode = { version = "2.0.1", features = ["serde"] }
+fastrand = "2.3"
 
 [features]
 default = []
 jit = []
+llvm-support = []
 
 [dev-dependencies]
 vm-tests = { path = "../vm-tests" }

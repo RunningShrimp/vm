@@ -3,20 +3,16 @@
 //! 整合多级TLB、并发TLB和页表缓存，实现高性能内存管理
 
 use crate::memory::page_table_walker::{Sv39PageTableWalker, Sv48PageTableWalker};
-use crate::tlb::tlb_concurrent::{
-    ConcurrentTlbConfig, ConcurrentTlbManagerAdapter,
-};
+use crate::tlb::tlb_concurrent::{ConcurrentTlbConfig, ConcurrentTlbManagerAdapter};
 use crate::tlb::tlb_optimized::{MultiLevelTlb, MultiLevelTlbConfig};
 use crate::{PAGE_SHIFT, PAGE_SIZE, PagingMode, PhysicalMemory, pte_flags};
 use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use vm_core::{AddressTranslator, MemoryAccess, TlbManager, MmioManager, MmuAsAny};
-use vm_core::{
-    AccessType, GuestAddr, GuestPhysAddr, MmioDevice,
-};
 use vm_core::error::VmError;
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MmioDevice};
+use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, TlbManager};
 
 /// 页表缓存条目
 #[derive(Debug, Clone)]
@@ -93,10 +89,10 @@ impl PageTableCache {
         let key = (base, level, index);
 
         // 如果已满，驱逐LRU条目
-        if self.entries.len() >= self.max_capacity {
-            if let Some(old_key) = self.lru_order.pop_front() {
-                self.entries.remove(&old_key);
-            }
+        if self.entries.len() >= self.max_capacity
+            && let Some(old_key) = self.lru_order.pop_front()
+        {
+            self.entries.remove(&old_key);
         }
 
         let now = std::time::SystemTime::now()
@@ -163,12 +159,12 @@ impl AddressTranslator for UnifiedMmu {
                 if let Some(ref mut tlb) = self.multilevel_tlb {
                     tlb.flush_page(va)
                 }
-            },
+            }
             MmuOptimizationStrategy::Concurrent => {
                 if let Some(ref mut tlb) = self.concurrent_tlb {
                     tlb.flush_page(va)
                 }
-            },
+            }
             MmuOptimizationStrategy::Hybrid => {
                 if let Some(ref mut tlb) = self.concurrent_tlb {
                     tlb.flush_page(va)
@@ -176,7 +172,7 @@ impl AddressTranslator for UnifiedMmu {
                 if let Some(ref mut tlb) = self.multilevel_tlb {
                     tlb.flush_page(va)
                 }
-            },
+            }
         }
     }
 }
@@ -231,8 +227,6 @@ impl MmuAsAny for UnifiedMmu {
         self
     }
 }
-
-
 
 /// 内存预取器
 ///
@@ -851,7 +845,8 @@ impl UnifiedMmu {
         let (pa, flags) = match self.page_table_walker.take() {
             Some(mut walker) => {
                 // 临时移出walker，避免双重借用
-                let result = walker.walk(GuestAddr(va), access, asid, self)
+                let result = walker
+                    .walk(GuestAddr(va), access, asid, self)
                     .map(|(pa, flags)| (pa.0, flags));
                 // 将walker放回去
                 self.page_table_walker = Some(walker);
@@ -906,7 +901,11 @@ impl UnifiedMmu {
 
         // 定期处理预取队列
         if self.config.enable_prefetch
-            && self.stats.total_translations.load(Ordering::Relaxed) % 100 == 0
+            && self
+                .stats
+                .total_translations
+                .load(Ordering::Relaxed)
+                .is_multiple_of(100)
         {
             self.process_prefetch_queue();
         }
@@ -924,7 +923,7 @@ impl UnifiedMmu {
         };
 
         if let Some(ref mut tlb) = self.multilevel_tlb {
-            tlb.update(entry.clone());
+            tlb.update(entry);
         }
         if let Some(ref mut tlb) = self.concurrent_tlb {
             tlb.update(entry);
@@ -967,32 +966,32 @@ impl UnifiedMmu {
 
         for (vpn, asid) in prefetch_requests {
             // 检查是否已经在TLB中（使用trait接口）
-        let va = GuestAddr(vpn << PAGE_SHIFT);
-        let already_cached = match self.strategy {
-            MmuOptimizationStrategy::MultiLevel => self
-                .multilevel_tlb
-                .as_mut()
-                .map(|tlb| tlb.lookup(va, asid, AccessType::Read).is_some())
-                .unwrap_or(false),
-            MmuOptimizationStrategy::Concurrent => self
-                .concurrent_tlb
-                .as_mut()
-                .map(|tlb| tlb.lookup(va, asid, AccessType::Read).is_some())
-                .unwrap_or(false),
-            MmuOptimizationStrategy::Hybrid => {
-                let multilevel_cached = self
+            let va = GuestAddr(vpn << PAGE_SHIFT);
+            let already_cached = match self.strategy {
+                MmuOptimizationStrategy::MultiLevel => self
                     .multilevel_tlb
                     .as_mut()
                     .map(|tlb| tlb.lookup(va, asid, AccessType::Read).is_some())
-                    .unwrap_or(false);
-                let concurrent_cached = self
+                    .unwrap_or(false),
+                MmuOptimizationStrategy::Concurrent => self
                     .concurrent_tlb
                     .as_mut()
                     .map(|tlb| tlb.lookup(va, asid, AccessType::Read).is_some())
-                    .unwrap_or(false);
-                multilevel_cached || concurrent_cached
-            }
-        };
+                    .unwrap_or(false),
+                MmuOptimizationStrategy::Hybrid => {
+                    let multilevel_cached = self
+                        .multilevel_tlb
+                        .as_mut()
+                        .map(|tlb| tlb.lookup(va, asid, AccessType::Read).is_some())
+                        .unwrap_or(false);
+                    let concurrent_cached = self
+                        .concurrent_tlb
+                        .as_mut()
+                        .map(|tlb| tlb.lookup(va, asid, AccessType::Read).is_some())
+                        .unwrap_or(false);
+                    multilevel_cached || concurrent_cached
+                }
+            };
 
             if !already_cached {
                 // 执行页表遍历并插入TLB
@@ -1163,5 +1162,3 @@ impl UnifiedMmu {
         Ok(())
     }
 }
-
-

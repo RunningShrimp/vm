@@ -10,6 +10,7 @@
 //! - **内存管理**: [`MMU`] trait 定义内存管理单元接口
 //! - **解码器**: [`Decoder`] trait 定义指令解码器接口
 //! - **调试支持**: [`gdb`] 模块提供 GDB 远程调试协议实现
+//! - **代码生成**: [`TargetArch`] 枚举定义目标架构
 //!
 //! ## 特性标志
 //!
@@ -35,43 +36,76 @@
 extern crate alloc;
 
 #[cfg(feature = "no_std")]
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
 // 模块定义
-pub mod gdb;
-pub mod error;
-pub mod mmu_traits;
 pub mod domain;
-pub mod syscall;
+#[cfg(not(feature = "no_std"))]
 pub mod domain_event_bus;
-pub mod migration;
-pub mod snapshot;
-pub mod template;
-pub mod vm_state;
+#[cfg(not(feature = "no_std"))]
 pub mod domain_events;
+pub mod encoding;
+pub mod error;
+#[cfg(not(feature = "no_std"))]
+pub mod gdb;
+pub mod memory_access;
+pub mod migration;
+pub mod mmu_traits;
+pub mod parallel;
+pub mod register;
+pub use parallel::*;
+#[cfg(not(feature = "no_std"))]
+pub mod snapshot;
+#[cfg(not(feature = "no_std"))]
 mod snapshot_legacy;
+#[cfg(not(feature = "no_std"))]
+pub mod syscall;
+#[cfg(not(feature = "no_std"))]
+pub mod template;
+#[cfg(not(feature = "no_std"))]
+pub mod vm_state;
 
 // 重新导出系统调用相关类型
+#[cfg(not(feature = "no_std"))]
 pub use syscall::SyscallResult;
 
 // Re-export the new MMU trait and its sub-traits from mmu_traits
-pub use mmu_traits::{MMU, AddressTranslator, MemoryAccess, MmioManager, MmuAsAny};
+pub use mmu_traits::{AddressTranslator, MMU, MemoryAccess, MmioManager, MmuAsAny};
 mod regs;
 
 // Re-export ExecutionError, VmError and CoreError
-pub use error::{ExecutionError, VmError as CoreVmError, VmError, CoreError, MemoryError, DeviceError, PlatformError};
+pub use error::{
+    CoreError, DeviceError, ExecutionError, MemoryError, PlatformError, VmError as CoreVmError,
+    VmError,
+};
 
 // Re-export domain types
-pub use domain::{TlbManager, TlbEntry, TlbStats, PageTableWalker, ExecutionManager};
+pub use domain::{ExecutionManager, PageTableWalker, TlbEntry, TlbManager, TlbStats};
+
+// Re-export VirtualMachine type alias
+pub use vm_state::VirtualMachine;
 
 // ============================================================================
 // 基础类型定义
 // ============================================================================
 
 /// 客户机虚拟地址
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    bincode::Encode,
+    bincode::Decode,
+)]
 pub struct GuestAddr(pub u64);
 
 impl GuestAddr {
@@ -79,7 +113,7 @@ impl GuestAddr {
     pub fn wrapping_add(self, rhs: u64) -> Self {
         GuestAddr(self.0.wrapping_add(rhs))
     }
-    
+
     /// Wrapping subtraction
     pub fn wrapping_sub(self, rhs: GuestAddr) -> u64 {
         self.0.wrapping_sub(rhs.0)
@@ -97,6 +131,57 @@ pub enum AccessType {
     Execute,
     /// 原子操作
     Atomic,
+}
+
+/// 目标架构枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetArch {
+    /// x86-64架构
+    X86_64,
+    /// AArch64 (ARM64)架构
+    AArch64,
+    /// RISC-V 64位架构
+    RiscV64,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for TargetArch {
+    fn default() -> Self {
+        // 根据主机架构返回对应的目标架构
+        #[cfg(target_arch = "x86_64")]
+        {
+            TargetArch::X86_64
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            TargetArch::AArch64
+        }
+
+        #[cfg(target_arch = "riscv64")]
+        {
+            TargetArch::RiscV64
+        }
+
+        #[cfg(not(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64"
+        )))]
+        {
+            TargetArch::X86_64
+        }
+    }
+}
+
+impl core::fmt::Display for TargetArch {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TargetArch::X86_64 => write!(f, "x86_64"),
+            TargetArch::AArch64 => write!(f, "aarch64"),
+            TargetArch::RiscV64 => write!(f, "riscv64"),
+        }
+    }
 }
 
 /// 故障/异常类型
@@ -130,36 +215,35 @@ pub enum Fault {
     },
 }
 
-
 /// BitAnd implementation for GuestAddr
-impl std::ops::BitAnd<u64> for GuestAddr {
+impl core::ops::BitAnd<u64> for GuestAddr {
     type Output = u64;
-    
+
     fn bitand(self, rhs: u64) -> Self::Output {
         self.0 & rhs
     }
 }
 
 /// BitAnd implementation for &GuestAddr
-impl std::ops::BitAnd<u64> for &GuestAddr {
+impl core::ops::BitAnd<u64> for &GuestAddr {
     type Output = u64;
-    
+
     fn bitand(self, rhs: u64) -> Self::Output {
         self.0 & rhs
     }
 }
 
-impl std::ops::Rem<u64> for GuestAddr {
+impl core::ops::Rem<u64> for GuestAddr {
     type Output = u64;
-    
+
     fn rem(self, rhs: u64) -> Self::Output {
         self.0 % rhs
     }
 }
 
-impl std::ops::Sub for GuestAddr {
+impl core::ops::Sub for GuestAddr {
     type Output = u64;
-    
+
     fn sub(self, rhs: GuestAddr) -> Self::Output {
         self.0 - rhs.0
     }
@@ -184,29 +268,29 @@ impl From<GuestAddr> for GuestPhysAddr {
     }
 }
 
-impl std::fmt::LowerHex for GuestAddr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::LowerHex for GuestAddr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:#x}", self.0)
     }
 }
 
-impl std::ops::Add<u64> for GuestAddr {
+impl core::ops::Add<u64> for GuestAddr {
     type Output = GuestAddr;
-    
+
     fn add(self, rhs: u64) -> Self::Output {
         GuestAddr(self.0 + rhs)
     }
 }
 
-impl std::ops::AddAssign<u64> for GuestAddr {
+impl core::ops::AddAssign<u64> for GuestAddr {
     fn add_assign(&mut self, rhs: u64) {
         self.0 += rhs;
     }
 }
 
-impl std::ops::Shr<u32> for GuestAddr {
+impl core::ops::Shr<u32> for GuestAddr {
     type Output = u64;
-    
+
     fn shr(self, rhs: u32) -> Self::Output {
         self.0 >> rhs
     }
@@ -216,28 +300,27 @@ impl std::ops::Shr<u32> for GuestAddr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GuestPhysAddr(pub u64);
 
-
 /// 主机地址
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HostAddr(pub u64);
 
-impl std::ops::Add<u64> for GuestPhysAddr {
+impl core::ops::Add<u64> for GuestPhysAddr {
     type Output = GuestPhysAddr;
-    
+
     fn add(self, rhs: u64) -> Self::Output {
         GuestPhysAddr(self.0 + rhs)
     }
 }
 
-impl std::ops::AddAssign<u64> for GuestPhysAddr {
+impl core::ops::AddAssign<u64> for GuestPhysAddr {
     fn add_assign(&mut self, rhs: u64) {
         self.0 += rhs;
     }
 }
 
-impl std::ops::Shr<u64> for GuestPhysAddr {
+impl core::ops::Shr<u64> for GuestPhysAddr {
     type Output = u64;
-    
+
     fn shr(self, rhs: u64) -> Self::Output {
         self.0 >> rhs
     }
@@ -280,6 +363,17 @@ pub struct VmConfig {
     pub kernel_path: Option<String>,
     /// 初始化RAM磁盘路径
     pub initrd_path: Option<String>,
+    /// AOT配置
+    pub aot: AotConfig,
+}
+
+/// AOT 配置
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AotConfig {
+    /// 是否启用 AOT
+    pub enable_aot: bool,
+    /// AOT 镜像路径
+    pub aot_image_path: Option<String>,
 }
 
 impl Default for VmConfig {
@@ -291,6 +385,7 @@ impl Default for VmConfig {
             exec_mode: ExecMode::Interpreter,
             kernel_path: None,
             initrd_path: None,
+            aot: AotConfig::default(),
         }
     }
 }
@@ -327,21 +422,17 @@ impl Default for VmState {
     }
 }
 
-
-
 /// 虚拟机结果类型
 pub type VmResult<T> = Result<T, VmError>;
-
-
 
 /// 指令解码器trait
 pub trait Decoder {
     type Instruction;
     type Block;
-    
+
     /// 解码单条指令
     fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Instruction>;
-    
+
     /// 解码指令块
     fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Block>;
 }
@@ -361,43 +452,37 @@ pub struct Instruction {
 pub trait ExecutionEngine<BlockType>: Send + Sync {
     /// 执行单条指令
     fn execute_instruction(&mut self, instruction: &Instruction) -> VmResult<()>;
-    
+
     /// 运行虚拟机
     fn run(&mut self, mmu: &mut dyn MMU, block: &BlockType) -> ExecResult;
-    
+
     /// 获取指定编号的寄存器值
     fn get_reg(&self, idx: usize) -> u64;
-    
+
     /// 设置指定编号的寄存器值
     fn set_reg(&mut self, idx: usize, val: u64);
-    
+
     /// 获取程序计数器（PC）
     fn get_pc(&self) -> GuestAddr;
-    
+
     /// 设置程序计数器（PC）
     fn set_pc(&mut self, pc: GuestAddr);
-    
+
     /// 获取VCPU状态
     fn get_vcpu_state(&self) -> VcpuStateContainer;
-    
+
     /// 设置VCPU状态
     fn set_vcpu_state(&mut self, state: &VcpuStateContainer);
 }
-
-
 
 /// MMIO设备trait
 pub trait MmioDevice: Send + Sync {
     /// 读取MMIO寄存器
     fn read(&self, offset: u64, size: u8) -> VmResult<u64>;
-    
+
     /// 写入MMIO寄存器
     fn write(&mut self, offset: u64, value: u64, size: u8) -> VmResult<()>;
 }
-
-
-
-
 
 /// 系统调用上下文
 #[derive(Debug, Clone)]

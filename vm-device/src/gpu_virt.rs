@@ -29,6 +29,12 @@ pub struct WgpuBackend {
     stats: Arc<Mutex<GpuStats>>,
 }
 
+impl Default for WgpuBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WgpuBackend {
     pub fn new() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -131,6 +137,12 @@ pub struct PassthroughBackend {
     available: bool,
 }
 
+impl Default for PassthroughBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PassthroughBackend {
     pub fn new() -> Self {
         Self {
@@ -172,6 +184,12 @@ impl GpuBackend for PassthroughBackend {
 pub struct GpuManager {
     backends: Vec<Box<dyn GpuBackend>>,
     selected_backend: Option<usize>,
+}
+
+impl Default for GpuManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GpuManager {

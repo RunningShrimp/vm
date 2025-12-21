@@ -12,7 +12,7 @@ use vm_mem::tlb::{SoftwareTlb, TlbConfig, TlbReplacePolicy};
 
 /// 创建一个复杂的IR块用于测试
 fn create_complex_ir_block(pc: u64, complexity: usize) -> IRBlock {
-    let mut builder = vm_ir::IRBuilder::new(pc);
+    let mut builder = vm_ir::IRBuilder::new(vm_core::GuestAddr(pc));
 
     for i in 0..complexity {
         match i % 6 {
@@ -98,7 +98,7 @@ fn create_complex_ir_block(pc: u64, complexity: usize) -> IRBlock {
 
 /// 创建一个简单的IR块用于测试
 fn create_simple_ir_block(pc: u64) -> IRBlock {
-    let mut builder = vm_ir::IRBuilder::new(pc);
+    let mut builder = vm_ir::IRBuilder::new(vm_core::GuestAddr(pc));
 
     // 添加一些简单的算术运算
     builder.push(vm_ir::IROp::Add {
@@ -154,7 +154,7 @@ impl Default for PerfConfig {
 #[test]
 fn test_system_memory_performance() {
     let config = PerfConfig::default();
-    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize);
+    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize, false);
 
     println!("System Memory Performance Test:");
     println!("  Memory size: {}MB", config.memory_mb);
@@ -199,7 +199,7 @@ fn test_system_memory_performance() {
 #[test]
 fn test_system_tlb_performance() {
     let config = PerfConfig::default();
-    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize);
+    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize, false);
     let tlb_config = TlbConfig {
         initial_capacity: config.tlb_capacity,
         max_capacity: config.tlb_capacity * 2,
@@ -291,7 +291,7 @@ fn test_system_jit_performance() {
 #[test]
 fn test_system_parallel_performance() {
     let config = PerfConfig::default();
-    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize);
+    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize, false);
 
     println!("System Parallel Performance Test:");
     println!("  Threads: {}", config.parallel_threads);
@@ -371,7 +371,7 @@ fn test_system_comprehensive_benchmark() {
     println!("    Threads: {}", config.parallel_threads);
     println!("    Iterations: {}", config.iterations);
 
-    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize);
+    let mut mmu = SoftMmu::new((config.memory_mb * 1024 * 1024) as usize, false);
     let mut tlb = SoftwareTlb::new(config.tlb_capacity, TlbReplacePolicy::AdaptiveLru);
 
     let blocks: Vec<IRBlock> = (0..config.iterations)
@@ -442,7 +442,7 @@ fn test_system_scalability() {
     let memory_sizes = vec![64, 128, 256, 512, 1024]; // MB
 
     for &memory_mb in memory_sizes.iter() {
-        let mut mmu = SoftMmu::new(memory_mb * 1024 * 1024);
+        let mut mmu = SoftMmu::new(memory_mb * 1024 * 1024, false);
 
         let iterations = 1000;
         let start = Instant::now();
@@ -484,7 +484,7 @@ fn test_system_efficiency_metrics() {
     println!("    JIT: {:.0} ops/sec", theoretical_jit_ops);
 
     // 实际测试
-    let mut mmu = SoftMmu::new(1024 * 1024); // 1MB default
+    let mut mmu = SoftMmu::new(1024 * 1024, false); // 1MB default
     let mut tlb = SoftwareTlb::default();
 
     let test_iterations = 2000;

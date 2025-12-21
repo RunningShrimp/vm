@@ -579,32 +579,114 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrency_benchmark() {
+        use tokio::time::{timeout, Duration};
+        
         let bench = ConcurrencyBenchmark::new(2, 10000);
-        let result = bench.run().await;
+        let result = timeout(Duration::from_secs(120), bench.run())
+            .await
+            .expect("并发性能测试超时（超过120秒）");
         assert!(result.baseline_time_us > 0);
         assert!(result.optimized_time_us > 0);
     }
 
     #[test]
     fn test_gc_pause_benchmark() {
+        use std::time::{Duration, Instant};
+        use std::thread;
+        use std::sync::mpsc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        
+        let timeout_secs = 60;
+        let timeout = Duration::from_secs(timeout_secs);
+        let start = Instant::now();
+        let (tx, rx) = mpsc::channel();
+        let timed_out = Arc::new(AtomicBool::new(false));
+        
+        // 启动超时监控
+        let timed_out_clone = Arc::clone(&timed_out);
+        thread::spawn(move || {
+            thread::sleep(timeout);
+            timed_out_clone.store(true, Ordering::Release);
+            let _ = tx.send(());
+        });
+        
         let bench = GcPauseBenchmark::new(10, 1000);
         let result = bench.run();
+        
+        if timed_out.load(Ordering::Acquire) {
+            let elapsed = start.elapsed();
+            panic!("GC暂停测试超时：超过 {} 秒（实际耗时：{:.2} 秒）", timeout_secs, elapsed.as_secs_f64());
+        }
+        
         assert!(result.baseline_time_us > 0);
         assert!(result.optimized_time_us > 0);
     }
 
     #[test]
     fn test_memory_management_benchmark() {
+        use std::time::{Duration, Instant};
+        use std::thread;
+        use std::sync::mpsc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        
+        let timeout_secs = 90;
+        let timeout = Duration::from_secs(timeout_secs);
+        let start = Instant::now();
+        let (tx, rx) = mpsc::channel();
+        let timed_out = Arc::new(AtomicBool::new(false));
+        
+        // 启动超时监控
+        let timed_out_clone = Arc::clone(&timed_out);
+        thread::spawn(move || {
+            thread::sleep(timeout);
+            timed_out_clone.store(true, Ordering::Release);
+            let _ = tx.send(());
+        });
+        
         let bench = MemoryManagementBenchmark::new(1000, 0x100000);
         let result = bench.run();
+        
+        if timed_out.load(Ordering::Acquire) {
+            let elapsed = start.elapsed();
+            panic!("内存管理测试超时：超过 {} 秒（实际耗时：{:.2} 秒）", timeout_secs, elapsed.as_secs_f64());
+        }
+        
         assert!(result.baseline_time_us > 0);
         assert!(result.optimized_time_us > 0);
     }
 
     #[test]
     fn test_lockless_concurrency_benchmark() {
+        use std::time::{Duration, Instant};
+        use std::thread;
+        use std::sync::mpsc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        
+        let timeout_secs = 120;
+        let timeout = Duration::from_secs(timeout_secs);
+        let start = Instant::now();
+        let (tx, rx) = mpsc::channel();
+        let timed_out = Arc::new(AtomicBool::new(false));
+        
+        // 启动超时监控
+        let timed_out_clone = Arc::clone(&timed_out);
+        thread::spawn(move || {
+            thread::sleep(timeout);
+            timed_out_clone.store(true, Ordering::Release);
+            let _ = tx.send(());
+        });
+        
         let bench = LocklessConcurrencyBenchmark::new(10000, 2);
         let result = bench.run();
+        
+        if timed_out.load(Ordering::Acquire) {
+            let elapsed = start.elapsed();
+            panic!("无锁并发测试超时：超过 {} 秒（实际耗时：{:.2} 秒）", timeout_secs, elapsed.as_secs_f64());
+        }
+        
         assert!(result.baseline_time_us > 0);
         assert!(result.optimized_time_us > 0);
     }

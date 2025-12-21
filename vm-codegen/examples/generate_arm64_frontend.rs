@@ -1,8 +1,7 @@
 //! 使用前端代码生成器生成ARM64前端代码的示例
 
 use vm_codegen::{
-    CodegenConfig, FrontendCodeGenerator, 
-    create_instruction_spec, create_instruction_set
+    CodegenConfig, FrontendCodeGenerator, create_instruction_set, create_instruction_spec,
 };
 
 fn main() {
@@ -23,7 +22,7 @@ fn main() {
                 let mut imm = imm12 as i64;
                 if shift == 1 { imm <<= 12; }
 
-                b.push(IROp::AddImm { dst: rd, src: rn, imm });"#
+                b.push(IROp::AddImm { dst: rd, src: rn, imm });"#,
         ),
         // MOVZ
         create_instruction_spec(
@@ -35,7 +34,7 @@ fn main() {
                 let imm16 = (insn >> 5) & 0xFFFF;
                 let rd = insn & 0x1F;
                 let val = (imm16 as u64) << (hw * 16);
-                b.push(IROp::MovImm { dst: rd, imm: val });"#
+                b.push(IROp::MovImm { dst: rd, imm: val });"#,
         ),
         // LDR (Unsigned Immediate)
         create_instruction_spec(
@@ -59,7 +58,7 @@ fn main() {
                     offset,
                     size,
                     flags: MemFlags::default()
-                });"#
+                });"#,
         ),
         // B (Unconditional Branch)
         create_instruction_spec(
@@ -69,8 +68,8 @@ fn main() {
             0x14000000,
             r#"let imm26 = insn & 0x03FFFFFF;
                 let offset = ((imm26 << 6) as i32 >> 6) as i64 * 4;
-                let target = b.pc().wrapping_add(offset as u64);
-                b.set_term(Terminator::Jmp { target });"#
+                let target = b.start_pc.wrapping_add(offset as u64);
+                b.set_term(Terminator::Jmp { target });"#,
         ),
         // RET
         create_instruction_spec(
@@ -78,7 +77,7 @@ fn main() {
             "Return from subroutine",
             0xFFFFFC1F,
             0xD65F0000,
-            r#"b.set_term(Terminator::Ret);"#
+            r#"b.set_term(Terminator::Ret);"#,
         ),
         // Logical (shifted register) AND/ORR/EOR
         create_instruction_spec(
@@ -98,7 +97,7 @@ fn main() {
                     3 => IROp::And { dst: rd, src1: rn, src2: rm }, // ANDS
                     _ => return Ok(false),
                 };
-                b.push(irop);"#
+                b.push(irop);"#,
         ),
     ];
 

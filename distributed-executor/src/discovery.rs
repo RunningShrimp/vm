@@ -46,7 +46,10 @@ impl VmDiscovery {
         let vm_list = self.vm_list.clone();
         let config = self.config.clone();
 
-        log::info!("Starting VM discovery service on port {}", config.discovery_port);
+        log::info!(
+            "Starting VM discovery service on port {}",
+            config.discovery_port
+        );
 
         tokio::spawn(async move {
             let mut buf = [0; 1024];
@@ -66,7 +69,7 @@ impl VmDiscovery {
                         // For now, we'll mock it
                         if msg.starts_with(b"HELLO") {
                             log::debug!("Received HELLO from {}", addr);
-                            
+
                             // Mock processing of hello message by adding a VM to the list
                             let vm_info = VmInfo {
                                 vm_id: VmId::new(),
@@ -75,13 +78,13 @@ impl VmDiscovery {
                                     cpu_count: 4,
                                     memory_mb: 4096,
                                     instruction_sets: vec!["x86_64".to_string()],
-                                    has_gpu: false
+                                    has_gpu: false,
                                 },
                                 last_seen: std::time::Instant::now(),
                                 cpu_usage: 0,
-                                memory_usage: 0
+                                memory_usage: 0,
                             };
-                            
+
                             let mut vm_list_lock = vm_list.lock().await;
                             vm_list_lock.retain(|v| v.vm_addr != vm_info.vm_addr);
                             vm_list_lock.push(vm_info);

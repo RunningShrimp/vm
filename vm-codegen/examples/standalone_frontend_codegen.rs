@@ -2,11 +2,11 @@
 //!
 //! 这个示例不依赖于vm-core，直接展示前端代码生成器的功能。
 
-use std::collections::HashMap;
+#![allow(dead_code, unused_variables, clippy::upper_case_acronyms)]
 
 // 模拟必要的类型和结构
-type GuestAddr = u64;
 type VmError = String;
+type GuestAddr = u64;
 
 trait Instruction {
     fn next_pc(&self) -> GuestAddr;
@@ -20,26 +20,108 @@ trait Instruction {
 // 模拟IROp
 #[allow(dead_code)]
 enum IROp {
-    AddImm { dst: u32, src: u32, imm: i64 },
-    MovImm { dst: u32, imm: u64 },
-    Load { dst: u32, base: u32, offset: i64, size: u32 },
-    Store { src: u32, base: u32, offset: i64, size: u32 },
-    Add { dst: u32, src1: u32, src2: u32 },
-    Sub { dst: u32, src1: u32, src2: u32 },
-    Mul { dst: u32, src1: u32, src2: u32 },
-    Div { dst: u32, src1: u32, src2: u32, signed: bool },
-    And { dst: u32, src1: u32, src2: u32 },
-    Or { dst: u32, src1: u32, src2: u32 },
-    Xor { dst: u32, src1: u32, src2: u32 },
-    Sll { dst: u32, src: u32, shreg: u32 },
-    Srl { dst: u32, src: u32, shreg: u32 },
-    Sra { dst: u32, src: u32, shreg: u32 },
-    CmpEq { dst: u32, lhs: u32, rhs: u32 },
-    CmpNe { dst: u32, lhs: u32, rhs: u32 },
-    CmpLt { dst: u32, lhs: u32, rhs: u32 },
-    CmpGe { dst: u32, lhs: u32, rhs: u32 },
-    CmpLtU { dst: u32, lhs: u32, rhs: u32 },
-    CmpGeU { dst: u32, lhs: u32, rhs: u32 },
+    AddImm {
+        dst: u32,
+        src: u32,
+        imm: i64,
+    },
+    MovImm {
+        dst: u32,
+        imm: u64,
+    },
+    Load {
+        dst: u32,
+        base: u32,
+        offset: i64,
+        size: u32,
+    },
+    Store {
+        src: u32,
+        base: u32,
+        offset: i64,
+        size: u32,
+    },
+    Add {
+        dst: u32,
+        src1: u32,
+        src2: u32,
+    },
+    Sub {
+        dst: u32,
+        src1: u32,
+        src2: u32,
+    },
+    Mul {
+        dst: u32,
+        src1: u32,
+        src2: u32,
+    },
+    Div {
+        dst: u32,
+        src1: u32,
+        src2: u32,
+        signed: bool,
+    },
+    And {
+        dst: u32,
+        src1: u32,
+        src2: u32,
+    },
+    Or {
+        dst: u32,
+        src1: u32,
+        src2: u32,
+    },
+    Xor {
+        dst: u32,
+        src1: u32,
+        src2: u32,
+    },
+    Sll {
+        dst: u32,
+        src: u32,
+        shreg: u32,
+    },
+    Srl {
+        dst: u32,
+        src: u32,
+        shreg: u32,
+    },
+    Sra {
+        dst: u32,
+        src: u32,
+        shreg: u32,
+    },
+    CmpEq {
+        dst: u32,
+        lhs: u32,
+        rhs: u32,
+    },
+    CmpNe {
+        dst: u32,
+        lhs: u32,
+        rhs: u32,
+    },
+    CmpLt {
+        dst: u32,
+        lhs: u32,
+        rhs: u32,
+    },
+    CmpGe {
+        dst: u32,
+        lhs: u32,
+        rhs: u32,
+    },
+    CmpLtU {
+        dst: u32,
+        lhs: u32,
+        rhs: u32,
+    },
+    CmpGeU {
+        dst: u32,
+        lhs: u32,
+        rhs: u32,
+    },
     SysCall,
     DebugBreak,
     SysMret,
@@ -53,11 +135,22 @@ struct MemFlags;
 
 // 模拟Terminator
 enum Terminator {
-    Jmp { target: GuestAddr },
-    CondJmp { cond: u32, target_true: GuestAddr, target_false: GuestAddr },
-    JmpReg { base: u32, offset: i64 },
+    Jmp {
+        target: GuestAddr,
+    },
+    CondJmp {
+        cond: u32,
+        target_true: GuestAddr,
+        target_false: GuestAddr,
+    },
+    JmpReg {
+        base: u32,
+        offset: i64,
+    },
     Ret,
-    Fault { cause: u32 },
+    Fault {
+        cause: u32,
+    },
 }
 
 // 模拟IRBuilder
@@ -150,7 +243,12 @@ struct FrontendCodeGenerator {
 }
 
 impl FrontendCodeGenerator {
-    fn new(config: CodegenConfig, arch_name: &str, instruction_size: u8, has_compressed: bool) -> Self {
+    fn new(
+        config: CodegenConfig,
+        arch_name: &str,
+        instruction_size: u8,
+        has_compressed: bool,
+    ) -> Self {
         Self {
             config,
             arch_name: arch_name.to_string(),
@@ -211,12 +309,11 @@ impl Instruction for {}Instruction {{
     fn generate_decoder_struct(&self, has_extensions: bool) -> String {
         let arch_upper = self.arch_name.to_uppercase();
         let mut extensions = String::new();
-        
+
         if has_extensions {
-            extensions = format!(
-                r#"    /// 扩展指令解码器
+            extensions = r#"    /// 扩展指令解码器
     pub extension_decoders: HashMap<String, Box<dyn ExtensionDecoder>>,"#
-            );
+                .to_string();
         }
 
         format!(
@@ -271,17 +368,29 @@ impl Default for {}Decoder {{
             arch_upper,
             arch_upper,
             extensions,
-            if has_extensions { "\n            extension_decoders: HashMap::new()," } else { "" },
+            if has_extensions {
+                "\n            extension_decoders: HashMap::new(),"
+            } else {
+                ""
+            },
             arch_upper,
-            if has_extensions { "\n            extension_decoders: HashMap::new()," } else { "" },
+            if has_extensions {
+                "\n            extension_decoders: HashMap::new(),"
+            } else {
+                ""
+            },
             arch_upper
         )
     }
 
     /// 生成完整的前端代码
-    fn generate_frontend_code(&self, instruction_set: &InstructionSet, has_extensions: bool) -> String {
+    fn generate_frontend_code(
+        &self,
+        _instruction_set: &InstructionSet,
+        has_extensions: bool,
+    ) -> String {
         let mut code = String::new();
-        
+
         // 添加文件头
         code.push_str(&format!(
             r#"//! # vm-frontend-{} - {} 前端解码器
@@ -309,7 +418,7 @@ use std::collections::HashMap;
             self.arch_name.to_uppercase(),
             self.arch_name.to_uppercase()
         ));
-        
+
         // 添加扩展解码器trait（如果需要）
         if has_extensions {
             code.push_str(
@@ -319,16 +428,16 @@ pub trait ExtensionDecoder: Send + Sync {
     fn name(&self) -> &str;
 }
 
-"#
+"#,
             );
         }
-        
+
         // 添加指令结构体
         code.push_str(&self.generate_instruction_struct());
-        
+
         // 添加解码器结构体
         code.push_str(&self.generate_decoder_struct(has_extensions));
-        
+
         code
     }
 }
@@ -336,7 +445,7 @@ pub trait ExtensionDecoder: Send + Sync {
 fn main() {
     // 创建ARM64指令集
     let mut arm64_set = InstructionSet::new("ARM64");
-    
+
     // 添加一些示例指令
     arm64_set.add_instruction(InstructionSpec {
         mnemonic: "ADD_IMM".to_string(),
@@ -347,9 +456,10 @@ fn main() {
                 let imm12 = (insn >> 10) & 0xFFF;
                 let rn = (insn >> 5) & 0x1F;
                 let rd = insn & 0x1F;
-                b.push(IROp::AddImm { dst: rd, src: rn, imm: imm12 as i64 });"#.to_string(),
+                b.push(IROp::AddImm { dst: rd, src: rn, imm: imm12 as i64 });"#
+            .to_string(),
     });
-    
+
     arm64_set.add_instruction(InstructionSpec {
         mnemonic: "MOVZ".to_string(),
         description: "Move wide with zero".to_string(),
@@ -359,7 +469,8 @@ fn main() {
                 let imm16 = (insn >> 5) & 0xFFFF;
                 let rd = insn & 0x1F;
                 let val = (imm16 as u64) << (hw * 16);
-                b.push(IROp::MovImm { dst: rd, imm: val });"#.to_string(),
+                b.push(IROp::MovImm { dst: rd, imm: val });"#
+            .to_string(),
     });
 
     // 创建代码生成器配置

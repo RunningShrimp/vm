@@ -70,7 +70,7 @@ impl GpuPassthrough {
     /// 读取 GPU 型号名称
     #[cfg(target_os = "linux")]
     fn read_gpu_model(address: &PciAddress) -> Result<String, PassthroughError> {
-        let device_path = format!("/sys/bus/pci/devices/{}", address.to_string());
+        let device_path = format!("/sys/bus/pci/devices/{}", address);
 
         // 尝试从多个位置读取设备名称
         let label_path = PathBuf::from(&device_path).join("label");
@@ -103,7 +103,7 @@ impl GpuPassthrough {
     /// 读取显存大小
     #[cfg(target_os = "linux")]
     fn read_vram_size(address: &PciAddress) -> Result<u64, PassthroughError> {
-        let device_path = format!("/sys/bus/pci/devices/{}", address.to_string());
+        let device_path = format!("/sys/bus/pci/devices/{}", address);
 
         // 尝试读取 BAR0 的大小（通常是显存）
         let resource_path = PathBuf::from(&device_path).join("resource");
@@ -132,7 +132,7 @@ impl GpuPassthrough {
     /// 读取当前驱动
     #[cfg(target_os = "linux")]
     fn read_current_driver(address: &PciAddress) -> Result<String, PassthroughError> {
-        let device_path = format!("/sys/bus/pci/devices/{}", address.to_string());
+        let device_path = format!("/sys/bus/pci/devices/{}", address);
         let driver_link = PathBuf::from(&device_path).join("driver");
 
         if driver_link.exists() {
@@ -293,12 +293,7 @@ mod tests {
         let gpus = scan_available_gpus();
         println!("Found {} GPU(s):", gpus.len());
         for gpu in gpus {
-            println!(
-                "  - {:?} {} at {}",
-                gpu.vendor,
-                gpu.model,
-                gpu.pci_address.to_string()
-            );
+            println!("  - {:?} {} at {}", gpu.vendor, gpu.model, gpu.pci_address);
             println!("    VRAM: {} MB", gpu.vram_size / 1024 / 1024);
             println!("    Driver: {}", gpu.driver);
         }

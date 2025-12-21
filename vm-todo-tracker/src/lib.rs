@@ -3,10 +3,11 @@
 //! This module provides a comprehensive system for tracking, prioritizing,
 //! and resolving TODO/FIXME items across the VM project.
 
-use vm_error::{VmError, VmResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use vm_core::{AccessType, CoreError, VmError, VmResult};
+use vm_error::{VmError as VmErrorAlias, VmResult as VmResultAlias};
 
 /// TODO item with detailed information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,19 +114,25 @@ impl TodoItem {
     }
 
     pub fn is_overdue(&self) -> bool {
-        if let (Some(due_date), Ok(parsed)) = (
-            &self.due_date,
-            chrono::DateTime::parse_from_str(&due_date, "%Y-%m-%d %H:%M:%S")
-        ) {
-            chrono::Utc::now() > parsed
+        if let Some(due_date_str) = &self.due_date {
+            if let Ok(due_date) =
+                chrono::DateTime::parse_from_str(due_date_str, "%Y-%m-%d %H:%M:%S")
+            {
+                let due_date_utc = due_date.with_timezone(&chrono::Utc);
+                chrono::Utc::now() > due_date_utc
+            } else {
+                false
+            }
         } else {
             false
         }
     }
 
     pub fn age_days(&self) -> i64 {
-        if let Ok(created) = chrono::DateTime::parse_from_str(&self.created_at, "%Y-%m-%d %H:%M:%S") {
-            (chrono::Utc::now() - created).num_days()
+        if let Ok(created) = chrono::DateTime::parse_from_str(&self.created_at, "%Y-%m-%d %H:%M:%S")
+        {
+            let created_utc = created.with_timezone(&chrono::Utc);
+            (chrono::Utc::now() - created_utc).num_days()
         } else {
             0
         }
@@ -139,6 +146,17 @@ pub enum TodoPriority {
     Medium = 2,
     High = 3,
     Critical = 4,
+}
+
+impl std::fmt::Display for TodoPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TodoPriority::Low => write!(f, "Low"),
+            TodoPriority::Medium => write!(f, "Medium"),
+            TodoPriority::High => write!(f, "High"),
+            TodoPriority::Critical => write!(f, "Critical"),
+        }
+    }
 }
 
 impl TodoPriority {
@@ -163,7 +181,7 @@ impl TodoPriority {
 }
 
 /// TODO categories
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TodoCategory {
     General,
     Bug,
@@ -250,6 +268,12 @@ pub struct TodoTracker {
     filters: TodoFilters,
 }
 
+impl Default for TodoTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TodoTracker {
     pub fn new() -> Self {
         Self {
@@ -261,10 +285,11 @@ impl TodoTracker {
     /// Add a new TODO item
     pub fn add_item(&mut self, item: TodoItem) -> VmResult<()> {
         if self.items.contains_key(&item.id) {
-            return Err(VmError::Generic {
+            return Err(VmError::Core(CoreError::InvalidState {
                 message: format!("TODO item with ID {} already exists", item.id),
-                source: None,
-            });
+                current: "duplicate".to_string(),
+                expected: "new".to_string(),
+            }));
         }
 
         self.items.insert(item.id.clone(), item);
@@ -279,10 +304,11 @@ impl TodoTracker {
     /// Update a TODO item
     pub fn update_item(&mut self, id: &str, item: TodoItem) -> VmResult<()> {
         if !self.items.contains_key(id) {
-            return Err(VmError::Generic {
+            return Err(VmError::Core(CoreError::InvalidState {
                 message: format!("TODO item with ID {} not found", id),
-                source: None,
-            });
+                current: "not_found".to_string(),
+                expected: "existing".to_string(),
+            }));
         }
 
         self.items.insert(id.to_string(), item);
@@ -292,10 +318,11 @@ impl TodoTracker {
     /// Remove a TODO item
     pub fn remove_item(&mut self, id: &str) -> VmResult<()> {
         if !self.items.contains_key(id) {
-            return Err(VmError::Generic {
+            return Err(VmError::Core(CoreError::InvalidState {
                 message: format!("TODO item with ID {} not found", id),
-                source: None,
-            });
+                current: "not_found".to_string(),
+                expected: "existing".to_string(),
+            }));
         }
 
         self.items.remove(id);
@@ -358,7 +385,7 @@ impl TodoTracker {
 
         for item in self.items.values() {
             stats.total_items += 1;
-            
+
             match item.status {
                 TodoStatus::Open => stats.open_items += 1,
                 TodoStatus::InProgress => stats.in_progress_items += 1,
@@ -384,6 +411,99 @@ impl TodoTracker {
         }
 
         stats
+    }
+
+    /// Export todos to a format compatible with VM error system
+    pub fn export_to_vm_error_format(&self) -> VmResultAlias<String> {
+        let mut output = String::new();
+
+        for item in self.items.values() {
+            let line = format!(
+                "{}:{}: {} [{}] {}\n",
+                item.file_path,
+                item.line_number.map_or(0, |n| n),
+                item.title,
+                item.priority,
+                item.description
+            );
+            output.push_str(&line);
+        }
+
+        Ok(output)
+    }
+
+    /// Import todos from a VM error compatible format
+    pub fn import_from_vm_error_format(&mut self, content: &str) -> VmResultAlias<usize> {
+        let lines = content.lines();
+        let mut count = 0;
+
+        for line in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            // Parse format: file:line: title [priority] description
+            let parts: Vec<&str> = line.splitn(4, ':').collect();
+            if parts.len() >= 3 {
+                let file_path = parts[0].to_string();
+                let line_number = parts[1].parse::<u32>().ok();
+                let remainder = parts[2..].join(":");
+
+                let title_end = remainder.find('[').unwrap_or(remainder.len());
+                let title = remainder[..title_end].trim().to_string();
+
+                let description = if remainder.contains(']') {
+                    remainder[remainder.find(']').unwrap() + 1..]
+                        .trim()
+                        .to_string()
+                } else {
+                    remainder.clone()
+                };
+
+                let item = TodoItem::new(
+                    format!("imported-{}", count),
+                    &title,
+                    &description,
+                    &file_path,
+                )
+                .with_line_number(line_number.unwrap_or(0));
+
+                if let Err(e) = self.add_item(item) {
+                    return Err(VmErrorAlias::Io {
+                        message: format!("Failed to add item: {}", e),
+                    });
+                }
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Get unique tags across all TODO items
+    pub fn get_unique_tags(&self) -> HashSet<String> {
+        let mut tags = HashSet::new();
+
+        for item in self.items.values() {
+            for tag in &item.tags {
+                tags.insert(tag.clone());
+            }
+        }
+
+        tags
+    }
+
+    /// Get unique assignees across all TODO items
+    pub fn get_unique_assignees(&self) -> HashSet<String> {
+        let mut assignees = HashSet::new();
+
+        for item in self.items.values() {
+            if let Some(ref assignee) = item.assigned_to {
+                assignees.insert(assignee.clone());
+            }
+        }
+
+        assignees
     }
 }
 
@@ -537,7 +657,7 @@ impl TodoStats {
         } else {
             let avg_estimated = self.total_estimated_hours / self.total_items as f32;
             let avg_actual = self.total_actual_hours / completed_items as f32;
-            
+
             if avg_estimated == 0.0 {
                 0.0
             } else {
@@ -553,31 +673,38 @@ pub struct TodoScanner {
     patterns: Vec<regex::Regex>,
 }
 
+impl Default for TodoScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TodoScanner {
     pub fn new() -> Self {
         Self {
             patterns: vec![
                 // TODO patterns
-                regex::Regex::new(r"(?i)//\s*TODO\s*[:\(]?\s*(?P<[^)]*)\)?\s*(?P<[^>]*)").unwrap(),
+                regex::Regex::new(r"(?i)//\s*TODO\s*[:\(]?\s*([^)]*)\)?\s*(.*)").unwrap(),
                 // FIXME patterns
-                regex::Regex::new(r"(?i)//\s*FIXME\s*[:\(]?\s*(?P<[^)]*)\)?\s*(?P<[^>]*)").unwrap(),
+                regex::Regex::new(r"(?i)//\s*FIXME\s*[:\(]?\s*([^)]*)\)?\s*(.*)").unwrap(),
                 // HACK patterns
-                regex::Regex::new(r"(?i)//\s*HACK\s*[:\(]?\s*(?P<[^)]*)\)?\s*(?P<[^>]*)").unwrap(),
+                regex::Regex::new(r"(?i)//\s*HACK\s*[:\(]?\s*([^)]*)\)?\s*(.*)").unwrap(),
                 // NOTE patterns
-                regex::Regex::new(r"(?i)//\s*NOTE\s*[:\(]?\s*(?P<[^)]*)\)?\s*(?P<[^>]*)").unwrap(),
+                regex::Regex::new(r"(?i)//\s*NOTE\s*[:\(]?\s*([^)]*)\)?\s*(.*)").unwrap(),
                 // XXX patterns
-                regex::Regex::new(r"(?i)//\s*XXX\s*[:\(]?\s*(?P<[^)]*)\)?\s*(?P<[^>]*)").unwrap(),
+                regex::Regex::new(r"(?i)//\s*XXX\s*[:\(]?\s*([^)]*)\)?\s*(.*)").unwrap(),
             ],
         }
     }
 
     /// Scan a file for TODO items
     pub fn scan_file(&self, file_path: &Path) -> VmResult<Vec<TodoItem>> {
-        let content = std::fs::read_to_string(file_path)
-            .map_err(|e| VmError::Io {
-                source: e,
-                message: format!("Failed to read file: {:?}", file_path),
-            })?;
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
+            VmError::Io(format!(
+                "Failed to read file: {:?}, error: {}",
+                file_path, e
+            ))
+        })?;
 
         let mut items = Vec::new();
         let file_path_str = file_path.to_string_lossy().to_string();
@@ -585,11 +712,15 @@ impl TodoScanner {
         for (line_num, line) in content.lines().enumerate() {
             for pattern in &self.patterns {
                 if let Some(captures) = pattern.captures(line) {
-                    let (title, description) = if let (Some(title), Some(description)) = 
-                        (captures.get(1), captures.get(2)) {
-                        (title.trim().to_string(), description.trim().to_string())
+                    let (title, description) = if let (Some(title), Some(description)) =
+                        (captures.get(1), captures.get(2))
+                    {
+                        (
+                            title.as_str().trim().to_string(),
+                            description.as_str().trim().to_string(),
+                        )
                     } else if let Some(title) = captures.get(1) {
-                        (title.trim().to_string(), "".to_string())
+                        (title.as_str().trim().to_string(), "".to_string())
                     } else {
                         ("".to_string(), "".to_string())
                     };
@@ -599,8 +730,9 @@ impl TodoScanner {
                             format!("{}:{}:{}", file_path_str, line_num + 1, line_num + 1),
                             title,
                             description,
-                            file_path_str,
-                        ).with_line_number((line_num + 1) as u32);
+                            &file_path_str,
+                        )
+                        .with_line_number((line_num + 1) as u32);
 
                         items.push(item);
                     }
@@ -614,18 +746,19 @@ impl TodoScanner {
     /// Scan a directory recursively for TODO items
     pub fn scan_directory(&self, dir_path: &Path) -> VmResult<Vec<TodoItem>> {
         let mut all_items = Vec::new();
-        
+
         for entry in walkdir::WalkDir::new(dir_path) {
-            let entry = entry
-                .map_err(|e| VmError::Io {
-                    source: e.into(),
-                    message: format!("Failed to walk directory: {:?}", dir_path),
-                })?;
+            let entry = entry.map_err(|e| {
+                VmError::Io(format!(
+                    "Failed to walk directory: {:?}, error: {}",
+                    dir_path, e
+                ))
+            })?;
 
             let path = entry.path();
-            
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "rs") {
-                let items = self.scan_file(&path)?;
+
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
+                let items = self.scan_file(path)?;
                 all_items.extend(items);
             }
         }
@@ -634,39 +767,94 @@ impl TodoScanner {
     }
 
     /// Scan and categorize TODO items
-    pub fn scan_and_categorize(&self, dir_path: &Path) -> VmResult<HashMap<TodoCategory, Vec<TodoItem>>> {
+    pub fn scan_and_categorize(
+        &self,
+        dir_path: &Path,
+    ) -> VmResult<HashMap<TodoCategory, Vec<TodoItem>>> {
         let items = self.scan_directory(dir_path)?;
         let mut categorized = HashMap::new();
 
         for item in items {
             let category = self.categorize_item(&item);
-            categorized.entry(category).or_insert_with(Vec::new).push(item);
+            categorized
+                .entry(category)
+                .or_insert_with(Vec::new)
+                .push(item);
         }
 
         Ok(categorized)
     }
 
+    /// Check if a TODO item relates to memory access issues
+    pub fn is_memory_access_related(&self, item: &TodoItem) -> bool {
+        let content = format!("{} {}", item.title, item.description).to_lowercase();
+        content.contains("memory")
+            || content.contains("access")
+            || content.contains("mmu")
+            || content.contains("tlb")
+            || content.contains("cache")
+            || content.contains("page")
+    }
+
+    /// Get the type of memory access issue from a TODO item
+    pub fn get_memory_access_type(&self, item: &TodoItem) -> Option<AccessType> {
+        let content = format!("{} {}", item.title, item.description).to_lowercase();
+
+        if content.contains("read") && !content.contains("write") {
+            Some(AccessType::Read)
+        } else if content.contains("write") && !content.contains("read") {
+            Some(AccessType::Write)
+        } else if content.contains("execute") {
+            Some(AccessType::Execute)
+        } else if content.contains("read") && content.contains("write") {
+            // Since ReadWrite is not available, we'll default to Read for mixed access
+            Some(AccessType::Read)
+        } else {
+            None
+        }
+    }
+
     /// Categorize a TODO item based on its content
     fn categorize_item(&self, item: &TodoItem) -> TodoCategory {
         let content = format!("{} {}", item.title, item.description).to_lowercase();
-        
-        if content.contains("performance") || content.contains("optimize") || content.contains("speed") {
+
+        if content.contains("performance")
+            || content.contains("optimize")
+            || content.contains("speed")
+        {
             TodoCategory::Performance
         } else if content.contains("bug") || content.contains("fix") || content.contains("error") {
             TodoCategory::Bug
-        } else if content.contains("feature") || content.contains("implement") || content.contains("add") {
+        } else if content.contains("feature")
+            || content.contains("implement")
+            || content.contains("add")
+        {
             TodoCategory::Feature
-        } else if content.contains("doc") || content.contains("document") || content.contains("readme") {
+        } else if content.contains("doc")
+            || content.contains("document")
+            || content.contains("readme")
+        {
             TodoCategory::Documentation
-        } else if content.contains("security") || content.contains("vulnerability") || content.contains("protect") {
+        } else if content.contains("security")
+            || content.contains("vulnerability")
+            || content.contains("protect")
+        {
             TodoCategory::Security
-        } else if content.contains("refactor") || content.contains("clean") || content.contains("reorganize") {
+        } else if content.contains("refactor")
+            || content.contains("clean")
+            || content.contains("reorganize")
+        {
             TodoCategory::Refactoring
-        } else if content.contains("test") || content.contains("spec") || content.contains("verify") {
+        } else if content.contains("test") || content.contains("spec") || content.contains("verify")
+        {
             TodoCategory::Testing
-        } else if content.contains("build") || content.contains("compile") || content.contains("make") {
+        } else if content.contains("build")
+            || content.contains("compile")
+            || content.contains("make")
+        {
             TodoCategory::Build
-        } else if content.contains("infra") || content.contains("deploy") || content.contains("ci") {
+        } else if content.contains("infra") || content.contains("deploy") || content.contains("ci")
+        {
             TodoCategory::Infrastructure
         } else {
             TodoCategory::General
@@ -680,14 +868,10 @@ mod tests {
 
     #[test]
     fn test_todo_item_creation() {
-        let item = TodoItem::new(
-            "test-id",
-            "Test TODO",
-            "Test description",
-            "/test/file.rs",
-        ).with_priority(TodoPriority::High)
-         .with_category(TodoCategory::Bug)
-         .with_tag("urgent");
+        let item = TodoItem::new("test-id", "Test TODO", "Test description", "/test/file.rs")
+            .with_priority(TodoPriority::High)
+            .with_category(TodoCategory::Bug)
+            .with_tag("urgent");
 
         assert_eq!(item.id, "test-id");
         assert_eq!(item.title, "Test TODO");
@@ -701,17 +885,20 @@ mod tests {
     #[test]
     fn test_todo_tracker() {
         let mut tracker = TodoTracker::new();
-        
-        let item = TodoItem::new(
-            "test-id",
-            "Test TODO",
-            "Test description",
-            "/test/file.rs",
-        );
-        
+
+        let item = TodoItem::new("test-id", "Test TODO", "Test description", "/test/file.rs");
+
         tracker.add_item(item.clone()).unwrap();
-        assert_eq!(tracker.get_item("test-id"), Some(&item));
-        
+        match tracker.get_item("test-id") {
+            Some(stored_item) => {
+                assert_eq!(stored_item.id, item.id);
+                assert_eq!(stored_item.title, item.title);
+                assert_eq!(stored_item.description, item.description);
+                assert_eq!(stored_item.file_path, item.file_path);
+            }
+            None => panic!("Expected item to be stored but found None"),
+        }
+
         let stats = tracker.get_stats();
         assert_eq!(stats.total_items, 1);
         assert_eq!(stats.open_items, 1);
@@ -735,12 +922,14 @@ mod tests {
 
     #[test]
     fn test_todo_stats() {
-        let mut stats = TodoStats::default();
-        stats.total_items = 10;
-        stats.resolved_items = 5;
-        stats.closed_items = 3;
-        stats.total_estimated_hours = 50.0;
-        stats.total_actual_hours = 45.0;
+        let stats = TodoStats {
+            total_items: 10,
+            resolved_items: 5,
+            closed_items: 3,
+            total_estimated_hours: 50.0,
+            total_actual_hours: 45.0,
+            ..TodoStats::default()
+        };
 
         assert_eq!(stats.completion_rate(), 0.8);
         assert_eq!(stats.avg_estimated_hours(), 5.0);

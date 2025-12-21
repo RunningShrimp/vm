@@ -1,4 +1,4 @@
-use vm_core::{MMU, MmioDevice};
+use vm_core::{GuestAddr, MMU, MmioDevice, MmioManager};
 use vm_device::block::{VirtioBlock, VirtioBlockMmio};
 use vm_mem::SoftMmu;
 
@@ -7,11 +7,11 @@ fn smoke_mmio_notify_block_device() {
     let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // Create a VirtioBlock device without a backing file; queue not configured
-    let virtio = VirtioBlock::new();
+    let virtio = VirtioBlock::new(1024, 512, false);
     let mmio = VirtioBlockMmio::new(virtio);
 
     // Map MMIO region at 0x1000
-    mmu.map_mmio(0x1000, 0x1000, Box::new(mmio));
+    (&mmu as &dyn MmioManager).map_mmio(GuestAddr(0x1000), 0x1000, Box::new(mmio));
 
     // Write to offset 0x20 to trigger notify; should not panic
     mmu.write(0x1020, 0x1, 4).expect("Failed to write to MMIO");
@@ -34,7 +34,7 @@ fn test_riscv64_simple_execution() {
     };
 
     let mmu = SoftMmu::new(config.memory_size, false);
-    let mut vm: VirtualMachine<IRBlock> = VirtualMachine::with_mmu(config, Box::new(mmu));
+    let mut vm: VirtualMachine<IRBlock> = VirtualMachine::new(config, Box::new(mmu));
     let mmu_arc = vm.mmu();
 
     // 2. Load "Kernel" (Machine Code)
@@ -70,7 +70,7 @@ fn test_riscv64_simple_execution() {
         match block.term {
             vm_ir::Terminator::Jmp { target } => pc = target,
             vm_ir::Terminator::Ret => break,
-            _ => pc = res.next_pc,
+            _ => pc = res.next_pc.0,
         }
 
         if pc >= entry_point + 12 {

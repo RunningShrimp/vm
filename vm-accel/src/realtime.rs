@@ -389,7 +389,7 @@ mod tests {
         prefetch.record_access(0x3000);
 
         let predictions = prefetch.get_predictions();
-        assert!(predictions.len() > 0);
+        assert!(!predictions.is_empty());
     }
 
     #[test]

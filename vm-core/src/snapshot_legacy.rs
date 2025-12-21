@@ -25,8 +25,6 @@ pub struct SnapshotMetadataManager {
     pub current_snapshot: Option<String>,
 }
 
-
-
 impl SnapshotMetadataManager {
     pub fn new() -> Self {
         Self {

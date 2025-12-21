@@ -3,10 +3,10 @@
 //! This module provides reusable validation components to reduce code duplication
 //! and improve consistency across the VM project.
 
-use vm_error::{Architecture, RegId, GuestAddr};
-use vm_error::{VmError, VmResult, ErrorContext};
-use serde::{Deserialize, Serialize};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use vm_error::{Architecture, GuestAddr, RegId};
+use vm_error::{ErrorContext, VmError, VmResult};
 
 /// Validation result with detailed information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,10 +53,11 @@ impl ValidationResult {
         } else {
             Err(VmError::Configuration {
                 source: vm_error::ConfigError::ValidationFailed(
-                    self.errors.iter()
+                    self.errors
+                        .iter()
                         .map(|e| e.to_string())
                         .collect::<Vec<_>>()
-                        .join(", ")
+                        .join(", "),
                 ),
                 message: "Validation failed".to_string(),
             })
@@ -90,8 +91,9 @@ impl ValidationError {
     }
 
     pub fn required(field: impl Into<String> + Clone) -> Self {
-        let field_str = field.into(); 
-        Self::new(field_str.clone(),
+        let field_str = field.into();
+        Self::new(
+            field_str.clone(),
             format!("{} is required", field_str),
             "REQUIRED",
             ErrorSeverity::Error,
@@ -99,8 +101,9 @@ impl ValidationError {
     }
 
     pub fn invalid_format(field: impl Into<String> + Clone, format: impl Into<String>) -> Self {
-        let field_str = field.into(); 
-        Self::new(field_str.clone(),
+        let field_str = field.into();
+        Self::new(
+            field_str.clone(),
             format!("{} has invalid format: {}", field_str, format.into()),
             "INVALID_FORMAT",
             ErrorSeverity::Error,
@@ -113,7 +116,9 @@ impl ValidationError {
         min: impl Into<String>,
         max: impl Into<String>,
     ) -> Self {
-        let field_str = field.into(); Self::new(field_str.clone(),
+        let field_str = field.into();
+        Self::new(
+            field_str.clone(),
             format!(
                 "{} value {} is out of range [{}, {}]",
                 field_str,
@@ -125,9 +130,11 @@ impl ValidationError {
             ErrorSeverity::Error,
         )
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!("{}: {}", self.code, self.message)
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
     }
 }
 
@@ -154,8 +161,9 @@ impl ValidationWarning {
     }
 
     pub fn deprecated(field: impl Into<String> + Clone, replacement: impl Into<String>) -> Self {
-        let field_str = field.into(); 
-        Self::new(field_str.clone(),
+        let field_str = field.into();
+        Self::new(
+            field_str.clone(),
             format!(
                 "{} is deprecated, use {} instead",
                 field_str,
@@ -170,7 +178,9 @@ impl ValidationWarning {
         value: impl Into<String>,
         suggestion: impl Into<String>,
     ) -> Self {
-        let field_str = field.into(); Self::new(field_str.clone(),
+        let field_str = field.into();
+        Self::new(
+            field_str.clone(),
             format!(
                 "{} value {} is unusual, consider {}",
                 field_str,
@@ -179,10 +189,6 @@ impl ValidationWarning {
             ),
             "UNUSUAL_VALUE",
         )
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("{}: {}", self.code, self.message)
     }
 }
 
@@ -442,7 +448,7 @@ pub mod validators {
                     "register_id",
                     value.to_string(),
                     "0",
-                    &self.max_id.to_string(),
+                    self.max_id.to_string(),
                 )])
             }
         }
@@ -491,7 +497,7 @@ pub mod validators {
 
             // Check alignment
             if let Some(alignment) = self.alignment {
-                if value % alignment != 0 {
+                if !value.is_multiple_of(alignment) {
                     result.add_error(ValidationError::new(
                         "address",
                         format!("Address {:#x} not aligned to {} bytes", value, alignment),
@@ -546,7 +552,10 @@ pub mod validators {
                 if value.len() < min_length {
                     result.add_error(ValidationError::new(
                         &self.name,
-                        format!("{} is too short (minimum {} characters)", &self.name, min_length),
+                        format!(
+                            "{} is too short (minimum {} characters)",
+                            &self.name, min_length
+                        ),
                         "TOO_SHORT",
                         ErrorSeverity::Error,
                     ));
@@ -558,7 +567,10 @@ pub mod validators {
                 if value.len() > max_length {
                     result.add_error(ValidationError::new(
                         &self.name,
-                        format!("{} is too long (maximum {} characters)", &self.name, max_length),
+                        format!(
+                            "{} is too long (maximum {} characters)",
+                            &self.name, max_length
+                        ),
                         "TOO_LONG",
                         ErrorSeverity::Error,
                     ));
@@ -666,10 +678,7 @@ pub mod utils {
         } else {
             ValidationResult::invalid(vec![ValidationError::new(
                 field_name,
-                format!(
-                    "Value {:?} is not in allowed set: {:?}",
-                    value, allowed
-                ),
+                format!("Value {:?} is not in allowed set: {:?}", value, allowed),
                 "INVALID_VALUE",
                 ErrorSeverity::Error,
             )])
@@ -723,10 +732,10 @@ mod tests {
     #[test]
     fn test_range_rule() {
         let rule = rules::RangeRule::new("test", 1, 10);
-        
+
         let valid_result = rule.validate(&5);
         assert!(valid_result.is_valid);
-        
+
         let invalid_result = rule.validate(&0);
         assert!(!invalid_result.is_valid);
         assert_eq!(invalid_result.errors.len(), 1);
@@ -735,10 +744,10 @@ mod tests {
     #[test]
     fn test_non_empty_rule() {
         let rule = rules::NonEmptyRule::new("test");
-        
+
         let valid_result = rule.validate(&"not empty".to_string());
         assert!(valid_result.is_valid);
-        
+
         let invalid_result = rule.validate(&"".to_string());
         assert!(!invalid_result.is_valid);
         assert_eq!(invalid_result.errors.len(), 1);
@@ -747,16 +756,14 @@ mod tests {
     #[test]
     fn test_architecture_validator() {
         let validator = validators::ArchitectureValidator::all_supported();
-        
+
         let valid_result = validator.validate_with_result(&Architecture::X86_64);
         assert!(valid_result.is_valid);
-        
+
         // 创建一个自定义验证器来测试不支持的架构
         // 这里我们只支持X86_64和ARM64，但不支持RISCV64
-        let custom_validator = validators::ArchitectureValidator::new(vec![
-            Architecture::X86_64,
-            Architecture::ARM64,
-        ]);
+        let custom_validator =
+            validators::ArchitectureValidator::new(vec![Architecture::X86_64, Architecture::ARM64]);
         let invalid_result = custom_validator.validate_with_result(&Architecture::RISCV64);
         assert!(!invalid_result.is_valid);
         assert_eq!(invalid_result.errors.len(), 1);
@@ -765,9 +772,13 @@ mod tests {
     #[test]
     fn test_composite_validator() {
         let validator = CompositeValidator::new("test")
-            .add_validator(Box::new(validators::StringLengthValidator::new("field1").with_min_length(1)))
-            .add_validator(Box::new(validators::StringLengthValidator::new("field2").with_max_length(10)));
-        
+            .add_validator(Box::new(
+                validators::StringLengthValidator::new("field1").with_min_length(1),
+            ))
+            .add_validator(Box::new(
+                validators::StringLengthValidator::new("field2").with_max_length(10),
+            ));
+
         let valid_result = validator.validate_with_result(&"valid_string".to_string());
         assert!(valid_result.is_valid);
     }

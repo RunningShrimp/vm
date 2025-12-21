@@ -1,13 +1,11 @@
 //! 协程调度器测试套件
 
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::timeout;
 use vm_runtime::CoroutineScheduler;
 use vm_runtime::Priority;
 
 #[tokio::test]
-fn test_coroutine_scheduler_basic() {
+async fn test_coroutine_scheduler_basic() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
@@ -18,21 +16,21 @@ fn test_coroutine_scheduler_basic() {
 
     let coroutine = scheduler.submit_task(Priority::Medium, task);
     assert!(!coroutine.id().is_empty());
-    
+
     // 等待任务完成
     std::thread::sleep(Duration::from_millis(20));
-    
+
     scheduler.stop();
     scheduler.join_all();
 }
 
 #[tokio::test]
-fn test_coroutine_scheduler_multiple_tasks() {
+async fn test_coroutine_scheduler_multiple_tasks() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
     // 提交多个任务
-    for i in 0..5 {
+    for _ in 0..5 {
         let task = move || {
             std::thread::sleep(Duration::from_millis(50));
         };
@@ -41,16 +39,16 @@ fn test_coroutine_scheduler_multiple_tasks() {
 
     // 等待所有任务完成
     std::thread::sleep(Duration::from_millis(300));
-    
+
     let stats = scheduler.get_stats();
     println!("Scheduler stats: {:?}", stats);
-    
+
     scheduler.stop();
     scheduler.join_all();
 }
 
 #[tokio::test]
-fn test_coroutine_scheduler_priority() {
+async fn test_coroutine_scheduler_priority() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
@@ -58,7 +56,7 @@ fn test_coroutine_scheduler_priority() {
     let high_task = || {
         std::thread::sleep(Duration::from_millis(10));
     };
-    
+
     let low_task = || {
         std::thread::sleep(Duration::from_millis(10));
     };
@@ -68,17 +66,17 @@ fn test_coroutine_scheduler_priority() {
 
     // 等待任务完成
     std::thread::sleep(Duration::from_millis(30));
-    
+
     scheduler.stop();
     scheduler.join_all();
 }
 
 #[tokio::test]
-fn test_coroutine_scheduler_stats() {
+async fn test_coroutine_scheduler_stats() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
-    
+
     // 提交一些任务
-    for i in 0..3 {
+    for _ in 0..3 {
         let task = move || {
             std::thread::sleep(Duration::from_millis(10));
         };

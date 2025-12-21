@@ -1,11 +1,11 @@
 //! Common register management for VM cross-architecture translation
-//! 
+//!
 //! This module provides unified register management across different architectures,
 //! including register mapping, allocation, and lifecycle management.
 
-use vm_error::{Architecture, RegId};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+use vm_error::{Architecture, RegId};
 
 /// Errors that can occur during register management
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -164,7 +164,8 @@ impl RegisterSet {
     }
 
     pub fn get_register(&self, id: RegId) -> Option<&RegisterInfo> {
-        self.general_purpose.iter()
+        self.general_purpose
+            .iter()
             .chain(self.floating_point.iter())
             .chain(self.vector.iter())
             .chain(self.special.values())
@@ -177,7 +178,8 @@ impl RegisterSet {
     }
 
     pub fn get_register_by_name(&self, name: &str) -> Option<&RegisterInfo> {
-        self.general_purpose.iter()
+        self.general_purpose
+            .iter()
             .chain(self.floating_point.iter())
             .chain(self.vector.iter())
             .chain(self.special.values())
@@ -263,15 +265,17 @@ impl RegisterMapper {
         }
 
         // Get source register info
-        let source_info = self.source_set.get_register(source_reg)
+        let source_info = self
+            .source_set
+            .get_register(source_reg)
             .ok_or(RegisterError::RegisterNotFound(source_reg))?;
 
         // Find a suitable target register
         let target_reg = self.find_target_register(source_info)?;
-        
+
         // Allocate the register
         self.allocate_register(source_reg, target_reg)?;
-        
+
         Ok(target_reg)
     }
 
@@ -331,14 +335,14 @@ impl RegisterMapper {
     /// Find a suitable target register for the source register
     fn find_target_register(&self, source_info: &RegisterInfo) -> Result<RegId, RegisterError> {
         let target_candidates = self.target_set.get_available_registers(source_info.class);
-        
+
         if target_candidates.is_empty() {
             return Err(RegisterError::NoAvailableRegisters(source_info.class));
         }
 
         // Try to find a register with similar properties
         for &candidate in target_candidates.iter() {
-            if !self.allocated_registers.contains(&candidate.id) 
+            if !self.allocated_registers.contains(&candidate.id)
                 && !self.reserved_registers.contains(&candidate.id)
                 && self.is_compatible(source_info, candidate)
             {
@@ -348,7 +352,7 @@ impl RegisterMapper {
 
         // If no compatible register found, take any available register
         for &candidate in target_candidates.iter() {
-            if !self.allocated_registers.contains(&candidate.id) 
+            if !self.allocated_registers.contains(&candidate.id)
                 && !self.reserved_registers.contains(&candidate.id)
             {
                 return Ok(candidate.id);
@@ -366,19 +370,28 @@ impl RegisterMapper {
                 // Target register should be at least as wide as source
                 tw >= sw
             }
-            (RegisterType::Float { width: sw }, RegisterType::Float { width: tw }) => {
-                tw >= sw
-            }
-            (RegisterType::Vector { width: sw, lanes: sl }, RegisterType::Vector { width: tw, lanes: tl }) => {
-                tw >= sw && tl >= sl
-            }
+            (RegisterType::Float { width: sw }, RegisterType::Float { width: tw }) => tw >= sw,
+            (
+                RegisterType::Vector {
+                    width: sw,
+                    lanes: sl,
+                },
+                RegisterType::Vector {
+                    width: tw,
+                    lanes: tl,
+                },
+            ) => tw >= sw && tl >= sl,
             (RegisterType::Special, RegisterType::Special) => true,
             _ => false,
         }
     }
 
     /// Allocate a register mapping
-    fn allocate_register(&mut self, source_reg: RegId, target_reg: RegId) -> Result<(), RegisterError> {
+    fn allocate_register(
+        &mut self,
+        source_reg: RegId,
+        target_reg: RegId,
+    ) -> Result<(), RegisterError> {
         if self.allocated_registers.contains(&target_reg) {
             return Err(RegisterError::RegisterAlreadyAllocated(target_reg));
         }
@@ -386,7 +399,7 @@ impl RegisterMapper {
         self.allocation_cache.insert(source_reg, target_reg);
         self.reverse_cache.insert(target_reg, source_reg);
         self.allocated_registers.insert(target_reg);
-        
+
         Ok(())
     }
 }
@@ -425,16 +438,21 @@ impl RegisterAllocator {
             free_lists: HashMap::new(),
             allocation_order: HashMap::new(),
         };
-        
+
         allocator.initialize_free_lists();
         allocator
     }
 
     /// Allocate a register of the specified class
     pub fn allocate(&mut self, class: RegisterClass) -> Result<RegId, RegisterError> {
-        let free_list = self.free_lists.get_mut(&class)
-            .ok_or(RegisterError::UnsupportedRegisterClass(class, self.register_set.architecture))?;
-        
+        let free_list =
+            self.free_lists
+                .get_mut(&class)
+                .ok_or(RegisterError::UnsupportedRegisterClass(
+                    class,
+                    self.register_set.architecture,
+                ))?;
+
         if let Some(reg_id) = free_list.pop() {
             let info = AllocationInfo {
                 _reg_id: reg_id,
@@ -453,8 +471,9 @@ impl RegisterAllocator {
     /// Free a register
     pub fn free(&mut self, reg_id: RegId) -> Result<(), RegisterError> {
         if let Some(info) = self.allocated.remove(&reg_id) {
-            let free_list = self.free_lists.get_mut(&info.class)
-                .ok_or(RegisterError::UnsupportedRegisterClass(info.class, self.register_set.architecture))?;
+            let free_list = self.free_lists.get_mut(&info.class).ok_or(
+                RegisterError::UnsupportedRegisterClass(info.class, self.register_set.architecture),
+            )?;
             free_list.push(reg_id);
             Ok(())
         } else {
@@ -491,9 +510,10 @@ impl RegisterAllocator {
             let registers = self.register_set.get_available_registers(class);
             let free_list: Vec<RegId> = registers.iter().map(|reg| reg.id).collect();
             self.free_lists.insert(class, free_list);
-            
+
             // Set allocation order based on register preferences
-            let allocation_order: Vec<RegId> = registers.iter()
+            let allocation_order: Vec<RegId> = registers
+                .iter()
                 .map(|reg| {
                     // Prefer caller-saved registers first
                     if reg.caller_saved {
@@ -510,7 +530,9 @@ impl RegisterAllocator {
 
     /// Spill a register to make room
     fn spill_register(&mut self, class: RegisterClass) -> Result<RegId, RegisterError> {
-        let candidates: Vec<_> = self.allocated.iter()
+        let candidates: Vec<_> = self
+            .allocated
+            .iter()
             .filter(|(_, info)| info.class == class)
             .collect();
 
@@ -519,9 +541,11 @@ impl RegisterAllocator {
         }
 
         // Find the register with the lowest spill cost
-        let (&reg_id, _) = candidates.iter()
+        let (&reg_id, _) = candidates
+            .iter()
             .min_by(|(_, a), (_, b)| {
-                a.spill_cost.partial_cmp(&b.spill_cost)
+                a.spill_cost
+                    .partial_cmp(&b.spill_cost)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .unwrap();
@@ -529,7 +553,7 @@ impl RegisterAllocator {
         let _info = self.allocated.remove(&reg_id).unwrap();
         let free_list = self.free_lists.get_mut(&class).unwrap();
         free_list.push(reg_id);
-        
+
         Ok(reg_id)
     }
 }
@@ -540,7 +564,7 @@ mod tests {
 
     fn create_test_register_set() -> RegisterSet {
         let mut set = RegisterSet::new(Architecture::X86_64);
-        
+
         // Add some general purpose registers
         for i in 0..16 {
             let info = RegisterInfo::new(
@@ -548,10 +572,11 @@ mod tests {
                 format!("r{}", i),
                 RegisterClass::GeneralPurpose,
                 RegisterType::Integer { width: 64 },
-            ).with_caller_saved();
+            )
+            .with_caller_saved();
             set.add_register(info);
         }
-        
+
         set
     }
 
@@ -559,15 +584,11 @@ mod tests {
     fn test_register_mapping() {
         let source_set = create_test_register_set();
         let target_set = create_test_register_set();
-        let mut mapper = RegisterMapper::new(
-            source_set,
-            target_set,
-            MappingStrategy::Direct,
-        );
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
 
         let mapped = mapper.map_register(0).unwrap();
         assert_eq!(mapped, 0);
-        
+
         let mapped2 = mapper.map_register(0).unwrap();
         assert_eq!(mapped, mapped2); // Should return the same mapping
     }
@@ -579,9 +600,9 @@ mod tests {
 
         let reg1 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
         let reg2 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
-        
+
         assert_ne!(reg1, reg2);
-        
+
         allocator.free(reg1).unwrap();
         let reg3 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
         assert_eq!(reg1, reg3);

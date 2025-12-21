@@ -36,10 +36,22 @@ pub use scheduler::{
     WorkerThread, YieldReason,
 };
 
+/// 异步执行引擎模块（从async-executor合并）
+pub mod async_executor;
+pub use async_executor::{
+    AsyncExecutionContext, ExecutionResult, ExecutionStats, ExecutorType, HybridExecutor,
+    InterpreterExecutor, JitExecutor,
+};
+
+/// 遗留的协程调度器模块（从coroutine-scheduler合并，已废弃，推荐使用scheduler模块）
+// 注意：此模块已被废弃，推荐使用 scheduler 模块
+// 为了保持向后兼容性和测试代码，暂时保留此模块但不标记为 deprecated
+// 未来版本可能会完全移除此模块
+pub mod coroutine_scheduler_legacy;
+
 /// 遗留的CoroutinePool（已废弃，推荐使用新的CoroutineScheduler）
 // CoroutinePool模块已被移除，推荐使用新的CoroutineScheduler
 // CoroutineScheduler提供更好的性能和GMP模型支持
-
 // 为了保持向后兼容性，保留GmpPriority别名
 pub use scheduler::Priority as GmpPriority;
 
@@ -313,7 +325,7 @@ impl RuntimeManager {
     {
         if let Some(ref runtime) = self.current_runtime {
             if let Some(r) = runtime.as_any().downcast_ref::<TokioRuntime>() {
-                    <TokioRuntime as AsyncRuntime>::submit_task(r, task).await
+                <TokioRuntime as AsyncRuntime>::submit_task(r, task).await
             } else if let Some(r) = runtime.as_any().downcast_ref::<AsyncStdRuntime>() {
                 <AsyncStdRuntime as AsyncRuntime>::submit_task(r, task).await
             } else if let Some(r) = runtime.as_any().downcast_ref::<SmolRuntime>() {
@@ -344,7 +356,7 @@ impl RuntimeManager {
     {
         // 消耗task参数以避免未使用变量警告
         drop(task);
-        
+
         if let Some(ref runtime) = self.current_runtime {
             if let Some(_custom) = runtime.as_any().downcast_ref::<TokioRuntime>() {
                 // Priority submission delegated to the new CoroutineScheduler
@@ -362,8 +374,11 @@ impl RuntimeManager {
             }
         } else {
             Err(VmError::Core(vm_core::CoreError::Internal {
-                message: format!("No active runtime available for task with priority: {:?}", priority)
-                    .to_string(),
+                message: format!(
+                    "No active runtime available for task with priority: {:?}",
+                    priority
+                )
+                .to_string(),
                 module: "vm-runtime".to_string(),
             }))
         }
@@ -379,7 +394,7 @@ impl RuntimeManager {
             } else if let Some(r) = runtime.as_any().downcast_ref::<SmolRuntime>() {
                 <SmolRuntime as AsyncRuntime>::wait_task(r, handle).await
             } else {
-                Err(VmError::Core(vm_core::CoreError::Internal { 
+                Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "Unknown runtime type".to_string(),
                     module: "vm-runtime".to_string(),
                 }))
@@ -519,6 +534,12 @@ pub enum SelectionStrategy {
     Balanced,
 }
 
+impl Default for RuntimeSelector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuntimeSelector {
     pub fn new() -> Self {
         Self {
@@ -596,18 +617,18 @@ impl RuntimeSelector {
         let mut best_score = 0.0;
 
         for runtime in available_runtimes {
-            if let Some(profiles) = self.performance_history.get(runtime) {
-                if let Some(profile) = profiles.last() {
-                    // 综合评分：吞吐量 * 0.4 + 内存效率 * 0.3 + (1.0 / 延迟秒数) * 0.3
-                    let latency_score = 1.0 / (profile.latency.as_secs_f64() + 0.001);
-                    let score = profile.throughput * 0.4
-                        + profile.memory_efficiency * 0.3
-                        + latency_score * 0.3;
+            if let Some(profiles) = self.performance_history.get(runtime)
+                && let Some(profile) = profiles.last()
+            {
+                // 综合评分：吞吐量 * 0.4 + 内存效率 * 0.3 + (1.0 / 延迟秒数) * 0.3
+                let latency_score = 1.0 / (profile.latency.as_secs_f64() + 0.001);
+                let score = profile.throughput * 0.4
+                    + profile.memory_efficiency * 0.3
+                    + latency_score * 0.3;
 
-                    if score > best_score {
-                        best_score = score;
-                        best_runtime = *runtime;
-                    }
+                if score > best_score {
+                    best_score = score;
+                    best_runtime = *runtime;
                 }
             }
         }
@@ -623,14 +644,14 @@ impl RuntimeSelector {
     ) {
         self.performance_history
             .entry(runtime_type)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(profile);
 
         // 限制历史记录数量
-        if let Some(profiles) = self.performance_history.get_mut(&runtime_type) {
-            if profiles.len() > 100 {
-                profiles.remove(0);
-            }
+        if let Some(profiles) = self.performance_history.get_mut(&runtime_type)
+            && profiles.len() > 100
+        {
+            profiles.remove(0);
         }
     }
 
@@ -646,6 +667,12 @@ pub struct StatsCollector {
     stats_history: Vec<(Instant, RuntimeStats)>,
     /// 最大历史记录数
     max_history: usize,
+}
+
+impl Default for StatsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StatsCollector {
@@ -688,8 +715,6 @@ pub struct TokioRuntime {
     task_counter: std::sync::atomic::AtomicU64,
 }
 
-
-
 impl TokioRuntime {
     pub fn new(config: RuntimeConfig) -> Self {
         Self {
@@ -716,9 +741,7 @@ impl AsyncRuntime for TokioRuntime {
             .thread_name("vm-tokio")
             .enable_all()
             .build()
-            .map_err(|e| {
-                VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, e).to_string())
-            })?;
+            .map_err(|e| VmError::Io(std::io::Error::other(e).to_string()))?;
 
         self.runtime = Some(runtime);
         Ok(())
@@ -762,7 +785,7 @@ impl AsyncRuntime for TokioRuntime {
 
     async fn wait_task<T: Send + 'static>(&self, _handle: TaskHandle<T>) -> Result<T, VmError> {
         // 简化的实现 - 实际应该等待具体任务完成
-        Err(VmError::Core(vm_core::CoreError::NotImplemented { 
+        Err(VmError::Core(vm_core::CoreError::NotImplemented {
             feature: "task waiting".to_string(),
             module: "vm-runtime".to_string(),
         }))
@@ -837,8 +860,6 @@ pub struct AsyncStdRuntime {
     task_counter: std::sync::atomic::AtomicU64,
 }
 
-
-
 impl AsyncStdRuntime {
     pub fn new(config: RuntimeConfig) -> Self {
         Self {
@@ -885,7 +906,7 @@ impl AsyncRuntime for AsyncStdRuntime {
     }
 
     async fn wait_task<T: Send + 'static>(&self, _handle: TaskHandle<T>) -> Result<T, VmError> {
-        Err(VmError::Core(vm_core::CoreError::NotImplemented { 
+        Err(VmError::Core(vm_core::CoreError::NotImplemented {
             feature: "async-std task waiting".to_string(),
             module: "vm-runtime".to_string(),
         }))
@@ -907,7 +928,7 @@ impl AsyncRuntime for AsyncStdRuntime {
         // 使用配置信息来生成更合理的统计数据
         let thread_pool_size = self.config.thread_pool_size as f64;
         let active_threads = (thread_pool_size * 0.4) as usize; // 40% 利用率
-        
+
         RuntimeStats {
             active_tasks: active_threads * 5, // 假设每个活跃线程处理5个任务
             pending_tasks: self.config.task_queue_capacity / 4, // 队列容量的25%
@@ -1004,7 +1025,7 @@ impl AsyncRuntime for SmolRuntime {
     }
 
     async fn wait_task<T: Send + 'static>(&self, _handle: TaskHandle<T>) -> Result<T, VmError> {
-        Err(VmError::Core(vm_core::CoreError::NotImplemented { 
+        Err(VmError::Core(vm_core::CoreError::NotImplemented {
             feature: "smol task waiting".to_string(),
             module: "vm-runtime".to_string(),
         }))
@@ -1026,7 +1047,7 @@ impl AsyncRuntime for SmolRuntime {
         // 使用配置信息来生成更合理的统计数据
         let thread_pool_size = self.config.thread_pool_size as f64;
         let active_threads = (thread_pool_size * 0.3) as usize; // 30% 利用率
-        
+
         RuntimeStats {
             active_tasks: active_threads * 3, // 假设每个活跃线程处理3个任务
             pending_tasks: self.config.task_queue_capacity / 5, // 队列容量的20%

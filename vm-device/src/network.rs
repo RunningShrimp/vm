@@ -144,7 +144,7 @@ impl VirtioNet {
     /// 设置 MAC 地址
     pub fn set_mac(&mut self, mac: MacAddress) {
         self.mac = mac;
-        log::info!("virtio-net MAC address set to {}", mac.to_string());
+        log::info!("virtio-net MAC address set to {}", mac);
     }
 
     /// 获取 MAC 地址
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn test_mac_address() {
         let mac = MacAddress::random();
-        println!("Random MAC: {}", mac.to_string());
+        println!("Random MAC: {}", mac);
         assert_eq!(mac.0[0], 0x52);
         assert_eq!(mac.0[1], 0x54);
     }
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn test_virtio_net() {
         let mut net = VirtioNet::new();
-        println!("MAC: {}", net.get_mac().to_string());
+        println!("MAC: {}", net.get_mac());
         
         let packet = NetworkPacket::new(vec![0xFF; 64]);
         assert!(net.send_packet(packet).is_ok());

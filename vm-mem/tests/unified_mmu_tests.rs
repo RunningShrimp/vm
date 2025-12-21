@@ -1,13 +1,13 @@
 //! 统一MMU测试套件
 
-use vm_core::{AccessType, GuestAddr};
+use vm_core::AccessType;
+use vm_mem::MmuOptimizationStrategy as MmuStrategy;
 use vm_mem::unified_mmu::{UnifiedMmu, UnifiedMmuConfig};
-use vm_mem::{MmuOptimizationStrategy as MmuStrategy, PagingMode};
 
 #[test]
 fn test_unified_mmu_creation() {
     let config = UnifiedMmuConfig::default();
-    let mmu = UnifiedMmu::new(0x10000000, true, config);
+    let _mmu = UnifiedMmu::new(0x10000000, true, config);
     // 检查内存大小
     // assert_eq!(mmu.memory_size(), 0x10000000);
 }
@@ -21,7 +21,7 @@ fn test_unified_mmu_translate_bare() {
 
     // Bare模式应该是恒等映射
     let va = 0x12345678;
-    let result = mmu.translate_with_cache(va, AccessType::Read);
+    let result = mmu.translate_with_cache(vm_core::GuestAddr(va), AccessType::Read);
     // 可能成功也可能失败，取决于实现
     assert!(result.is_ok() || result.is_err());
 }
@@ -29,7 +29,7 @@ fn test_unified_mmu_translate_bare() {
 #[test]
 fn test_unified_mmu_read_write() {
     let config = UnifiedMmuConfig::default();
-    let mmu = UnifiedMmu::new(0x10000000, false, config);
+    let _mmu = UnifiedMmu::new(0x10000000, false, config);
 
     // 写入（需要检查实际API）
     // mmu.write(addr, value, 8).unwrap();
@@ -41,18 +41,19 @@ fn test_unified_mmu_read_write() {
 
 #[test]
 fn test_unified_mmu_tlb_caching() {
-    let mut config = UnifiedMmuConfig::default();
-    // The field name changed from use_hybrid_strategy to strategy
-    config.strategy = MmuStrategy::Hybrid;
+    let config = UnifiedMmuConfig {
+        strategy: MmuStrategy::Hybrid,
+        ..UnifiedMmuConfig::default()
+    };
     let mut mmu = UnifiedMmu::new(0x10000000, true, config);
 
     let va = 0x1000;
 
     // 第一次翻译（TLB miss）
-    let _pa1 = mmu.translate_with_cache(va, AccessType::Read);
+    let _pa1 = mmu.translate_with_cache(vm_core::GuestAddr(va), AccessType::Read);
 
     // 第二次翻译（TLB hit）
-    let _pa2 = mmu.translate_with_cache(va, AccessType::Read);
+    let _pa2 = mmu.translate_with_cache(vm_core::GuestAddr(va), AccessType::Read);
 
     // 检查TLB统计
     let stats = mmu.stats();
@@ -61,17 +62,19 @@ fn test_unified_mmu_tlb_caching() {
 
 #[test]
 fn test_unified_mmu_page_table_cache() {
-    let mut config = UnifiedMmuConfig::default();
-    config.enable_page_table_cache = true;
+    let config = UnifiedMmuConfig {
+        enable_page_table_cache: true,
+        ..UnifiedMmuConfig::default()
+    };
     let mut mmu = UnifiedMmu::new(0x10000000, true, config);
 
     let va = 0x2000;
 
     // 第一次翻译（页表缓存miss）
-    let _pa1 = mmu.translate_with_cache(va, AccessType::Read);
+    let _pa1 = mmu.translate_with_cache(vm_core::GuestAddr(va), AccessType::Read);
 
     // 第二次翻译（页表缓存hit）
-    let _pa2 = mmu.translate_with_cache(va, AccessType::Read);
+    let _pa2 = mmu.translate_with_cache(vm_core::GuestAddr(va), AccessType::Read);
 
     // 应该使用缓存
     let stats = mmu.stats();

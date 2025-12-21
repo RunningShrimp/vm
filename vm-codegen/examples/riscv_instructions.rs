@@ -2,11 +2,13 @@
 //!
 //! 使用代码生成工具定义RISC-V指令集。
 
-use vm_codegen::{CodegenConfig, InstructionSet, instruction_set, instruction_spec};
+use vm_codegen::{
+    CodegenConfig, InstructionSet, InstructionSpec, instruction_set, instruction_spec,
+};
 
 fn main() {
     // 创建RISC-V指令集
-    let mut riscv_set = instruction_set!(
+    let riscv_set = instruction_set!(
         "RISC-V",
         // LUI
         instruction_spec!(
@@ -274,6 +276,7 @@ fn main() {
 }
 
 // RISC-V符号扩展辅助函数
+#[allow(dead_code)]
 fn sext21(x: u32) -> i64 {
     if ((x >> 20) & 1) != 0 {
         (x as i64) | (!0i64 << 21)

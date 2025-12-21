@@ -104,7 +104,8 @@ impl Virtio9P {
         let tag = u16::from_le_bytes([request_data[1], request_data[2]]);
 
         // 处理不同类型的9P消息
-        let response_len = match message_type {
+
+        match message_type {
             6 => self.handle_tversion(mmu, &request_data, tag), // TVERSION
             7 => self.handle_rversion(mmu, &request_data, tag), // RVERSION
             100 => self.handle_tattach(mmu, &request_data, tag), // TATTACH
@@ -115,9 +116,7 @@ impl Virtio9P {
                 // 未知消息类型，返回错误
                 0
             }
-        };
-
-        response_len
+        }
     }
 
     /// 处理TVERSION请求
@@ -224,6 +223,10 @@ impl Virtio9PMmio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_core::{
+        AccessType, AddressTranslator, GuestAddr, GuestPhysAddr, MemoryAccess, MmioManager,
+        MmuAsAny, VmError,
+    };
 
     #[test]
     fn test_virtio_9p_creation() {
@@ -233,8 +236,8 @@ mod tests {
 
     #[test]
     fn test_virtio_9p_device_id() {
-        let mut fs = Virtio9P::new("/tmp");
-        let mut mmu = MockMmu {
+        let fs = Virtio9P::new("/tmp");
+        let _mmu = MockMmu {
             memory: std::collections::HashMap::new(),
         };
 
@@ -246,70 +249,76 @@ mod tests {
         memory: std::collections::HashMap<u64, u8>,
     }
 
-    impl MMU for MockMmu {
+    impl AddressTranslator for MockMmu {
         fn translate(
             &mut self,
-            va: vm_core::GuestAddr,
-            _access: vm_core::AccessType,
-        ) -> Result<vm_core::GuestPhysAddr, VmError> {
-            Ok(va)
+            va: GuestAddr,
+            _access: AccessType,
+        ) -> Result<GuestPhysAddr, VmError> {
+            Ok(GuestPhysAddr(va.0))
         }
 
-        fn fetch_insn(&self, _pc: vm_core::GuestAddr) -> Result<u64, VmError> {
+        fn flush_tlb(&mut self) {}
+    }
+
+    impl MemoryAccess for MockMmu {
+        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
             Ok(0)
         }
 
-        fn read(&self, pa: vm_core::GuestAddr, size: u8) -> Result<u64, VmError> {
+        fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
             let mut value = 0u64;
             for i in 0..size {
-                let byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                let byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
                 value |= (byte as u64) << (i * 8);
             }
             Ok(value)
         }
 
-        fn write(&mut self, pa: vm_core::GuestAddr, val: u64, size: u8) -> Result<(), VmError> {
+        fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), VmError> {
             for i in 0..size {
                 let byte = ((val >> (i * 8)) & 0xFF) as u8;
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
-        fn read_bulk(&self, pa: vm_core::GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
+        fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                *byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
             }
             Ok(())
         }
 
-        fn write_bulk(&mut self, pa: vm_core::GuestAddr, buf: &[u8]) -> Result<(), VmError> {
+        fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
             for (i, &byte) in buf.iter().enumerate() {
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
-        fn map_mmio(
-            &mut self,
-            _base: vm_core::GuestAddr,
-            _size: u64,
-            _device: Box<dyn vm_core::MmioDevice>,
-        ) {
-        }
-        fn flush_tlb(&mut self) {}
         fn memory_size(&self) -> usize {
             0
         }
+
         fn dump_memory(&self) -> Vec<u8> {
             Vec::new()
         }
+
         fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
             Ok(())
         }
+    }
+
+    impl MmioManager for MockMmu {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {}
+    }
+
+    impl MmuAsAny for MockMmu {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
+
         fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
             self
         }

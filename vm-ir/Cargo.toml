@@ -1,9 +1,18 @@
 [package]
 name = "vm-ir"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 vm-core = { path = "../vm-core" }
-parking_lot = "0.12"
-thiserror = "2.0"
+vm-error = { path = "../vm-error" }
+parking_lot.workspace = true
+thiserror.workspace = true
+
+# LLVM依赖（可选）
+llvm-sys = { workspace = true, optional = true }
+inkwell = { workspace = true, optional = true }
+
+[features]
+default = []
+llvm = ["dep:llvm-sys", "dep:inkwell"]

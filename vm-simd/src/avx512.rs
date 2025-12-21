@@ -184,6 +184,10 @@ pub fn decompress_mask(byte: u8) -> Avx512Mask {
 mod fallback {
     use super::Avx512Mask;
 
+    /// AVX-512 single-precision addition (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vaddps_zmm(
         _a: &[f32; 16],
         _b: &[f32; 16],
@@ -191,6 +195,10 @@ mod fallback {
     ) -> Option<[f32; 16]> {
         None
     }
+    /// AVX-512 fused multiply-add (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vfma_zmm(
         _a: &[f32; 16],
         _b: &[f32; 16],
@@ -199,6 +207,10 @@ mod fallback {
     ) -> Option<[f32; 16]> {
         None
     }
+    /// AVX-512 permute single-precision values (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vpermps_zmm(
         _a: &[f32; 16],
         _indices: &[u32; 16],

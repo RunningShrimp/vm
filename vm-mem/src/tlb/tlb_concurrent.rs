@@ -19,8 +19,8 @@
 use crossbeam::utils::Backoff;
 use dashmap::DashMap;
 use parking_lot::RwLock as ParkingRwLock;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbManager};
 
 /// 并发TLB条目
@@ -82,9 +82,9 @@ impl ConcurrentTlbEntry {
     #[inline]
     pub fn check_permission(&self, access: AccessType) -> bool {
         let required = match access {
-            AccessType::Read => 1 << 1,  // R bit
-            AccessType::Write => 1 << 2, // W bit
-            AccessType::Execute => 1 << 3,  // X bit
+            AccessType::Read => 1 << 1,                // R bit
+            AccessType::Write => 1 << 2,               // W bit
+            AccessType::Execute => 1 << 3,             // X bit
             AccessType::Atomic => (1 << 1) | (1 << 2), // Atomic operations need both R and W bits
         };
         (self.flags & required) != 0
@@ -118,7 +118,7 @@ pub struct ShardedTlb {
 
 impl ShardedTlb {
     pub fn new(total_capacity: usize, shard_count: usize) -> Self {
-        let shard_capacity = (total_capacity + shard_count - 1) / shard_count;
+        let shard_capacity = total_capacity.div_ceil(shard_count);
         let mut shards = Vec::with_capacity(shard_count);
 
         for _ in 0..shard_count {
@@ -146,16 +146,16 @@ impl ShardedTlb {
         let shard_idx = self.shard_index(vpn, asid);
         let shard = &self.shards[shard_idx];
 
-        if let Some(entry) = shard.lookup(vpn, asid) {
-            if entry.check_permission(access) {
-                // 原子更新访问信息（无锁）
-                entry.update_access();
+        if let Some(entry) = shard.lookup(vpn, asid)
+            && entry.check_permission(access)
+        {
+            // 原子更新访问信息（无锁）
+            entry.update_access();
 
-                // 优化：触发智能预取（不阻塞当前查找）
-                self.prefetch_related(vpn, asid);
+            // 优化：触发智能预取（不阻塞当前查找）
+            self.prefetch_related(vpn, asid);
 
-                return Some((entry.ppn, entry.flags));
-            }
+            return Some((entry.ppn, entry.flags));
         }
         None
     }
@@ -210,7 +210,7 @@ impl ShardedTlb {
     pub fn get_usage_stats(&self) -> Vec<usize> {
         self.shards.iter().map(|shard| shard.usage()).collect()
     }
-    
+
     /// 获取分片数量
     pub fn shard_count(&self) -> usize {
         self.shard_count
@@ -527,6 +527,12 @@ pub struct ConcurrentTlbStats {
     pub contentions: AtomicU64,
 }
 
+impl Default for ConcurrentTlbStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConcurrentTlbStats {
     pub fn new() -> Self {
         Self {
@@ -565,11 +571,11 @@ impl ConcurrentTlbManager {
         self.stats.total_lookups.fetch_add(1, Ordering::Relaxed);
 
         // 快速路径查找
-        if self.config.enable_fast_path {
-            if let Some(result) = self.fast_path_tlb.lookup(vpn, asid, access) {
-                self.stats.fast_path_hits.fetch_add(1, Ordering::Relaxed);
-                return Some(result);
-            }
+        if self.config.enable_fast_path
+            && let Some(result) = self.fast_path_tlb.lookup(vpn, asid, access)
+        {
+            self.stats.fast_path_hits.fetch_add(1, Ordering::Relaxed);
+            return Some(result);
         }
 
         // 分片TLB查找
@@ -650,10 +656,15 @@ impl ConcurrentTlbManagerAdapter {
 }
 
 impl TlbManager for ConcurrentTlbManagerAdapter {
-    fn lookup(&mut self, addr: GuestAddr, asid: u16, access: AccessType) -> Option<vm_core::TlbEntry> {
+    fn lookup(
+        &mut self,
+        addr: GuestAddr,
+        asid: u16,
+        access: AccessType,
+    ) -> Option<vm_core::TlbEntry> {
         // 从GuestAddr计算vpn
         let vpn = addr.0 >> 12; // 假设页面大小为4KB
-        
+
         // 使用实际传入的access参数而不是固定的Read
         if let Some((ppn, flags)) = self.inner.translate(vpn, asid, access) {
             Some(vm_core::TlbEntry {
@@ -671,7 +682,7 @@ impl TlbManager for ConcurrentTlbManagerAdapter {
         // 从新的TlbEntry结构中提取所需字段
         let vpn = entry.guest_addr.0 >> 12; // 假设页面大小为4KB
         let ppn = entry.phys_addr.0 >> 12; // 假设页面大小为4KB
-        
+
         // 调用内部的insert方法
         self.inner.insert(vpn, ppn, entry.flags, entry.asid);
     }

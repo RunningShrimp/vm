@@ -151,25 +151,32 @@ impl AsyncBufferPool {
             .await
             .map_err(|e| format!("Failed to acquire semaphore permit: {}", e))?;
 
-        let mut available = self.available.lock();
-        let buffer = if let Some(buf) = available.pop_front() {
-            // 从池中复用缓冲区
-            let mut stats = self.stats.lock();
-            stats.pool_hits += 1;
-            stats.in_use_buffers += 1;
-            stats.available_buffers -= 1;
+        let buffer = {
+            let mut available = self.available.lock();
+            if let Some(buf) = available.pop_front() {
+                // 从池中复用缓冲区
+                let mut stats = self.stats.lock();
+                stats.pool_hits += 1;
+                stats.in_use_buffers += 1;
+                stats.available_buffers -= 1;
+                Some(buf)
+            } else if self.can_expand(&available) {
+                // 池中没有可用缓冲区，但可以扩展
+                let mut stats = self.stats.lock();
+                stats.pool_misses += 1;
+                stats.total_buffers += 1;
+                stats.in_use_buffers += 1;
+                stats.total_allocations += 1;
+                Some(vec![0u8; self.config.buffer_size])
+            } else {
+                None
+            }
+        };
+
+        let buffer = if let Some(buf) = buffer {
             buf
-        } else if self.can_expand(&available) {
-            // 池中没有可用缓冲区，但可以扩展
-            let mut stats = self.stats.lock();
-            stats.pool_misses += 1;
-            stats.total_buffers += 1;
-            stats.in_use_buffers += 1;
-            stats.total_allocations += 1;
-            vec![0u8; self.config.buffer_size]
         } else {
             // 等待直到有缓冲区可用（放弃许可权，重新获取）
-            drop(available);
             drop(_permit);
 
             // 再次尝试获取
@@ -179,7 +186,7 @@ impl AsyncBufferPool {
                 .await
                 .map_err(|e| format!("Failed to reacquire semaphore permit: {}", e))?;
 
-            available = self.available.lock();
+            let mut available = self.available.lock();
             match available.pop_front() {
                 Some(buf) => {
                     let mut stats = self.stats.lock();
@@ -214,7 +221,7 @@ impl AsyncBufferPool {
 
     /// 同步获取缓冲区（如果立即可用）
     pub fn try_acquire(&self) -> Option<PoolBuffer> {
-        if let Ok(_) = self.semaphore.try_acquire() {
+        if self.semaphore.try_acquire().is_ok() {
             let mut available = self.available.lock();
             if let Some(buf) = available.pop_front() {
                 let mut stats = self.stats.lock();
@@ -385,7 +392,7 @@ mod tests {
         let buf1 = pool.acquire().await.unwrap();
         drop(buf1);
 
-        let buf2 = pool.acquire().await.unwrap();
+        let _buf2 = pool.acquire().await.unwrap();
 
         let stats = pool.get_stats();
         assert_eq!(stats.total_buffers, initial_count); // 没有分配新缓冲区

@@ -80,14 +80,11 @@ impl DeviceService {
         self.mmu = Some(Arc::clone(&mmu));
 
         // 初始化CLINT (Clock Interrupt)
-        let clint = Arc::new(Mutex::new(Clint::new(
-            config.vcpu_count as usize,
-            10_000_000,
-        ))); // 10MHz
+        let clint = Arc::new(Mutex::new(Clint::new(config.vcpu_count, 10_000_000))); // 10MHz
         self.clint = Some(Arc::clone(&clint));
 
         // 初始化PLIC (Platform Level Interrupt Controller)
-        let plic = Arc::new(Mutex::new(Plic::new(127, config.vcpu_count as usize * 2)));
+        let plic = Arc::new(Mutex::new(Plic::new(127, config.vcpu_count * 2)));
         self.plic = Some(Arc::clone(&plic));
 
         // 初始化GPU后端（如果已设置）
@@ -152,12 +149,20 @@ impl DeviceService {
 
         // CLINT @ 0x0200_0000 (16KB)
         let clint_mmio = ClintMmio::new(Arc::clone(&clint));
-        mmu_guard.map_mmio(vm_core::GuestAddr(0x0200_0000), 0x10000, Box::new(clint_mmio));
+        mmu_guard.map_mmio(
+            vm_core::GuestAddr(0x0200_0000),
+            0x10000,
+            Box::new(clint_mmio),
+        );
 
         // PLIC @ 0x0C00_0000 (64MB)
         let plic_mmio = PlicMmio::new(Arc::clone(&plic));
         plic_mmio.set_virtio_queue_source_base(32);
-        mmu_guard.map_mmio(vm_core::GuestAddr(0x0C00_0000), 0x4000000, Box::new(plic_mmio));
+        mmu_guard.map_mmio(
+            vm_core::GuestAddr(0x0C00_0000),
+            0x4000000,
+            Box::new(plic_mmio),
+        );
 
         // VirtIO Block 设备暂不映射到 MMU（需完整实现 MmioDevice）
         // VirtIO AI @ 0x1000_1000 (4KB)
@@ -226,10 +231,7 @@ impl DeviceService {
     /// 处理设备I/O请求
     ///
     /// 根据设备类型和地址，将请求路由到相应的设备处理逻辑
-    pub fn process_io(
-        &self,
-        addr: GuestAddr,
-    ) -> VmResult<u64> {
+    pub fn process_io(&self, addr: GuestAddr) -> VmResult<u64> {
         // 根据MMIO地址范围路由到相应设备
         // 实际I/O处理由MMU中的MMIO设备处理
         // 这里主要用于路由和日志记录
@@ -237,10 +239,12 @@ impl DeviceService {
         if addr >= vm_core::GuestAddr(0x1000_0000) && addr < vm_core::GuestAddr(0x1000_2000) {
             // VirtIO Block设备I/O（由MMU中的设备处理）
             Ok(0)
-        } else if addr >= vm_core::GuestAddr(0x0200_0000) && addr < vm_core::GuestAddr(0x0200_1000) {
+        } else if addr >= vm_core::GuestAddr(0x0200_0000) && addr < vm_core::GuestAddr(0x0200_1000)
+        {
             // CLINT设备I/O（由MMU中的设备处理）
             Ok(0)
-        } else if addr >= vm_core::GuestAddr(0x0C00_0000) && addr < vm_core::GuestAddr(0x1000_0000) {
+        } else if addr >= vm_core::GuestAddr(0x0C00_0000) && addr < vm_core::GuestAddr(0x1000_0000)
+        {
             // PLIC设备I/O（由MMU中的设备处理）
             Ok(0)
         } else {
@@ -256,10 +260,10 @@ impl DeviceService {
         // 实际中断处理由PLIC和相应设备处理
         // 这里主要用于日志记录和统计
 
-        if irq >= 32 && irq < 48 {
+        if (32..48).contains(&irq) {
             // VirtIO Block设备中断
             Ok(())
-        } else if irq >= 48 && irq < 64 {
+        } else if (48..64).contains(&irq) {
             // VirtIO AI设备中断
             Ok(())
         } else {
@@ -276,13 +280,13 @@ impl DeviceService {
             let mmu_guard = mmu.lock().unwrap();
             mmu_guard.poll_devices();
         }
-        
+
         // 轮询Block设备
         if self.block_service.is_some() {
             // 在这里可以添加Block设备的轮询逻辑
             // 目前只是占位符实现
         }
-        
+
         Ok(())
     }
 

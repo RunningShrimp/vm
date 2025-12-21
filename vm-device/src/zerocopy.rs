@@ -9,8 +9,6 @@
 //! - ScatterGatherList: 分散聚集列表，支持非连续内存
 //! - MemoryMapping: 内存映射对象，支持零拷贝 I/O
 
-
-
 /// 零拷贝缓冲区特质
 ///
 /// 提供对内存的直接访问，避免数据拷贝。
@@ -24,9 +22,16 @@ pub trait ZeroCopyBuffer: Send + Sync {
     fn len(&self) -> usize;
 
     /// 获取底层数据指针（必须安全！）
+    ///
+    /// # Safety
+    /// 调用者必须确保返回的指针在缓冲区的生命周期内有效，并且指向的内存大小至少为 `len()` 字节。
     unsafe fn as_ptr(&self) -> *const u8;
 
     /// 获取可变底层数据指针（必须安全！）
+    ///
+    /// # Safety
+    /// 调用者必须确保返回的指针在缓冲区的生命周期内有效，并且指向的内存大小至少为 `len()` 字节。
+    /// 调用者必须确保没有其他引用同时访问这块内存。
     unsafe fn as_mut_ptr(&mut self) -> *mut u8;
 
     /// 检查缓冲区是否为空
@@ -57,9 +62,10 @@ impl DirectBuffer {
     /// - `ptr`: 数据指针
     /// - `size`: 大小
     ///
-    /// # 安全性
-    /// - 调用者必须确保 ptr 指向有效的内存
+    /// # Safety
+    /// - 调用者必须确保 `ptr` 指向有效的内存，且大小至少为 `size` 字节
     /// - 调用者必须确保在缓冲区的生命周期内内存保持有效
+    /// - 调用者必须确保没有其他引用同时访问这块内存（对于可变访问）
     pub unsafe fn new(phys_addr: u64, ptr: *mut u8, size: usize) -> Self {
         Self {
             phys_addr,

@@ -5,9 +5,9 @@
 //! for network I/O operations.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::ptr;
-use vm_core::{VmError, VmResult, GuestAddr, GuestPhysAddr, DeviceError, MMU, MmioDevice};
+use std::sync::{Arc, Mutex};
+use vm_core::{DeviceError, GuestAddr, GuestPhysAddr, MMU, MmioDevice, VmError, VmResult};
 
 /// DPDK memory pool configuration
 #[derive(Debug, Clone)]
@@ -90,18 +90,22 @@ pub struct DpdkDeviceConfig {
 
 impl Default for DpdkDeviceConfig {
     fn default() -> Self {
-        let rx_queues = (0..4).map(|i| DpdkQueueConfig {
-            queue_id: i,
-            cpu_affinity: Some(i as u32),
-            ..Default::default()
-        }).collect();
-        
-        let tx_queues = (0..4).map(|i| DpdkQueueConfig {
-            queue_id: i,
-            cpu_affinity: Some(i as u32),
-            ..Default::default()
-        }).collect();
-        
+        let rx_queues = (0..4)
+            .map(|i| DpdkQueueConfig {
+                queue_id: i,
+                cpu_affinity: Some(i as u32),
+                ..Default::default()
+            })
+            .collect();
+
+        let tx_queues = (0..4)
+            .map(|i| DpdkQueueConfig {
+                queue_id: i,
+                cpu_affinity: Some(i as u32),
+                ..Default::default()
+            })
+            .collect();
+
         Self {
             pci_address: "0000:00:04.0".to_string(),
             device_name: "dpdk0".to_string(),
@@ -218,8 +222,6 @@ impl DpdkTxQueue {
     }
 }
 
-
-
 /// DPDK memory pool (simplified representation)
 struct DpdkMemoryPool {
     // 暂未使用的字段已移除
@@ -238,10 +240,7 @@ impl DpdkMemoryPool {
 
 impl DpdkNetworkDevice {
     /// Create a new DPDK network device
-    pub fn new(
-        config: DpdkDeviceConfig,
-        mmu: Arc<Mutex<Box<dyn MMU>>>,
-    ) -> VmResult<Self> {
+    pub fn new(config: DpdkDeviceConfig, mmu: Arc<Mutex<Box<dyn MMU>>>) -> VmResult<Self> {
         let device = Self {
             config,
             is_initialized: Arc::new(Mutex::new(false)),
@@ -251,7 +250,7 @@ impl DpdkNetworkDevice {
             stats: Arc::new(Mutex::new(DpdkDeviceStats::default())),
             mmu,
         };
-        
+
         Ok(device)
     }
 
@@ -285,8 +284,11 @@ impl DpdkNetworkDevice {
     fn initialize_eal(&self) -> VmResult<()> {
         // In a real implementation, this would call rte_eal_init
         // For now, we'll simulate the initialization
-        println!("Initializing DPDK EAL for device: {}", self.config.device_name);
-        
+        println!(
+            "Initializing DPDK EAL for device: {}",
+            self.config.device_name
+        );
+
         // Simulate EAL initialization with custom arguments
         let eal_args = vec![
             format!("--proc-type=primary"),
@@ -294,83 +296,81 @@ impl DpdkNetworkDevice {
             format!("--socket-mem=1024,0"),
             format!("--huge-dir=/dev/hugepages"),
         ];
-        
+
         // In real implementation: rte_eal_init(eal_args)
         println!("EAL initialized with args: {:?}", eal_args);
-        
+
         Ok(())
     }
 
     /// Initialize memory pools
     fn initialize_memory_pools(&self) -> VmResult<()> {
         let mut pools = self.memory_pools.lock().unwrap();
-        
+
         // Create main memory pool for packet buffers
         let pool = DpdkMemoryPool::new(
             self.config.memory_pool.name.clone(),
             0,
-            (self.config.memory_pool.element_count * self.config.memory_pool.element_size).into()
+            (self.config.memory_pool.element_count * self.config.memory_pool.element_size).into(),
         );
         // Note: base_addr and available_count would be set in real implementation
-        
+
         pools.insert(0, pool);
-        
+
         // In real implementation: rte_pktmbuf_pool_create
-        println!("Created memory pool: {} ({} elements of {} bytes)", 
-                 self.config.memory_pool.name,
-                 self.config.memory_pool.element_count,
-                 self.config.memory_pool.element_size);
-        
+        println!(
+            "Created memory pool: {} ({} elements of {} bytes)",
+            self.config.memory_pool.name,
+            self.config.memory_pool.element_count,
+            self.config.memory_pool.element_size
+        );
+
         Ok(())
     }
 
     /// Initialize RX queues
     fn initialize_rx_queues(&self) -> VmResult<()> {
         let mut queues = self.rx_queues.lock().unwrap();
-        
-        for (_, queue_config) in self.config.rx_queues.iter().enumerate() {
+
+        for queue_config in self.config.rx_queues.iter() {
             // 创建一个空的缓冲池指针（实际实现中会被设置）
             let buffer_pool_ptr = ptr::null_mut();
-            
-            let queue = DpdkRxQueue::new(
-                queue_config.queue_id,
-                queue_config.clone(),
-                buffer_pool_ptr
-            );
-            
+
+            let queue =
+                DpdkRxQueue::new(queue_config.queue_id, queue_config.clone(), buffer_pool_ptr);
+
             queues.insert(queue_config.queue_id, queue);
-            
+
             // In real implementation: rte_eth_rx_queue_setup
-            println!("Initialized RX queue {} with {} descriptors", 
-                     queue_config.queue_id, 
-                     queue_config.descriptor_count);
+            println!(
+                "Initialized RX queue {} with {} descriptors",
+                queue_config.queue_id, queue_config.descriptor_count
+            );
         }
-        
+
         Ok(())
     }
 
     /// Initialize TX queues
     fn initialize_tx_queues(&self) -> VmResult<()> {
         let mut queues = self.tx_queues.lock().unwrap();
-        
-        for (_, queue_config) in self.config.tx_queues.iter().enumerate() {
+
+        for queue_config in self.config.tx_queues.iter() {
             // 创建一个空的缓冲池指针（实际实现中会被设置）
             let buffer_pool_ptr = ptr::null_mut();
-            
-            let queue = DpdkTxQueue::new(
-                queue_config.queue_id,
-                queue_config.clone(),
-                buffer_pool_ptr
-            );
-            
+
+            let queue =
+                DpdkTxQueue::new(queue_config.queue_id, queue_config.clone(), buffer_pool_ptr);
+
             queues.insert(queue_config.queue_id, queue);
-            
+
             // In real implementation: rte_eth_tx_queue_setup
-            println!("Initialized TX queue {} with {} descriptors", 
-                     queue_config.queue_id, 
-                     queue_config.descriptor_count);
+            println!(
+                "Initialized TX queue {} with {} descriptors",
+                queue_config.queue_id, queue_config.descriptor_count
+            );
         }
-        
+
         Ok(())
     }
 
@@ -378,138 +378,151 @@ impl DpdkNetworkDevice {
     fn start_device(&self) -> VmResult<()> {
         // In real implementation: rte_eth_dev_start
         println!("Starting DPDK device: {}", self.config.device_name);
-        
+
         // Configure device features
         self.configure_device_features()?;
-        
+
         // Set up interrupt handling
         self.setup_interrupts()?;
-        
+
         Ok(())
     }
 
     /// Configure device features
     fn configure_device_features(&self) -> VmResult<()> {
         // In real implementation: rte_eth_dev_configure
-        println!("Configuring device features for: {}", self.config.device_name);
-        
+        println!(
+            "Configuring device features for: {}",
+            self.config.device_name
+        );
+
         // Enable hardware features
         let features = vec![
-            "RX_SCATTER",    // Scatter-gather RX
-            "TX_SCATTER",    // Scatter-gather TX
-            "RX_VLAN",       // VLAN stripping
-            "JUMBO_FRAME",   // Jumbo frame support
+            "RX_SCATTER",     // Scatter-gather RX
+            "TX_SCATTER",     // Scatter-gather TX
+            "RX_VLAN",        // VLAN stripping
+            "JUMBO_FRAME",    // Jumbo frame support
             "HW_VLAN_FILTER", // Hardware VLAN filtering
         ];
-        
+
         for feature in &features {
             println!("Enabling feature: {}", feature);
         }
-        
+
         Ok(())
     }
 
     /// Setup interrupt handling
     fn setup_interrupts(&self) -> VmResult<()> {
         // In real implementation: rte_intr_enable
-        println!("Setting up interrupts for device: {}", self.config.device_name);
-        
+        println!(
+            "Setting up interrupts for device: {}",
+            self.config.device_name
+        );
+
         // Configure interrupt modes
         let interrupt_modes = vec![
-            "RX_INTR",    // Receive interrupts
-            "TX_INTR",    // Transmit interrupts
-            "LSC_INTR",   // Link status change interrupts
+            "RX_INTR",  // Receive interrupts
+            "TX_INTR",  // Transmit interrupts
+            "LSC_INTR", // Link status change interrupts
         ];
-        
+
         for mode in &interrupt_modes {
             println!("Enabling interrupt mode: {}", mode);
         }
-        
+
         Ok(())
     }
 
     /// Receive packets from the network
     pub fn receive_packets(&self, queue_id: u16, max_packets: u16) -> VmResult<Vec<DpdkBuffer>> {
         let queues = self.rx_queues.lock().unwrap();
-        let queue = queues.get(&queue_id)
-            .ok_or_else(|| VmError::Device(DeviceError::ConfigError {
+        let queue = queues.get(&queue_id).ok_or_else(|| {
+            VmError::Device(DeviceError::ConfigError {
                 device_type: "DpdkDevice".to_string(),
                 config_item: "rx_queue_id".to_string(),
                 message: format!("Invalid RX queue ID: {}", queue_id),
-            }))?;
+            })
+        })?;
 
         let mut buffers = Vec::with_capacity(max_packets as usize);
-        
+
         // In real implementation: rte_eth_rx_burst
         let received_count = self.simulate_rx_burst(queue, max_packets, &mut buffers)?;
-        
+
         // Update statistics
         let mut stats = self.stats.lock().unwrap();
-        let queue_stats = stats.queue_stats.entry(queue_id).or_insert_with(DpdkQueueStats::default);
+        let queue_stats = stats.queue_stats.entry(queue_id).or_default();
         queue_stats.rx_packets += received_count as u64;
-        
+
         for buffer in &buffers {
             queue_stats.rx_bytes += buffer.data_len as u64;
         }
-        
+
         stats.total_rx_packets += received_count as u64;
-        
+
         // Use MMU to access memory if needed
         let mmu = self.mmu.lock().unwrap();
         // 示例：读取内存中的统计数据
         let _ = mmu.read(GuestAddr(0x1000), 4).unwrap_or(0);
-        
+
         Ok(buffers)
     }
 
     /// Transmit packets to the network
     pub fn transmit_packets(&self, queue_id: u16, buffers: Vec<DpdkBuffer>) -> VmResult<u16> {
         let queues = self.tx_queues.lock().unwrap();
-        let queue = queues.get(&queue_id)
-            .ok_or_else(|| VmError::Device(DeviceError::ConfigError {
+        let queue = queues.get(&queue_id).ok_or_else(|| {
+            VmError::Device(DeviceError::ConfigError {
                 device_type: "DpdkDevice".to_string(),
                 config_item: "tx_queue_id".to_string(),
                 message: format!("Invalid TX queue ID: {}", queue_id),
-            }))?;
+            })
+        })?;
 
         // In real implementation: rte_eth_tx_burst
         let transmitted_count = self.simulate_tx_burst(queue, &buffers)?;
-        
+
         // Update statistics
         let mut stats = self.stats.lock().unwrap();
-        let queue_stats = stats.queue_stats.entry(queue_id).or_insert_with(DpdkQueueStats::default);
+        let queue_stats = stats.queue_stats.entry(queue_id).or_default();
         queue_stats.tx_packets += transmitted_count as u64;
-        
+
         for buffer in &buffers[..transmitted_count as usize] {
             queue_stats.tx_bytes += buffer.data_len as u64;
         }
-        
+
         stats.total_tx_packets += transmitted_count as u64;
-        
+
         // Use MMU to access memory if needed
         let mut mmu = self.mmu.lock().unwrap();
         // 示例：向内存写入传输完成标志
-        let _ = mmu.write(GuestAddr(0x1000), 0x12345678, 4).unwrap_or(());
-        
+        mmu.write(GuestAddr(0x1000), 0x12345678, 4).unwrap_or(());
+
         Ok(transmitted_count)
     }
 
     /// Simulate RX burst operation
-    fn simulate_rx_burst(&self, _queue: &DpdkRxQueue, max_packets: u16, buffers: &mut Vec<DpdkBuffer>) -> VmResult<u16> {
+    fn simulate_rx_burst(
+        &self,
+        _queue: &DpdkRxQueue,
+        max_packets: u16,
+        buffers: &mut Vec<DpdkBuffer>,
+    ) -> VmResult<u16> {
         // Simulate receiving packets
         let packet_count = std::cmp::min(max_packets, 16); // Simulate up to 16 packets per burst
-            
+
         for _ in 0..packet_count {
             let buffer = DpdkBuffer {
-                ptr: ptr::null_mut(), // Would be actual DPDK buffer
-                size: 1514, // Standard MTU size
+                ptr: ptr::null_mut(),                 // Would be actual DPDK buffer
+                size: 1514,                           // Standard MTU size
                 phys_addr: vm_core::GuestPhysAddr(0), // Would be actual physical address
                 data_len: 1514,
                 pool_id: 0,
             };
             buffers.push(buffer);
         }
-        
+
         Ok(packet_count)
     }
 
@@ -517,10 +530,10 @@ impl DpdkNetworkDevice {
     fn simulate_tx_burst(&self, _queue: &DpdkTxQueue, buffers: &[DpdkBuffer]) -> VmResult<u16> {
         // Simulate transmitting all packets successfully
         let transmitted_count = buffers.len() as u16;
-        
+
         // In real implementation, this would actually send packets
         println!("Transmitting {} packets", transmitted_count);
-        
+
         Ok(transmitted_count)
     }
 
@@ -552,7 +565,7 @@ impl DpdkNetworkDevice {
 
         // In real implementation: rte_eth_dev_stop
         println!("Stopping DPDK device: {}", self.config.device_name);
-        
+
         *initialized = false;
         Ok(())
     }
@@ -561,12 +574,12 @@ impl DpdkNetworkDevice {
     pub fn cleanup(&self) -> VmResult<()> {
         // In real implementation: rte_eth_dev_release
         println!("Cleaning up DPDK device: {}", self.config.device_name);
-        
+
         // Clear queues
         self.rx_queues.lock().unwrap().clear();
         self.tx_queues.lock().unwrap().clear();
         self.memory_pools.lock().unwrap().clear();
-        
+
         Ok(())
     }
 }
@@ -577,18 +590,18 @@ impl MmioDevice for DpdkNetworkDevice {
         let value = match offset {
             0x00 => self.config.rx_queue_count as u64, // RX queue count
             0x04 => self.config.tx_queue_count as u64, // TX queue count
-            0x08 => self.config.mtu as u64,         // MTU
+            0x08 => self.config.mtu as u64,            // MTU
             0x0C => {
                 let stats = self.stats.lock().unwrap();
-                stats.total_rx_packets as u64 // RX packet count
+                stats.total_rx_packets // RX packet count
             }
             0x10 => {
                 let stats = self.stats.lock().unwrap();
-                stats.total_tx_packets as u64 // TX packet count
+                stats.total_tx_packets // TX packet count
             }
             _ => 0, // Default value
         };
-        
+
         // 根据size参数返回适当大小的数据
         match size {
             1 => Ok(value & 0xFF),
@@ -609,20 +622,23 @@ impl MmioDevice for DpdkNetworkDevice {
             8 => val,
             _ => 0, // 不支持的大小
         };
-        
+
         match offset {
             0x00 => println!("Setting RX queue count to: {}", adjusted_val), // RX queue count
             0x04 => println!("Setting TX queue count to: {}", adjusted_val), // TX queue count
-            0x08 => println!("Setting MTU to: {}", adjusted_val),         // MTU
+            0x08 => println!("Setting MTU to: {}", adjusted_val),            // MTU
             0x10 => {
                 // Reset statistics if value is 1
-                if adjusted_val != 0 {
-                    if let Ok(_) = self.reset_stats() {
-                        println!("Statistics reset");
-                    }
+                if adjusted_val != 0
+                    && let Ok(_) = self.reset_stats()
+                {
+                    println!("Statistics reset");
                 }
             }
-            _ => println!("Unknown MMIO write: offset={:x}, value={:x}, size={}", offset, val, size),
+            _ => println!(
+                "Unknown MMIO write: offset={:x}, value={:x}, size={}",
+                offset, val, size
+            ),
         }
         Ok(())
     }
@@ -659,7 +675,10 @@ mod tests {
     #[test]
     fn test_dpdk_device_creation() {
         let config = DpdkDeviceConfig::default();
-        let mmu = Arc::new(Mutex::new(Box::new(crate::mmu::SoftMmu::new(1024 * 1024 * 1024) as Box<dyn MMU>)));
+        let mmu: Arc<Mutex<Box<dyn MMU>>> = Arc::new(Mutex::new(Box::new(vm_mem::SoftMmu::new(
+            1024 * 1024 * 1024,
+            false,
+        ))));
         let device = DpdkNetworkDevice::new(config, mmu);
         assert!(device.is_ok());
     }

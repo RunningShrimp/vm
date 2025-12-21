@@ -107,9 +107,8 @@ mod tests {
     fn test_no_prefix() {
         let bytes = vec![0x90];
         let mut iter = bytes.into_iter();
-        let (prefix, opcode) =
-            decode_prefixes(|| Ok(iter.next().ok_or_else(|| "EOF".to_string())?))
-                .expect("Failed to decode prefixes");
+        let (prefix, opcode) = decode_prefixes(|| iter.next().ok_or_else(|| "EOF".to_string()))
+            .expect("Failed to decode prefixes");
 
         assert!(!prefix.lock);
         assert!(!prefix.rep);
@@ -122,9 +121,8 @@ mod tests {
     fn test_lock_prefix() {
         let bytes = vec![0xF0, 0x89];
         let mut iter = bytes.into_iter();
-        let (prefix, opcode) =
-            decode_prefixes(|| Ok(iter.next().ok_or_else(|| "EOF".to_string())?))
-                .expect("Failed to decode prefixes with LOCK");
+        let (prefix, opcode) = decode_prefixes(|| iter.next().ok_or_else(|| "EOF".to_string()))
+            .expect("Failed to decode prefixes with LOCK");
 
         assert!(prefix.lock);
         assert_eq!(opcode, 0x89);
@@ -134,9 +132,8 @@ mod tests {
     fn test_rex_prefix() {
         let bytes = vec![0x48, 0x89]; // REX.W MOV
         let mut iter = bytes.into_iter();
-        let (prefix, opcode) =
-            decode_prefixes(|| Ok(iter.next().ok_or_else(|| "EOF".to_string())?))
-                .expect("Failed to decode REX prefix");
+        let (prefix, opcode) = decode_prefixes(|| iter.next().ok_or_else(|| "EOF".to_string()))
+            .expect("Failed to decode REX prefix");
 
         let rex = prefix.rex.expect("REX prefix should be present");
         assert!(rex.w);
@@ -147,9 +144,8 @@ mod tests {
     fn test_segment_override() {
         let bytes = vec![0x64, 0x8B]; // GS override
         let mut iter = bytes.into_iter();
-        let (prefix, opcode) =
-            decode_prefixes(|| Ok(iter.next().ok_or_else(|| "EOF".to_string())?))
-                .expect("Failed to decode segment override");
+        let (prefix, opcode) = decode_prefixes(|| iter.next().ok_or_else(|| "EOF".to_string()))
+            .expect("Failed to decode segment override");
 
         assert_eq!(prefix.seg, Some(0x64));
         assert_eq!(opcode, 0x8B);
@@ -159,9 +155,8 @@ mod tests {
     fn test_rep_prefix() {
         let bytes = vec![0xF3, 0xAA]; // REP STOSB
         let mut iter = bytes.into_iter();
-        let (prefix, opcode) =
-            decode_prefixes(|| Ok(iter.next().ok_or_else(|| "EOF".to_string())?))
-                .expect("Failed to decode REP prefix");
+        let (prefix, opcode) = decode_prefixes(|| iter.next().ok_or_else(|| "EOF".to_string()))
+            .expect("Failed to decode REP prefix");
 
         assert!(prefix.rep);
         assert_eq!(opcode, 0xAA);

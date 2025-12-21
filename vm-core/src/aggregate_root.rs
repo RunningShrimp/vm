@@ -8,6 +8,45 @@ use crate::{VmLifecycleState, VmConfig, VmError, VmResult, VmState};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+/// 虚拟机应用服务
+///
+/// 负责协调领域服务和基础设施层，处理事件发布等横切关注点。
+pub struct VmApplicationService {
+    event_bus: Option<Arc<DomainEventBus>>,
+}
+
+impl VmApplicationService {
+    /// 创建新的应用服务
+    pub fn new() -> Self {
+        Self {
+            event_bus: None,
+        }
+    }
+
+    /// 使用事件总线创建应用服务
+    pub fn with_event_bus(event_bus: Arc<DomainEventBus>) -> Self {
+        Self {
+            event_bus: Some(event_bus),
+        }
+    }
+
+    /// 提交聚合根的事件到事件总线
+    ///
+    /// 这个方法负责将聚合根中未提交的事件发布到事件总线，
+    /// 并标记这些事件为已提交。
+    pub fn commit_aggregate_events(&self, aggregate: &mut VirtualMachineAggregate) -> VmResult<()> {
+        let events = aggregate.take_uncommitted_events();
+
+        if let Some(event_bus) = &self.event_bus {
+            for event in events {
+                event_bus.publish(event)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// 聚合根trait
 ///
 /// 所有聚合根都应该实现这个trait，提供事件发布能力。
@@ -20,14 +59,25 @@ pub trait AggregateRoot: Send + Sync {
 
     /// 标记事件为已提交
     fn mark_events_as_committed(&mut self);
+    
+    /// 记录事件（内部方法）
+    /// 
+    /// 这个方法被领域服务用于在验证后记录事件
+    fn record_event(&mut self, event: DomainEventEnum);
 }
 
 /// 虚拟机聚合根
 ///
-/// 这是虚拟机的聚合根，负责：
-/// - 维护聚合不变式
-/// - 发布领域事件
-/// - 管理聚合状态
+/// 这是虚拟机的聚合根，遵循 DDD 贫血模型原则：
+/// - **状态管理**: 维护聚合状态（vm_id, config, state, version）
+/// - **事件记录**: 记录未提交的领域事件（uncommitted_events）
+/// - **事件回放**: 通过 `from_events` 和 `apply_event` 支持事件溯源
+///
+/// **注意**: 聚合根不直接发布事件。事件发布由应用服务（`VmApplicationService`）
+/// 或领域服务（如 `VmLifecycleDomainService`）负责。
+///
+/// 聚合根只提供内部方法（`set_state`, `record_event`）供领域服务调用，
+/// 确保业务逻辑在领域服务中，而不是在聚合根中。
 #[cfg(not(feature = "no_std"))]
 #[derive(Clone)]
 pub struct VirtualMachineAggregate {
@@ -37,9 +87,18 @@ pub struct VirtualMachineAggregate {
     config: VmConfig,
     /// 当前状态
     state: VmLifecycleState,
-    /// 事件总线（可选，如果为None则使用全局总线）
+    /// 事件总线（可选，用于测试和向后兼容）
+    /// 
+    /// **注意**: 根据 DDD 贫血模型，聚合根不应直接发布事件。
+    /// 事件发布应由应用服务或领域服务处理。
+    /// 此字段保留仅用于向后兼容和测试目的。
+    // 注意：此字段在测试中被使用，但不在生产代码中使用
+    #[cfg_attr(not(test), allow(dead_code))]
     event_bus: Option<Arc<DomainEventBus>>,
     /// 未提交的事件
+    /// 
+    /// 这些事件由领域服务通过 `record_event` 方法记录，
+    /// 然后由应用服务通过 `commit_aggregate_events` 发布。
     uncommitted_events: Vec<DomainEventEnum>,
     /// 聚合版本（用于乐观锁）
     version: u64,
@@ -105,20 +164,11 @@ impl VirtualMachineAggregate {
         self.uncommitted_events.push(event);
     }
 
-    /// 提交事件到事件总线
-    pub fn commit_events(&mut self) -> VmResult<()> {
-        let bus = self
-            .event_bus
-            .as_ref()
-            .map(Arc::clone)
-            .unwrap_or_else(|| Arc::new(DomainEventBus::new()));
-
-        for event in &self.uncommitted_events {
-            bus.publish(event.clone())?;
-        }
-
+    /// 获取未提交的事件用于应用服务提交
+    pub fn take_uncommitted_events(&mut self) -> Vec<DomainEventEnum> {
+        let events = self.uncommitted_events.clone();
         self.mark_events_as_committed();
-        Ok(())
+        events
     }
 
     /// 获取虚拟机ID
@@ -385,13 +435,19 @@ mod tests {
             ..Default::default()
         };
 
-        let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
+        let event_bus = Arc::new(DomainEventBus::new());
+        let mut aggregate = VirtualMachineAggregate::with_event_bus(
+            "test-vm".to_string(),
+            config,
+            event_bus.clone(),
+        );
 
         // 应该有未提交的事件
         assert!(!aggregate.uncommitted_events().is_empty());
 
-        // 提交事件到事件总线（使用内部事件总线或创建新的）
-        assert!(aggregate.commit_events().is_ok());
+        // 使用应用服务提交事件
+        let app_service = VmApplicationService::with_event_bus(event_bus);
+        assert!(app_service.commit_aggregate_events(&mut aggregate).is_ok());
         assert!(aggregate.uncommitted_events().is_empty());
     }
 
@@ -411,8 +467,9 @@ mod tests {
             event_bus.clone(),
         );
 
-        // 提交事件
-        assert!(aggregate.commit_events().is_ok());
+        // 使用应用服务提交事件
+        let app_service = VmApplicationService::with_event_bus(event_bus);
+        assert!(app_service.commit_aggregate_events(&mut aggregate).is_ok());
         assert!(aggregate.uncommitted_events().is_empty());
     }
 
@@ -487,7 +544,11 @@ mod tests {
         let mut aggregate = VirtualMachineAggregate::new("test-vm".to_string(), config);
         let initial_version = aggregate.version();
 
-        aggregate.start().unwrap();
+        // 使用领域服务启动VM，这会增加版本号
+        use crate::domain_services::vm_lifecycle_service::VmLifecycleDomainService;
+        let service = VmLifecycleDomainService::new();
+        service.start_vm(&mut aggregate).unwrap();
+
         assert!(aggregate.version() > initial_version);
     }
 

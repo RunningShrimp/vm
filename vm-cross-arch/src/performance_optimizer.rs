@@ -240,7 +240,7 @@ impl PerformanceOptimizer {
         // 这里简化处理：只保留使用频率最高的available_regs个寄存器
         let mut sorted_regs: Vec<_> = self.register_usage.iter().collect();
         sorted_regs.sort_by(|a, b| b.1.cmp(a.1));
-        
+
         // 只保留前available_regs个最常用的寄存器
         self.register_mapping.clear();
         for (i, (reg, _count)) in sorted_regs.iter().take(available_regs).enumerate() {

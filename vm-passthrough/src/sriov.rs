@@ -67,10 +67,12 @@ impl VfMacConfig {
             admin_set: false,
         }
     }
+}
 
-    /// MAC 地址为字符串
-    pub fn to_string(&self) -> String {
-        format!(
+impl std::fmt::Display for VfMacConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             self.mac_addr[0],
             self.mac_addr[1],
@@ -200,7 +202,7 @@ impl VfConfig {
             "VfConfig(BDF={:04x}): state={:?}, MAC={}, memory={} KB, interrupts={}",
             self.vf_id.get_vf_bdf(),
             self.state,
-            self.mac_config.to_string(),
+            self.mac_config,
             self.memory_size / 1024,
             self.interrupt_count
         )
@@ -524,19 +526,23 @@ mod tests {
 
     #[test]
     fn test_vf_perf_stats() {
-        let mut stats = VfPerfStats::default();
-        stats.packets_processed = 1000;
-        stats.bytes_processed = 1_000_000;
-        stats.total_latency_ns = 1_000_000_000;
+        let stats = VfPerfStats {
+            packets_processed: 1000,
+            bytes_processed: 1_000_000,
+            total_latency_ns: 1_000_000_000,
+            ..Default::default()
+        };
 
         assert!(stats.avg_latency_us() > 999.0 && stats.avg_latency_us() < 1001.0);
     }
 
     #[test]
     fn test_vf_perf_stats_drop_rate() {
-        let mut stats = VfPerfStats::default();
-        stats.packets_processed = 900;
-        stats.packets_dropped = 100;
+        let stats = VfPerfStats {
+            packets_processed: 900,
+            packets_dropped: 100,
+            ..Default::default()
+        };
 
         let drop_rate = stats.drop_rate();
         assert!(drop_rate > 9.9 && drop_rate < 10.1); // ~10%

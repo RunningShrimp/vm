@@ -60,14 +60,14 @@ impl TaskScheduler {
             .map(|task| task.status.clone())
             .ok_or_else(|| anyhow::anyhow!("Task not found"))
     }
-    
+
     /// Get detailed task information
     pub async fn get_task_info(&self, task_id: &TaskId) -> Result<TaskInfo, anyhow::Error> {
         let tasks = self.tasks.lock().unwrap();
 
         tasks
             .get(task_id)
-            .map(|task| task.clone())
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("Task not found"))
     }
 

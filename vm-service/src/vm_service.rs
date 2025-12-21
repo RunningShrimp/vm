@@ -10,22 +10,20 @@ mod lifecycle;
 mod snapshot_manager;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use vm_core::vm_state::VirtualMachineState;
-use vm_core::{GuestAddr, MemoryError, VmConfig, VmError, VmResult, VmLifecycleState,
-}; // 恢复VmError导入，因为它在代码中被使用
-use vm_engine_interpreter::{Interpreter, ExecInterruptAction};
+use vm_core::{GuestAddr, MemoryError, VmConfig, VmError, VmLifecycleState, VmResult}; // 恢复VmError导入，因为它在代码中被使用
+use vm_engine_interpreter::{ExecInterruptAction, Interpreter};
 use vm_engine_jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr};
 use vm_mem::SoftMmu;
 
 use self::execution::{ExecutionContext, run_async, run_sync};
 use self::lifecycle::{request_pause, request_resume, request_stop};
-#[allow(unused_imports)]
 use self::snapshot_manager::{
-    create_template, deserialize_state, list_snapshots, list_templates,
-    serialize_state,
-};/// 虚拟机服务
+    create_template, deserialize_state, list_snapshots, list_templates, serialize_state,
+};
+/// 虚拟机服务
 ///
 /// 负责处理虚拟机的业务逻辑，包括：
 /// - 内核加载
@@ -183,14 +181,6 @@ impl<B: 'static> VirtualMachineService<B> {
             .map_err(|e| VmError::Io(format!("Failed to restore snapshot: {}", e)))?
     }
 
-
-
-
-
-
-
-
-
     /// 获取状态引用（用于只读访问）
     pub fn state(&self) -> Arc<Mutex<VirtualMachineState<B>>> {
         Arc::clone(&self.state)
@@ -276,31 +266,31 @@ impl<B: 'static> VirtualMachineService<B> {
 
     /// 从环境变量配置TLB大小
     pub fn configure_tlb_from_env(&self) -> VmResult<()> {
-        if let Ok(itlb_str) = std::env::var("VM_ITLB") {
-            if let Ok(itlb) = itlb_str.parse::<usize>() {
-                let dtlb = std::env::var("VM_DTLB")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(128usize);
+        if let Ok(itlb_str) = std::env::var("VM_ITLB")
+            && let Ok(itlb) = itlb_str.parse::<usize>()
+        {
+            let dtlb = std::env::var("VM_DTLB")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(128usize);
 
-                let state = self.state.lock().map_err(|_| {
-                    VmError::Memory(MemoryError::MmuLockFailed {
-                        message: "Failed to acquire state lock".to_string(),
-                    })
-                })?;
+            let state = self.state.lock().map_err(|_| {
+                VmError::Memory(MemoryError::MmuLockFailed {
+                    message: "Failed to acquire state lock".to_string(),
+                })
+            })?;
 
-                let mmu = state.mmu();
-                let mut mmu_guard = mmu.lock().map_err(|_| {
-                    VmError::Memory(MemoryError::MmuLockFailed {
-                        message: "Failed to acquire MMU lock".to_string(),
-                    })
-                })?;
+            let mmu = state.mmu();
+            let mut mmu_guard = mmu.lock().map_err(|_| {
+                VmError::Memory(MemoryError::MmuLockFailed {
+                    message: "Failed to acquire MMU lock".to_string(),
+                })
+            })?;
 
-                if let Some(smmu) = mmu_guard.as_any_mut().downcast_mut::<SoftMmu>() {
-                    smmu.resize_tlbs(itlb, dtlb);
-                    let (ci, cd) = smmu.tlb_capacity();
-                    log::info!("TLB resized: itlb={}, dtlb={}", ci, cd);
-                }
+            if let Some(smmu) = mmu_guard.as_any_mut().downcast_mut::<SoftMmu>() {
+                smmu.resize_tlbs(itlb, dtlb);
+                let (ci, cd) = smmu.tlb_capacity();
+                log::info!("TLB resized: itlb={}, dtlb={}", ci, cd);
             }
         }
         Ok(())
@@ -354,7 +344,12 @@ impl<B: 'static> VirtualMachineService<B> {
         description: String,
         base_snapshot_id: String,
     ) -> VmResult<String> {
-        snapshot_manager::create_template(Arc::clone(&self.state), name, description, base_snapshot_id)
+        snapshot_manager::create_template(
+            Arc::clone(&self.state),
+            name,
+            description,
+            base_snapshot_id,
+        )
     }
 
     /// 序列化虚拟机状态以进行迁移
@@ -366,8 +361,6 @@ impl<B: 'static> VirtualMachineService<B> {
     pub fn deserialize_state(&self, data: &[u8]) -> VmResult<()> {
         snapshot_manager::deserialize_state(Arc::clone(&self.state), data)
     }
-
-    
 
     /// 获取寄存器值
     pub fn get_reg(&self, idx: usize) -> VmResult<u64> {
@@ -435,12 +428,7 @@ impl<B: 'static> VirtualMachineService<B> {
     }
 
     /// 获取JIT热点快照
-    pub fn hot_snapshot(
-        &self,
-    ) -> Option<(
-        AdaptiveThresholdConfig,
-        AdaptiveThresholdStats,
-    )> {
+    pub fn hot_snapshot(&self) -> Option<(AdaptiveThresholdConfig, AdaptiveThresholdStats)> {
         let snapshot = self
             .adaptive_snapshot
             .lock()
@@ -475,7 +463,7 @@ impl<B: 'static> VirtualMachineService<B> {
 
         let mmu_arc = state.mmu();
         let debug = false; // VmConfig中没有debug_trace字段，使用默认值
-        let vcpu_count = state.config().vcpu_count as usize;
+        let vcpu_count = state.config().vcpu_count;
         let guest_arch = state.config().guest_arch;
         drop(state);
 
@@ -525,7 +513,7 @@ impl<B: 'static> VirtualMachineService<B> {
 
         let mmu_arc = state.mmu();
         let debug = false; // VmConfig中没有debug_trace字段，使用默认值
-        let vcpu_count = state.config().vcpu_count as usize;
+        let vcpu_count = state.config().vcpu_count;
         let exec_mode = state.config().exec_mode;
         let guest_arch = state.config().guest_arch;
         drop(state);
@@ -548,12 +536,14 @@ impl<B: 'static> VirtualMachineService<B> {
         #[cfg(feature = "async")]
         let coroutine_scheduler = if vcpu_count > 1 {
             // 为多vCPU场景创建协程调度器
-            Some(Arc::new(vm_runtime::CoroutineScheduler::new().map_err(|e| {
-                VmError::Core(vm_core::CoreError::Internal {
-                    message: format!("Failed to create coroutine scheduler: {}", e),
-                    module: "VirtualMachineService".to_string(),
-                })
-            })?))
+            Some(Arc::new(vm_runtime::CoroutineScheduler::new().map_err(
+                |e| {
+                    VmError::Core(vm_core::CoreError::Internal {
+                        message: format!("Failed to create coroutine scheduler: {}", e),
+                        module: "VirtualMachineService".to_string(),
+                    })
+                },
+            )?))
         } else {
             None
         };

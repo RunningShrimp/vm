@@ -3,9 +3,9 @@
 //! 实现高效的内存拷贝和操作，优化缓存使用
 
 use crate::{GuestAddr, VmError};
-use vm_core::error::MemoryError;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use vm_core::error::MemoryError;
 
 /// 内存拷贝策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,17 +46,17 @@ impl AlignmentInfo {
     /// 计算对齐信息
     pub fn new(src: u64, dst: u64, size: usize) -> Self {
         let size_u64 = size as u64;
-        
+
         // 计算各部分的对齐
         let src_alignment = src & 0xFF; // 低8位，最大256字节对齐
         let dst_alignment = dst & 0xFF;
         let size_alignment = size_u64 & 0xFF;
-        
+
         // 检查是否完全对齐
-        let is_aligned = Self::is_aligned_to(src, 64) && 
-                        Self::is_aligned_to(dst, 64) && 
-                        Self::is_aligned_to(size_u64, 64);
-        
+        let is_aligned = Self::is_aligned_to(src, 64)
+            && Self::is_aligned_to(dst, 64)
+            && Self::is_aligned_to(size_u64, 64);
+
         Self {
             src_alignment,
             dst_alignment,
@@ -79,20 +79,21 @@ impl AlignmentInfo {
                     return CopyStrategy::Simd128;
                 }
             }
-            
+
             #[cfg(target_arch = "aarch64")]
             {
                 // ARM64 NEON支持128位SIMD
-                return CopyStrategy::Simd128;
+                CopyStrategy::Simd128
             }
-            
+
             // 默认使用字拷贝
             #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
             CopyStrategy::WordByWord
         } else {
             // 不完全对齐，检查部分对齐
-            if Self::is_aligned_to(self.src_alignment, 8) && 
-               Self::is_aligned_to(self.dst_alignment, 8) {
+            if Self::is_aligned_to(self.src_alignment, 8)
+                && Self::is_aligned_to(self.dst_alignment, 8)
+            {
                 CopyStrategy::WordByWord
             } else {
                 CopyStrategy::ByteByByte
@@ -238,7 +239,8 @@ impl MemoryCopyStatsSnapshot {
         if self.total_copies == 0 {
             0.0
         } else {
-            (self.simd128_copies + self.simd256_copies + self.simd512_copies) as f64 / self.total_copies as f64
+            (self.simd128_copies + self.simd256_copies + self.simd512_copies) as f64
+                / self.total_copies as f64
         }
     }
 }
@@ -276,7 +278,20 @@ impl FastMemoryCopier {
     }
 
     /// 高效内存拷贝
-    pub unsafe fn copy_memory(&self, src: *const u8, dst: *mut u8, size: usize) -> Result<(), VmError> {
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保：
+    /// - `src` 指向有效的只读内存区域，大小至少为 `size` 字节
+    /// - `dst` 指向有效的可写内存区域，大小至少为 `size` 字节
+    /// - 源和目标内存区域不重叠
+    /// - 指针在函数调用期间保持有效
+    pub unsafe fn copy_memory(
+        &self,
+        src: *const u8,
+        dst: *mut u8,
+        size: usize,
+    ) -> Result<(), VmError> {
         if src.is_null() || dst.is_null() {
             return Err(VmError::from(MemoryError::InvalidAddress(GuestAddr(0))));
         }
@@ -287,7 +302,9 @@ impl FastMemoryCopier {
 
         // 更新统计信息
         self.stats.total_copies.fetch_add(1, Ordering::Relaxed);
-        self.stats.total_bytes.fetch_add(size as u64, Ordering::Relaxed);
+        self.stats
+            .total_bytes
+            .fetch_add(size as u64, Ordering::Relaxed);
 
         // 计算对齐信息
         let src_addr = src as u64;
@@ -304,23 +321,33 @@ impl FastMemoryCopier {
         match strategy {
             CopyStrategy::ByteByByte => {
                 self.stats.byte_copies.fetch_add(1, Ordering::Relaxed);
-                unsafe { self.copy_byte_by_byte(src, dst, size); }
+                unsafe {
+                    self.copy_byte_by_byte(src, dst, size);
+                }
             }
             CopyStrategy::WordByWord => {
                 self.stats.word_copies.fetch_add(1, Ordering::Relaxed);
-                unsafe { self.copy_word_by_word(src, dst, size); }
+                unsafe {
+                    self.copy_word_by_word(src, dst, size);
+                }
             }
             CopyStrategy::Simd128 => {
                 self.stats.simd128_copies.fetch_add(1, Ordering::Relaxed);
-                unsafe { self.copy_simd128(src, dst, size); }
+                unsafe {
+                    self.copy_simd128(src, dst, size);
+                }
             }
             CopyStrategy::Simd256 => {
                 self.stats.simd256_copies.fetch_add(1, Ordering::Relaxed);
-                unsafe { self.copy_simd256(src, dst, size); }
+                unsafe {
+                    self.copy_simd256(src, dst, size);
+                }
             }
             CopyStrategy::Simd512 => {
                 self.stats.simd512_copies.fetch_add(1, Ordering::Relaxed);
-                unsafe { self.copy_simd512(src, dst, size); }
+                unsafe {
+                    self.copy_simd512(src, dst, size);
+                }
             }
             CopyStrategy::Adaptive => {
                 // 自适应策略应该已经在前面被转换为具体策略了
@@ -346,12 +373,20 @@ impl FastMemoryCopier {
 
         // 大块根据对齐情况选择SIMD
         if size < self.config.large_block_threshold {
-            return if alignment.is_aligned { CopyStrategy::Simd128 } else { CopyStrategy::WordByWord };
+            return if alignment.is_aligned {
+                CopyStrategy::Simd128
+            } else {
+                CopyStrategy::WordByWord
+            };
         }
 
         // 超大块根据对齐情况选择更大的SIMD
         if size < self.config.xlarge_block_threshold {
-            return if alignment.is_aligned { CopyStrategy::Simd256 } else { CopyStrategy::Simd128 };
+            return if alignment.is_aligned {
+                CopyStrategy::Simd256
+            } else {
+                CopyStrategy::Simd128
+            };
         }
 
         // 巨大块使用最大的SIMD
@@ -414,12 +449,16 @@ impl FastMemoryCopier {
         #[cfg(target_arch = "aarch64")]
         {
             // ARM64架构默认支持NEON指令集，所以可以安全使用SIMD128
-            return unsafe { self.copy_simd128_arm(src, dst, size); };
+            unsafe {
+                self.copy_simd128_arm(src, dst, size);
+            }
         }
 
         // 对于其他架构，回退到字拷贝
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        unsafe { self.copy_word_by_word(src, dst, size); }
+        unsafe {
+            self.copy_word_by_word(src, dst, size);
+        }
     }
 
     /// x86 SIMD128拷贝实现
@@ -432,11 +471,13 @@ impl FastMemoryCopier {
         // 拷贝对齐的部分
         if simd_count > 0 {
             // 使用非临时存储（如果启用且大小足够大）
-            let use_non_temporal = self.config.use_non_temporal && 
-                                 size >= self.config.non_temporal_threshold;
+            let use_non_temporal =
+                self.config.use_non_temporal && size >= self.config.non_temporal_threshold;
 
             if use_non_temporal {
-                self.stats.non_temporal_count.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .non_temporal_count
+                    .fetch_add(1, Ordering::Relaxed);
                 self.copy_simd128_non_temporal_x86(src, dst, simd_count);
             } else {
                 self.copy_simd128_temporal_x86(src, dst, simd_count);
@@ -457,12 +498,13 @@ impl FastMemoryCopier {
     #[cfg(target_arch = "x86_64")]
     unsafe fn copy_simd128_temporal_x86(&self, src: *const u8, dst: *mut u8, count: usize) {
         std::arch::x86_64::_mm_prefetch(src as *const i8, std::arch::x86_64::_MM_HINT_T0);
-        
+
         for i in 0..count {
             let src_ptr = src.add(i * 16);
             let dst_ptr = dst.add(i * 16);
-            
-            let data = std::arch::x86_64::_mm_loadu_si128(src_ptr as *const std::arch::x86_64::__m128i);
+
+            let data =
+                std::arch::x86_64::_mm_loadu_si128(src_ptr as *const std::arch::x86_64::__m128i);
             std::arch::x86_64::_mm_storeu_si128(dst_ptr as *mut std::arch::x86_64::__m128i, data);
         }
     }
@@ -473,11 +515,12 @@ impl FastMemoryCopier {
         for i in 0..count {
             let src_ptr = src.add(i * 16);
             let dst_ptr = dst.add(i * 16);
-            
-            let data = std::arch::x86_64::_mm_loadu_si128(src_ptr as *const std::arch::x86_64::__m128i);
+
+            let data =
+                std::arch::x86_64::_mm_loadu_si128(src_ptr as *const std::arch::x86_64::__m128i);
             std::arch::x86_64::_mm_stream_si128(dst_ptr as *mut std::arch::x86_64::__m128i, data);
         }
-        
+
         // 内存屏障
         std::arch::x86_64::_mm_sfence();
     }
@@ -495,7 +538,7 @@ impl FastMemoryCopier {
                 unsafe {
                     let src_ptr = src.add(i * simd_size);
                     let dst_ptr = dst.add(i * simd_size);
-                    
+
                     let data = std::arch::aarch64::vld1q_u8(src_ptr);
                     std::arch::aarch64::vst1q_u8(dst_ptr, data);
                 }
@@ -522,7 +565,9 @@ impl FastMemoryCopier {
         }
 
         // 回退到SIMD128
-        unsafe { self.copy_simd128(src, dst, size); }
+        unsafe {
+            self.copy_simd128(src, dst, size);
+        }
     }
 
     /// x86 SIMD256拷贝实现
@@ -535,11 +580,13 @@ impl FastMemoryCopier {
         // 拷贝对齐的部分
         if simd_count > 0 {
             // 使用非临时存储（如果启用且大小足够大）
-            let use_non_temporal = self.config.use_non_temporal && 
-                                 size >= self.config.non_temporal_threshold;
+            let use_non_temporal =
+                self.config.use_non_temporal && size >= self.config.non_temporal_threshold;
 
             if use_non_temporal {
-                self.stats.non_temporal_count.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .non_temporal_count
+                    .fetch_add(1, Ordering::Relaxed);
                 self.copy_simd256_non_temporal_x86(src, dst, simd_count);
             } else {
                 self.copy_simd256_temporal_x86(src, dst, simd_count);
@@ -560,13 +607,17 @@ impl FastMemoryCopier {
     #[cfg(target_arch = "x86_64")]
     unsafe fn copy_simd256_temporal_x86(&self, src: *const u8, dst: *mut u8, count: usize) {
         std::arch::x86_64::_mm_prefetch(src as *const i8, std::arch::x86_64::_MM_HINT_T0);
-        
+
         for i in 0..count {
             let src_ptr = src.add(i * 32);
             let dst_ptr = dst.add(i * 32);
-            
-            let data = std::arch::x86_64::_mm256_loadu_si256(src_ptr as *const std::arch::x86_64::__m256i);
-            std::arch::x86_64::_mm256_storeu_si256(dst_ptr as *mut std::arch::x86_64::__m256i, data);
+
+            let data =
+                std::arch::x86_64::_mm256_loadu_si256(src_ptr as *const std::arch::x86_64::__m256i);
+            std::arch::x86_64::_mm256_storeu_si256(
+                dst_ptr as *mut std::arch::x86_64::__m256i,
+                data,
+            );
         }
     }
 
@@ -576,11 +627,15 @@ impl FastMemoryCopier {
         for i in 0..count {
             let src_ptr = src.add(i * 32);
             let dst_ptr = dst.add(i * 32);
-            
-            let data = std::arch::x86_64::_mm256_loadu_si256(src_ptr as *const std::arch::x86_64::__m256i);
-            std::arch::x86_64::_mm256_stream_si256(dst_ptr as *mut std::arch::x86_64::__m256i, data);
+
+            let data =
+                std::arch::x86_64::_mm256_loadu_si256(src_ptr as *const std::arch::x86_64::__m256i);
+            std::arch::x86_64::_mm256_stream_si256(
+                dst_ptr as *mut std::arch::x86_64::__m256i,
+                data,
+            );
         }
-        
+
         // 内存屏障
         std::arch::x86_64::_mm_sfence();
     }
@@ -595,7 +650,9 @@ impl FastMemoryCopier {
         }
 
         // 回退到SIMD256
-        unsafe { self.copy_simd256(src, dst, size); }
+        unsafe {
+            self.copy_simd256(src, dst, size);
+        }
     }
 
     /// x86 SIMD512拷贝实现
@@ -608,11 +665,13 @@ impl FastMemoryCopier {
         // 拷贝对齐的部分
         if simd_count > 0 {
             // 使用非临时存储（如果启用且大小足够大）
-            let use_non_temporal = self.config.use_non_temporal && 
-                                 size >= self.config.non_temporal_threshold;
+            let use_non_temporal =
+                self.config.use_non_temporal && size >= self.config.non_temporal_threshold;
 
             if use_non_temporal {
-                self.stats.non_temporal_count.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .non_temporal_count
+                    .fetch_add(1, Ordering::Relaxed);
                 self.copy_simd512_non_temporal_x86(src, dst, simd_count);
             } else {
                 self.copy_simd512_temporal_x86(src, dst, simd_count);
@@ -633,13 +692,17 @@ impl FastMemoryCopier {
     #[cfg(target_arch = "x86_64")]
     unsafe fn copy_simd512_temporal_x86(&self, src: *const u8, dst: *mut u8, count: usize) {
         std::arch::x86_64::_mm_prefetch(src as *const i8, std::arch::x86_64::_MM_HINT_T0);
-        
+
         for i in 0..count {
             let src_ptr = src.add(i * 64);
             let dst_ptr = dst.add(i * 64);
-            
-            let data = std::arch::x86_64::_mm512_loadu_si512(src_ptr as *const std::arch::x86_64::__m512i);
-            std::arch::x86_64::_mm512_storeu_si512(dst_ptr as *mut std::arch::x86_64::__m512i, data);
+
+            let data =
+                std::arch::x86_64::_mm512_loadu_si512(src_ptr as *const std::arch::x86_64::__m512i);
+            std::arch::x86_64::_mm512_storeu_si512(
+                dst_ptr as *mut std::arch::x86_64::__m512i,
+                data,
+            );
         }
     }
 
@@ -649,11 +712,15 @@ impl FastMemoryCopier {
         for i in 0..count {
             let src_ptr = src.add(i * 64);
             let dst_ptr = dst.add(i * 64);
-            
-            let data = std::arch::x86_64::_mm512_loadu_si512(src_ptr as *const std::arch::x86_64::__m512i);
-            std::arch::x86_64::_mm512_stream_si512(dst_ptr as *mut std::arch::x86_64::__m512i, data);
+
+            let data =
+                std::arch::x86_64::_mm512_loadu_si512(src_ptr as *const std::arch::x86_64::__m512i);
+            std::arch::x86_64::_mm512_stream_si512(
+                dst_ptr as *mut std::arch::x86_64::__m512i,
+                data,
+            );
         }
-        
+
         // 内存屏障
         std::arch::x86_64::_mm_sfence();
     }
@@ -669,11 +736,11 @@ mod tests {
         assert!(AlignmentInfo::is_aligned_to(0x1000, 0x1000));
         assert!(AlignmentInfo::is_aligned_to(0x2000, 0x1000));
         assert!(!AlignmentInfo::is_aligned_to(0x1001, 0x1000));
-        
+
         // 测试对齐信息计算
         let alignment = AlignmentInfo::new(0x1000, 0x2000, 1024);
         assert!(alignment.is_aligned);
-        
+
         let alignment = AlignmentInfo::new(0x1001, 0x2000, 1024);
         assert!(!alignment.is_aligned);
     }
@@ -683,7 +750,7 @@ mod tests {
         let alignment = AlignmentInfo::new(0x1000, 0x2000, 1024);
         let strategy = alignment.best_copy_strategy();
         assert_ne!(strategy, CopyStrategy::ByteByByte);
-        
+
         let alignment = AlignmentInfo::new(0x1001, 0x2001, 10);
         let strategy = alignment.best_copy_strategy();
         assert_eq!(strategy, CopyStrategy::ByteByByte);
@@ -701,13 +768,15 @@ mod tests {
         let copier = FastMemoryCopier::with_default_config();
         let src = vec![1u8; 10];
         let mut dst = vec![0u8; 10];
-        
+
         unsafe {
-            copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 10).unwrap();
+            copier
+                .copy_memory(src.as_ptr(), dst.as_mut_ptr(), 10)
+                .unwrap();
         }
-        
+
         assert_eq!(src, dst);
-        
+
         let stats = copier.get_stats();
         assert_eq!(stats.total_copies, 1);
         assert_eq!(stats.total_bytes, 10);
@@ -718,13 +787,15 @@ mod tests {
         let copier = FastMemoryCopier::with_default_config();
         let src = vec![2u8; 10000];
         let mut dst = vec![0u8; 10000];
-        
+
         unsafe {
-            copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 10000).unwrap();
+            copier
+                .copy_memory(src.as_ptr(), dst.as_mut_ptr(), 10000)
+                .unwrap();
         }
-        
+
         assert_eq!(src, dst);
-        
+
         let stats = copier.get_stats();
         assert_eq!(stats.total_copies, 1);
         assert_eq!(stats.total_bytes, 10000);

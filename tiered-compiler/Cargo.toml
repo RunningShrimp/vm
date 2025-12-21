@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 parking_lot = "0.12"
-async-executor = { path = "../async-executor" }
-coroutine-scheduler = { path = "../coroutine-scheduler" }
+vm-runtime = { path = "../vm-runtime" }
+# async-executor 和 coroutine-scheduler 已合并到 vm-runtime
 
 [dev-dependencies]

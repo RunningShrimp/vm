@@ -2,12 +2,23 @@
 //!
 //! 实现无锁缓冲区池、分片映射缓存和原子操作优化
 
-use crate::virtio_zerocopy::{MappingEntry, ScatterGatherList, SgSegment};
-use std::mem;
-use std::ops::Range;
+use crate::virtio_zerocopy::{MappingEntry, SgSegment};
+use std::fmt;
 use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
+
+/// 片段列表已满错误
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SegmentListFull;
+
+impl fmt::Display for SegmentListFull {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Scatter-gather segment list is full")
+    }
+}
+
+impl std::error::Error for SegmentListFull {}
 
 /// 无锁缓冲区池
 ///
@@ -156,7 +167,7 @@ impl LockFreeBufferPool {
         unsafe {
             for i in 0..self.pool_size {
                 let entry = buffers.add(i);
-                if (*entry).data == _buffer.as_ptr() {
+                if std::ptr::eq((*entry).data, _buffer.as_ptr()) {
                     (*entry).in_use.store(false, Ordering::Release);
 
                     // 添加到空闲链表头部
@@ -417,11 +428,14 @@ impl AtomicScatterGatherList {
     }
 
     /// 添加片段（原子操作）
-    pub fn add_segment(&self, paddr: u64, len: u32, flags: u16) -> Result<(), ()> {
+    ///
+    /// # 错误
+    /// 如果片段列表已满，返回错误
+    pub fn add_segment(&self, paddr: u64, len: u32, flags: u16) -> Result<(), SegmentListFull> {
         let current_count = self.segment_count.load(Ordering::Acquire);
 
         if current_count >= self.capacity as u32 {
-            return Err(());
+            return Err(SegmentListFull);
         }
 
         // 原子性地增加计数
@@ -443,7 +457,7 @@ impl AtomicScatterGatherList {
                 self.total_size.fetch_add(len as u64, Ordering::Relaxed);
                 Ok(())
             }
-            Err(_) => Err(()), // 并发竞争失败
+            Err(_) => Err(SegmentListFull), // 并发竞争失败
         }
     }
 
@@ -605,7 +619,7 @@ mod tests {
         // 注意：由于简化实现，这个测试可能不会通过
         // assert_eq!(pool.available_count(), 9);
 
-        let (allocs, reuses) = pool.stats();
+        let (allocs, _reuses) = pool.stats();
         assert!(allocs >= 2);
     }
 

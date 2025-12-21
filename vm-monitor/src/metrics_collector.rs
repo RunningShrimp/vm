@@ -789,7 +789,7 @@ impl MetricsCollector {
         } else {
             // 这是一次缓存的JIT代码执行
         }
-        
+
         self.total_jit_executions.fetch_add(1, Ordering::Relaxed);
         self.total_operations.fetch_add(1, Ordering::Relaxed);
         self.record_execution(); // 记录执行用于速率计算

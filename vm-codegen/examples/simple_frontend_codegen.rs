@@ -151,16 +151,16 @@ impl Default for Arm64Decoder {
     full_code.push_str("//! let mut decoder = Arm64Decoder::new();\n");
     full_code.push_str("//! let instructions = decoder.decode_block(&data, 0x1000)?;\n");
     full_code.push_str("//! ```\n\n");
-    
+
     full_code.push_str(instruction_struct);
-    full_code.push_str("\n");
+    full_code.push('\n');
     full_code.push_str(decoder_struct);
-    full_code.push_str("\n");
+    full_code.push('\n');
     full_code.push_str(decode_impl);
-    
+
     // 输出生成的代码
     println!("{}", full_code);
-    
+
     // 保存到文件
     fs::write("arm64_frontend_simple.rs", full_code)
         .expect("Failed to write generated ARM64 frontend code");

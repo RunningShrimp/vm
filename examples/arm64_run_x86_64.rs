@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         guest_arch: GuestArch::X86_64,  // Guest架构：AMD64
         memory_size: 128 * 1024 * 1024,  // 128MB内存
         vcpu_count: 1,
-        exec_mode: ExecMode::Hybrid,     // 使用混合模式（解释器+JIT）
+        exec_mode: ExecMode::HardwareAssisted,     // 使用硬件辅助虚拟化模式
         enable_accel: false,             // 跨架构不支持硬件加速
         jit_threshold: 100,              // JIT热点阈值
         ..Default::default()

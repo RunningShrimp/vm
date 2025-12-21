@@ -319,7 +319,9 @@ impl SyscallRegistry {
     pub fn new() -> Self {
         let mut registry = Self {
             syscalls: Arc::new(RwLock::new(HashMap::new())),
-            param_validator: Arc::new(parking_lot::RwLock::new(Arc::new(DefaultSyscallParamValidator))),
+            param_validator: Arc::new(parking_lot::RwLock::new(Arc::new(
+                DefaultSyscallParamValidator,
+            ))),
             sequence_integrity: Arc::new(SyscallSequenceIntegrity::default()),
             call_counts: Arc::new(RwLock::new(HashMap::new())),
             failure_counts: Arc::new(RwLock::new(HashMap::new())),

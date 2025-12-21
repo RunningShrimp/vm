@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio;
-use vm_core::{Decoder, ExecMode, ExecutionEngine, GuestArch, MMU, VirtualMachine, VmConfig};
+use vm_core::{Decoder, ExecMode, ExecutionEngine, GuestArch, MemoryAccess, MMU, VirtualMachine, VmConfig};
 use vm_engine_interpreter::Interpreter;
 use vm_engine_jit::Jit;
 use vm_frontend_riscv64::RiscvDecoder;
@@ -84,11 +84,7 @@ async fn test_e2e_vm_lifecycle() {
     assert!(service.is_ok(), "Failed to create VM Service");
     let mut service = service.unwrap();
 
-    // 2. 启动VM
-    let start_result = service.vm.start();
-    assert!(start_result.is_ok(), "Failed to start VM");
-
-    // 3. 执行一些指令（使用同步run方法）
+    // 2. 执行一些指令（使用同步run方法）
     let run_result = service.run(0x1000);
     // run可能因为各种原因返回，只要不panic就算通过
     assert!(
@@ -97,15 +93,15 @@ async fn test_e2e_vm_lifecycle() {
     );
 
     // 4. 验证VM状态
-    let vm_config = service.vm.config();
-    assert_eq!(vm_config.guest_arch, GuestArch::Riscv64);
-    assert_eq!(vm_config.memory_size, 64 * 1024 * 1024);
+    let vm_state = service.vm_state.lock().unwrap();
+    assert_eq!(vm_state.config.guest_arch, GuestArch::Riscv64);
+    assert_eq!(vm_state.config.memory_size, 64 * 1024 * 1024);
 }
 
 /// 端到端测试：多执行模式
 #[tokio::test]
 async fn test_e2e_execution_modes() {
-    let modes = [ExecMode::Interpreter, ExecMode::Jit, ExecMode::Hybrid];
+    let modes = [ExecMode::Interpreter, ExecMode::JIT, ExecMode::HardwareAssisted];
 
     for mode in modes {
         let config = VmConfig {
@@ -218,7 +214,7 @@ fn test_e2e_jit_performance() {
     let compile_time = compile_start.elapsed();
 
     // 验证JIT已编译
-    assert!(jit.is_hot(0x1000), "JIT should have compiled the block");
+    assert!(jit.is_hotspot(vm_core::GuestAddr(0x1000)), "JIT should have compiled the block");
 
     // 验证编译时间
     let compile_time_ms = compile_time.as_millis() as f64;
@@ -237,7 +233,7 @@ async fn test_e2e_multi_vcpu() {
         guest_arch: GuestArch::Riscv64,
         memory_size: 128 * 1024 * 1024,
         vcpu_count: 4,
-        exec_mode: ExecMode::Hybrid,
+        exec_mode: ExecMode::HardwareAssisted,
         ..Default::default()
     };
 
@@ -245,8 +241,6 @@ async fn test_e2e_multi_vcpu() {
     assert!(service.is_ok(), "Failed to create multi-vCPU service");
 
     let mut service = service.unwrap();
-    let start_result = service.vm.start();
-    assert!(start_result.is_ok(), "Failed to start multi-vCPU VM");
 
     // 异步执行
     let run_result = service.run_async(0x1000).await;
@@ -270,7 +264,7 @@ fn test_e2e_memory_performance() {
         let bytes = i.to_le_bytes();
         mmu.write_bulk(addr, &bytes).expect("Write failed");
         let mut buf = [0u8; 8];
-        mmu.read_bulk(addr, &mut buf).expect("Read failed");
+        (&mmu as &dyn MemoryAccess).read_bulk(vm_core::GuestAddr(addr), &mut buf).expect("Read failed");
         let value = u64::from_le_bytes(buf);
         assert_eq!(value, i as u64);
     }
@@ -307,7 +301,7 @@ fn test_e2e_complete_execution_flow() {
                 match block.term {
                     vm_ir::Terminator::Jmp { target } => pc = target,
                     vm_ir::Terminator::Ret => break,
-                    _ => pc = result.next_pc,
+                    _ => pc = result.next_pc.0,
                 }
             }
             Err(_) => break,
@@ -316,7 +310,7 @@ fn test_e2e_complete_execution_flow() {
 
     // 3. 验证结果
     let mut buf = [0u8; 8];
-    mmu.read_bulk(0x100, &mut buf)
+    (&mmu as &dyn MemoryAccess).read_bulk(vm_core::GuestAddr(0x100), &mut buf)
         .expect("Failed to read result");
     let value = u64::from_le_bytes(buf);
     assert_eq!(value, 42, "Memory at 0x100 should contain 42");
@@ -367,7 +361,7 @@ fn test_e2e_config_validation() {
             guest_arch: GuestArch::Riscv64,
             memory_size: 64 * 1024 * 1024,
             vcpu_count: 2,
-            exec_mode: ExecMode::Jit,
+            exec_mode: ExecMode::JIT,
             jit_threshold: 50,
             ..Default::default()
         },
@@ -375,14 +369,14 @@ fn test_e2e_config_validation() {
             guest_arch: GuestArch::Riscv64,
             memory_size: 128 * 1024 * 1024,
             vcpu_count: 4,
-            exec_mode: ExecMode::Hybrid,
+            exec_mode: ExecMode::HardwareAssisted,
             ..Default::default()
         },
     ];
 
     for config in configs {
         let mmu = SoftMmu::new(config.memory_size, false);
-        let vm: VirtualMachine<IRBlock> = VirtualMachine::with_mmu(config.clone(), Box::new(mmu));
+        let vm: VirtualMachine<IRBlock> = VirtualMachine::new(config.clone(), Box::new(mmu));
 
         assert_eq!(vm.config().guest_arch, config.guest_arch);
         assert_eq!(vm.config().memory_size, config.memory_size);
@@ -435,7 +429,7 @@ fn test_e2e_regression_suite() {
 
         let _ = interpreter.run(&mut mmu, &block);
         let mut buf = [0u8; 4];
-        mmu.read_bulk(0x100, &mut buf).expect("Read failed");
+        (&mmu as &dyn MemoryAccess).read_bulk(vm_core::GuestAddr(0x100), &mut buf).expect("Read failed");
         let value = u32::from_le_bytes(buf);
         assert_eq!(value, 0x12345678u32);
     }

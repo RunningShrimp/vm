@@ -7,6 +7,11 @@ use std::arch::aarch64::*;
 
 /// NEON 向量转换：XTN (Extract Narrow)
 /// 将 128 位向量的高 64 位提取并截断为 64 位
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn xtn_u8(a: u128) -> Option<u64> {
     unsafe {
@@ -19,6 +24,11 @@ pub unsafe fn xtn_u8(a: u128) -> Option<u64> {
 
 /// NEON 向量转换：XTN2 (Extract Narrow, high half)
 /// 将 128 位向量的高 64 位提取并截断，与低 64 位组合
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn xtn2_u8(low: u64, high: u128) -> Option<u128> {
     unsafe {
@@ -32,6 +42,11 @@ pub unsafe fn xtn2_u8(low: u64, high: u128) -> Option<u128> {
 
 /// NEON 向量转换：UXTN (Unsigned Extract Narrow)
 /// 无符号截断提取
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn uxtn_u8(a: u128) -> Option<u64> {
     unsafe {
@@ -42,6 +57,11 @@ pub unsafe fn uxtn_u8(a: u128) -> Option<u64> {
 }
 
 /// NEON 向量转换：UXTN2 (Unsigned Extract Narrow, high half)
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn uxtn2_u8(low: u64, high: u128) -> Option<u128> {
     unsafe {
@@ -55,6 +75,11 @@ pub unsafe fn uxtn2_u8(low: u64, high: u128) -> Option<u128> {
 
 /// NEON 表查找：TBL (Table Lookup)
 /// 使用索引向量从查找表中提取元素
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions, and that the provided pointers are valid.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn tbl_u8(table: &[u8; 16], indices: &[u8; 16]) -> Option<[u8; 16]> {
     unsafe {
@@ -69,6 +94,11 @@ pub unsafe fn tbl_u8(table: &[u8; 16], indices: &[u8; 16]) -> Option<[u8; 16]> {
 
 /// NEON 表查找扩展：TBX (Table Lookup Extended)
 /// 类似于 TBL，但保留未匹配的元素
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions, and that the provided pointers are valid.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn tbx_u8(table: &[u8; 16], indices: &[u8; 16], default: &[u8; 16]) -> Option<[u8; 16]> {
     unsafe {
@@ -84,6 +114,11 @@ pub unsafe fn tbx_u8(table: &[u8; 16], indices: &[u8; 16], default: &[u8; 16]) -
 
 /// NEON ZIP1 (Zip vectors, lower half)
 /// 交错两个向量的低半部分
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions, and that the provided pointers are valid.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn zip1_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
     unsafe {
@@ -98,6 +133,11 @@ pub unsafe fn zip1_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
 
 /// NEON ZIP2 (Zip vectors, upper half)
 /// 交错两个向量的高半部分
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions, and that the provided pointers are valid.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn zip2_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
     unsafe {
@@ -112,6 +152,11 @@ pub unsafe fn zip2_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
 
 /// NEON UZP1 (Unzip vectors, lower half)
 /// 解交错两个向量，提取低半部分
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions, and that the provided pointers are valid.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn uzp1_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
     unsafe {
@@ -126,6 +171,11 @@ pub unsafe fn uzp1_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
 
 /// NEON UZP2 (Unzip vectors, upper half)
 /// 解交错两个向量，提取高半部分
+///
+/// # Safety
+/// This function uses NEON intrinsics and is only safe to call on AArch64 targets
+/// with NEON support. The caller must ensure the target architecture supports these
+/// instructions, and that the provided pointers are valid.
 #[cfg(target_arch = "aarch64")]
 pub unsafe fn uzp2_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
     unsafe {
@@ -140,21 +190,50 @@ pub unsafe fn uzp2_u8(a: &[u8; 16], b: &[u8; 16]) -> Option<[u8; 16]> {
 
 #[cfg(not(target_arch = "aarch64"))]
 mod fallback {
+    /// NEON extract narrow (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn xtn_u8(_a: u128) -> Option<u64> {
         None
     }
+
+    /// NEON extract narrow high (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn xtn2_u8(_low: u64, _high: u128) -> Option<u128> {
         None
     }
+
+    /// NEON unsigned extract narrow (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn uxtn_u8(_a: u128) -> Option<u64> {
         None
     }
+
+    /// NEON unsigned extract narrow high (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn uxtn2_u8(_low: u64, _high: u128) -> Option<u128> {
         None
     }
+
+    /// NEON table lookup (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn tbl_u8(_table: &[u8; 16], _indices: &[u8; 16]) -> Option<[u8; 16]> {
         None
     }
+
+    /// NEON table lookup with default (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn tbx_u8(
         _table: &[u8; 16],
         _indices: &[u8; 16],

@@ -241,7 +241,9 @@ impl Observable for VirtualDevice {
 
     fn subscribe(
         &mut self,
-        _callback: Box<dyn Fn(&Self::State, &Self::Event) + Send + Sync>,
+        #[allow(clippy::type_complexity)] _callback: Box<
+            dyn Fn(&Self::State, &Self::Event) + Send + Sync,
+        >,
     ) -> crate::SubscriptionId {
         // 简化实现
         0

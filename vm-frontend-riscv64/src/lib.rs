@@ -1,8 +1,11 @@
 use vm_core::{Decoder, GuestAddr, MMU, VmError};
-use vm_ir::{IRBlock, IROp, MemFlags, Terminator, AtomicOp};
+use vm_ir::{AtomicOp, IRBlock, IROp, MemFlags, Terminator};
 
 mod vector;
 use vector::VectorDecoder;
+
+#[cfg(test)]
+mod vector_tests;
 
 /// RISC-V 指令表示
 #[derive(Debug, Clone)]
@@ -172,7 +175,7 @@ impl Decoder for RiscvDecoder {
                         });
                     }
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -232,7 +235,7 @@ impl Decoder for RiscvDecoder {
                         src2: extended,
                     });
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -265,7 +268,7 @@ impl Decoder for RiscvDecoder {
                         });
                     }
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -289,7 +292,7 @@ impl Decoder for RiscvDecoder {
                         src2: imm_reg,
                     });
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -319,7 +322,7 @@ impl Decoder for RiscvDecoder {
                         imm: imm_full as u64,
                     });
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -340,7 +343,7 @@ impl Decoder for RiscvDecoder {
                         imm: imm_val,
                     });
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -365,7 +368,7 @@ impl Decoder for RiscvDecoder {
                         });
                     }
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -409,7 +412,7 @@ impl Decoder for RiscvDecoder {
                         _ => {}
                     }
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(2))
+                        target: GuestAddr(pc.0.wrapping_add(2)),
                     });
                     return Ok(b.build());
                 }
@@ -465,7 +468,7 @@ impl Decoder for RiscvDecoder {
                         b.set_term(Terminator::CondJmp {
                             cond,
                             target_true: target,
-                            target_false: GuestAddr(pc.0.wrapping_add(2))
+                            target_false: GuestAddr(pc.0.wrapping_add(2)),
                         });
                     } else {
                         // C.BNEZ: Branch if not equal to zero
@@ -477,7 +480,7 @@ impl Decoder for RiscvDecoder {
                         b.set_term(Terminator::CondJmp {
                             cond,
                             target_true: target,
-                            target_false: GuestAddr(pc.0.wrapping_add(2))
+                            target_false: GuestAddr(pc.0.wrapping_add(2)),
                         });
                     }
                     return Ok(b.build());
@@ -500,7 +503,7 @@ impl Decoder for RiscvDecoder {
                             flags: MemFlags::default(),
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(2))
+                            target: GuestAddr(pc.0.wrapping_add(2)),
                         });
                         return Ok(b.build());
                     } else {
@@ -513,7 +516,7 @@ impl Decoder for RiscvDecoder {
                             flags: MemFlags::default(),
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(2))
+                            target: GuestAddr(pc.0.wrapping_add(2)),
                         });
                         return Ok(b.build());
                     }
@@ -541,7 +544,7 @@ impl Decoder for RiscvDecoder {
                             });
                         }
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(2))
+                            target: GuestAddr(pc.0.wrapping_add(2)),
                         });
                         return Ok(b.build());
                     }
@@ -564,7 +567,6 @@ impl Decoder for RiscvDecoder {
         match opcode {
             0x37 => {
                 let imm = ((insn & 0xfffff000) as i32) as i64;
-                let imm = imm; // upper placed
                 let dst = reg_file.write(rd as usize);
                 b.push(IROp::AddImm {
                     dst,
@@ -1003,7 +1005,7 @@ impl Decoder for RiscvDecoder {
                     _ => {}
                 }
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x0F => {
@@ -1027,7 +1029,7 @@ impl Decoder for RiscvDecoder {
                     _ => {}
                 }
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x73 => {
@@ -1046,10 +1048,12 @@ impl Decoder for RiscvDecoder {
                     // rs2: ASID register (0 = all ASIDs)
                     // This is a memory barrier that ensures all previous memory accesses
                     // are visible before TLB invalidation
-                    let mut flags = MemFlags::default();
-                    flags.fence_before = true;
-                    flags.fence_after = true;
-                    flags.order = vm_ir::MemOrder::SeqCst;
+                    let flags = MemFlags {
+                        fence_before: true,
+                        fence_after: true,
+                        order: vm_ir::MemOrder::SeqCst,
+                        ..Default::default()
+                    };
 
                     // Emit TLB flush operation with memory ordering flags
                     let vaddr = if rs1 == 0 {
@@ -1058,7 +1062,7 @@ impl Decoder for RiscvDecoder {
                         Some(pc) // Use current PC as placeholder, actual implementation should use rs1 value
                     };
                     b.push(IROp::TlbFlush { vaddr });
-                    
+
                     // Apply memory ordering based on flags
                     if flags.fence_before || flags.fence_after {
                         // Using AtomicRMWOrder with dummy values to achieve memory barrier effect
@@ -1071,9 +1075,9 @@ impl Decoder for RiscvDecoder {
                             flags,
                         });
                     }
-                    
+
                     b.set_term(Terminator::Jmp {
-                        target: GuestAddr(pc.0.wrapping_add(4))
+                        target: GuestAddr(pc.0.wrapping_add(4)),
                     });
                     return Ok(b.build());
                 }
@@ -1090,7 +1094,7 @@ impl Decoder for RiscvDecoder {
                             src: reg_file.read(rs1 as usize),
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x2 => {
@@ -1102,7 +1106,7 @@ impl Decoder for RiscvDecoder {
                             src: reg_file.read(rs1 as usize),
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x3 => {
@@ -1114,7 +1118,7 @@ impl Decoder for RiscvDecoder {
                             src: reg_file.read(rs1 as usize),
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x5 => {
@@ -1128,7 +1132,7 @@ impl Decoder for RiscvDecoder {
                             dst,
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x6 => {
@@ -1142,7 +1146,7 @@ impl Decoder for RiscvDecoder {
                             dst,
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x7 => {
@@ -1156,7 +1160,7 @@ impl Decoder for RiscvDecoder {
                             dst,
                         });
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x0 => {
@@ -1164,37 +1168,37 @@ impl Decoder for RiscvDecoder {
                         if insn == 0x00000073 {
                             b.push(IROp::SysCall);
                             b.set_term(Terminator::Jmp {
-                                target: GuestAddr(pc.0.wrapping_add(4))
+                                target: GuestAddr(pc.0.wrapping_add(4)),
                             });
                         } else if insn == 0x00100073 {
                             b.push(IROp::DebugBreak);
                             b.set_term(Terminator::Jmp {
-                                target: GuestAddr(pc.0.wrapping_add(4))
+                                target: GuestAddr(pc.0.wrapping_add(4)),
                             });
                         } else if insn == 0x30200073 {
                             b.push(IROp::SysMret);
                             b.set_term(Terminator::Jmp {
-                                target: GuestAddr(pc.0.wrapping_add(4))
+                                target: GuestAddr(pc.0.wrapping_add(4)),
                             });
                         } else if insn == 0x10200073 {
                             b.push(IROp::SysSret);
                             b.set_term(Terminator::Jmp {
-                                target: GuestAddr(pc.0.wrapping_add(4))
+                                target: GuestAddr(pc.0.wrapping_add(4)),
                             });
                         } else if insn == 0x10500073 {
                             b.push(IROp::SysWfi);
                             b.set_term(Terminator::Jmp {
-                                target: GuestAddr(pc.0.wrapping_add(4))
+                                target: GuestAddr(pc.0.wrapping_add(4)),
                             });
                         } else {
                             b.set_term(Terminator::Jmp {
-                                target: GuestAddr(pc.0.wrapping_add(4))
+                                target: GuestAddr(pc.0.wrapping_add(4)),
                             });
                         }
                     }
                     _ => {
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                 }
@@ -1211,7 +1215,7 @@ impl Decoder for RiscvDecoder {
                     flags: MemFlags::default(),
                 });
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x27 => {
@@ -1226,7 +1230,7 @@ impl Decoder for RiscvDecoder {
                     flags: MemFlags::default(),
                 });
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x53 => {
@@ -1449,7 +1453,7 @@ impl Decoder for RiscvDecoder {
                     _ => {}
                 }
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x43 => {
@@ -1463,7 +1467,7 @@ impl Decoder for RiscvDecoder {
                     src3: reg_file.read(rs3 as usize),
                 });
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x47 => {
@@ -1477,7 +1481,7 @@ impl Decoder for RiscvDecoder {
                     src3: reg_file.read(rs3 as usize),
                 });
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x4B => {
@@ -1491,7 +1495,7 @@ impl Decoder for RiscvDecoder {
                     src3: reg_file.read(rs3 as usize),
                 });
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x4F => {
@@ -1505,7 +1509,7 @@ impl Decoder for RiscvDecoder {
                     src3: reg_file.read(rs3 as usize),
                 });
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x03 => {
@@ -1555,7 +1559,7 @@ impl Decoder for RiscvDecoder {
                     _ => {}
                 }
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x17 => {
@@ -1564,7 +1568,7 @@ impl Decoder for RiscvDecoder {
                 b.push(IROp::MovImm { dst, imm: pc.0 });
                 b.push(IROp::AddImm { dst, src: dst, imm });
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x23 => {
@@ -1605,7 +1609,7 @@ impl Decoder for RiscvDecoder {
                     _ => {}
                 }
                 b.set_term(Terminator::Jmp {
-                    target: GuestAddr(pc.0.wrapping_add(4))
+                    target: GuestAddr(pc.0.wrapping_add(4)),
                 });
             }
             0x63 => {
@@ -1637,7 +1641,7 @@ impl Decoder for RiscvDecoder {
                         b.set_term(Terminator::CondJmp {
                             cond: 31,
                             target_true: target,
-                            target_false: GuestAddr(pc.0.wrapping_add(4))
+                            target_false: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x4 => {
@@ -1649,7 +1653,7 @@ impl Decoder for RiscvDecoder {
                         b.set_term(Terminator::CondJmp {
                             cond: 31,
                             target_true: target,
-                            target_false: GuestAddr(pc.0.wrapping_add(4))
+                            target_false: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x5 => {
@@ -1661,7 +1665,7 @@ impl Decoder for RiscvDecoder {
                         b.set_term(Terminator::CondJmp {
                             cond: 31,
                             target_true: target,
-                            target_false: GuestAddr(pc.0.wrapping_add(4))
+                            target_false: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x6 => {
@@ -1673,7 +1677,7 @@ impl Decoder for RiscvDecoder {
                         b.set_term(Terminator::CondJmp {
                             cond: 31,
                             target_true: target,
-                            target_false: GuestAddr(pc.0.wrapping_add(4))
+                            target_false: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     0x7 => {
@@ -1685,12 +1689,12 @@ impl Decoder for RiscvDecoder {
                         b.set_term(Terminator::CondJmp {
                             cond: 31,
                             target_true: target,
-                            target_false: GuestAddr(pc.0.wrapping_add(4))
+                            target_false: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                     _ => {
                         b.set_term(Terminator::Jmp {
-                            target: GuestAddr(pc.0.wrapping_add(4))
+                            target: GuestAddr(pc.0.wrapping_add(4)),
                         });
                     }
                 }
@@ -1716,19 +1720,34 @@ impl Decoder for RiscvDecoder {
                 let funct5 = (insn >> 27) & 0x1f;
                 let aq = (insn >> 26) & 0x1;
                 let rl = (insn >> 25) & 0x1;
-                let mut flags = MemFlags::default();
-                flags.atomic = true;
-                if aq != 0 {
-                    flags.fence_before = true;
-                    flags.order = vm_ir::MemOrder::Acquire;
-                }
-                if rl != 0 {
-                    flags.fence_after = true;
-                    flags.order = vm_ir::MemOrder::Release;
-                }
-                if aq != 0 && rl != 0 {
-                    flags.order = vm_ir::MemOrder::AcqRel;
-                }
+                let flags = if aq != 0 && rl != 0 {
+                    MemFlags {
+                        atomic: true,
+                        fence_before: true,
+                        fence_after: true,
+                        order: vm_ir::MemOrder::AcqRel,
+                        ..Default::default()
+                    }
+                } else if aq != 0 {
+                    MemFlags {
+                        atomic: true,
+                        fence_before: true,
+                        order: vm_ir::MemOrder::Acquire,
+                        ..Default::default()
+                    }
+                } else if rl != 0 {
+                    MemFlags {
+                        atomic: true,
+                        fence_after: true,
+                        order: vm_ir::MemOrder::Release,
+                        ..Default::default()
+                    }
+                } else {
+                    MemFlags {
+                        atomic: true,
+                        ..Default::default()
+                    }
+                };
 
                 let size = match funct3 {
                     2 => 4, // .W
@@ -1880,7 +1899,7 @@ impl Decoder for RiscvDecoder {
                 let dst = reg_file.write(rd as usize);
                 b.push(IROp::MovImm {
                     dst,
-                    imm: pc.0.wrapping_add(4)
+                    imm: pc.0.wrapping_add(4),
                 });
 
                 let t29 = reg_file.write(29);

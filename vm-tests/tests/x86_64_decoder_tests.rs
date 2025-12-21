@@ -3,13 +3,13 @@
 //! 测试增强的x86_64解码器功能
 
 use std::time::Instant;
-use vm_core::MMU;
+use vm_core::{MMU, GuestAddr};
 use vm_frontend_x86_64::{DecoderPipeline, InsnStream};
 use vm_mem::SoftMmu;
 
 #[test]
 fn test_x86_64_basic_instructions() {
-    let mut mmu = SoftMmu::new(1024 * 1024); // 1MB内存
+    let mut mmu = SoftMmu::new(1024 * 1024, false); // 1MB内存
 
     // 写入一些简单的指令到内存
     let instructions = vec![
@@ -22,18 +22,18 @@ fn test_x86_64_basic_instructions() {
     ];
 
     for (i, &byte) in instructions.iter().enumerate() {
-        mmu.write(i as u64, byte as u64, 1).unwrap();
+        mmu.write(GuestAddr(i as u64), byte as u64, 1).unwrap();
     }
 
     let mut decoder = DecoderPipeline::new();
-    let mut stream = InsnStream::new(&mmu, 0);
+    let mut _stream = InsnStream::new(&mmu, GuestAddr(0));
 
     println!("Testing x86_64 instruction decoding:");
 
     // 测试NOP指令
     let pc = 0;
-    stream = InsnStream::new(&mmu, pc);
-    match decoder.decode_instruction(&mut stream, pc) {
+    let mut stream = InsnStream::new(&mmu, GuestAddr(pc));
+    match decoder.decode_instruction(&mut stream, GuestAddr(pc)) {
         Ok(instruction) => {
             println!("  NOP decoded: {:?}", instruction.mnemonic);
             assert_eq!(format!("{:?}", instruction.mnemonic), "Nop");
@@ -43,8 +43,8 @@ fn test_x86_64_basic_instructions() {
 
     // 测试RET指令
     let pc = 1;
-    stream = InsnStream::new(&mmu, pc);
-    match decoder.decode_instruction(&mut stream, pc) {
+    let mut stream = InsnStream::new(&mmu, GuestAddr(pc));
+    match decoder.decode_instruction(&mut stream, GuestAddr(pc)) {
         Ok(instruction) => {
             println!("  RET decoded: {:?}", instruction.mnemonic);
             assert_eq!(format!("{:?}", instruction.mnemonic), "Ret");
@@ -54,8 +54,8 @@ fn test_x86_64_basic_instructions() {
 
     // 测试JMP rel8指令
     let pc = 4;
-    stream = InsnStream::new(&mmu, pc);
-    match decoder.decode_instruction(&mut stream, pc) {
+    let mut stream = InsnStream::new(&mmu, GuestAddr(pc));
+    match decoder.decode_instruction(&mut stream, GuestAddr(pc)) {
         Ok(instruction) => {
             println!("  JMP rel8 decoded: {:?}", instruction.mnemonic);
             assert_eq!(format!("{:?}", instruction.mnemonic), "Jmp");
@@ -66,7 +66,7 @@ fn test_x86_64_basic_instructions() {
 
 #[test]
 fn test_x86_64_mov_instructions() {
-    let mut mmu = SoftMmu::new(1024 * 1024);
+    let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // MOV指令测试
     let instructions = vec![
@@ -77,18 +77,18 @@ fn test_x86_64_mov_instructions() {
     ];
 
     for (i, &byte) in instructions.iter().enumerate() {
-        mmu.write(i as u64, byte as u64, 1).unwrap();
+        mmu.write(GuestAddr(i as u64), byte as u64, 1).unwrap();
     }
 
     let mut decoder = DecoderPipeline::new();
-    let mut stream = InsnStream::new(&mmu, 0);
+    let mut _stream = InsnStream::new(&mmu, GuestAddr(0));
 
     println!("Testing x86_64 MOV instructions:");
 
     // 测试MOV reg, imm32
     let pc = 0;
-    stream = InsnStream::new(&mmu, pc);
-    match decoder.decode_instruction(&mut stream, pc) {
+    let mut stream = InsnStream::new(&mmu, GuestAddr(pc));
+    match decoder.decode_instruction(&mut stream, GuestAddr(pc)) {
         Ok(instruction) => {
             println!("  MOV EAX, imm32 decoded: {:?}", instruction.mnemonic);
             assert_eq!(format!("{:?}", instruction.mnemonic), "Mov");
@@ -102,7 +102,7 @@ fn test_x86_64_mov_instructions() {
 
 #[test]
 fn test_x86_64_arithmetic_instructions() {
-    let mut mmu = SoftMmu::new(1024 * 1024);
+    let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // 算术指令测试
     let instructions = vec![
@@ -151,7 +151,7 @@ fn test_x86_64_arithmetic_instructions() {
 
 #[test]
 fn test_x86_64_decoder_performance() {
-    let mut mmu = SoftMmu::new(1024 * 1024);
+    let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // 创建包含多种指令的测试序列
     let mut instructions = Vec::new();
@@ -206,7 +206,7 @@ fn test_x86_64_decoder_performance() {
 
 #[test]
 fn test_x86_64_extended_instructions() {
-    let mut mmu = SoftMmu::new(1024 * 1024);
+    let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // 两字节指令测试 (0x0F前缀)
     let instructions = vec![

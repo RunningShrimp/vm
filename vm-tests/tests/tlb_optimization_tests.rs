@@ -22,15 +22,14 @@ fn test_multilevel_tlb_performance() {
     // 多级TLB优化MMU
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::MultiLevel,
-        multilevel_tlb_config: MultiLevelTlbConfig {
+        unified_tlb_config: MultiLevelTlbConfig {
             l1_capacity: 64,
             l2_capacity: 256,
             l3_capacity: 1024,
             prefetch_window: 4,
             adaptive_replacement: true,
             ..Default::default()
-        },
-        concurrent_tlb_config: ConcurrentTlbConfig::default(),
+        }.into(),
         ..Default::default()
     };
     let mut optimized_mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -41,15 +40,15 @@ fn test_multilevel_tlb_performance() {
 
     // 预热
     for &addr in &test_addresses {
-        let _ = original_mmu.translate(addr, AccessType::Read);
-        let _ = optimized_mmu.translate(addr, AccessType::Read);
+        let _ = original_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
+        let _ = optimized_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
 
     // 测试原始MMU
     let start = Instant::now();
     for _ in 0..iterations {
         for &addr in &test_addresses {
-            let _ = original_mmu.translate(addr, AccessType::Read);
+            let _ = original_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
         }
     }
     let original_duration = start.elapsed();
@@ -58,7 +57,7 @@ fn test_multilevel_tlb_performance() {
     let start = Instant::now();
     for _ in 0..iterations {
         for &addr in &test_addresses {
-            let _ = optimized_mmu.translate(addr, AccessType::Read);
+            let _ = optimized_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
         }
     }
     let optimized_duration = start.elapsed();
@@ -88,29 +87,28 @@ fn test_concurrent_tlb_performance() {
     // 并发TLB配置
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::Concurrent,
-        concurrent_tlb_config: ConcurrentTlbConfig {
+        unified_tlb_config: vm_mem::ConcurrentTlbConfig {
             sharded_capacity: 4096,
             shard_count: 16,
             fast_path_capacity: 64,
             enable_fast_path: true,
             ..Default::default()
-        },
-        multilevel_tlb_config: MultiLevelTlbConfig::default(),
+        }.into(),
         ..Default::default()
     };
-    let concurrent_mmu = Arc::new(UnifiedMmu::new(64 * 1024 * 1024, false, config));
+    let concurrent_mmu = Arc::new(parking_lot::RwLock::new(UnifiedMmu::new(64 * 1024 * 1024, false, config)));
 
     // 预热
     for i in 0..1000 {
         let addr = (i * 4096) as u64;
-        let _ = concurrent_mmu.translate(addr, AccessType::Read);
+        let _ = concurrent_mmu.write().translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
 
     // 单线程性能测试
     let start = Instant::now();
     for i in 0..10000 {
         let addr = ((i % 1000) * 4096) as u64;
-        let _ = concurrent_mmu.translate(addr, AccessType::Read);
+        let _ = concurrent_mmu.write().translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
     let single_thread_duration = start.elapsed();
 
@@ -126,7 +124,7 @@ fn test_concurrent_tlb_performance() {
         let handle = thread::spawn(move || {
             for i in 0..iterations_per_thread {
                 let addr = ((t * iterations_per_thread + i) % 1000 * 4096) as u64;
-                let _ = mmu_clone.translate(addr, AccessType::Read);
+                let _ = mmu_clone.write().translate(vm_core::GuestAddr(addr), AccessType::Read);
             }
         });
         handles.push(handle);
@@ -164,8 +162,7 @@ fn test_hybrid_strategy_performance() {
         strategy: MmuOptimizationStrategy::Hybrid,
         enable_prefetch: true,
         prefetch_window: 8,
-        multilevel_tlb_config: MultiLevelTlbConfig::default(),
-        concurrent_tlb_config: ConcurrentTlbConfig::default(),
+        unified_tlb_config: MultiLevelTlbConfig::default().into(),
         ..Default::default()
     };
     let mut hybrid_mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -174,7 +171,7 @@ fn test_hybrid_strategy_performance() {
     let sequential_start = Instant::now();
     for i in 0..10000 {
         let addr = (i * 4096) as u64;
-        let _ = hybrid_mmu.translate(addr, AccessType::Read);
+        let _ = hybrid_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
     let sequential_duration = sequential_start.elapsed();
 
@@ -182,7 +179,7 @@ fn test_hybrid_strategy_performance() {
     let random_start = Instant::now();
     for i in 0..10000 {
         let addr = ((i * 17) % 1000 * 4096) as u64;
-        let _ = hybrid_mmu.translate(addr, AccessType::Read);
+        let _ = hybrid_mmu.translate(vm_core::GuestAddr(addr), AccessType::Read);
     }
     let random_duration = random_start.elapsed();
 

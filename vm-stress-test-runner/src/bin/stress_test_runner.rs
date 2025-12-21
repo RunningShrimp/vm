@@ -8,15 +8,14 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Barrier};
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
-use vm_cross_arch::UnifiedExecutor;
 use vm_core::{GuestAddr, GuestArch, MemoryAccess};
-use vm_engine_jit::core::{JITEngine, JITConfig};
-use vm_mem::{SoftMmu, NumaAllocator, NumaAllocPolicy, NumaNodeInfo};
-use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
-use chrono;
+use vm_cross_arch::UnifiedExecutor;
+use vm_engine_jit::core::{JITConfig, JITEngine};
+use vm_ir::{IRBlock, IRBuilder, IROp, MemFlags, Terminator};
+use vm_mem::{NumaAllocPolicy, NumaAllocator, NumaNodeInfo, SoftMmu};
 
 /// 压力测试配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,17 +73,17 @@ impl StressTestReport {
             results: Vec::new(),
         }
     }
-    
+
     /// 完成测试
     fn finish(&mut self) {
         self.end_time = chrono::Utc::now().to_rfc3339();
     }
-    
+
     /// 添加测试结果
     fn add_result(&mut self, result: StressTestResult) {
         self.results.push(result);
     }
-    
+
     /// 保存到文件
     fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let json = serde_json::to_string_pretty(self)?;
@@ -98,44 +97,49 @@ impl StressTestReport {
 fn run_cross_arch_stress_test(config: &StressTestConfig) -> StressTestResult {
     let test_name = "cross_arch_stress".to_string();
     let start_time = Instant::now();
-    
+
     let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let operations = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let errors = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(config.threads as usize));
-    
+
     let mut handles = Vec::new();
-    
+
     for thread_id in 0..config.threads {
         let running_clone = running.clone();
         let operations_clone = operations.clone();
         let errors_clone = errors.clone();
         let barrier_clone = barrier.clone();
         let cpu_pressure = config.cpu_pressure;
-        
+
         let handle = thread::spawn(move || {
             barrier_clone.wait();
-            
+
             // 创建执行器
-            let mut executor = match UnifiedExecutor::auto_create(GuestArch::X86_64, 128 * 1024 * 1024) {
-                Ok(exec) => exec,
-                Err(_) => {
-                    errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    return;
-                }
-            };
-            
+            let mut executor =
+                match UnifiedExecutor::auto_create(GuestArch::X86_64, 128 * 1024 * 1024) {
+                    Ok(exec) => exec,
+                    Err(_) => {
+                        errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        return;
+                    }
+                };
+
             // 创建测试代码
             let test_code = create_test_code_x86();
             let code_base = 0x1000 + thread_id as u64 * 0x10000;
-            
+
             // 加载代码
             for (i, byte) in test_code.iter().enumerate() {
-                if let Err(_) = executor.mmu_mut().write(GuestAddr(code_base + i as u64), *byte as u64, 1) {
+                if let Err(_) =
+                    executor
+                        .mmu_mut()
+                        .write(GuestAddr(code_base + i as u64), *byte as u64, 1)
+                {
                     errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }
-            
+
             // 根据CPU压力级别调整执行次数
             let execution_count = match cpu_pressure {
                 1..=3 => 10,
@@ -144,38 +148,40 @@ fn run_cross_arch_stress_test(config: &StressTestConfig) -> StressTestResult {
                 9..=10 => 200,
                 _ => 50,
             };
-            
+
             while running_clone.load(std::sync::atomic::Ordering::Relaxed) {
                 // 执行代码多次
                 for _ in 0..execution_count {
                     match executor.execute(GuestAddr(code_base)) {
-                        Ok(_) => operations_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                        Ok(_) => {
+                            operations_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        }
                         Err(_) => errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                     };
                 }
-                
+
                 // 短暂休息
                 thread::sleep(Duration::from_millis(10));
             }
         });
-        
+
         handles.push(handle);
     }
-    
+
     // 运行指定时间
     thread::sleep(Duration::from_secs(config.duration));
     running.store(false, std::sync::atomic::Ordering::Relaxed);
-    
+
     // 等待所有线程完成
     for handle in handles {
         let _ = handle.join();
     }
-    
+
     let execution_time = start_time.elapsed();
     let total_operations = operations.load(std::sync::atomic::Ordering::Relaxed);
     let total_errors = errors.load(std::sync::atomic::Ordering::Relaxed);
     let memory_usage = estimate_memory_usage();
-    
+
     StressTestResult {
         name: test_name,
         execution_time_ms: execution_time.as_millis() as u64,
@@ -190,14 +196,14 @@ fn run_cross_arch_stress_test(config: &StressTestConfig) -> StressTestResult {
 fn run_jit_compilation_stress_test(config: &StressTestConfig) -> StressTestResult {
     let test_name = "jit_compilation_stress".to_string();
     let start_time = Instant::now();
-    
+
     let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let operations = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let errors = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(config.threads as usize));
-    
+
     let mut handles = Vec::new();
-    
+
     for thread_id in 0..config.threads {
         let running_clone = running.clone();
         let operations_clone = operations.clone();
@@ -205,13 +211,13 @@ fn run_jit_compilation_stress_test(config: &StressTestConfig) -> StressTestResul
         let barrier_clone = barrier.clone();
         let memory_pressure = config.memory_pressure;
         let cpu_pressure = config.cpu_pressure;
-        
+
         let handle = thread::spawn(move || {
             barrier_clone.wait();
-            
+
             // 创建JIT引擎
             let mut jit = JITEngine::new(JITConfig::default());
-            
+
             // 根据压力级别调整工作负载
             let block_count = match memory_pressure {
                 1..=3 => 10,
@@ -220,7 +226,7 @@ fn run_jit_compilation_stress_test(config: &StressTestConfig) -> StressTestResul
                 9..=10 => 200,
                 _ => 50,
             };
-            
+
             let complexity = match cpu_pressure {
                 1..=3 => 100,
                 4..=6 => 500,
@@ -228,46 +234,49 @@ fn run_jit_compilation_stress_test(config: &StressTestConfig) -> StressTestResul
                 9..=10 => 2000,
                 _ => 500,
             };
-            
+
             while running_clone.load(std::sync::atomic::Ordering::Relaxed) {
                 // 创建测试IR块
-                let block = create_complex_ir_block(GuestAddr(0x1000 + thread_id as u64 * 0x10000), complexity);
-                
+                let block = create_complex_ir_block(
+                    GuestAddr(0x1000 + thread_id as u64 * 0x10000),
+                    complexity,
+                );
+
                 // 编译块
                 match jit.compile(&block) {
                     Ok(_) => operations_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                     Err(_) => errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 };
-                
+
                 // 创建多个块以增加内存压力
                 for i in 0..block_count {
                     let addr = 0x2000 + thread_id as u64 * 0x10000 + i as u64 * 0x1000;
                     let block = create_basic_ir_block(GuestAddr(addr), 100);
                     let _ = jit.compile(&block);
                 }
-                
+
                 // 短暂休息
                 thread::sleep(Duration::from_millis(10));
             }
         });
-        
+
         handles.push(handle);
     }
-    
+
     // 运行指定时间
     thread::sleep(Duration::from_secs(config.duration));
     running.store(false, std::sync::atomic::Ordering::Relaxed);
-    
+
     // 等待所有线程完成
     for handle in handles {
         let _ = handle.join();
     }
-    
+
     let execution_time = start_time.elapsed();
     let total_operations = operations.load(std::sync::atomic::Ordering::Relaxed);
     let total_errors = errors.load(std::sync::atomic::Ordering::Relaxed);
     let memory_usage = estimate_memory_usage();
-    
+
     StressTestResult {
         name: test_name,
         execution_time_ms: execution_time.as_millis() as u64,
@@ -282,47 +291,45 @@ fn run_jit_compilation_stress_test(config: &StressTestConfig) -> StressTestResul
 fn run_memory_stress_test(config: &StressTestConfig) -> StressTestResult {
     let test_name = "memory_stress".to_string();
     let start_time = Instant::now();
-    
+
     let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let operations = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let errors = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(config.threads as usize));
-    
+
     let mut handles = Vec::new();
-    
+
     for thread_id in 0..config.threads {
         let running_clone = running.clone();
         let operations_clone = operations.clone();
         let errors_clone = errors.clone();
         let barrier_clone = barrier.clone();
         let memory_pressure = config.memory_pressure;
-        
+
         let handle = thread::spawn(move || {
             barrier_clone.wait();
-            
+
             // 创建MMU
             let mut mmu = SoftMmu::new(1024 * 1024 * 1024, false);
-            
+
             // 创建NUMA分配器
-            let nodes = vec![
-                NumaNodeInfo {
-                    node_id: 0,
-                    total_memory: 8 * 1024 * 1024 * 1024, // 8GB
-                    available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-                    cpu_mask: 0xFF, // CPU 0-7
-                },
-            ];
+            let nodes = vec![NumaNodeInfo {
+                node_id: 0,
+                total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
+                available_memory: 7 * 1024 * 1024 * 1024, // 7GB
+                cpu_mask: 0xFF,                           // CPU 0-7
+            }];
             let allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Local);
-            
+
             // 根据压力级别调整内存操作大小
             let allocation_size = match memory_pressure {
-                1..=3 => 1024,        // 1KB
-                4..=6 => 10240,       // 10KB
-                7..=8 => 102400,      // 100KB
-                9..=10 => 1024000,    // 1MB
+                1..=3 => 1024,     // 1KB
+                4..=6 => 10240,    // 10KB
+                7..=8 => 102400,   // 100KB
+                9..=10 => 1024000, // 1MB
                 _ => 10240,
             };
-            
+
             let allocation_count = match memory_pressure {
                 1..=3 => 100,
                 4..=6 => 500,
@@ -330,21 +337,26 @@ fn run_memory_stress_test(config: &StressTestConfig) -> StressTestResult {
                 9..=10 => 2000,
                 _ => 500,
             };
-            
+
             let mut allocations = Vec::new();
-            
+
             while running_clone.load(std::sync::atomic::Ordering::Relaxed) {
                 // 分配内存
                 for i in 0..allocation_count {
                     let addr = thread_id as u64 * 0x10000000 + i as u64 * allocation_size;
-                    let layout = std::alloc::Layout::from_size_align(allocation_size.try_into().unwrap_or(1), 8).unwrap_or(std::alloc::Layout::from_size_align(1, 1).unwrap());
+                    let layout = std::alloc::Layout::from_size_align(
+                        allocation_size.try_into().unwrap_or(1),
+                        8,
+                    )
+                    .unwrap_or(std::alloc::Layout::from_size_align(1, 1).unwrap());
                     match allocator.allocate(layout) {
                         Ok(ptr) => {
                             // 使用 addr 变量记录分配的地址
-                            mmu.write(vm_core::GuestAddr(addr), addr, 8).unwrap_or_else(|_| {
-                                errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            });
-                            
+                            mmu.write(vm_core::GuestAddr(addr), addr, 8)
+                                .unwrap_or_else(|_| {
+                                    errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                });
+
                             allocations.push((ptr, allocation_size)); // 存储指针和大小用于释放
                             operations_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
@@ -353,19 +365,19 @@ fn run_memory_stress_test(config: &StressTestConfig) -> StressTestResult {
                         }
                     }
                 }
-                
+
                 // 执行内存读写操作
                 for &(ptr, _) in &allocations {
                     for offset in (0..allocation_size).step_by(4096) {
                         // 将指针转换为地址进行操作
-                        let guest_addr = ptr.as_ptr() as u64 + offset as u64;
+                        let guest_addr = ptr.as_ptr() as u64 + offset;
                         // 写入
                         if let Err(_) = mmu.write(vm_core::GuestAddr(guest_addr), 0xDEADBEEF, 8) {
                             errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         } else {
                             operations_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
-                        
+
                         // 读取
                         if let Err(_) = mmu.read(vm_core::GuestAddr(guest_addr), 8) {
                             errors_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -374,7 +386,7 @@ fn run_memory_stress_test(config: &StressTestConfig) -> StressTestResult {
                         }
                     }
                 }
-                
+
                 // 释放部分内存
                 for _ in 0..allocation_count / 2 {
                     if let Some((ptr, size)) = allocations.pop() {
@@ -382,29 +394,29 @@ fn run_memory_stress_test(config: &StressTestConfig) -> StressTestResult {
                         operations_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
-                
+
                 // 短暂休息
                 thread::sleep(Duration::from_millis(10));
             }
         });
-        
+
         handles.push(handle);
     }
-    
+
     // 运行指定时间
     thread::sleep(Duration::from_secs(config.duration));
     running.store(false, std::sync::atomic::Ordering::Relaxed);
-    
+
     // 等待所有线程完成
     for handle in handles {
         let _ = handle.join();
     }
-    
+
     let execution_time = start_time.elapsed();
     let total_operations = operations.load(std::sync::atomic::Ordering::Relaxed);
     let total_errors = errors.load(std::sync::atomic::Ordering::Relaxed);
     let memory_usage = estimate_memory_usage();
-    
+
     StressTestResult {
         name: test_name,
         execution_time_ms: execution_time.as_millis() as u64,
@@ -421,38 +433,43 @@ fn run_resource_leak_test() -> StressTestResult {
     let start_time = Instant::now();
     let mut operations = 0;
     let mut errors = 0;
-    
+
     // 记录初始资源使用
     let initial_memory = estimate_memory_usage();
-    
+
     // 创建和销毁大量资源
     for _ in 0..1000 {
         // 创建JIT引擎
         let mut jit = JITEngine::new(JITConfig::default());
-        
+
         // 创建并编译多个块
-            for i in 0..10 {
-                let block = create_basic_ir_block(GuestAddr(0x1000 + i as u64 * 0x1000), 100);
+        for i in 0..10 {
+            let block = create_basic_ir_block(GuestAddr(0x1000 + i as u64 * 0x1000), 100);
             if let Ok(_) = jit.compile(&block) {
                 operations += 1;
             } else {
                 errors += 1;
             }
         }
-        
+
         // 创建执行器
-        if let Ok(mut executor) = UnifiedExecutor::auto_create(GuestArch::X86_64, 128 * 1024 * 1024) {
+        if let Ok(mut executor) = UnifiedExecutor::auto_create(GuestArch::X86_64, 128 * 1024 * 1024)
+        {
             // 创建测试代码
             let test_code = create_test_code_x86();
             let code_base = 0x1000;
-            
+
             // 加载代码
             for (i, byte) in test_code.iter().enumerate() {
-                if let Err(_) = executor.mmu_mut().write(GuestAddr(code_base + i as u64), *byte as u64, 1) {
+                if let Err(_) =
+                    executor
+                        .mmu_mut()
+                        .write(GuestAddr(code_base + i as u64), *byte as u64, 1)
+                {
                     errors += 1;
                 }
             }
-            
+
             // 执行代码
             for _ in 0..10 {
                 match executor.execute(GuestAddr(code_base)) {
@@ -463,43 +480,42 @@ fn run_resource_leak_test() -> StressTestResult {
         } else {
             errors += 1;
         }
-        
+
         // 创建MMU
         let mut mmu = SoftMmu::new(1024 * 1024, false);
-        
+
         // 创建NUMA分配器
-        let nodes = vec![
-            NumaNodeInfo {
-                node_id: 0,
-                total_memory: 8 * 1024 * 1024 * 1024, // 8GB
-                available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-                cpu_mask: 0xFF, // CPU 0-7
-            },
-        ];
+        let nodes = vec![NumaNodeInfo {
+            node_id: 0,
+            total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
+            available_memory: 7 * 1024 * 1024 * 1024, // 7GB
+            cpu_mask: 0xFF,                           // CPU 0-7
+        }];
         let allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Local);
-        
+
         // 分配和释放内存
         let mut allocated_ptrs = Vec::new();
         for i in 0..100 {
             let addr = i as u64 * 4096;
-            let layout = std::alloc::Layout::from_size_align(4096, 8).unwrap_or(std::alloc::Layout::from_size_align(1, 1).unwrap());
+            let layout = std::alloc::Layout::from_size_align(4096, 8)
+                .unwrap_or(std::alloc::Layout::from_size_align(1, 1).unwrap());
             if let Ok(ptr) = allocator.allocate(layout) {
                 allocated_ptrs.push((ptr, 4096));
                 operations += 1;
-                
+
                 // 执行内存操作
                 if let Ok(_) = mmu.write(GuestAddr(addr), 0xDEADBEEF, 8) {
                     operations += 1;
                 } else {
                     errors += 1;
                 }
-                
+
                 if let Ok(_) = mmu.read(GuestAddr(addr), 8) {
                     operations += 1;
                 } else {
                     errors += 1;
                 }
-                
+
                 allocator.deallocate(ptr, 4096);
                 operations += 1;
             } else {
@@ -507,16 +523,16 @@ fn run_resource_leak_test() -> StressTestResult {
             }
         }
     }
-    
+
     // 强制垃圾回收
     thread::sleep(Duration::from_millis(100));
-    
+
     // 记录最终资源使用
     let final_memory = estimate_memory_usage();
     let memory_leak = final_memory.saturating_sub(initial_memory);
-    
+
     let execution_time = start_time.elapsed();
-    
+
     StressTestResult {
         name: test_name,
         execution_time_ms: execution_time.as_millis() as u64,
@@ -539,16 +555,19 @@ fn estimate_memory_usage() -> u64 {
 /// 创建基础IR块
 fn create_basic_ir_block(addr: GuestAddr, instruction_count: usize) -> IRBlock {
     let mut builder = IRBuilder::new(addr);
-    
+
     for i in 0..instruction_count {
-        builder.push(IROp::MovImm { dst: (i % 16) as u32, imm: (i * 42) as u64 });
+        builder.push(IROp::MovImm {
+            dst: (i % 16) as u32,
+            imm: (i * 42) as u64,
+        });
         builder.push(IROp::Add {
             dst: 0,
             src1: 0,
             src2: (i % 16) as u32,
         });
     }
-    
+
     builder.set_term(Terminator::Ret);
     builder.build()
 }
@@ -556,11 +575,14 @@ fn create_basic_ir_block(addr: GuestAddr, instruction_count: usize) -> IRBlock {
 /// 创建复杂IR块
 fn create_complex_ir_block(addr: GuestAddr, complexity: usize) -> IRBlock {
     let mut builder = IRBuilder::new(addr);
-    
+
     for i in 0..complexity {
         match i % 8 {
             0 => {
-                builder.push(IROp::MovImm { dst: 1, imm: i as u64 });
+                builder.push(IROp::MovImm {
+                    dst: 1,
+                    imm: i as u64,
+                });
                 builder.push(IROp::Add {
                     dst: 0,
                     src1: 0,
@@ -623,7 +645,7 @@ fn create_complex_ir_block(addr: GuestAddr, complexity: usize) -> IRBlock {
             }
         }
     }
-    
+
     builder.set_term(Terminator::Ret);
     builder.build()
 }
@@ -631,12 +653,12 @@ fn create_complex_ir_block(addr: GuestAddr, complexity: usize) -> IRBlock {
 /// 创建x86测试代码
 fn create_test_code_x86() -> Vec<u8> {
     vec![
-        0xB8, 0x0A, 0x00, 0x00, 0x00,  // mov eax, 10
-        0xBB, 0x14, 0x00, 0x00, 0x00,  // mov ebx, 20
-        0x01, 0xD8,                     // add eax, ebx
-        0x83, 0xC0, 0x05,               // add eax, 5
-        0x29, 0xD8,                     // sub eax, ebx
-        0xC3,                           // ret
+        0xB8, 0x0A, 0x00, 0x00, 0x00, // mov eax, 10
+        0xBB, 0x14, 0x00, 0x00, 0x00, // mov ebx, 20
+        0x01, 0xD8, // add eax, ebx
+        0x83, 0xC0, 0x05, // add eax, 5
+        0x29, 0xD8, // sub eax, ebx
+        0xC3, // ret
     ]
 }
 
@@ -693,23 +715,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .default_value("all"),
         )
         .get_matches();
-    
+
     let config = StressTestConfig {
         duration: matches.get_one::<String>("duration").unwrap().parse()?,
         threads: matches.get_one::<String>("threads").unwrap().parse()?,
-        memory_pressure: matches.get_one::<String>("memory-pressure").unwrap().parse()?,
+        memory_pressure: matches
+            .get_one::<String>("memory-pressure")
+            .unwrap()
+            .parse()?,
         cpu_pressure: matches.get_one::<String>("cpu-pressure").unwrap().parse()?,
         output: matches.get_one::<String>("output").unwrap().to_string(),
     };
-    
+
     let test_type = matches.get_one::<String>("test").unwrap();
-    
+
     println!("开始压力测试...");
     println!("配置: {:?}", config);
     println!("测试类型: {}", test_type);
-    
+
     let mut report = StressTestReport::new(config.clone());
-    
+
     match test_type.as_str() {
         "all" => {
             println!("运行所有压力测试...");
@@ -740,24 +765,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     }
-    
+
     report.finish();
-    
+
     // 保存结果
     report.save_to_file(&config.output)?;
     println!("结果已保存到: {}", config.output);
-    
+
     // 打印摘要
     println!("\n==== 压力测试摘要 ====");
     for result in &report.results {
         println!("测试: {}", result.name);
         println!("  执行时间: {} ms", result.execution_time_ms);
-        println!("  内存使用: {:.2} MB", result.memory_usage_bytes as f64 / 1024.0 / 1024.0);
+        println!(
+            "  内存使用: {:.2} MB",
+            result.memory_usage_bytes as f64 / 1024.0 / 1024.0
+        );
         println!("  操作数: {}", result.operations);
         println!("  错误数: {}", result.errors);
         println!("  吞吐量: {:.0} ops/sec", result.throughput_ops_per_sec);
         println!();
     }
-    
+
     Ok(())
 }

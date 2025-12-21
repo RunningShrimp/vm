@@ -48,7 +48,7 @@ pub mod hugepage {
         }
 
         pub fn is_aligned(&self, addr: u64) -> bool {
-            addr % self.preferred_size.alignment() == 0
+            addr.is_multiple_of(self.preferred_size.alignment())
         }
 
         pub fn align_up(&self, addr: u64) -> u64 {

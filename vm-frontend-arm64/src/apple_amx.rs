@@ -296,7 +296,7 @@ mod tests {
         let decoder = AmxDecoder::new();
         // 构造 AMX_LD 指令：tile=0, base=1, offset=0x100
         let insn = 0xF_A0_10_00 | (0x100 & 0xFFF);
-        let result = decoder.decode(insn, 0x1000);
+        let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
         assert!(result.is_ok());
         if let Ok(Some(AmxInstruction::AmxLd { tile, base, offset })) = result {
             assert_eq!(tile, 0);
@@ -312,12 +312,12 @@ mod tests {
         let decoder = AmxDecoder::new();
         // 构造 AMX_FMA 指令：tile_c=0, tile_a=1, tile_b=2, precision=FP32
         let insn = 0xF_A2_01_23 | (3 << 8); // opcode=2 (FMA), precision=3 (FP32)
-        let result = decoder.decode(insn, 0x1000);
+        let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
         assert!(result.is_ok());
         if let Ok(Some(AmxInstruction::AmxFma {
             tile_c,
             tile_a,
-            tile_b,
+            tile_b: _,
             precision,
         })) = result
         {

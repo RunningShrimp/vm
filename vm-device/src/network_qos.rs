@@ -1,11 +1,11 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, AtomicU32, AtomicU16, AtomicBool, Ordering};
 use std::time::Instant;
 use vm_core::VmResult;
 
 /// Network Quality of Service (QoS) implementation
-/// 
+///
 /// This module provides comprehensive QoS functionality including:
 /// - Traffic shaping and policing
 /// - Queue management and scheduling
@@ -13,7 +13,7 @@ use vm_core::VmResult;
 /// - Bandwidth allocation and limiting
 /// - Congestion control
 /// - QoS statistics and monitoring
-
+///
 /// QoS configuration
 #[derive(Debug, Clone)]
 pub struct NetworkQosConfig {
@@ -42,13 +42,13 @@ pub struct NetworkQosConfig {
 impl Default for NetworkQosConfig {
     fn default() -> Self {
         Self {
-            max_bandwidth: 10000, // 10 Gbps
+            max_bandwidth: 10000,       // 10 Gbps
             guaranteed_bandwidth: 1000, // 1 Gbps
-            burst_size: 65536, // 64 KB
-            peak_rate: 10000, // 10 Gbps
-            average_rate: 5000, // 5 Gbps
+            burst_size: 65536,          // 64 KB
+            peak_rate: 10000,           // 10 Gbps
+            average_rate: 5000,         // 5 Gbps
             num_traffic_classes: 8,
-            queue_configs: (0..8).map(|i| TrafficClassConfig::default_for_tc(i)).collect(),
+            queue_configs: (0..8).map(TrafficClassConfig::default_for_tc).collect(),
             scheduler_type: QosSchedulerType::WeightedFairQueueing,
             congestion_control: CongestionControlType::Red,
             monitoring_enabled: true,
@@ -326,7 +326,7 @@ impl QosQueue {
             let should_drop = match self.config.drop_policy {
                 DropPolicy::TailDrop => true,
                 DropPolicy::HeadDrop => {
-                    if let Some(_) = packets.pop_front() {
+                    if packets.pop_front().is_some() {
                         self.current_depth.fetch_sub(1, Ordering::Relaxed);
                         false
                     } else {
@@ -339,7 +339,7 @@ impl QosQueue {
                     use std::hash::{Hash, Hasher};
                     let mut hasher = DefaultHasher::new();
                     packet.packet_id.hash(&mut hasher);
-                    (hasher.finish() % 2) == 0
+                    hasher.finish().is_multiple_of(2)
                 }
             };
 
@@ -356,8 +356,10 @@ impl QosQueue {
         // Update statistics
         let stats = self.stats.lock().unwrap();
         stats.packets_enqueued.fetch_add(1, Ordering::Relaxed);
-        stats.bytes_enqueued.fetch_add(packet.size as u64, Ordering::Relaxed);
-        
+        stats
+            .bytes_enqueued
+            .fetch_add(packet.size as u64, Ordering::Relaxed);
+
         let new_depth = self.current_depth.load(Ordering::Acquire);
         if new_depth > stats.max_queue_depth.load(Ordering::Relaxed) {
             stats.max_queue_depth.store(new_depth, Ordering::Relaxed);
@@ -373,18 +375,20 @@ impl QosQueue {
         }
 
         let mut packets = self.packets.lock().unwrap();
-        
+
         if let Some(packet) = packets.pop_front() {
             self.current_depth.fetch_sub(1, Ordering::Relaxed);
-            
+
             // Update statistics
             let stats = self.stats.lock().unwrap();
             stats.packets_dequeued.fetch_add(1, Ordering::Relaxed);
-            stats.bytes_dequeued.fetch_add(packet.size as u64, Ordering::Relaxed);
-            
+            stats
+                .bytes_dequeued
+                .fetch_add(packet.size as u64, Ordering::Relaxed);
+
             // Update last dequeue time
             *self.last_dequeue_time.lock().unwrap() = Instant::now();
-            
+
             Ok(Some(packet))
         } else {
             Ok(None)
@@ -430,7 +434,9 @@ impl QosQueue {
     fn update_drop_stats(&self, packet: &QosPacket) {
         let stats = self.stats.lock().unwrap();
         stats.packets_dropped.fetch_add(1, Ordering::Relaxed);
-        stats.bytes_dropped.fetch_add(packet.size as u64, Ordering::Relaxed);
+        stats
+            .bytes_dropped
+            .fetch_add(packet.size as u64, Ordering::Relaxed);
         stats.queue_overflows.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -483,10 +489,10 @@ pub struct TrafficShaperConfig {
 impl Default for TrafficShaperConfig {
     fn default() -> Self {
         Self {
-            cir: 125_000_000, // 1 Gbps
-            cbs: 1_000_000,   // 1 MB
+            cir: 125_000_000,   // 1 Gbps
+            cbs: 1_000_000,     // 1 MB
             pir: 1_250_000_000, // 10 Gbps
-            pbs: 10_000_000,   // 10 MB
+            pbs: 10_000_000,    // 10 MB
             enabled: true,
         }
     }
@@ -567,17 +573,23 @@ impl TrafficShaper {
 
         let packet_size = packet.size as u64;
         stats.packets_processed.fetch_add(1, Ordering::Relaxed);
-        stats.bytes_processed.fetch_add(packet_size, Ordering::Relaxed);
+        stats
+            .bytes_processed
+            .fetch_add(packet_size, Ordering::Relaxed);
 
         // Check if packet conforms to committed rate
         if token_bucket.tokens >= packet_size {
             token_bucket.tokens -= packet_size;
             stats.packets_conformed.fetch_add(1, Ordering::Relaxed);
-            stats.bytes_conformed.fetch_add(packet_size, Ordering::Relaxed);
+            stats
+                .bytes_conformed
+                .fetch_add(packet_size, Ordering::Relaxed);
             Ok(TrafficShaperResult::Conform)
         } else {
             stats.packets_exceeded.fetch_add(1, Ordering::Relaxed);
-            stats.bytes_exceeded.fetch_add(packet_size, Ordering::Relaxed);
+            stats
+                .bytes_exceeded
+                .fetch_add(packet_size, Ordering::Relaxed);
             Ok(TrafficShaperResult::Exceed)
         }
     }
@@ -590,7 +602,7 @@ impl TrafficShaper {
 
         // Calculate tokens to add based on CIR
         let tokens_to_add = (self.config.cir as f64 * elapsed_secs) as u64;
-        
+
         token_bucket.tokens = (token_bucket.tokens + tokens_to_add).min(token_bucket.max_tokens);
         token_bucket.last_update = now;
     }
@@ -682,7 +694,9 @@ impl Clone for NetworkQosStats {
             dropped_bytes: AtomicU64::new(self.dropped_bytes.load(Ordering::Relaxed)),
             avg_latency: AtomicU32::new(self.avg_latency.load(Ordering::Relaxed)),
             max_latency: AtomicU32::new(self.max_latency.load(Ordering::Relaxed)),
-            bandwidth_utilization: AtomicU32::new(self.bandwidth_utilization.load(Ordering::Relaxed)),
+            bandwidth_utilization: AtomicU32::new(
+                self.bandwidth_utilization.load(Ordering::Relaxed),
+            ),
             queue_stats: self.queue_stats.clone(),
             shaper_stats: self.shaper_stats.clone(),
         }
@@ -751,12 +765,13 @@ impl NetworkQosManager {
         packet.packet_id = self.next_packet_id.fetch_add(1, Ordering::Relaxed);
 
         // Get queue for traffic class
-        let queue = self.queues.get(&packet.traffic_class)
-            .ok_or_else(|| vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
+        let queue = self.queues.get(&packet.traffic_class).ok_or_else(|| {
+            vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
                 name: "traffic_class".to_string(),
                 value: packet.traffic_class.to_string(),
-                message: format!("Invalid traffic class: {}", packet.traffic_class)
-            }))?;
+                message: format!("Invalid traffic class: {}", packet.traffic_class),
+            })
+        })?;
 
         // Apply traffic shaping if enabled
         if let Some(shaper) = self.shapers.get(&packet.traffic_class) {
@@ -780,7 +795,7 @@ impl NetworkQosManager {
 
         // Save packet size before enqueuing
         let packet_size = packet.size;
-        
+
         // Enqueue packet
         let success = queue.enqueue(packet)?;
 
@@ -788,7 +803,9 @@ impl NetworkQosManager {
         if success {
             let stats = self.stats.lock().unwrap();
             stats.total_packets.fetch_add(1, Ordering::Relaxed);
-            stats.total_bytes.fetch_add(packet_size as u64, Ordering::Relaxed);
+            stats
+                .total_bytes
+                .fetch_add(packet_size as u64, Ordering::Relaxed);
         }
 
         Ok(success)
@@ -809,13 +826,15 @@ impl NetworkQosManager {
                 // Update statistics
                 let stats = self.stats.lock().unwrap();
                 stats.total_packets.fetch_sub(1, Ordering::Relaxed);
-                stats.total_bytes.fetch_sub(packet.size as u64, Ordering::Relaxed);
+                stats
+                    .total_bytes
+                    .fetch_sub(packet.size as u64, Ordering::Relaxed);
 
                 // Calculate latency
                 let latency = packet.timestamp.elapsed().as_micros() as u32;
                 stats.avg_latency.store(
                     (stats.avg_latency.load(Ordering::Relaxed) + latency) / 2,
-                    Ordering::Relaxed
+                    Ordering::Relaxed,
                 );
                 if latency > stats.max_latency.load(Ordering::Relaxed) {
                     stats.max_latency.store(latency, Ordering::Relaxed);
@@ -858,7 +877,7 @@ impl NetworkQosManager {
     /// Reset QoS statistics
     pub fn reset_stats(&self) {
         *self.stats.lock().unwrap() = NetworkQosStats::default();
-        
+
         for queue in self.queues.values() {
             queue.reset_stats();
         }
@@ -886,7 +905,7 @@ impl NetworkQosManager {
     /// Update configuration
     pub fn update_config(&mut self, config: NetworkQosConfig) -> VmResult<()> {
         self.config = config;
-        
+
         // Update queue configurations
         for tc_config in &self.config.queue_configs {
             if self.queues.contains_key(&tc_config.tc_id) {
@@ -902,18 +921,29 @@ impl NetworkQosManager {
     fn update_drop_stats(&self, packet: &QosPacket) {
         let stats = self.stats.lock().unwrap();
         stats.dropped_packets.fetch_add(1, Ordering::Relaxed);
-        stats.dropped_bytes.fetch_add(packet.size as u64, Ordering::Relaxed);
+        stats
+            .dropped_bytes
+            .fetch_add(packet.size as u64, Ordering::Relaxed);
     }
 }
 
 /// QoS scheduler trait
 pub trait QosScheduler: Send + Sync {
     /// Select a queue for dequeue
-    fn select_queue<'a>(&self, queues: &'a HashMap<u8, Arc<QosQueue>>) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>>;
+    fn select_queue<'a>(
+        &self,
+        queues: &'a HashMap<u8, Arc<QosQueue>>,
+    ) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>>;
 }
 
 /// FIFO scheduler implementation
 pub struct FifoScheduler;
+
+impl Default for FifoScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FifoScheduler {
     pub fn new() -> Self {
@@ -922,7 +952,10 @@ impl FifoScheduler {
 }
 
 impl QosScheduler for FifoScheduler {
-    fn select_queue<'a>(&self, queues: &'a HashMap<u8, Arc<QosQueue>>) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
+    fn select_queue<'a>(
+        &self,
+        queues: &'a HashMap<u8, Arc<QosQueue>>,
+    ) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
         // Simple round-robin through queues
         for (tc_id, queue) in queues {
             if queue.is_enabled() && !queue.is_empty() {
@@ -936,6 +969,12 @@ impl QosScheduler for FifoScheduler {
 /// Priority scheduler implementation
 pub struct PriorityScheduler;
 
+impl Default for PriorityScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PriorityScheduler {
     pub fn new() -> Self {
         Self
@@ -943,10 +982,13 @@ impl PriorityScheduler {
 }
 
 impl QosScheduler for PriorityScheduler {
-    fn select_queue<'a>(&self, queues: &'a HashMap<u8, Arc<QosQueue>>) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
+    fn select_queue<'a>(
+        &self,
+        queues: &'a HashMap<u8, Arc<QosQueue>>,
+    ) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
         // Select queue with highest priority that has packets
         let mut selected_tc: Option<(u8, &'a Arc<QosQueue>)> = None;
-        
+
         for (tc_id, queue) in queues {
             if queue.is_enabled() && !queue.is_empty() {
                 match selected_tc {
@@ -954,20 +996,28 @@ impl QosScheduler for PriorityScheduler {
                         selected_tc = Some((*tc_id, queue));
                     }
                     Some((current_tc, _)) => {
-                        if queue.config().priority > queues.get(&current_tc).unwrap().config().priority {
+                        if queue.config().priority
+                            > queues.get(&current_tc).unwrap().config().priority
+                        {
                             selected_tc = Some((*tc_id, queue));
                         }
                     }
                 }
             }
         }
-        
+
         Ok(selected_tc)
     }
 }
 
 /// Weighted Fair Queueing scheduler implementation
 pub struct WfqScheduler;
+
+impl Default for WfqScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl WfqScheduler {
     pub fn new() -> Self {
@@ -976,30 +1026,39 @@ impl WfqScheduler {
 }
 
 impl QosScheduler for WfqScheduler {
-    fn select_queue<'a>(&self, queues: &'a HashMap<u8, Arc<QosQueue>>) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
+    fn select_queue<'a>(
+        &self,
+        queues: &'a HashMap<u8, Arc<QosQueue>>,
+    ) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
         // Simplified WFQ - select queue based on weight and queue depth
         let mut selected_tc: Option<(u8, &'a Arc<QosQueue>)> = None;
         let mut max_score = 0.0;
-        
+
         for (tc_id, queue) in queues {
             if queue.is_enabled() && !queue.is_empty() {
                 let weight = queue.config().weight as f32;
                 let depth = queue.depth() as f32;
                 let score = weight * depth;
-                
+
                 if score > max_score {
                     max_score = score;
                     selected_tc = Some((*tc_id, queue));
                 }
             }
         }
-        
+
         Ok(selected_tc)
     }
 }
 
 /// Deficit Round Robin scheduler implementation
 pub struct DrrScheduler;
+
+impl Default for DrrScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl DrrScheduler {
     pub fn new() -> Self {
@@ -1008,18 +1067,21 @@ impl DrrScheduler {
 }
 
 impl QosScheduler for DrrScheduler {
-    fn select_queue<'a>(&self, queues: &'a HashMap<u8, Arc<QosQueue>>) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
+    fn select_queue<'a>(
+        &self,
+        queues: &'a HashMap<u8, Arc<QosQueue>>,
+    ) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
         // DRR implementation
         for (tc_id, queue) in queues {
             if queue.is_enabled() && !queue.is_empty() {
                 // Add quantum to deficit counter
                 queue.add_deficit(queue.quantum());
-                
+
                 // Check if we have enough deficit to send a packet
-                if let Some(packet) = queue.packets.lock().unwrap().front() {
-                    if queue.deficit_counter() >= packet.size as u32 {
-                        return Ok(Some((*tc_id, queue)));
-                    }
+                if let Some(packet) = queue.packets.lock().unwrap().front()
+                    && queue.deficit_counter() >= packet.size as u32
+                {
+                    return Ok(Some((*tc_id, queue)));
                 }
             }
         }
@@ -1030,6 +1092,12 @@ impl QosScheduler for DrrScheduler {
 /// Hierarchical Fair Service Curve scheduler implementation
 pub struct HfscScheduler;
 
+impl Default for HfscScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HfscScheduler {
     pub fn new() -> Self {
         Self
@@ -1037,24 +1105,27 @@ impl HfscScheduler {
 }
 
 impl QosScheduler for HfscScheduler {
-    fn select_queue<'a>(&self, queues: &'a HashMap<u8, Arc<QosQueue>>) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
+    fn select_queue<'a>(
+        &self,
+        queues: &'a HashMap<u8, Arc<QosQueue>>,
+    ) -> VmResult<Option<(u8, &'a Arc<QosQueue>)>> {
         // Simplified HFSC - similar to WFQ for this implementation
         let mut selected_tc: Option<(u8, &'a Arc<QosQueue>)> = None;
         let mut max_score = 0.0;
-        
+
         for (tc_id, queue) in queues {
             if queue.is_enabled() && !queue.is_empty() {
                 let weight = queue.config().weight as f32;
                 let depth = queue.depth() as f32;
                 let score = weight * depth;
-                
+
                 if score > max_score {
                     max_score = score;
                     selected_tc = Some((*tc_id, queue));
                 }
             }
         }
-        
+
         Ok(selected_tc)
     }
 }
@@ -1067,6 +1138,12 @@ pub trait CongestionController: Send + Sync {
 
 /// No congestion control implementation
 pub struct NoCongestionControl;
+
+impl Default for NoCongestionControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl NoCongestionControl {
     pub fn new() -> Self {
@@ -1087,6 +1164,12 @@ pub struct RedController {
     max_probability: f32,
 }
 
+impl Default for RedController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RedController {
     pub fn new() -> Self {
         Self {
@@ -1100,23 +1183,24 @@ impl RedController {
 impl CongestionController for RedController {
     fn should_drop(&self, _packet: &QosPacket, queue: &QosQueue) -> VmResult<bool> {
         let depth = queue.depth();
-        
+
         if depth < self.min_threshold {
             Ok(false)
         } else if depth >= self.max_threshold {
             Ok(true)
         } else {
             // Calculate drop probability
-            let probability = self.max_probability * 
-                ((depth - self.min_threshold) as f32 / (self.max_threshold - self.min_threshold) as f32);
-            
+            let probability = self.max_probability
+                * ((depth - self.min_threshold) as f32
+                    / (self.max_threshold - self.min_threshold) as f32);
+
             // Random drop
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
             let mut hasher = DefaultHasher::new();
             std::time::SystemTime::now().hash(&mut hasher);
             let random = (hasher.finish() % 100) as f32 / 100.0;
-            
+
             Ok(random < probability)
         }
     }
@@ -1127,27 +1211,36 @@ pub struct WredController {
     red_controllers: HashMap<u8, RedController>,
 }
 
+impl Default for WredController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WredController {
     pub fn new() -> Self {
         let mut red_controllers = HashMap::new();
-        
+
         // Create RED controllers for different traffic classes
         for tc in 0..8 {
             let (min_threshold, max_threshold, max_probability) = match tc {
                 0 => (5, 50, 0.05),   // High priority - less aggressive
                 1 => (10, 100, 0.1),  // Medium-high priority
                 2 => (20, 150, 0.15), // Medium priority
-                3 => (30, 200, 0.2), // Medium-low priority
+                3 => (30, 200, 0.2),  // Medium-low priority
                 _ => (40, 250, 0.25), // Low priority - more aggressive
             };
-            
-            red_controllers.insert(tc, RedController {
-                min_threshold,
-                max_threshold,
-                max_probability,
-            });
+
+            red_controllers.insert(
+                tc,
+                RedController {
+                    min_threshold,
+                    max_threshold,
+                    max_probability,
+                },
+            );
         }
-        
+
         Self { red_controllers }
     }
 }
@@ -1165,6 +1258,12 @@ impl CongestionController for WredController {
 /// ECN (Explicit Congestion Notification) controller implementation
 pub struct EcnController {
     red_controller: RedController,
+}
+
+impl Default for EcnController {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EcnController {
@@ -1185,6 +1284,12 @@ impl CongestionController for EcnController {
 
 /// Tail Drop controller implementation
 pub struct TailDropController;
+
+impl Default for TailDropController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl TailDropController {
     pub fn new() -> Self {

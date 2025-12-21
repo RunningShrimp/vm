@@ -3,7 +3,7 @@
 //! 实现跨架构转换中的内存对齐和端序转换优化，减少转换开销
 
 use std::collections::HashMap;
-use vm_ir::{IROp, RegId, MemFlags};
+use vm_ir::{IROp, MemFlags, RegId};
 
 /// 简单的地址类型定义
 pub type GuestAddr = u64;
@@ -54,11 +54,7 @@ pub enum MemoryAccessPattern {
 
 /// 简单的GCD实现
 fn gcd(a: usize, b: usize) -> usize {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 /// 内存对齐和端序转换优化器
@@ -110,12 +106,20 @@ impl MemoryAlignmentOptimizer {
     /// 分析内存操作的对齐情况
     pub fn analyze_alignment(&mut self, op: &IROp) -> AlignmentInfo {
         match op {
-            IROp::Load { dst, base, offset, size, .. } => {
-                self.analyze_load_alignment(*dst, *base, *offset, *size)
-            }
-            IROp::Store { src, base, offset, size, .. } => {
-                self.analyze_store_alignment(*src, *base, *offset, *size)
-            }
+            IROp::Load {
+                dst,
+                base,
+                offset,
+                size,
+                ..
+            } => self.analyze_load_alignment(*dst, *base, *offset, *size),
+            IROp::Store {
+                src,
+                base,
+                offset,
+                size,
+                ..
+            } => self.analyze_store_alignment(*src, *base, *offset, *size),
             _ => AlignmentInfo {
                 alignment: 1,
                 is_natural: true,
@@ -146,9 +150,9 @@ impl MemoryAlignmentOptimizer {
             size as usize
         } else {
             // 基于偏移量的对齐
-            let offset_abs = offset.abs() as usize;
-            let common_divisor = gcd(offset_abs, size as usize);
-            common_divisor
+            let offset_abs = offset.unsigned_abs() as usize;
+
+            gcd(offset_abs, size as usize)
         };
 
         // 检查是否自然对齐
@@ -160,11 +164,11 @@ impl MemoryAlignmentOptimizer {
         } else {
             // 非对齐访问的惩罚（基于架构）
             match size {
-                1 => 0,           // 字节访问总是对齐的
-                2 => 1,           // 16位非对齐
-                4 => 2,           // 32位非对齐
-                8 => 3,           // 64位非对齐
-                _ => 4,           // 更大访问的惩罚
+                1 => 0, // 字节访问总是对齐的
+                2 => 1, // 16位非对齐
+                4 => 2, // 32位非对齐
+                8 => 3, // 64位非对齐
+                _ => 4, // 更大访问的惩罚
             }
         };
 
@@ -222,20 +226,46 @@ impl MemoryAlignmentOptimizer {
 
         // 检查是否是相邻的加载/存储操作
         match (&ops[0], &ops[1]) {
-            (IROp::Load { dst: dst1, base: base1, offset: offset1, size: size1, .. },
-             IROp::Load { dst: dst2, base: base2, offset: offset2, size: size2, .. }) => {
+            (
+                IROp::Load {
+                    dst: dst1,
+                    base: base1,
+                    offset: offset1,
+                    size: size1,
+                    ..
+                },
+                IROp::Load {
+                    dst: dst2,
+                    base: base2,
+                    offset: offset2,
+                    size: size2,
+                    ..
+                },
+            ) => {
                 // 相同基址，相邻偏移，相同大小
-                if base1 == base2 && size1 == size2 && 
-                   (offset2 - offset1).abs() == *size1 as i64 {
+                if base1 == base2 && size1 == size2 && (offset2 - offset1).abs() == *size1 as i64 {
                     // 可以合并为更宽的加载
                     return self.try_widen_load(*dst1, *dst2, *base1, *offset1, *size1);
                 }
             }
-            (IROp::Store { src: src1, base: base1, offset: offset1, size: size1, .. },
-             IROp::Store { src: src2, base: base2, offset: offset2, size: size2, .. }) => {
+            (
+                IROp::Store {
+                    src: src1,
+                    base: base1,
+                    offset: offset1,
+                    size: size1,
+                    ..
+                },
+                IROp::Store {
+                    src: src2,
+                    base: base2,
+                    offset: offset2,
+                    size: size2,
+                    ..
+                },
+            ) => {
                 // 相同基址，相邻偏移，相同大小
-                if base1 == base2 && size1 == size2 && 
-                   (offset2 - offset1).abs() == *size1 as i64 {
+                if base1 == base2 && size1 == size2 && (offset2 - offset1).abs() == *size1 as i64 {
                     // 可以合并为更宽的存储
                     return self.try_widen_store(*src1, *src2, *base1, *offset1, *size1);
                 }
@@ -302,7 +332,7 @@ impl MemoryAlignmentOptimizer {
                     IROp::Add {
                         dst: src1,
                         src1,
-                        src2: src2, // 简化：实际需要更复杂的组合
+                        src2, // 简化：实际需要更复杂的组合
                     },
                     // 存储64位
                     IROp::Store {
@@ -364,7 +394,9 @@ impl MemoryAlignmentOptimizer {
                 self.conversion_buffer[0..4].copy_from_slice(&value.to_be_bytes());
             }
             8 => {
-                let value = u64::from_le_bytes([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]]);
+                let value = u64::from_le_bytes([
+                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                ]);
                 self.conversion_buffer[0..8].copy_from_slice(&value.to_be_bytes());
             }
             _ => {
@@ -442,7 +474,9 @@ impl MemoryAlignmentOptimizer {
                 if s == 1 {
                     MemoryAccessPattern::Sequential
                 } else {
-                    MemoryAccessPattern::Strided { stride: s.abs() as usize }
+                    MemoryAccessPattern::Strided {
+                        stride: s.unsigned_abs() as usize,
+                    }
                 }
             } else {
                 MemoryAccessPattern::Sequential
@@ -455,7 +489,7 @@ impl MemoryAlignmentOptimizer {
     /// 优化内存访问模式
     pub fn optimize_for_pattern(&mut self, ops: &[IROp]) -> Vec<IROp> {
         let pattern = self.analyze_memory_pattern(ops);
-        
+
         match pattern {
             MemoryAccessPattern::Sequential => {
                 // 顺序访问可以预取
@@ -472,11 +506,11 @@ impl MemoryAlignmentOptimizer {
     /// 添加预取提示
     fn add_prefetch_hints(&self, ops: &[IROp]) -> Vec<IROp> {
         let mut optimized_ops = Vec::with_capacity(ops.len() + ops.len() / 4);
-        
+
         for op in ops.iter() {
             optimized_ops.push(op.clone());
         }
-        
+
         optimized_ops
     }
 
@@ -495,15 +529,13 @@ impl MemoryAlignmentOptimizer {
     fn vectorize_strided_access(&self, ops: &[IROp]) -> Vec<IROp> {
         // 简化实现：将多个标量访问转换为向量访问
         let mut optimized_ops = Vec::new();
-        
+
         // 这里需要更复杂的逻辑来识别可向量化的模式
         // 暂时返回原始操作
         optimized_ops.extend_from_slice(ops);
-        
+
         optimized_ops
     }
-
-
 
     /// 获取优化统计信息
     pub fn get_stats(&self) -> &MemoryOptimizationStats {
@@ -553,7 +585,7 @@ mod tests {
             base: 0,
             offset: 0,
             size: 4,
-            flags: 0,
+            flags: MemFlags::default(),
         };
 
         let info = optimizer.analyze_alignment(&aligned_load);
@@ -567,9 +599,9 @@ mod tests {
             base: 0,
             offset: 2,
             size: 4,
-            flags: 0,
+            flags: MemFlags::default(),
         };
-        
+
         let info = optimizer.analyze_alignment(&unaligned_load);
         assert_eq!(info.alignment, 2);
         assert!(!info.is_natural);
@@ -601,14 +633,32 @@ mod tests {
 
         // 顺序访问模式
         let sequential_ops = vec![
-            IROp::Load { dst: 1, base: 0, offset: 0, size: 4, flags: 0 },
-            IROp::Load { dst: 2, base: 0, offset: 4, size: 4, flags: 0 },
-            IROp::Load { dst: 3, base: 0, offset: 8, size: 4, flags: 0 },
+            IROp::Load {
+                dst: 1,
+                base: 0,
+                offset: 0,
+                size: 4,
+                flags: MemFlags::default(),
+            },
+            IROp::Load {
+                dst: 2,
+                base: 0,
+                offset: 4,
+                size: 4,
+                flags: MemFlags::default(),
+            },
+            IROp::Load {
+                dst: 3,
+                base: 0,
+                offset: 8,
+                size: 4,
+                flags: MemFlags::default(),
+            },
         ];
 
         let pattern = optimizer.analyze_memory_pattern(&sequential_ops);
         match pattern {
-            MemoryAccessPattern::Sequential => {},
+            MemoryAccessPattern::Sequential => {}
             _ => panic!("Expected sequential pattern"),
         }
     }

@@ -39,17 +39,17 @@ impl GpuMdev {
             created: false,
         }
     }
-    
+
     /// 获取父设备地址
     pub fn parent_address(&self) -> &PciAddress {
         &self.parent_address
     }
-    
+
     /// 获取类型ID
     pub fn type_id(&self) -> &str {
         &self.type_id
     }
-    
+
     /// 获取mdev UUID
     pub fn mdev_uuid(&self) -> Option<&String> {
         self.mdev_uuid.as_ref()
@@ -309,7 +309,7 @@ mod tests {
         let gpus = scan_mdev_capable_gpus();
         println!("Found {} mdev-capable GPU(s):", gpus.len());
         for (addr, configs) in gpus {
-            println!("  GPU at {}:", addr.to_string());
+            println!("  GPU at {}:", addr);
             for config in configs {
                 println!("    - {} ({})", config.name, config.type_id);
                 println!("      Available instances: {}", config.available_instances);

@@ -14,8 +14,8 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// SIMD性能统计
 #[derive(Debug, Clone, Default)]
@@ -96,9 +96,7 @@ impl X86SimdOptimizer {
         let mut offset = 0;
         // 按256bit (32字节) 块处理
         while offset + 32 <= size {
-            let data = unsafe {
-                _mm256_loadu_si256(src.add(offset) as *const __m256i)
-            };
+            let data = unsafe { _mm256_loadu_si256(src.add(offset) as *const __m256i) };
             unsafe {
                 _mm256_storeu_si256(dst.add(offset) as *mut __m256i, data);
             }
@@ -142,9 +140,7 @@ impl X86SimdOptimizer {
         let mut offset = 0;
         // 按128bit (16字节) 块处理
         while offset + 16 <= size {
-            let data = unsafe {
-                _mm_loadu_si128(src.add(offset) as *const __m128i)
-            };
+            let data = unsafe { _mm_loadu_si128(src.add(offset) as *const __m128i) };
             unsafe {
                 _mm_storeu_si128(dst.add(offset) as *mut __m128i, data);
             }
@@ -237,9 +233,7 @@ impl X86SimdOptimizer {
             return;
         }
 
-        let fill_value = unsafe {
-            _mm256_set1_epi8(value as i8)
-        };
+        let fill_value = unsafe { _mm256_set1_epi8(value as i8) };
         let mut offset = 0;
 
         while offset + 32 <= size {
@@ -358,7 +352,7 @@ impl RiscvSimdOptimizer {
     }
 
     /// RISC-V向量拷贝 (目前为fallback实现)
-    /// 
+    ///
     /// # Safety
     /// - `src` must point to a valid memory region of at least `size` bytes.
     /// - `dst` must point to a valid memory region of at least `size` bytes.
@@ -406,7 +400,7 @@ impl SimdOptimizer {
     }
 
     /// 优化的内存拷贝 (自动选择最佳实现)
-    /// 
+    ///
     /// # Safety
     /// - `src` must point to a valid memory region of at least `size` bytes.
     /// - `dst` must point to a valid memory region of at least `size` bytes.
@@ -453,7 +447,7 @@ impl SimdOptimizer {
     }
 
     /// 优化的内存比较
-    /// 
+    ///
     /// # Safety
     /// - `a` must point to a valid memory region of at least `size` bytes.
     /// - `b` must point to a valid memory region of at least `size` bytes.
@@ -468,13 +462,11 @@ impl SimdOptimizer {
         }
 
         // Fallback到标准比较
-        unsafe {
-            std::slice::from_raw_parts(a, size) == std::slice::from_raw_parts(b, size)
-        }
+        unsafe { std::slice::from_raw_parts(a, size) == std::slice::from_raw_parts(b, size) }
     }
 
     /// 优化的内存填充
-    /// 
+    ///
     /// # Safety
     /// - `dst` must point to a valid memory region of at least `size` bytes.
     pub unsafe fn optimized_fill(&self, dst: *mut u8, value: u8, size: usize) {
@@ -554,8 +546,8 @@ mod tests {
 
     #[test]
     fn test_x86_cmp_equal() {
-        let a = vec![1u8; 128];
-        let b = vec![1u8; 128];
+        let a = [1u8; 128];
+        let b = [1u8; 128];
         let opt = X86SimdOptimizer::new();
 
         unsafe {
@@ -566,8 +558,8 @@ mod tests {
 
     #[test]
     fn test_x86_cmp_different() {
-        let a = vec![1u8; 128];
-        let mut b = vec![1u8; 128];
+        let a = [1u8; 128];
+        let mut b = [1u8; 128];
         b[64] = 2;
         let opt = X86SimdOptimizer::new();
 

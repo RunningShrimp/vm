@@ -1,6 +1,51 @@
 //! 操作系统级别支持
 //!
-//! 提供系统调用模拟、设备I/O、中断处理等操作系统级别的功能
+//! 提供系统调用模拟、设备I/O、中断处理等操作系统级别的功能。
+//!
+//! ## 当前能力状态（阶段1）
+//!
+//! **⚠️ 注意：当前实现仅提供最小化的系统调用支持，不足以运行完整的操作系统。**
+//!
+//! ### 已实现的系统调用
+//! - `write` (syscall 1): 支持 stdout/stderr 输出
+//! - `exit` (syscall 60): 进程退出
+//!
+//! ### 未实现的关键功能（阶段2目标）
+//! - **引导链**: 镜像加载、页表初始化、特权态设置
+//! - **异常处理**: 异常向量表、异常分发、异常返回
+//! - **中断处理**: 中断控制器、中断注入、中断路由
+//! - **设备支持**: 最小设备集（console/timer/block/net，优先 virtio）
+//! - **系统调用**: 完整的系统调用集（文件I/O、进程管理、内存管理等）
+//!
+//! ## 阶段2最小OS能力清单
+//!
+//! 为了支持真正的OS级跨架构执行，需要实现以下最小能力集：
+//!
+//! 1. **引导链**
+//!    - ELF/PE/内核镜像加载
+//!    - 初始页表建立（x86_64/AArch64/RISC-V64）
+//!    - 特权态寄存器初始化
+//!    - 入口点跳转
+//!
+//! 2. **异常/中断模型**
+//!    - 异常向量表配置
+//!    - 计时器中断注入
+//!    - 外设中断注入
+//!    - 异常陷入与返回
+//!
+//! 3. **设备模型**
+//!    - VirtIO console（基本I/O）
+//!    - VirtIO timer（时间管理）
+//!    - VirtIO block（存储）
+//!    - VirtIO net（网络，可选）
+//!    - 统一设备注册与 MMIO/PIO 映射
+//!    - IRQ 分发机制
+//!
+//! 4. **系统调用扩展**
+//!    - 文件I/O（open/read/write/close）
+//!    - 进程管理（fork/exec/wait）
+//!    - 内存管理（mmap/munmap/brk）
+//!    - 信号处理（signal/kill）
 
 use std::collections::HashMap;
 use vm_core::{GuestAddr, MMU, VmError};
@@ -19,6 +64,12 @@ pub trait SyscallHandler: Send + Sync {
 /// Linux系统调用处理器
 pub struct LinuxSyscallHandler {
     // 文件描述符表和下一个文件描述符已移除，因为目前未使用
+}
+
+impl Default for LinuxSyscallHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LinuxSyscallHandler {
@@ -69,7 +120,8 @@ impl SyscallHandler for LinuxSyscallHandler {
 
                 // 写入到标准输出
                 if fd == 1 || fd == 2 {
-                    print!("{}", String::from_utf8_lossy(&buf));
+                    let output = String::from_utf8_lossy(&buf);
+                    tracing::info!(target: "guest_output", "{}", output);
                     Ok(count as u64)
                 } else {
                     Err(VmError::Device(
@@ -94,8 +146,6 @@ impl SyscallHandler for LinuxSyscallHandler {
         }
     }
 }
-
-
 
 /// 设备模拟器
 pub trait DeviceEmulator: Send + Sync {

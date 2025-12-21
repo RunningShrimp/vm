@@ -52,8 +52,7 @@ pub fn host_os() -> &'static str {
 }
 
 /// 检测是否为 HarmonyOS
-#[allow(dead_code)]
-fn is_harmonyos() -> bool {
+pub fn is_harmonyos() -> bool {
     #[cfg(target_os = "linux")]
     {
         use std::fs;
@@ -335,11 +334,19 @@ impl MappedMemory {
     }
 
     /// 作为切片访问
+    ///
+    /// # Safety
+    /// 调用者必须确保指针有效，且在MappedMemory的生命周期内不被释放或重新分配。
+    /// 切片的大小必须与MappedMemory的大小一致。
     pub unsafe fn as_slice(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.ptr, self.size) }
     }
 
     /// 作为可变切片访问
+    ///
+    /// # Safety
+    /// 调用者必须确保指针有效，且在MappedMemory的生命周期内不被释放或重新分配。
+    /// 切片的大小必须与MappedMemory的大小一致。调用者必须确保没有其他引用指向同一内存区域。
     pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size) }
     }
@@ -422,6 +429,11 @@ impl JitMemory {
     }
 
     /// 获取函数指针
+    /// 从指定偏移量获取函数指针
+    ///
+    /// # Safety
+    /// 调用者必须确保offset在有效范围内，且目标位置确实包含有效的函数指针。
+    /// T必须是函数指针类型。调用返回的函数指针时需要额外的安全保证。
     pub unsafe fn get_fn<T>(&self, offset: usize) -> T {
         unsafe {
             let ptr = self.mem.as_ptr().add(offset);
@@ -600,5 +612,15 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(1));
         let t2 = timestamp_ns();
         assert!(t2 > t1);
+    }
+
+    #[test]
+    fn test_harmonyos_detection() {
+        // 测试HarmonyOS检测功能
+        // 注意：此测试可能在不同平台上表现不同
+        let is_harmony = is_harmonyos();
+        // 在非HarmonyOS系统上，这应该返回false
+        println!("HarmonyOS detected: {}", is_harmony);
+        // 仅确保函数能正常执行而不崩溃
     }
 }

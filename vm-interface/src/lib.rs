@@ -175,6 +175,7 @@ pub trait Observable {
     fn get_state(&self) -> &Self::State;
 
     /// 订阅状态变化
+    #[allow(clippy::type_complexity)]
     fn subscribe(
         &mut self,
         callback: Box<dyn Fn(&Self::State, &Self::Event) + Send + Sync>,
@@ -290,8 +291,16 @@ pub trait MemoryManager: VmComponent + Configurable {
     ) -> Result<u64, VmError>;
 
     /// 异步内存操作
-    fn read_memory_async(&self, addr: GuestAddr, size: usize) -> impl std::future::Future<Output = Result<Vec<u8>, VmError>> + Send;
-    fn write_memory_async(&mut self, addr: GuestAddr, data: Vec<u8>) -> impl std::future::Future<Output = Result<(), VmError>> + Send;
+    fn read_memory_async(
+        &self,
+        addr: GuestAddr,
+        size: usize,
+    ) -> impl std::future::Future<Output = Result<Vec<u8>, VmError>> + Send;
+    fn write_memory_async(
+        &mut self,
+        addr: GuestAddr,
+        data: Vec<u8>,
+    ) -> impl std::future::Future<Output = Result<(), VmError>> + Send;
 }
 
 /// 缓存管理接口

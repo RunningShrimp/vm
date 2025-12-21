@@ -6,15 +6,13 @@
 pub mod enhanced_snapshot;
 
 // Re-export the original snapshot types for backward compatibility
-pub use crate::snapshot_legacy::{
-    Snapshot, SnapshotMetadataManager
-};
+pub use crate::snapshot_legacy::{Snapshot, SnapshotMetadataManager};
 
 // Re-export enhanced snapshot functionality
 #[cfg(feature = "enhanced-event-sourcing")]
 pub use enhanced_snapshot::{
-    SnapshotStore, FileSnapshotStore, SnapshotManager, SnapshotConfig,
-    SnapshotData, SnapshotMetadata, SnapshotStats, SnapshotStoreBuilder
+    FileSnapshotStore, SnapshotConfig, SnapshotData, SnapshotManager, SnapshotMetadata,
+    SnapshotStats, SnapshotStore, SnapshotStoreBuilder,
 };
 
 // SnapshotConfig is exported conditionally with other enhanced snapshot functionality

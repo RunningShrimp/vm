@@ -22,7 +22,7 @@ pub enum InterruptPriority {
 
 impl PartialOrd for InterruptPriority {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        (*self as i32).partial_cmp(&(*other as i32))
+        Some(self.cmp(other))
     }
 }
 
@@ -90,13 +90,7 @@ impl Eq for Interrupt {}
 
 impl PartialOrd for Interrupt {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // 反向比较，优先级高的排在前面
-        Some(
-            other
-                .priority
-                .cmp(&self.priority)
-                .then_with(|| self.timestamp_ns.cmp(&other.timestamp_ns)),
-        )
+        Some(self.cmp(other))
     }
 }
 
@@ -127,6 +121,9 @@ pub type AsyncInterruptHandler = Box<
         + Sync,
 >;
 
+/// 中断处理器类型
+pub type InterruptHandlerFn = Box<dyn Fn(Interrupt) + Send + Sync>;
+
 /// 异步中断队列
 pub struct AsyncInterruptQueue {
     /// 中断优先级队列
@@ -134,7 +131,7 @@ pub struct AsyncInterruptQueue {
     /// 异步通道发送端
     tx: mpsc::UnboundedSender<Interrupt>,
     /// 注册的中断处理器
-    handlers: Arc<RwLock<Vec<(InterruptType, Box<dyn Fn(Interrupt) + Send + Sync>)>>>,
+    handlers: Arc<RwLock<Vec<(InterruptType, InterruptHandlerFn)>>>,
     /// 统计信息
     stats: Arc<parking_lot::Mutex<InterruptStats>>,
 }

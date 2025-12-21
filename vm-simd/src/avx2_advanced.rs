@@ -101,12 +101,24 @@ pub unsafe fn vpgatherdd_256(base: *const i32, indices: &[u32; 8], scale: i32) -
 
 #[cfg(not(target_arch = "x86_64"))]
 mod fallback {
+    /// Variable left shift for 256-bit vectors (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vpsllvd_256(_a: &[u32; 8], _shift: &[u32; 8]) -> Option<[u32; 8]> {
         None
     }
+    /// Variable right shift for 256-bit vectors (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vpsrlvd_256(_a: &[u32; 8], _shift: &[u32; 8]) -> Option<[u32; 8]> {
         None
     }
+    /// Gather single-precision floating-point values (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vgatherdps_256(
         _base: *const f32,
         _indices: &[u32; 8],
@@ -114,6 +126,10 @@ mod fallback {
     ) -> Option<[f32; 8]> {
         None
     }
+    /// Gather double-precision floating-point values (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vgatherdpd_256(
         _base: *const f64,
         _indices: &[u32; 4],
@@ -121,6 +137,10 @@ mod fallback {
     ) -> Option<[f64; 4]> {
         None
     }
+    /// Gather 32-bit integers (fallback implementation)
+    ///
+    /// # Safety
+    /// This function is safe to call as it's a no-op fallback that returns None.
     pub unsafe fn vpgatherdd_256(
         _base: *const i32,
         _indices: &[u32; 8],

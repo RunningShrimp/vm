@@ -66,9 +66,12 @@ impl DomainEventBus {
     }
 
     /// 发布事件
-    pub fn publish<E: DomainEvent + Clone + Send + 'static>(&self, event: E) -> Result<(), VmError> {
+    pub fn publish<E: DomainEvent + Clone + Send + 'static>(
+        &self,
+        event: E,
+    ) -> Result<(), VmError> {
         let event_type = event.event_type();
-        
+
         // 根据async_enabled决定处理方式
         if self.async_enabled {
             // 异步处理
@@ -94,7 +97,7 @@ impl DomainEventBus {
         let subscriptions = match subscriptions.read() {
             Ok(subs) => subs,
             Err(_) => {
-                eprintln!("Failed to acquire subscriptions lock");
+                tracing::error!("Failed to acquire subscriptions lock");
                 return;
             }
         };
@@ -120,7 +123,7 @@ impl DomainEventBus {
             // 执行处理器
             if let Err(e) = subscription.handler.handle(&event) {
                 // 记录错误但继续处理其他订阅者
-                eprintln!("Event handler error: {:?}", e);
+                tracing::error!("Event handler error: {:?}", e);
             }
         }
     }
@@ -294,9 +297,10 @@ where
 mod tests {
     use super::*;
     use crate::domain_events::VmLifecycleEvent;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::SystemTime;
-    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_event_bus_publish_subscribe() {
@@ -452,7 +456,7 @@ mod tests {
 
         impl EventHandler for PriorityHandler {
             fn handle(&self, _event: &dyn DomainEvent) -> Result<(), VmError> {
-                self.order.lock().unwrap().push(self.priority);
+                self.order.lock().push(self.priority);
                 Ok(())
             }
 
@@ -492,7 +496,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         // 应该按优先级顺序执行：10, 50, 100
-        let executed_order = order.lock().unwrap();
+        let executed_order = order.lock();
         assert_eq!(executed_order.len(), 3);
         assert_eq!(executed_order[0], 10);
         assert_eq!(executed_order[1], 50);

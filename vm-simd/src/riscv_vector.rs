@@ -199,9 +199,13 @@ pub fn vfcmge_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> VectorMask {
 /// RISC-V Vector 向量归约求和 (VREDSUM)
 pub fn vredsum_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut sum = 0f32;
-    for i in 0..a.len().min(mask.get_bits().len()) {
+    for (i, &value) in a
+        .iter()
+        .enumerate()
+        .take(a.len().min(mask.get_bits().len()))
+    {
         if mask.test(i) {
-            sum += a[i];
+            sum += value;
         }
     }
     sum
@@ -212,9 +216,13 @@ pub fn vredmax_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut max_val = f32::NEG_INFINITY;
     let mut found = false;
 
-    for i in 0..a.len().min(mask.get_bits().len()) {
-        if mask.test(i) && (!found || a[i] > max_val) {
-            max_val = a[i];
+    for (i, &value) in a
+        .iter()
+        .enumerate()
+        .take(a.len().min(mask.get_bits().len()))
+    {
+        if mask.test(i) && (!found || value > max_val) {
+            max_val = value;
             found = true;
         }
     }
@@ -227,9 +235,13 @@ pub fn vredmin_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut min_val = f32::INFINITY;
     let mut found = false;
 
-    for i in 0..a.len().min(mask.get_bits().len()) {
-        if mask.test(i) && (!found || a[i] < min_val) {
-            min_val = a[i];
+    for (i, &value) in a
+        .iter()
+        .enumerate()
+        .take(a.len().min(mask.get_bits().len()))
+    {
+        if mask.test(i) && (!found || value < min_val) {
+            min_val = value;
             found = true;
         }
     }
@@ -338,7 +350,11 @@ impl VectorRegisterFile {
         for reg in &mut regs {
             reg.write(VectorRegister::new());
         }
-        let registers = unsafe { std::mem::transmute(regs) };
+        let registers = unsafe {
+            std::mem::transmute::<[std::mem::MaybeUninit<VectorRegister>; 32], [VectorRegister; 32]>(
+                regs,
+            )
+        };
         Self {
             registers,
             vl: VectorLength::new(0),

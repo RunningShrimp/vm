@@ -58,6 +58,14 @@ pub unsafe fn tlb_lookup_x86_64(
 }
 
 /// TLB 查找优化（ARM64）
+///
+/// # Safety
+///
+/// 调用者必须确保：
+/// - `tlb_entries` 指向有效的 `AsmTlbEntry` 数组
+/// - 数组长度至少为 `count`
+/// - 在函数执行期间，数组指针保持有效
+/// - 数组元素正确初始化
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub unsafe fn tlb_lookup_aarch64(
@@ -243,6 +251,14 @@ pub unsafe fn cache_flush_x86_64(addr: *const u8, size: usize) {
     }
 }
 
+/// 缓存行刷新（ARM64）
+///
+/// # Safety
+///
+/// 调用者必须确保：
+/// - `addr` 指向有效的内存区域
+/// - 内存区域大小至少为 `size` 字节
+/// - 在函数执行期间，地址保持有效
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub unsafe fn cache_flush_aarch64(addr: *const u8, size: usize) {

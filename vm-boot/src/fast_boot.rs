@@ -16,6 +16,12 @@ pub struct BootCache {
     dtb_cache: Option<Vec<u8>>,
 }
 
+impl Default for BootCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BootCache {
     pub fn new() -> Self {
         Self {
@@ -76,6 +82,12 @@ pub struct FastBootOptimizer {
     parallel_loading: bool,
     /// 是否启用内存预分配
     memory_preallocation: bool,
+}
+
+impl Default for FastBootOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FastBootOptimizer {
@@ -145,14 +157,14 @@ impl FastBootOptimizer {
         // 等待加载完成
         let kernel_result = kernel_handle
             .join()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Kernel loader thread panicked"))?;
+            .map_err(|_| io::Error::other("Kernel loader thread panicked"))?;
         let kernel_data = kernel_result?;
         self.cache.kernel_cache = Some(kernel_data);
 
         if let Some(handle) = initrd_handle {
-            let initrd_result = handle.join().map_err(|_| {
-                io::Error::new(io::ErrorKind::Other, "Initrd loader thread panicked")
-            })?;
+            let initrd_result = handle
+                .join()
+                .map_err(|_| io::Error::other("Initrd loader thread panicked"))?;
             let initrd_data = initrd_result?;
             self.cache.initrd_cache = Some(initrd_data);
         }
@@ -190,6 +202,12 @@ pub struct BootPerformanceStats {
     pub total_boot_time: u64,
 }
 
+impl Default for BootPerformanceStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BootPerformanceStats {
     pub fn new() -> Self {
         Self {
@@ -217,6 +235,12 @@ impl BootPerformanceStats {
 pub struct BootProfiler {
     start_time: std::time::Instant,
     stats: BootPerformanceStats,
+}
+
+impl Default for BootProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BootProfiler {

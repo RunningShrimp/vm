@@ -1,16 +1,16 @@
 //! 厂商扩展指令测试
 
 use vm_frontend_arm64::{AmxDecoder, AmxInstruction, AmxPrecision};
-use vm_frontend_arm64::{NpuDecoder, NpuInstruction};
 use vm_frontend_arm64::{ApuDecoder, ApuInstruction};
 use vm_frontend_arm64::{HexagonDecoder, HexagonInstruction};
+use vm_frontend_arm64::{NpuDecoder, NpuInstruction};
 
 #[test]
 fn test_amx_decode_ld() {
     let decoder = AmxDecoder::new();
     // 构造 AMX_LD 指令
     let insn = 0xF_A0_10_00 | (0x100 & 0xFFF);
-    let result = decoder.decode(insn, 0x1000);
+    let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
     assert!(result.is_ok());
     if let Ok(Some(AmxInstruction::AmxLd { tile, base, offset })) = result {
         assert_eq!(tile, 0);
@@ -26,7 +26,7 @@ fn test_amx_decode_fma() {
     let decoder = AmxDecoder::new();
     // 构造 AMX_FMA 指令
     let insn = 0xF_A2_01_23 | (3 << 8);
-    let result = decoder.decode(insn, 0x1000);
+    let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
     assert!(result.is_ok());
     if let Ok(Some(AmxInstruction::AmxFma {
         tile_c,
@@ -48,7 +48,7 @@ fn test_amx_decode_fma() {
 fn test_hexagon_decode_add() {
     let decoder = HexagonDecoder::new();
     let insn = 0xE2_00_01_02;
-    let result = decoder.decode(insn, 0x1000);
+    let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
     assert!(result.is_ok());
     if let Ok(Some(HexagonInstruction::HexAdd { dst, src1, src2 })) = result {
         assert_eq!(dst, 0);
@@ -63,7 +63,7 @@ fn test_hexagon_decode_add() {
 fn test_apu_decode_conv() {
     let decoder = ApuDecoder::new();
     let insn = 0xB2_00_01_02 | (3 << 4); // kernel_size=3
-    let result = decoder.decode(insn, 0x1000);
+    let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
     assert!(result.is_ok());
     if let Ok(Some(ApuInstruction::ApuConv {
         dst,
@@ -85,7 +85,7 @@ fn test_apu_decode_conv() {
 fn test_npu_decode_conv() {
     let decoder = NpuDecoder::new();
     let insn = 0xC2_00_01_02;
-    let result = decoder.decode(insn, 0x1000);
+    let result = decoder.decode(insn, vm_core::GuestAddr(0x1000));
     assert!(result.is_ok());
     if let Ok(Some(NpuInstruction::NpuConv { dst, src, kernel })) = result {
         assert_eq!(dst, 0);

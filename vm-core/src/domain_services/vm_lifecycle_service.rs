@@ -260,8 +260,14 @@ impl VmLifecycleDomainService {
         aggregate: &mut VirtualMachineAggregate,
         event: BaseDomainEventEnum,
     ) -> VmResult<()> {
+        // Convert BaseDomainEventEnum to events::DomainEventEnum if needed
+        let domain_event = match event {
+            BaseDomainEventEnum::VmLifecycle(event) => DomainEventEnum::VmLifecycle(event),
+            // Handle other event types as needed
+        };
+        
         // Record event in aggregate
-        aggregate.record_event(event.clone());
+        aggregate.record_event(domain_event);
         
         // If we have an event bus, publish immediately
         if let Some(_event_bus) = &self.event_bus {

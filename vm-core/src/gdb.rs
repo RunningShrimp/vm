@@ -1,8 +1,10 @@
+//! GDB 远程调试协议实现
+//!
+//! 支持通过 GDB Remote Serial Protocol (RSP) 调试虚拟机
+
+#[cfg(not(feature = "no_std"))]
 use crate::{GuestAddr, MMU, VcpuStateContainer};
 use std::io::{BufRead, BufReader, Write};
-///! GDB 远程调试协议实现
-///!
-///! 支持通过 GDB Remote Serial Protocol (RSP) 调试虚拟机
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
@@ -88,7 +90,7 @@ impl GdbConnection {
     pub fn recv_packet(&mut self) -> Result<String, String> {
         // 清空缓冲区但保留容量，用于下次读取
         self.buffer.clear();
-        
+
         let mut reader = BufReader::new(&self.stream);
         let mut line = String::new();
 
@@ -102,6 +104,12 @@ impl GdbConnection {
             let data = &line[1..end];
             // 将数据存储到缓冲区以供后续使用
             self.buffer.extend_from_slice(data.as_bytes());
+
+            // 验证缓冲区内容与解析的数据一致，确保数据完整性
+            let buffer_str = std::str::from_utf8(&self.buffer)
+                .map_err(|e| format!("Invalid UTF-8 in buffer: {}", e))?;
+            debug_assert_eq!(buffer_str, data, "Buffer content mismatch");
+
             Ok(data.to_string())
         } else {
             Err("Invalid packet format".to_string())
@@ -294,7 +302,9 @@ impl GdbSession {
 
     /// 格式化寄存器为十六进制字符串
     fn format_registers(&self, vcpu: &VcpuStateContainer) -> String {
-        vcpu.state.regs.gpr
+        vcpu.state
+            .regs
+            .gpr
             .iter()
             .map(|r| format!("{:016x}", r))
             .collect::<Vec<_>>()

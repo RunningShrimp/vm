@@ -13,8 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
 use vm_core::{GuestAddr, VcpuStateContainer, VmError};
 
 /// 调试器配置
@@ -277,7 +278,7 @@ impl VmDebugger {
             breakpoints: HashMap::new(),
             stopped: false,
             stop_reason: None,
-            current_pc: vm_core::GuestAddr(0), 
+            current_pc: vm_core::GuestAddr(0),
             watchpoints: HashSet::new(),
             start_time: Instant::now(),
         };
@@ -286,12 +287,15 @@ impl VmDebugger {
 
         // 启动GDB存根
         if let Some(gdb_stub) = &self.gdb_stub {
-            gdb_stub.write().unwrap().start().await?;
+            {
+                let mut gdb = gdb_stub.write().await;
+                gdb.start().await?;
+            }
         }
 
         // 启动性能分析器
         if let Some(profiler) = &self.profiler {
-            profiler.write().unwrap().start();
+            profiler.write().await.start();
         }
 
         Ok(session_id)
@@ -300,11 +304,14 @@ impl VmDebugger {
     /// 结束调试会话
     pub async fn end_session(&mut self) -> Result<(), VmError> {
         if let Some(gdb_stub) = &self.gdb_stub {
-            gdb_stub.write().unwrap().stop().await?;
+            {
+                let mut gdb = gdb_stub.write().await;
+                gdb.stop().await?;
+            }
         }
 
         if let Some(profiler) = &self.profiler {
-            profiler.write().unwrap().stop();
+            profiler.write().await.stop();
         }
 
         self.current_session = None;
@@ -381,12 +388,16 @@ impl VmDebugger {
                     let hit = match breakpoint.breakpoint_type {
                         BreakpointType::Execution => pc == breakpoint.address,
                         BreakpointType::Read => {
-                            access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
+                            access_type == Some(MemoryAccessType::Random)
+                                && pc == breakpoint.address
                         }
                         BreakpointType::Write => {
-                            access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
+                            access_type == Some(MemoryAccessType::Random)
+                                && pc == breakpoint.address
                         }
-                        BreakpointType::ReadWrite => access_type.is_some() && pc == breakpoint.address,
+                        BreakpointType::ReadWrite => {
+                            access_type.is_some() && pc == breakpoint.address
+                        }
                     };
 
                     if hit {
@@ -412,7 +423,7 @@ impl VmDebugger {
                 break;
             }
         }
-        
+
         // 如果有命中的断点，更新状态并返回
         if let Some(breakpoint_id) = hit_breakpoint_id {
             let session = self.current_session.as_mut()?;
@@ -508,7 +519,7 @@ impl VmDebugger {
 
     /// 获取性能分析数据
     pub fn get_profiling_data(&self) -> Option<ProfilingData> {
-        self.profiler.as_ref()?.read().unwrap().get_data()
+        self.profiler.as_ref()?.blocking_read().get_data()
     }
 
     /// 创建快照
@@ -520,7 +531,7 @@ impl VmDebugger {
             })
         })?;
 
-        snapshot_manager.write().unwrap().create_snapshot()
+        snapshot_manager.blocking_write().create_snapshot()
     }
 
     /// 恢复到快照
@@ -533,8 +544,7 @@ impl VmDebugger {
         })?;
 
         snapshot_manager
-            .write()
-            .unwrap()
+            .blocking_write()
             .restore_snapshot(snapshot_id)
     }
 
@@ -546,13 +556,13 @@ impl VmDebugger {
     /// 记录日志
     pub fn log(&self, level: LogLevel, message: &str, context: Option<HashMap<String, String>>) {
         if level >= self.config.log_level {
-            self.logger.write().unwrap().log(level, message, context);
+            self.logger.blocking_write().log(level, message, context);
         }
     }
 
     /// 获取日志
     pub fn get_logs(&self, level: Option<LogLevel>, limit: Option<usize>) -> Vec<LogEntry> {
-        self.logger.read().unwrap().get_logs(level, limit)
+        self.logger.blocking_read().get_logs(level, limit)
     }
 
     /// 评估条件表达式
@@ -620,7 +630,7 @@ impl GdbStub {
     pub fn handle_command(&mut self, command: &str) -> String {
         // 累积包数据用于处理分片的GDB消息
         self.current_packet.extend_from_slice(command.as_bytes());
-        
+
         match command {
             "g" => self.handle_read_registers(),
             "G" => self.handle_write_registers(),
@@ -885,7 +895,10 @@ impl SnapshotManager {
 
     /// 检查是否应该创建快照
     pub fn should_snapshot(&self) -> bool {
-        self.snapshot_interval > 0 && self.instruction_counter % self.snapshot_interval == 0
+        self.snapshot_interval > 0
+            && self
+                .instruction_counter
+                .is_multiple_of(self.snapshot_interval)
     }
 
     /// 增加指令计数器
@@ -968,13 +981,13 @@ mod tests {
         let mut debugger = VmDebugger::new(config);
 
         // 需要先启动会话
-        let session_id = tokio::runtime::Runtime::new()
+        let _session_id = tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(debugger.start_session())
             .unwrap();
 
         let breakpoint_id = debugger
-            .set_breakpoint(0x1000, BreakpointType::Execution, None)
+            .set_breakpoint(vm_core::GuestAddr(0x1000), BreakpointType::Execution, None)
             .unwrap();
         assert_eq!(breakpoint_id, 1);
 
@@ -992,7 +1005,7 @@ mod tests {
 
         profiler.start();
         profiler.record_function_call("test_function", 100);
-        profiler.record_instruction_execution(0x1000, 10);
+        profiler.record_instruction_execution(vm_core::GuestAddr(0x1000), 10);
         profiler.stop();
 
         let data = profiler.get_data().unwrap();

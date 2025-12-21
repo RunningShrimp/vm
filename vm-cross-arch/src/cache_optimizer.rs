@@ -129,10 +129,8 @@ impl CacheOptimizer {
                 None
             }
         } {
-            if should_promote {
-                if let Some(e) = cloned_entry {
-                    self.promote_to_hot(pc, e);
-                }
+            if should_promote && let Some(e) = cloned_entry {
+                self.promote_to_hot(pc, e);
             }
             return Some(code);
         }
@@ -206,20 +204,20 @@ impl CacheOptimizer {
                     }
                 }
 
-                if let Some(pc) = evict_pc {
-                    if let Some(entry) = self.cold_cache.remove(&pc) {
-                        self.current_size -= entry.code.len();
-                        self.stats.evictions += 1;
-                    }
+                if let Some(pc) = evict_pc
+                    && let Some(entry) = self.cold_cache.remove(&pc)
+                {
+                    self.current_size -= entry.code.len();
+                    self.stats.evictions += 1;
                 }
             }
             CachePolicy::FIFO => {
                 // 驱逐最早插入的条目
-                if let Some(pc) = self.lru_queue.pop_front() {
-                    if let Some(entry) = self.cold_cache.remove(&pc) {
-                        self.current_size -= entry.code.len();
-                        self.stats.evictions += 1;
-                    }
+                if let Some(pc) = self.lru_queue.pop_front()
+                    && let Some(entry) = self.cold_cache.remove(&pc)
+                {
+                    self.current_size -= entry.code.len();
+                    self.stats.evictions += 1;
                 }
             }
             CachePolicy::Adaptive => {
@@ -292,9 +290,9 @@ mod tests {
         let mut optimizer = CacheOptimizer::new(config);
 
         let code = vec![0x90, 0xC3]; // NOP, RET
-        optimizer.insert(0x1000, code.clone(), Duration::from_millis(1));
+        optimizer.insert(GuestAddr(0x1000), code.clone(), Duration::from_millis(1));
 
-        assert!(optimizer.get(0x1000).is_some());
-        assert!(optimizer.get(0x2000).is_none());
+        assert!(optimizer.get(GuestAddr(0x1000)).is_some());
+        assert!(optimizer.get(GuestAddr(0x2000)).is_none());
     }
 }

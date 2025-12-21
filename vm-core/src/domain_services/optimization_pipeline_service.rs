@@ -251,6 +251,9 @@ impl OptimizationPipelineDomainService {
         };
         
         // TODO: Add default business rules when optimization_pipeline_rules is implemented
+        // 
+        // 当前实现状态：占位实现，提供接口结构但未实现完整的业务规则验证。
+        // 未来可以选择补齐业务规则或迁移到 experimental feature。
         // service.add_business_rule(Box::new(crate::domain_services::rules::optimization_pipeline_rules::PipelineConfigValidationRule));
         // service.add_business_rule(Box::new(crate::domain_services::rules::optimization_pipeline_rules::StageExecutionValidationRule));
         // service.add_business_rule(Box::new(crate::domain_services::rules::optimization_pipeline_rules::PipelineContinuationRule));

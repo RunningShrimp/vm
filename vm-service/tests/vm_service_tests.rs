@@ -2,7 +2,8 @@
 //!
 //! 验证DDD贫血模型合规性和服务层功能
 
-use vm_core::{ExecMode, GuestArch, VmConfig, VmLifecycleState, vm_state::VirtualMachineState};
+use vm_core::{ExecMode, GuestArch, VmConfig, vm_state::VirtualMachineState};
+use vm_ir::IRBlock;
 use vm_mem::SoftMmu;
 use vm_service::vm_service::VirtualMachineService;
 
@@ -17,7 +18,7 @@ fn test_vm_service_creation() {
     };
 
     let mmu = Box::new(SoftMmu::new(128 * 1024 * 1024, false));
-    let service = VirtualMachineService::from_config(config, mmu);
+    let service: VirtualMachineService<IRBlock> = VirtualMachineService::from_config(config, mmu);
 
     // 验证服务创建成功
     let state = service.state();
@@ -29,10 +30,10 @@ fn test_vm_service_creation() {
 fn test_vm_service_load_kernel() {
     let config = VmConfig::default();
     let mmu = Box::new(SoftMmu::new(128 * 1024 * 1024, false));
-    let service = VirtualMachineService::from_config(config, mmu);
+    let service: VirtualMachineService<IRBlock> = VirtualMachineService::from_config(config, mmu);
 
     let kernel_data = vec![0x13, 0x01, 0x00, 0x00]; // 示例RISC-V指令
-    let result = service.load_kernel(&kernel_data, 0x1000);
+    let result = service.load_kernel(&kernel_data, vm_core::GuestAddr(0x1000));
 
     assert!(result.is_ok());
 }
@@ -41,7 +42,7 @@ fn test_vm_service_load_kernel() {
 fn test_vm_service_lifecycle() {
     let config = VmConfig::default();
     let mmu = Box::new(SoftMmu::new(128 * 1024 * 1024, false));
-    let service = VirtualMachineService::from_config(config, mmu);
+    let service: VirtualMachineService<IRBlock> = VirtualMachineService::from_config(config, mmu);
 
     // 测试启动
     assert!(service.start().is_ok());
@@ -72,7 +73,7 @@ fn test_vm_service_lifecycle() {
 fn test_vm_service_snapshot() {
     let config = VmConfig::default();
     let mmu = Box::new(SoftMmu::new(128 * 1024 * 1024, false));
-    let service = VirtualMachineService::from_config(config, mmu);
+    let service: VirtualMachineService<IRBlock> = VirtualMachineService::from_config(config, mmu);
 
     // 创建快照
     let snapshot_id = service
@@ -92,7 +93,7 @@ fn test_vm_state_anemic_model() {
     // 验证VirtualMachineState是纯数据结构，不包含业务逻辑
     let config = VmConfig::default();
     let mmu = Box::new(SoftMmu::new(128 * 1024 * 1024, false));
-    let state = VirtualMachineState::new(config, mmu);
+    let state: VirtualMachineState<IRBlock> = VirtualMachineState::new(config, mmu);
 
     // 验证只有简单的访问方法
     assert_eq!(state.state(), vm_core::VmLifecycleState::Created);

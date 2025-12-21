@@ -24,9 +24,9 @@ pub fn create_simple_ir_block(pc: vm_core::GuestAddr) -> vm_ir::IRBlock {
     });
 
     // 设置一些初始寄存器值
-    builder.push(IROp::MovImm { dst: 1, value: 42 });
-    builder.push(IROp::MovImm { dst: 2, value: 24 });
-    builder.push(IROp::MovImm { dst: 3, value: 10 });
+    builder.push(IROp::MovImm { dst: 1, imm: 42 });
+    builder.push(IROp::MovImm { dst: 2, imm: 24 });
+    builder.push(IROp::MovImm { dst: 3, imm: 10 });
 
     builder.build()
 }
@@ -45,8 +45,8 @@ pub fn create_complex_ir_block(pc: vm_core::GuestAddr, num_ops: usize) -> vm_ir:
                     src2: 2,
                 });
                 builder.push(IROp::MovImm {
-                    dst: i as u8,
-                    value: (i * 10) as u64,
+                    dst: i as u32,
+                    imm: (i * 10) as u64,
                 });
             }
             1 => {
@@ -56,8 +56,8 @@ pub fn create_complex_ir_block(pc: vm_core::GuestAddr, num_ops: usize) -> vm_ir:
                     src2: 3,
                 });
                 builder.push(IROp::MovImm {
-                    dst: (i + 1) as u8,
-                    value: (i * 15) as u64,
+                    dst: (i + 1) as u32,
+                    imm: (i * 15) as u64,
                 });
             }
             2 => {
@@ -67,8 +67,8 @@ pub fn create_complex_ir_block(pc: vm_core::GuestAddr, num_ops: usize) -> vm_ir:
                     src2: 2,
                 });
                 builder.push(IROp::MovImm {
-                    dst: (i + 2) as u8,
-                    value: (i * 20) as u64,
+                    dst: (i + 2) as u32,
+                    imm: (i * 20) as u64,
                 });
             }
             3 => {
@@ -78,10 +78,11 @@ pub fn create_complex_ir_block(pc: vm_core::GuestAddr, num_ops: usize) -> vm_ir:
                     src2: 3,
                 });
                 builder.push(IROp::MovImm {
-                    dst: (i + 3) as u8,
-                    value: (i * 25) as u64,
+                    dst: (i + 3) as u32,
+                    imm: (i * 25) as u64,
                 });
             }
+            _ => unreachable!("i % 4 should always be 0-3"),
         }
     }
 
@@ -95,11 +96,14 @@ pub fn create_memory_ir_block(
 ) -> vm_ir::IRBlock {
     let mut builder = IRBuilder::new(pc);
 
+    // 将基址加载到寄存器 10
+    builder.push(IROp::MovImm { dst: 10, imm: base_addr.0 });
+
     // 内存操作序列
     for i in 0..10 {
         builder.push(IROp::Load {
             dst: 0,
-            base: base_addr,
+            base: 10,
             size: 8,
             offset: (i * 8) as i64,
             flags: MemFlags {
@@ -108,7 +112,7 @@ pub fn create_memory_ir_block(
                 align: 8,
                 fence_before: false,
                 fence_after: false,
-                order: vm_ir::MemOrder::Relaxed,
+                order: vm_ir::MemOrder::None,
             },
         });
         builder.push(IROp::Add {
@@ -117,7 +121,7 @@ pub fn create_memory_ir_block(
             src2: 1,
         });
         builder.push(IROp::Store {
-            base: base_addr,
+            base: 10,
             src: 0,
             size: 8,
             offset: (i * 8) as i64,
@@ -127,7 +131,7 @@ pub fn create_memory_ir_block(
                 align: 8,
                 fence_before: false,
                 fence_after: false,
-                order: vm_ir::MemOrder::Relaxed,
+                order: vm_ir::MemOrder::None,
             },
         });
     }

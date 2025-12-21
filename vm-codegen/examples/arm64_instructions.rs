@@ -2,11 +2,13 @@
 //!
 //! 使用代码生成工具定义ARM64指令集。
 
-use vm_codegen::{CodegenConfig, InstructionSet, instruction_set, instruction_spec};
+use vm_codegen::{
+    CodegenConfig, InstructionSet, InstructionSpec, instruction_set, instruction_spec,
+};
 
 fn main() {
     // 创建ARM64指令集
-    let mut arm64_set = instruction_set!(
+    let arm64_set = instruction_set!(
         "ARM64",
         // ADD/SUB (immediate)
         instruction_spec!(

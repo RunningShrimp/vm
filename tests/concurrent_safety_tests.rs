@@ -4,8 +4,9 @@
 
 use std::sync::{Arc, Barrier};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::sync::mpsc;
 
 // 导入优化的实现
 use vm_core::parallel_execution::{ShardedMmuCache, OptimizedMultiVcpuExecutor};
@@ -15,6 +16,20 @@ use vm_engine_jit::unified_gc::{LockFreeMarkStack, ShardedWriteBarrier};
 /// 测试ShardedMmuCache的并发安全性
 #[test]
 fn test_sharded_mmu_cache_concurrent_safety() {
+    // 设置超时：120秒
+    let timeout = Duration::from_secs(120);
+    let start = Instant::now();
+    let (tx, rx) = mpsc::channel();
+    let timed_out = Arc::new(AtomicBool::new(false));
+    
+    // 启动超时监控
+    let timed_out_clone = Arc::clone(&timed_out);
+    thread::spawn(move || {
+        thread::sleep(timeout);
+        timed_out_clone.store(true, Ordering::Release);
+        let _ = tx.send(());
+    });
+    
     println!("测试ShardedMmuCache并发安全性...");
     
     // 创建模拟MMU
@@ -108,8 +123,22 @@ fn test_sharded_mmu_cache_concurrent_safety() {
         handles.push(handle);
     }
     
+    // 等待所有线程完成，带超时检查
     for handle in handles {
+        if timed_out.load(Ordering::Acquire) {
+            panic!("测试超时：超过 {} 秒", timeout.as_secs());
+        }
         handle.join().unwrap();
+    }
+    
+    // 检查超时
+    if timed_out.load(Ordering::Acquire) {
+        let elapsed = start.elapsed();
+        panic!(
+            "测试超时：超过 {} 秒（实际耗时：{:.2} 秒）",
+            timeout.as_secs(),
+            elapsed.as_secs_f64()
+        );
     }
     
     let successes = success_count.load(Ordering::Relaxed);

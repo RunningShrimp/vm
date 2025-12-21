@@ -49,6 +49,7 @@ pub trait Observable {
     fn get_state(&self) -> &Self::State;
 
     /// 订阅状态变化
+    #[allow(clippy::type_complexity)]
     fn subscribe(
         &mut self,
         callback: Box<dyn Fn(&Self::State, &Self::Event) + Send + Sync>,
@@ -109,8 +110,8 @@ impl ComponentManager {
     pub fn get_component(
         &self,
         name: &str,
-    ) -> Option<&Box<dyn VmComponent<Config = serde_json::Value, Error = VmError>>> {
-        self.components.get(name)
+    ) -> Option<&dyn VmComponent<Config = serde_json::Value, Error = VmError>> {
+        self.components.get(name).map(|v| &**v)
     }
 
     pub fn get_component_mut(

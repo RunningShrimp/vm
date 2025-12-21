@@ -74,8 +74,8 @@ impl CPUTopology {
         let mut cpus = node_cpus;
         cpus.sort_by_key(|&c| {
             // 同节点 CPU 优先级高
-            let dist = (c as i32 - cpu_id as i32).abs() as usize;
-            dist
+
+            (c as i32 - cpu_id as i32).unsigned_abs() as usize
         });
 
         cpus.into_iter().take(count).collect()
@@ -107,10 +107,10 @@ impl AffinityMask {
 
     /// 添加 CPU 到亲和性掩码
     pub fn add_cpu(&mut self, cpu_id: usize) {
-        if let Some(mask) = Arc::get_mut(&mut self.mask) {
-            if cpu_id < mask.len() {
-                mask[cpu_id] = true;
-            }
+        if let Some(mask) = Arc::get_mut(&mut self.mask)
+            && cpu_id < mask.len()
+        {
+            mask[cpu_id] = true;
         }
     }
 

@@ -4,7 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-executor = { path = "../async-executor" }
-coroutine-scheduler = { path = "../coroutine-scheduler" }
+vm-runtime = { path = "../vm-runtime" }
+# async-executor 和 coroutine-scheduler 已合并到 vm-runtime
+vm-core = { path = "../vm-core" }
+vm-ir.workspace = true
+vm-engine-jit = { path = "../vm-engine-jit" }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "jit_core_benchmarks"
+harness = false

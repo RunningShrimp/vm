@@ -1,8 +1,54 @@
+# Rust build artifacts
 /target
+**/target
+Cargo.lock
+
+# IDE and editor files
 .DS_Store
 ._*
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# Logs and temporary files
 *.log
 *.tmp
+*.bak
+build_errors.txt
+clippy_baseline.txt
+
+# Environment files
 .env
+.env.local
+
+# Generated files (vm-codegen)
+vm-codegen/*_generated.rs
+vm-codegen/*_frontend_*.rs
+vm-codegen/complete_frontend_codegen
+vm-codegen/minimal_todo_resolver
+vm-codegen/simple_frontend_codegen
+vm-codegen/simple_todo_fixer
+vm-codegen/standalone_frontend_codegen
+
+# Merged package directories (kept for reference, but not actively used)
+# These packages have been merged into their respective parent modules:
+# - async-executor -> vm-runtime/src/async_executor
+# - coroutine-scheduler -> vm-runtime/src/coroutine_scheduler_legacy
+# - gc-optimizer -> vm-mem/src/gc_optimizer
+# - memory-optimizer -> vm-mem/src/memory_optimizer
+# - ml-guided-compiler -> vm-engine-jit/src/ml_guided_compiler
+# - pgo-optimizer -> vm-engine-jit/src/pgo_optimizer
+# - vm-encoding -> vm-core/src/encoding
+# - vm-register -> vm-core/src/register
+# - vm-memory-access -> vm-core/src/memory_access
+
+# Coverage reports
+coverage/
+*.gcda
+*.gcno
+*.gcov
+
+# Benchmark results
+criterion/

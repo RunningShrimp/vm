@@ -217,21 +217,20 @@ impl NUMAOptimizer {
         let allocator = self.memory_allocator.read().unwrap();
 
         // 策略1：如果有偏好节点，检查是否适合
-        if let Some(node) = preferred_node {
-            if let Some(node_stat) = stats.get(&node) {
-                let memory_usage = allocator.get_node_usage(node);
-                let local_access_rate = node_stat.local_access_rate();
-                let available_bandwidth = 1.0 - node_stat.memory_bandwidth_usage;
+        if let Some(node) = preferred_node
+            && let Some(node_stat) = stats.get(&node)
+        {
+            let memory_usage = allocator.get_node_usage(node);
+            let local_access_rate = node_stat.local_access_rate();
+            let available_bandwidth = 1.0 - node_stat.memory_bandwidth_usage;
 
-                // 综合评分：本地访问率 + 可用带宽 + 负载
-                let score = local_access_rate * 0.5
-                    + available_bandwidth * 0.3
-                    + (1.0 - memory_usage) * 0.2;
+            // 综合评分：本地访问率 + 可用带宽 + 负载
+            let score =
+                local_access_rate * 0.5 + available_bandwidth * 0.3 + (1.0 - memory_usage) * 0.2;
 
-                // 如果评分高且负载不高，优先选择
-                if score > 0.6 && memory_usage < self.load_balance_threshold {
-                    return Ok(node);
-                }
+            // 如果评分高且负载不高，优先选择
+            if score > 0.6 && memory_usage < self.load_balance_threshold {
+                return Ok(node);
             }
         }
 
@@ -500,12 +499,15 @@ mod tests {
     fn test_memory_allocation() {
         let topology = Arc::new(CPUTopology::detect());
         let affinity_manager = Arc::new(VCPUAffinityManager::new());
-        let optimizer = NUMAOptimizer::new(topology, affinity_manager, 1024 * 1024 * 1024);
+        let mut optimizer = NUMAOptimizer::new(topology, affinity_manager, 1024 * 1024 * 1024);
+
+        // 使用 LocalFirst 策略确保在指定节点分配
+        optimizer.set_allocation_strategy(MemoryAllocationStrategy::LocalFirst);
 
         let result = optimizer.allocate_memory(100 * 1024 * 1024, Some(0));
         assert!(result.is_ok());
 
-        let (address, node_id) = result.unwrap();
+        let (_address, node_id) = result.unwrap();
         assert_eq!(node_id, 0);
     }
 

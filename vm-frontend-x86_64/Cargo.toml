@@ -6,3 +6,8 @@ edition = "2024"
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
+vm-accel = { path = "../vm-accel" }
+log = "0.4"
+
+[dev-dependencies]
+vm-mem = { path = "../vm-mem" }

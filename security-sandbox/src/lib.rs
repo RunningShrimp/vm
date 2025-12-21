@@ -294,10 +294,13 @@ impl Default for ResourceMonitor {
     }
 }
 
+/// 权限映射类型别名
+type PermissionMap = HashMap<(String, String), HashSet<String>>;
+
 /// 访问控制列表 (ACL)
 pub struct AccessControlList {
     // 权限映射: (资源类型, 资源ID) -> 权限集合
-    permissions: Arc<RwLock<HashMap<(String, String), HashSet<String>>>>,
+    permissions: Arc<RwLock<PermissionMap>>,
 }
 
 impl AccessControlList {
@@ -698,7 +701,7 @@ mod tests {
         };
 
         let violations = usage.check_quota(&quota);
-        assert!(violations.len() > 0);
+        assert!(!violations.is_empty());
         assert!(violations.iter().any(|v| v.contains("CPU")));
     }
 

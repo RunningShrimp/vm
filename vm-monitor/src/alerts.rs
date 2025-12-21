@@ -12,6 +12,17 @@ use uuid::Uuid;
 
 use crate::{AlertThresholds, SystemMetrics};
 
+/// 告警配置
+#[derive(Debug)]
+pub struct AlertConfig<'a> {
+    pub alert_type: AlertType,
+    pub level: AlertLevel,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub current_value: f64,
+    pub threshold: f64,
+}
+
 /// 告警管理器
 pub struct AlertManager {
     thresholds: AlertThresholds,
@@ -167,15 +178,17 @@ impl AlertManager {
             let alert_key = "jit_execution_rate";
             if !self.is_in_cooldown(alert_key, now) {
                 self.create_alert(
-                    AlertType::JitExecutionRate,
-                    AlertLevel::Warning,
-                    "JIT执行速度低于阈值",
-                    &format!(
-                        "当前JIT执行速度: {:.2} execs/sec，阈值: {:.2} execs/sec",
-                        metrics.jit_metrics.execution_rate, self.thresholds.jit_execution_rate
-                    ),
-                    metrics.jit_metrics.execution_rate,
-                    self.thresholds.jit_execution_rate,
+                    AlertConfig {
+                        alert_type: AlertType::JitExecutionRate,
+                        level: AlertLevel::Warning,
+                        title: "JIT执行速度低于阈值",
+                        description: &format!(
+                            "当前JIT执行速度: {:.2} execs/sec，阈值: {:.2} execs/sec",
+                            metrics.jit_metrics.execution_rate, self.thresholds.jit_execution_rate
+                        ),
+                        current_value: metrics.jit_metrics.execution_rate,
+                        threshold: self.thresholds.jit_execution_rate,
+                    },
                     metrics,
                 )
                 .await;
@@ -188,15 +201,17 @@ impl AlertManager {
             let alert_key = "tlb_hit_rate";
             if !self.is_in_cooldown(alert_key, now) {
                 self.create_alert(
-                    AlertType::TlbHitRate,
-                    AlertLevel::Warning,
-                    "TLB命中率低于阈值",
-                    &format!(
-                        "当前TLB命中率: {:.2}%，阈值: {:.2}%",
-                        metrics.tlb_metrics.hit_rate, self.thresholds.tlb_hit_rate
-                    ),
-                    metrics.tlb_metrics.hit_rate,
-                    self.thresholds.tlb_hit_rate,
+                    AlertConfig {
+                        alert_type: AlertType::TlbHitRate,
+                        level: AlertLevel::Warning,
+                        title: "TLB命中率低于阈值",
+                        description: &format!(
+                            "当前TLB命中率: {:.2}%，阈值: {:.2}%",
+                            metrics.tlb_metrics.hit_rate, self.thresholds.tlb_hit_rate
+                        ),
+                        current_value: metrics.tlb_metrics.hit_rate,
+                        threshold: self.thresholds.tlb_hit_rate,
+                    },
                     metrics,
                 )
                 .await;
@@ -210,16 +225,18 @@ impl AlertManager {
             let alert_key = "memory_usage";
             if !self.is_in_cooldown(alert_key, now) {
                 self.create_alert(
-                    AlertType::MemoryUsage,
-                    AlertLevel::Critical,
-                    "内存使用率过高",
-                    &format!(
-                        "当前内存使用率: {:.2}%，阈值: {:.2}%",
-                        memory_usage_ratio * 100.0,
-                        self.thresholds.memory_usage_rate
-                    ),
-                    memory_usage_ratio * 100.0,
-                    self.thresholds.memory_usage_rate,
+                    AlertConfig {
+                        alert_type: AlertType::MemoryUsage,
+                        level: AlertLevel::Critical,
+                        title: "内存使用率过高",
+                        description: &format!(
+                            "当前内存使用率: {:.2}%，阈值: {:.2}%",
+                            memory_usage_ratio * 100.0,
+                            self.thresholds.memory_usage_rate
+                        ),
+                        current_value: memory_usage_ratio * 100.0,
+                        threshold: self.thresholds.memory_usage_rate,
+                    },
                     metrics,
                 )
                 .await;
@@ -252,24 +269,15 @@ impl AlertManager {
     }
 
     /// 创建告警
-    async fn create_alert(
-        &self,
-        alert_type: AlertType,
-        level: AlertLevel,
-        title: &str,
-        description: &str,
-        current_value: f64,
-        threshold: f64,
-        metrics: &SystemMetrics,
-    ) {
+    async fn create_alert(&self, config: AlertConfig<'_>, metrics: &SystemMetrics) {
         let alert = Alert {
             id: Uuid::new_v4().to_string(),
-            alert_type,
-            level: level.clone(),
-            title: title.to_string(),
-            description: description.to_string(),
-            current_value,
-            threshold,
+            alert_type: config.alert_type,
+            level: config.level.clone(),
+            title: config.title.to_string(),
+            description: config.description.to_string(),
+            current_value: config.current_value,
+            threshold: config.threshold,
             created_at: Utc::now(),
             acknowledged_at: None,
             active: true,
@@ -320,8 +328,8 @@ impl AlertManager {
             "Alert created: {} - {} (Value: {:.2}, Threshold: {:.2})",
             alert.id,
             alert.title,
-            current_value,
-            threshold
+            config.current_value,
+            config.threshold
         );
     }
 

@@ -30,6 +30,12 @@ pub struct DevicePerformanceStats {
     pub last_update: Instant,
 }
 
+impl Default for DevicePerformanceStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DevicePerformanceStats {
     /// 创建新的统计对象
     pub fn new() -> Self {
@@ -205,6 +211,8 @@ mod tests {
         assert_eq!(stats.max_latency_us, 200);
         assert_eq!(stats.min_latency_us, 50);
     }
+
+    use std::time::Duration;
 
     #[test]
     fn test_performance_monitor() {

@@ -1,27 +1,47 @@
 [package]
 name = "vm-engine-jit"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
+vm-mem = { path = "../vm-mem" }
 vm-accel = { path = "../vm-accel" }
 vm-error = { path = "../vm-error" }
-parking_lot = "0.12"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_with = "3.0"
-log = "0.4"
-tokio = { version = "1.0", features = ["full"] }
-rand = "0.8"
-criterion = { version = "0.5", features = ["html_reports"] }
-num_cpus = "1.16"
-chrono = { version = "0.4", features = ["serde"] }
-thiserror = "1.0"
+tracing.workspace = true
+parking_lot.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+log.workspace = true
+tokio.workspace = true
+rand.workspace = true
+criterion.workspace = true
+num_cpus.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+lru = "0.8"
+
+# Cranelift依赖
+cranelift = { workspace = true, optional = true }
+cranelift-module = { workspace = true, optional = true }
+cranelift-jit = { workspace = true, optional = true }
+cranelift-native = { workspace = true, optional = true }
+target-lexicon = { workspace = true, optional = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion.workspace = true
 
 [features]
-default = []
+default = ["cranelift-backend"]
+# Compilation backends
+cranelift-backend = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native", "dep:target-lexicon"]
+llvm-backend = ["vm-ir/llvm"]
+# Experimental features
+experimental = []
+# ML-guided compiler and PGO optimizer modules (merged from separate packages)
+ml-guided-compiler = []
+pgo-optimizer = []

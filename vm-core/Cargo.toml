@@ -1,46 +1,47 @@
 [package]
 name = "vm-core"
-version = "0.1.0"
-edition = "2024"
-
-
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-log = "0.4"
-parking_lot = "0.12"
-
-serde = { version = "1.0", features = ["derive"] }
-uuid = { version = "1.19.0", features = ["v4", "serde"] }
-serde_json = { version = "1.0", optional = true }
-chrono = { version = "0.4", features = ["serde"], optional = true }
-
-bincode = { version = "2.0.1", features = ["serde"] }
-
-# Optional dependencies for enhanced features
-sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "postgres", "chrono", "json", "uuid"], optional = true }
+log.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+uuid.workspace = true
+serde_json = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+bincode.workspace = true
+sqlx = { workspace = true, optional = true }
+thiserror.workspace = true
 
 # Local dependencies
 vm-common = { path = "../vm-common" }
+vm-error = { path = "../vm-error" }
 
 [features]
 default = ["std"]
+# Standard library support
 std = []
 no_std = []
+# Async runtime support
 async = ["tokio", "futures", "async-trait"]
+# Enhanced features
 enhanced-event-sourcing = ["sqlx", "serde_json", "chrono"]
-enhanced-debugging = []
-enhanced-networking = []
+enhanced-debugging = [] # 启用增强的调试功能（符号表、调用栈跟踪、增强断点等）
+# Encoding/register/memory-access modules (merged from separate packages)
+encoding = []
+register = []
+memory-access = []
 
 [dependencies.tokio]
-version = "1.48"
-features = ["rt-multi-thread", "sync", "time", "macros"]
+workspace = true
 optional = true
 
 [dependencies.futures]
-version = "0.3"
+workspace = true
 optional = true
 
 [dependencies.async-trait]
-version = "0.1"
+workspace = true
 optional = true
-

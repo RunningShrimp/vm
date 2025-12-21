@@ -129,10 +129,7 @@ impl AsyncDeviceIoManager {
     /// 检查是否有待处理的I/O响应
     pub async fn poll_io_responses(&mut self) -> Option<IoResponse> {
         if let Some(ref mut rx) = self.io_response_rx {
-            match rx.try_recv() {
-                Ok(response) => Some(response),
-                Err(_) => None,
-            }
+            rx.try_recv().ok()
         } else {
             None
         }

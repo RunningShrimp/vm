@@ -213,7 +213,7 @@ impl IommuManager {
         for group in &self.groups {
             println!("Group {}: {} device(s)", group.id, group.devices.len());
             for addr in &group.devices {
-                println!("  - {}", addr.to_string());
+                println!("  - {}", addr);
             }
         }
     }
@@ -225,7 +225,27 @@ impl Default for IommuManager {
     }
 }
 
+/// PCI配置空间
+pub struct PciConfigSpace {
+    _address: PciAddress,
+    config_path: PathBuf,
+}
 
+impl PciConfigSpace {
+    /// 创建新的PCI配置空间
+    pub fn new(address: PciAddress) -> Self {
+        let path = std::path::PathBuf::from(format!("/sys/bus/pci/devices/{}/config", address));
+        Self {
+            _address: address,
+            config_path: path,
+        }
+    }
+
+    /// 获取配置路径
+    pub fn get_config_path(&self) -> &PathBuf {
+        &self.config_path
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -240,7 +260,7 @@ mod tests {
     #[test]
     fn test_iommu_groups() {
         let mut manager = IommuManager::new();
-        if let Ok(_) = manager.scan_groups() {
+        if manager.scan_groups().is_ok() {
             manager.print_groups();
         }
     }

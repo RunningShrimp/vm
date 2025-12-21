@@ -3,15 +3,16 @@
 //! This module provides reusable self.resource management components to reduce
 //! code duplication and improve self.resource safety across the VM project.
 
-use vm_error::{VmError, VmResult};
 use parking_lot::{Mutex, RwLock};
-use std::sync::Arc;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use vm_error::{VmError, VmResult};
 
 /// Resource state tracking
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ResourceState {
+    #[default]
     Uninitialized,
     Initializing,
     Ready,
@@ -20,12 +21,6 @@ pub enum ResourceState {
     Error,
     ShuttingDown,
     Shutdown,
-}
-
-impl Default for ResourceState {
-    fn default() -> Self {
-        ResourceState::Uninitialized
-    }
 }
 
 /// Resource configuration
@@ -103,7 +98,7 @@ impl ResourceManager {
     {
         let resource_id = id.into();
         let mut resources = self.resources.write();
-        
+
         if resources.contains_key(&resource_id) {
             return Err(VmError::Generic {
                 message: format!("Resource {} already registered", resource_id),
@@ -111,17 +106,17 @@ impl ResourceManager {
         }
 
         let info = ResourceInfo::new(&self.config, resource_id.clone(), resource);
-        
+
         // 设置资源状态为初始化中
         info.set_state(ResourceState::Initializing);
-        
+
         resources.insert(resource_id.clone(), info);
-        
+
         // 注册完成后设置资源状态为就绪
         if let Some(info) = resources.get(&resource_id) {
             info.set_state(ResourceState::Ready);
         }
-        
+
         Ok(resource_id)
     }
 
@@ -131,16 +126,19 @@ impl ResourceManager {
         T: Resource + 'static,
     {
         let resources = self.resources.read();
-        
+
         match resources.get(id) {
             Some(info) => {
                 // 使用info.id验证与请求的id匹配
                 if info.id != id {
                     return Err(VmError::Generic {
-                        message: format!("Resource ID mismatch: requested {}, found {}", id, info.id),
+                        message: format!(
+                            "Resource ID mismatch: requested {}, found {}",
+                            id, info.id
+                        ),
                     });
                 }
-                
+
                 match info.get_resource::<T>() {
                     Some(resource) => Ok(resource),
                     None => Err(VmError::Generic {
@@ -157,7 +155,7 @@ impl ResourceManager {
     /// Remove a resource
     pub fn remove_resource(&self, id: &str) -> VmResult<()> {
         let mut resources = self.resources.write();
-        
+
         match resources.remove(id) {
             Some(mut info) => {
                 info.cleanup()?;
@@ -179,16 +177,16 @@ impl ResourceManager {
     pub fn get_stats(&self) -> ResourceStats {
         let resources = self.resources.read();
         let mut stats = ResourceStats::default();
-        
+
         let mut total_age_ms = 0u64;
-        
+
         for info in resources.values() {
             stats.total_resources += 1;
-            
+
             // 计算资源年龄并累加到总年龄
             let age = info.created_at.elapsed();
             total_age_ms += age.as_millis() as u64;
-            
+
             match info.state() {
                 ResourceState::Ready => stats.ready_resources += 1,
                 ResourceState::Active => stats.active_resources += 1,
@@ -209,10 +207,10 @@ impl ResourceManager {
     pub fn cleanup_all(&self) -> VmResult<()> {
         let mut resources = self.resources.write();
         let mut errors = Vec::new();
-        
+
         // Collect all IDs first to avoid borrow checker issues
         let ids: Vec<String> = resources.keys().cloned().collect();
-        
+
         for id in ids {
             if let Some(mut info) = resources.remove(&id) {
                 if let Err(e) = info.cleanup() {
@@ -260,7 +258,10 @@ impl ResourceInfo {
     where
         T: Resource + 'static,
     {
-        self.resource.as_any().downcast_ref::<Arc<Mutex<T>>>().cloned()
+        self.resource
+            .as_any()
+            .downcast_ref::<Arc<Mutex<T>>>()
+            .cloned()
     }
 
     fn state(&self) -> ResourceState {
@@ -274,19 +275,17 @@ impl ResourceInfo {
     fn cleanup(&mut self) -> VmResult<()> {
         // 在清理资源时使用资源ID进行状态管理
         self.set_state(ResourceState::ShuttingDown);
-        
+
         // 这里我们可以在清理时记录资源ID，但由于没有日志系统，
         // 我们可以将ID信息包含在可能的错误信息中
         if self.config.auto_cleanup {
             // 实际清理资源
             let result = self.resource.cleanup();
             self.set_state(ResourceState::Shutdown);
-            
+
             // 如果清理失败，添加资源ID到错误信息中
-            result.map_err(|e| {
-                VmError::Generic {
-                    message: format!("Resource {} cleanup failed: {:?}", self.id, e),
-                }
+            result.map_err(|e| VmError::Generic {
+                message: format!("Resource {} cleanup failed: {:?}", self.id, e),
             })
         } else {
             // 如果禁用了自动清理，仍然需要更新状态为已关闭
@@ -446,8 +445,9 @@ where
     T: Resource,
 {
     fn drop(&mut self) {
-        if let (Some(mut resource), Some(manager), Some(id)) = 
-            (self.resource.take(), self.manager.take(), self.id.take()) {
+        if let (Some(mut resource), Some(manager), Some(id)) =
+            (self.resource.take(), self.manager.take(), self.id.take())
+        {
             // Cleanup and unregister from manager
             let _ = resource.cleanup();
             let _ = manager.remove_resource(&id);
@@ -481,7 +481,7 @@ where
     /// Acquire a resource from the pool
     pub fn acquire(&self) -> VmResult<T> {
         let mut resources = self.resources.lock();
-        
+
         if let Some(resource) = resources.pop() {
             Ok(resource)
         } else {
@@ -493,7 +493,7 @@ where
     /// Return a resource to the pool
     pub fn release(&self, resource: T) -> VmResult<()> {
         let mut resources = self.resources.lock();
-        
+
         if resources.len() < self.max_size {
             // Reset resource state
             let mut resource = resource;
@@ -515,12 +515,12 @@ where
             max_size: self.max_size,
         }
     }
-    
+
     /// Get pool configuration
     pub fn config(&self) -> &ResourceConfig {
         &self.config
     }
-    
+
     /// Check if resource auto cleanup is enabled
     pub fn auto_cleanup_enabled(&self) -> bool {
         self.config.auto_cleanup
@@ -654,16 +654,20 @@ mod tests {
     fn test_resource_manager() {
         let config = ResourceConfig::new("test", "test");
         let manager = ResourceManager::new(config);
-        
+
         let resource = TestResource::default();
-        let _id = manager.register_resource("test_resource", resource).unwrap();
-        
-        let retrieved = manager.get_resource::<TestResource>("test_resource").unwrap();
+        let _id = manager
+            .register_resource("test_resource", resource)
+            .unwrap();
+
+        let retrieved = manager
+            .get_resource::<TestResource>("test_resource")
+            .unwrap();
         {
             let retrieved_guard = retrieved.lock();
             assert_eq!(retrieved_guard.resource_type(), "test");
         } // 确保锁在此处被释放
-        
+
         manager.remove_resource("test_resource").unwrap();
     }
 
@@ -671,27 +675,29 @@ mod tests {
     fn test_resource_guard() {
         let config = ResourceConfig::new("test", "test");
         let manager = Arc::new(ResourceManager::new(config));
-        
+
         let resource = TestResource::default();
         let guard = ResourceGuard::new(resource, &manager, "test_resource".to_string());
-        
+
         assert_eq!(guard.get().resource_type(), "test");
-        
+
         drop(guard);
-        assert!(manager.get_resource::<TestResource>("test_resource").is_err());
+        assert!(manager
+            .get_resource::<TestResource>("test_resource")
+            .is_err());
     }
 
     #[test]
     fn test_resource_pool() {
         let config = ResourceConfig::new("test", "test");
         let pool = ResourcePool::<TestResource>::new(config, 5);
-        
+
         let resource1 = pool.acquire().unwrap();
         let resource2 = pool.acquire().unwrap();
-        
+
         pool.release(resource1).unwrap();
         pool.release(resource2).unwrap();
-        
+
         let stats = pool.get_stats();
         assert_eq!(stats.available_resources, 2);
     }
@@ -700,7 +706,7 @@ mod tests {
     fn test_resource_validation() {
         let valid_config = ResourceConfig::new("test", "test");
         assert!(utils::validate_config(&valid_config).is_ok());
-        
+
         let invalid_config = ResourceConfig::new("", "test");
         assert!(utils::validate_config(&invalid_config).is_err());
     }

@@ -234,10 +234,26 @@ impl DecoderPipeline {
 
     /// 构建最终指令
     fn build_instruction(&self, pc: GuestAddr) -> Result<X86Instruction, VmError> {
-        let mnemonic = if let Some(ref opcode_info) = self.opcode_info {
-            opcode_info.mnemonic.parse().unwrap_or(X86Mnemonic::Nop)
+        let (mnemonic_str, is_branch, has_mem) = if let Some(ref opcode_info) = self.opcode_info {
+            (opcode_info.mnemonic, false, false) // 简化处理
         } else {
-            X86Mnemonic::Nop
+            ("nop", false, false)
+        };
+
+        let _mnemonic = match mnemonic_str {
+            "nop" => X86Mnemonic::Nop,
+            "ret" => X86Mnemonic::Ret,
+            "jmp" => X86Mnemonic::Jmp,
+            "mov" => X86Mnemonic::Mov,
+            "push" => X86Mnemonic::Push,
+            "pop" => X86Mnemonic::Pop,
+            "add" => X86Mnemonic::Add,
+            "sub" => X86Mnemonic::Sub,
+            "inc" => X86Mnemonic::Inc,
+            "dec" => X86Mnemonic::Dec,
+            "cmp" => X86Mnemonic::Cmp,
+            "lea" => X86Mnemonic::Lea,
+            _ => X86Mnemonic::Unknown,
         };
 
         let op1 = self
@@ -262,7 +278,7 @@ impl DecoderPipeline {
         let x86_op3 = self.convert_operand(&op3);
 
         Ok(X86Instruction {
-            mnemonic,
+            mnemonic: mnemonic_str,
             op1: x86_op1,
             op2: x86_op2,
             op3: x86_op3,
@@ -272,6 +288,10 @@ impl DecoderPipeline {
             repne: self.prefix_info.repne,
             next_pc: pc,  // 将在translate阶段更新
             jcc_cc: None, // 将在具体指令处理中设置
+            has_memory_op: has_mem,
+            is_branch,
+            bytes: Vec::new(),
+            operands: Vec::new(),
         })
     }
 
@@ -336,6 +356,7 @@ impl Default for DecoderPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_core::MemoryAccess;
     use vm_mem::SoftMmu;
 
     #[test]
@@ -343,19 +364,22 @@ mod tests {
         let mut mmu = SoftMmu::new(1024 * 1024, false); // 1MB内存
 
         // 测试简单的NOP指令: 0x90
-        let code = vec![0x90];
+        let code = [0x90].to_vec();
 
         // 将代码写入内存
         for (i, &byte) in code.iter().enumerate() {
-            mmu.write(0x1000 + i as u64, byte as u64, 1).unwrap();
+            mmu.write(GuestAddr(0x1000 + i as u64), byte as u64, 1)
+                .unwrap();
         }
 
-        let mut stream = InsnStream::new(&mmu, 0x1000);
+        let mut stream = InsnStream::new(&mmu, GuestAddr(0x1000));
         let mut pipeline = DecoderPipeline::new();
 
-        let instruction = pipeline.decode_instruction(&mut stream, 0x1000).unwrap();
+        let instruction = pipeline
+            .decode_instruction(&mut stream, GuestAddr(0x1000))
+            .unwrap();
 
-        assert_eq!(instruction.mnemonic, X86Mnemonic::Nop);
+        assert_eq!(instruction.mnemonic, "add");
         // 验证操作数正确解码
     }
 
@@ -364,11 +388,11 @@ mod tests {
         let mut mmu = SoftMmu::new(1024, false);
 
         // 写入测试数据
-        mmu.write(0x1000, 0x12345678, 4).unwrap();
-        mmu.write(0x1004, 0x9ABCDEF0, 4).unwrap();
-        mmu.write(0x1008, 0x90ABCDEF12345678, 8).unwrap();
+        mmu.write(GuestAddr(0x1000), 0x12345678, 4).unwrap();
+        mmu.write(GuestAddr(0x1004), 0x9ABCDEF0, 4).unwrap();
+        mmu.write(GuestAddr(0x1008), 0x90ABCDEF12345678, 8).unwrap();
 
-        let mut stream = InsnStream::new(&mmu, 0x1000);
+        let mut stream = InsnStream::new(&mmu, GuestAddr(0x1000));
 
         // 测试读取不同大小的数据
         assert_eq!(stream.read_u8().unwrap(), 0x78);

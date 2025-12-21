@@ -3,12 +3,12 @@
 //! 测试核心组件的基本性能指标
 
 use std::time::Instant;
-use vm_core::MMU;
+use vm_core::{GuestAddr, MemoryAccess, MMU};
 use vm_ir::{IRBuilder, IROp};
 
 // 内联setup_utils函数
 pub fn create_simple_ir_block(pc: u64) -> vm_ir::IRBlock {
-    let mut builder = IRBuilder::new(pc);
+    let mut builder = IRBuilder::new(GuestAddr(pc));
 
     // 添加一些简单的算术运算
     builder.push(IROp::Add {
@@ -36,7 +36,7 @@ pub fn create_simple_ir_block(pc: u64) -> vm_ir::IRBlock {
 }
 
 pub fn create_complex_ir_block(pc: u64, num_ops: usize) -> vm_ir::IRBlock {
-    let mut builder = IRBuilder::new(pc);
+    let mut builder = IRBuilder::new(GuestAddr(pc));
 
     for i in 0..num_ops {
         // 交替进行不同类型的操作来模拟真实工作负载
@@ -96,7 +96,7 @@ pub fn create_complex_ir_block(pc: u64, num_ops: usize) -> vm_ir::IRBlock {
 
 #[test]
 fn test_memory_access_performance() {
-    let mut mmu = vm_mem::SoftMmu::new(1024 * 1024); // 1MB内存
+    let mut mmu = vm_mem::SoftMmu::new(1024 * 1024, false); // 1MB内存
 
     // 写入一些测试数据
     let test_data = 0x123456789ABCDEF0u64;
@@ -106,8 +106,8 @@ fn test_memory_access_performance() {
 
     for i in 0..num_operations {
         let addr = (i % 1024) * 8; // 在1KB范围内循环
-        mmu.write(addr as u64, test_data, 8).unwrap();
-        let _read_back = mmu.read(addr as u64, 8).unwrap();
+        (&mut mmu as &mut dyn vm_core::MemoryAccess).write(vm_core::GuestAddr(addr as u64), test_data, 8).unwrap();
+        let _read_back = (&mmu as &dyn vm_core::MemoryAccess).read(vm_core::GuestAddr(addr as u64), 8).unwrap();
     }
 
     let duration = start.elapsed();

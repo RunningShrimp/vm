@@ -70,12 +70,7 @@ mod tests {
     fn test_auto_vm_config() {
         let (config, cross_config) = create_auto_vm_config(GuestArch::X86_64, None).unwrap();
 
-        println!(
-            "VM Config: guest_arch={:?}, exec_mode={:?}",
-            config.guest_arch, config.exec_mode
-        );
-        println!("Cross Arch Config: {}", cross_config);
-
+        // Verify configuration
         assert_eq!(config.guest_arch, GuestArch::X86_64);
         assert!(cross_config.is_supported());
     }

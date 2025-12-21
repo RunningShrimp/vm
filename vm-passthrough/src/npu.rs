@@ -228,10 +228,8 @@ impl NpuDevice {
                     (35.0, 16)
                 } else if brand.contains("m2") {
                     (15.8, 16)
-                } else if brand.contains("m1") {
-                    (11.0, 16)
                 } else {
-                    (11.0, 16)
+                    (11.0, 16) // M1 and others default to this
                 };
 
                 return Some(Self::new(

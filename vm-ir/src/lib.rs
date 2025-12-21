@@ -2,19 +2,28 @@
 //!
 //! 定义虚拟机的中间表示 (IR)，用于在前端解码器和后端执行引擎之间传递指令。
 //!
+//! [`IROp`]: IR 操作码枚举，包含算术、逻辑、内存、向量等操作
+//! [`IRBlock`]: IR 基本块，包含操作序列和终结符
+//! [`Terminator`]: 基本块终结符，如跳转、条件分支、返回等
+//! [`IRBuilder`]: 用于构建 IR 块的辅助工具
+//! [`DecodeCache`]: 预解码缓存，用于缓存已解码的指令
+//! [`MemFlags`]: 内存访问标志，支持原子操作和内存序
+//! [`MemOrder`]: 内存序枚举 (Acquire, Release, AcqRel)
+//! [`AtomicOp`]: 原子操作类型
+//!
 //! ## 主要类型
 //!
-//! - [`IROp`]: IR 操作码枚举，包含算术、逻辑、内存、向量等操作
-//! - [`IRBlock`]: IR 基本块，包含操作序列和终结符
-//! - [`Terminator`]: 基本块终结符，如跳转、条件分支、返回等
-//! - [`IRBuilder`]: 用于构建 IR 块的辅助工具
-//! - [`DecodeCache`]: 预解码缓存，用于缓存已解码的指令
+//! - IROp: IR 操作码枚举，包含算术、逻辑、内存、向量等操作
+//! - IRBlock: IR 基本块，包含操作序列和终结符
+//! - Terminator: 基本块终结符，如跳转、条件分支、返回等
+//! - IRBuilder: 用于构建 IR 块的辅助工具
+//! - DecodeCache: 预解码缓存，用于缓存已解码的指令
 //!
 //! ## 内存语义
 //!
-//! - [`MemFlags`]: 内存访问标志，支持原子操作和内存序
-//! - [`MemOrder`]: 内存序枚举 (Acquire, Release, AcqRel)
-//! - [`AtomicOp`]: 原子操作类型
+//! - MemFlags: 内存访问标志，支持原子操作和内存序
+//! - MemOrder: 内存序枚举 (Acquire, Release, AcqRel)
+//! - AtomicOp: 原子操作类型
 //!
 //! ## 示例
 //!
@@ -34,9 +43,16 @@
 //! ```
 
 mod decode_cache;
+pub mod instruction_patterns;
 pub mod lift;
 
 pub use decode_cache::DecodeCache;
+pub use instruction_patterns::{
+    ArithmeticType, BranchType, CompareType, ConvertType, DefaultPatternMatcher, IROp as PatternIROp,
+    InstructionCategory, InstructionFlags, InstructionPattern, LogicalType, MemoryOperand,
+    MemoryType, OperandType, PatternError, PatternMatcher, SemanticDescription, SystemType,
+    VectorType,
+};
 use vm_core::GuestAddr;
 
 pub type RegId = u32;
@@ -905,7 +921,7 @@ pub struct IRBlock {
 }
 
 pub struct IRBuilder {
-    block: IRBlock,
+    pub block: IRBlock,
 }
 
 impl IRBuilder {

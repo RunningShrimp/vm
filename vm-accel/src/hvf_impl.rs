@@ -4,8 +4,8 @@
 
 use super::{Accel, AccelError};
 use std::collections::HashMap;
-use vm_core::{GuestRegs, MMU, VmError};
 use vm_core::error::CoreError;
+use vm_core::{GuestRegs, MMU, VmError};
 
 #[cfg(target_os = "macos")]
 use std::ptr;
@@ -13,13 +13,13 @@ use std::ptr;
 // Hypervisor.framework FFI 绑定
 #[cfg(target_os = "macos")]
 #[link(name = "Hypervisor", kind = "framework")]
-#[allow(dead_code)]
 unsafe extern "C" {
     // VM 管理
     fn hv_vm_create(config: *mut std::ffi::c_void) -> i32;
     fn hv_vm_destroy() -> i32;
     fn hv_vm_map(uva: *const std::ffi::c_void, gpa: u64, size: usize, flags: u64) -> i32;
     fn hv_vm_unmap(gpa: u64, size: usize) -> i32;
+    #[allow(dead_code)]
     fn hv_vm_protect(gpa: u64, size: usize, flags: u64) -> i32;
 
     // vCPU 管理
@@ -76,7 +76,6 @@ const HV_MEMORY_EXEC: u64 = 1 << 2;
 
 // x86_64 寄存器定义
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-#[allow(dead_code)]
 mod x86_regs {
     pub const HV_X86_RIP: u32 = 0;
     pub const HV_X86_RFLAGS: u32 = 1;
@@ -100,12 +99,17 @@ mod x86_regs {
 
 // ARM64 寄存器定义
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[allow(dead_code)]
 mod arm_regs {
     pub const HV_REG_X0: u32 = 0;
+    // X1-X28 are available but not currently used in our implementation
+    // They are kept for future use and API completeness
+    #[allow(dead_code)]
     pub const HV_REG_X1: u32 = 1;
     // ... X2-X28
     pub const HV_REG_FP: u32 = 29;
+    // LR (Link Register) is available but not currently used
+    // Kept for future use and API completeness
+    #[allow(dead_code)]
     pub const HV_REG_LR: u32 = 30;
     pub const HV_REG_SP: u32 = 31;
     pub const HV_REG_PC: u32 = 32;
@@ -473,7 +477,9 @@ mod tests {
 
     #[test]
     fn test_hvf_availability() {
-        println!("HVF available: {}", AccelHvf::is_available());
+        tracing::debug!("HVF available: {}", AccelHvf::is_available());
+        // Test passes if no panic occurs
+        let _ = AccelHvf::is_available();
     }
 
     #[test]

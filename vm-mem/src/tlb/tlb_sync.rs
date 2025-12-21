@@ -4,13 +4,16 @@
 
 use crate::GuestAddr;
 use crate::tlb::per_cpu_tlb::PerCpuTlbManager;
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Mutex;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use vm_core::VmError;
+
+/// Type alias for deduplication window
+type DedupWindow = Arc<RwLock<HashMap<(GuestAddr, u16, SyncEventType), Instant>>>;
 
 /// 同步事件类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,7 +61,7 @@ impl SyncEvent {
         source_cpu: usize,
     ) -> Self {
         static EVENT_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-        
+
         Self {
             event_type,
             gva,
@@ -190,7 +193,10 @@ impl TlbSyncStats {
         self.failed_syncs.store(0, Ordering::Relaxed);
         self.avg_sync_time_ns.store(0, Ordering::Relaxed);
         self.max_sync_time_ns.store(0, Ordering::Relaxed);
-        self.max_queue_size.store(self.current_queue_size.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.max_queue_size.store(
+            self.current_queue_size.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -219,7 +225,7 @@ pub struct TlbSynchronizer {
     /// 同步事件队列
     sync_queue: Arc<Mutex<VecDeque<SyncEvent>>>,
     /// 去重窗口
-    dedup_window: Arc<RwLock<HashMap<(GuestAddr, u16, SyncEventType), Instant>>>,
+    dedup_window: DedupWindow,
     /// 统计信息
     stats: Arc<TlbSyncStats>,
     /// 最后批量同步时间
@@ -228,10 +234,7 @@ pub struct TlbSynchronizer {
 
 impl TlbSynchronizer {
     /// 创建新的TLB同步器
-    pub fn new(
-        config: TlbSyncConfig,
-        tlb_manager: Arc<PerCpuTlbManager>,
-    ) -> Self {
+    pub fn new(config: TlbSyncConfig, tlb_manager: Arc<PerCpuTlbManager>) -> Self {
         Self {
             config,
             tlb_manager,
@@ -265,7 +268,9 @@ impl TlbSynchronizer {
         // 去重检查
         if self.config.enable_deduplication {
             if self.is_duplicate_event(&event) {
-                self.stats.deduplicated_events.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .deduplicated_events
+                    .fetch_add(1, Ordering::Relaxed);
                 return Ok(());
             }
             self.add_to_dedup_window(&event);
@@ -284,7 +289,7 @@ impl TlbSynchronizer {
     fn is_duplicate_event(&self, event: &SyncEvent) -> bool {
         let dedup_window = self.dedup_window.read().unwrap();
         let key = (event.gva, event.asid, event.event_type);
-        
+
         if let Some(&timestamp) = dedup_window.get(&key) {
             let elapsed = timestamp.elapsed();
             elapsed < Duration::from_millis(self.config.dedup_window_ms)
@@ -298,7 +303,7 @@ impl TlbSynchronizer {
         let mut dedup_window = self.dedup_window.write().unwrap();
         let key = (event.gva, event.asid, event.event_type);
         dedup_window.insert(key, event.timestamp);
-        
+
         // 清理过期条目
         let now = Instant::now();
         dedup_window.retain(|_, &mut timestamp| {
@@ -309,7 +314,7 @@ impl TlbSynchronizer {
     /// 立即同步
     fn sync_immediate(&self, event: &SyncEvent) -> Result<(), VmError> {
         let start_time = Instant::now();
-        
+
         match event.event_type {
             SyncEventType::PageTableUpdate | SyncEventType::PermissionChange => {
                 // 刷新特定页面
@@ -324,11 +329,11 @@ impl TlbSynchronizer {
                 self.tlb_manager.flush_all();
             }
         }
-        
+
         // 更新统计信息
         self.stats.immediate_syncs.fetch_add(1, Ordering::Relaxed);
         self.update_sync_time_stats(start_time.elapsed().as_nanos() as u64);
-        
+
         Ok(())
     }
 
@@ -336,38 +341,41 @@ impl TlbSynchronizer {
     fn sync_batched(&self, event: &SyncEvent) -> Result<(), VmError> {
         // 添加到队列
         {
-            let mut queue = self.sync_queue.lock().unwrap();
-            
+            let mut queue = self.sync_queue.lock();
+
             // 检查队列大小
             if queue.len() >= self.config.max_queue_size {
                 // 队列已满，强制同步
                 let events = queue.drain(..).collect::<Vec<_>>();
                 self.process_batch_sync(&events)?;
             }
-            
+
             queue.push_back(event.clone());
-            
+
             // 更新队列大小统计
             let current_size = queue.len();
-            self.stats.current_queue_size.store(current_size, Ordering::Relaxed);
-            
+            self.stats
+                .current_queue_size
+                .store(current_size, Ordering::Relaxed);
+
             let max_size = self.stats.max_queue_size.load(Ordering::Relaxed);
             if current_size > max_size {
-                self.stats.max_queue_size.store(current_size, Ordering::Relaxed);
+                self.stats
+                    .max_queue_size
+                    .store(current_size, Ordering::Relaxed);
             }
         }
-        
+
         // 检查是否需要立即处理
         let should_process = {
-            let queue = self.sync_queue.lock().unwrap();
-            queue.len() >= self.config.batch_size || 
-            self.should_process_batch_timeout()
+            let queue = self.sync_queue.lock();
+            queue.len() >= self.config.batch_size || self.should_process_batch_timeout()
         };
-        
+
         if should_process {
             self.process_batch_queue()?;
         }
-        
+
         Ok(())
     }
 
@@ -375,50 +383,54 @@ impl TlbSynchronizer {
     fn sync_delayed(&self, event: &SyncEvent) -> Result<(), VmError> {
         // 添加到队列
         {
-            let mut queue = self.sync_queue.lock().unwrap();
-            
+            let mut queue = self.sync_queue.lock();
+
             // 检查队列大小
             if queue.len() >= self.config.max_queue_size {
                 // 队列已满，强制同步
                 let events = queue.drain(..).collect::<Vec<_>>();
                 self.process_batch_sync(&events)?;
             }
-            
+
             queue.push_back(event.clone());
-            
+
             // 更新队列大小统计
             let current_size = queue.len();
-            self.stats.current_queue_size.store(current_size, Ordering::Relaxed);
-            
+            self.stats
+                .current_queue_size
+                .store(current_size, Ordering::Relaxed);
+
             let max_size = self.stats.max_queue_size.load(Ordering::Relaxed);
             if current_size > max_size {
-                self.stats.max_queue_size.store(current_size, Ordering::Relaxed);
+                self.stats
+                    .max_queue_size
+                    .store(current_size, Ordering::Relaxed);
             }
         }
-        
+
         // 延迟处理
         std::thread::spawn({
             let sync_queue = self.sync_queue.clone();
             let stats = self.stats.clone();
             let delay_ms = self.config.delay_ms;
             let tlb_manager = self.tlb_manager.clone();
-            
+
             move || {
                 std::thread::sleep(Duration::from_millis(delay_ms));
-                
+
                 let events = {
-                    let mut queue = sync_queue.lock().unwrap();
+                    let mut queue = sync_queue.lock();
                     let events = queue.drain(..).collect::<Vec<_>>();
                     stats.current_queue_size.store(0, Ordering::Relaxed);
                     events
                 };
-                
+
                 if !events.is_empty() {
                     Self::process_batch_sync_static(&events, &tlb_manager, &stats);
                 }
             }
         });
-        
+
         self.stats.delayed_syncs.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -427,58 +439,57 @@ impl TlbSynchronizer {
     fn sync_adaptive(&self, event: &SyncEvent) -> Result<(), VmError> {
         // 根据系统负载和事件类型选择策略
         let stats = self.stats.snapshot();
-        
+
         // 如果队列很大或事件是全局的，使用立即同步
         if stats.current_queue_size > self.config.batch_size || event.global {
             return self.sync_immediate(event);
         }
-        
+
         // 如果同步失败率高，使用批量同步
-        if stats.total_events > 0 && 
-           stats.failed_syncs as f64 / stats.total_events as f64 > 0.1 {
+        if stats.total_events > 0 && stats.failed_syncs as f64 / stats.total_events as f64 > 0.1 {
             return self.sync_batched(event);
         }
-        
+
         // 默认使用批量同步
         self.sync_batched(event)
     }
 
     /// 检查是否应该处理批量同步（基于超时）
     fn should_process_batch_timeout(&self) -> bool {
-        let last_sync = self.last_batch_sync.lock().unwrap();
+        let last_sync = self.last_batch_sync.lock();
         last_sync.elapsed() >= Duration::from_millis(self.config.batch_timeout_ms)
     }
 
     /// 处理批量同步队列
     fn process_batch_queue(&self) -> Result<(), VmError> {
         let events = {
-            let mut queue = self.sync_queue.lock().unwrap();
+            let mut queue = self.sync_queue.lock();
             let events = queue.drain(..).collect::<Vec<_>>();
             self.stats.current_queue_size.store(0, Ordering::Relaxed);
-            
+
             // 更新最后批量同步时间
-            let mut last_sync = self.last_batch_sync.lock().unwrap();
+            let mut last_sync = self.last_batch_sync.lock();
             *last_sync = Instant::now();
-            
+
             events
         };
-        
+
         if !events.is_empty() {
             self.process_batch_sync(&events)?;
         }
-        
+
         Ok(())
     }
 
     /// 处理批量同步
     fn process_batch_sync(&self, events: &[SyncEvent]) -> Result<(), VmError> {
         let start_time = Instant::now();
-        
+
         // 按事件类型分组
         let mut page_updates = HashSet::new();
         let mut asid_switches = HashSet::new();
         let mut global_flushes = false;
-        
+
         for event in events {
             match event.event_type {
                 SyncEventType::PageTableUpdate | SyncEventType::PermissionChange => {
@@ -492,7 +503,7 @@ impl TlbSynchronizer {
                 }
             }
         }
-        
+
         // 执行同步操作
         if global_flushes {
             self.tlb_manager.flush_all();
@@ -501,17 +512,17 @@ impl TlbSynchronizer {
             for asid in asid_switches {
                 self.tlb_manager.flush_asid(asid);
             }
-            
+
             // 再处理页面更新
             for (gva, asid) in page_updates {
                 self.tlb_manager.flush_page(gva, asid);
             }
         }
-        
+
         // 更新统计信息
         self.stats.batched_syncs.fetch_add(1, Ordering::Relaxed);
         self.update_sync_time_stats(start_time.elapsed().as_nanos() as u64);
-        
+
         Ok(())
     }
 
@@ -522,12 +533,12 @@ impl TlbSynchronizer {
         stats: &TlbSyncStats,
     ) {
         let start_time = Instant::now();
-        
+
         // 按事件类型分组
         let mut page_updates = HashSet::new();
         let mut asid_switches = HashSet::new();
         let mut global_flushes = false;
-        
+
         for event in events {
             match event.event_type {
                 SyncEventType::PageTableUpdate | SyncEventType::PermissionChange => {
@@ -541,7 +552,7 @@ impl TlbSynchronizer {
                 }
             }
         }
-        
+
         // 执行同步操作
         if global_flushes {
             tlb_manager.flush_all();
@@ -550,13 +561,13 @@ impl TlbSynchronizer {
             for asid in asid_switches {
                 tlb_manager.flush_asid(asid);
             }
-            
+
             // 再处理页面更新
             for (gva, asid) in page_updates {
                 tlb_manager.flush_page(gva, asid);
             }
         }
-        
+
         // 更新统计信息
         stats.batched_syncs.fetch_add(1, Ordering::Relaxed);
         let sync_time = start_time.elapsed().as_nanos() as u64;
@@ -567,20 +578,24 @@ impl TlbSynchronizer {
     fn update_sync_time_stats(&self, sync_time_ns: u64) {
         let total = self.stats.total_events.load(Ordering::Relaxed);
         let current_avg = self.stats.avg_sync_time_ns.load(Ordering::Relaxed);
-        
+
         // 计算新的平均值
         let new_avg = if total > 1 {
             (current_avg * (total - 1) + sync_time_ns) / total
         } else {
             sync_time_ns
         };
-        
-        self.stats.avg_sync_time_ns.store(new_avg, Ordering::Relaxed);
-        
+
+        self.stats
+            .avg_sync_time_ns
+            .store(new_avg, Ordering::Relaxed);
+
         // 更新最大值
         let current_max = self.stats.max_sync_time_ns.load(Ordering::Relaxed);
         if sync_time_ns > current_max {
-            self.stats.max_sync_time_ns.store(sync_time_ns, Ordering::Relaxed);
+            self.stats
+                .max_sync_time_ns
+                .store(sync_time_ns, Ordering::Relaxed);
         }
     }
 
@@ -588,20 +603,22 @@ impl TlbSynchronizer {
     fn update_sync_time_stats_static(stats: &TlbSyncStats, sync_time_ns: u64) {
         let total = stats.total_events.load(Ordering::Relaxed);
         let current_avg = stats.avg_sync_time_ns.load(Ordering::Relaxed);
-        
+
         // 计算新的平均值
         let new_avg = if total > 1 {
             (current_avg * (total - 1) + sync_time_ns) / total
         } else {
             sync_time_ns
         };
-        
+
         stats.avg_sync_time_ns.store(new_avg, Ordering::Relaxed);
-        
+
         // 更新最大值
         let current_max = stats.max_sync_time_ns.load(Ordering::Relaxed);
         if sync_time_ns > current_max {
-            stats.max_sync_time_ns.store(sync_time_ns, Ordering::Relaxed);
+            stats
+                .max_sync_time_ns
+                .store(sync_time_ns, Ordering::Relaxed);
         }
     }
 
@@ -625,14 +642,14 @@ mod tests {
     fn test_sync_event_creation() {
         let event = SyncEvent::new(
             SyncEventType::PageTableUpdate,
-            0x1000,
+            GuestAddr(0x1000),
             0,
             4096,
             0,
         );
-        
+
         assert_eq!(event.event_type, SyncEventType::PageTableUpdate);
-        assert_eq!(event.gva, 0x1000);
+        assert_eq!(event.gva, GuestAddr(0x1000));
         assert_eq!(event.asid, 0);
         assert_eq!(event.page_size, 4096);
         assert_eq!(event.source_cpu, 0);
@@ -643,45 +660,45 @@ mod tests {
     fn test_sync_event_affects_address() {
         let event = SyncEvent::new(
             SyncEventType::PageTableUpdate,
-            0x1000,
+            GuestAddr(0x1000),
             0,
             4096,
             0,
         );
-        
+
         // 同一页面
-        assert!(event.affects_address(0x1000, 0));
-        assert!(event.affects_address(0x1FFF, 0));
-        
+        assert!(event.affects_address(GuestAddr(0x1000), 0));
+        assert!(event.affects_address(GuestAddr(0x1FFF), 0));
+
         // 不同页面
-        assert!(!event.affects_address(0x2000, 0));
-        
+        assert!(!event.affects_address(GuestAddr(0x2000), 0));
+
         // 不同ASID
-        assert!(!event.affects_address(0x1000, 1));
+        assert!(!event.affects_address(GuestAddr(0x1000), 1));
     }
 
     #[test]
     fn test_global_sync_event() {
         let event = SyncEvent::new(
             SyncEventType::GlobalMappingUpdate,
-            0x1000,
+            GuestAddr(0x1000),
             0,
             4096,
             0,
         );
-        
+
         assert!(event.global);
-        
+
         // 全局事件影响所有ASID
-        assert!(event.affects_address(0x1000, 0));
-        assert!(event.affects_address(0x1000, 1));
+        assert!(event.affects_address(GuestAddr(0x1000), 0));
+        assert!(event.affects_address(GuestAddr(0x1000), 1));
     }
 
     #[test]
     fn test_tlb_synchronizer_creation() {
         let tlb_manager = Arc::new(PerCpuTlbManager::with_default_config());
         let synchronizer = TlbSynchronizer::with_default_config(tlb_manager);
-        
+
         let stats = synchronizer.get_stats();
         assert_eq!(stats.total_events, 0);
     }
@@ -694,18 +711,18 @@ mod tests {
             ..Default::default()
         };
         let synchronizer = TlbSynchronizer::new(config, tlb_manager.clone());
-        
+
         let event = SyncEvent::new(
             SyncEventType::PageTableUpdate,
-            0x1000,
+            GuestAddr(0x1000),
             0,
             4096,
             0,
         );
-        
+
         let result = synchronizer.add_sync_event(event);
         assert!(result.is_ok());
-        
+
         let stats = synchronizer.get_stats();
         assert_eq!(stats.total_events, 1);
         assert_eq!(stats.immediate_syncs, 1);
@@ -720,29 +737,29 @@ mod tests {
             ..Default::default()
         };
         let synchronizer = TlbSynchronizer::new(config, tlb_manager.clone());
-        
+
         let event1 = SyncEvent::new(
             SyncEventType::PageTableUpdate,
-            0x1000,
+            GuestAddr(0x1000),
             0,
             4096,
             0,
         );
-        
+
         let event2 = SyncEvent::new(
             SyncEventType::PageTableUpdate,
-            0x1000,
+            GuestAddr(0x1000),
             0,
             4096,
             1,
         );
-        
+
         let result1 = synchronizer.add_sync_event(event1);
         let result2 = synchronizer.add_sync_event(event2);
-        
+
         assert!(result1.is_ok());
         assert!(result2.is_ok());
-        
+
         let stats = synchronizer.get_stats();
         assert_eq!(stats.total_events, 2);
         assert_eq!(stats.deduplicated_events, 1);

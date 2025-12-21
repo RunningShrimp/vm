@@ -82,7 +82,7 @@ impl From<DmaError> for VmError {
     fn from(err: DmaError) -> Self {
         match err {
             DmaError::MappingFailed(msg) | DmaError::Unsupported(msg) => {
-                VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, msg).to_string())
+                VmError::Io(std::io::Error::other(msg).to_string())
             }
             DmaError::OutOfMemory => VmError::Memory(MemoryError::AllocationFailed {
                 message: "DMA: out of memory".into(),
@@ -303,6 +303,7 @@ pub struct DmaStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_core::{GuestAddr, HostAddr};
 
     #[test]
     fn test_dma_manager_creation() {
@@ -314,8 +315,8 @@ mod tests {
     fn test_register_and_find_mapping() {
         let dma = DmaManager::new(4096);
         let desc = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: GuestAddr(0x1000),
+            host_addr: Some(HostAddr(0x2000)),
             len: 512,
             flags: DmaFlags {
                 readable: true,
@@ -325,7 +326,7 @@ mod tests {
         };
 
         assert!(dma.register_mapping(desc).is_ok());
-        let found = dma.find_mapping(0x1000).unwrap();
+        let found = dma.find_mapping(GuestAddr(0x1000)).unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().len, 512);
     }
@@ -334,29 +335,31 @@ mod tests {
     fn test_translate_dma_address() {
         let dma = DmaManager::new(4096);
         let desc = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: GuestAddr(0x1000),
+            host_addr: Some(HostAddr(0x2000)),
             len: 512,
             flags: DmaFlags::default(),
         };
 
         dma.register_mapping(desc).unwrap();
-        let translation = dma.translate_dma_addr(0x1000).unwrap();
-        assert_eq!(translation.host_addr, 0x2000);
+        let translation = dma.translate_dma_addr(GuestAddr(0x1000)).unwrap();
+        assert_eq!(translation.host_addr, HostAddr(0x2000));
     }
 
     #[test]
     fn test_scatter_gather_list() {
         let dma = DmaManager::new(4096);
         let desc = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: GuestAddr(0x1000),
+            host_addr: Some(HostAddr(0x2000)),
             len: 1024,
             flags: DmaFlags::default(),
         };
 
         dma.register_mapping(desc).unwrap();
-        let sg_list = dma.build_scatter_gather_list(0x1000, 512).unwrap();
+        let sg_list = dma
+            .build_scatter_gather_list(GuestAddr(0x1000), 512)
+            .unwrap();
         assert_eq!(sg_list.len(), 1);
         assert_eq!(sg_list[0].descriptor.len, 512);
     }
@@ -364,7 +367,7 @@ mod tests {
     #[test]
     fn test_invalid_address_translation() {
         let dma = DmaManager::new(4096);
-        let result = dma.translate_dma_addr(0x5000);
+        let result = dma.translate_dma_addr(GuestAddr(0x5000));
         assert!(result.is_err());
     }
 
@@ -372,14 +375,14 @@ mod tests {
     fn test_dma_stats() {
         let dma = DmaManager::new(4096);
         let desc1 = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: GuestAddr(0x1000),
+            host_addr: Some(HostAddr(0x2000)),
             len: 512,
             flags: DmaFlags::default(),
         };
         let desc2 = DmaDescriptor {
-            guest_addr: 0x2000,
-            host_addr: Some(0x3000),
+            guest_addr: GuestAddr(0x2000),
+            host_addr: Some(HostAddr(0x3000)),
             len: 1024,
             flags: DmaFlags::default(),
         };

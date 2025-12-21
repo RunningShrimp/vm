@@ -15,6 +15,9 @@ mod dependency;
 mod plugin_manager;
 mod security;
 
+/// Type alias for plugin event callback
+type PluginEventCallback = dyn FnMut(&PluginEvent) + Send + Sync;
+
 pub use dependency::DependencyResolver;
 pub use plugin_manager::{
     PluginChannel, PluginChannelHandle, PluginHealth, PluginManager, PluginMessage,
@@ -24,7 +27,8 @@ pub use security::{PermissionPolicy, PluginResourceMonitor, SandboxConfig, Secur
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use vm_core::VmError;
 
 /// 插件ID类型
@@ -276,7 +280,7 @@ pub struct PluginStatus {
 ///
 /// 提供插件间的事件发布和订阅机制。
 pub struct PluginEventBus {
-    subscribers: HashMap<String, Vec<Box<dyn FnMut(&PluginEvent) + Send + Sync>>>,
+    subscribers: HashMap<String, Vec<Box<PluginEventCallback>>>,
     /// 事件统计
     stats: EventBusStats,
 }
@@ -593,7 +597,6 @@ mod tests {
     #[test]
     fn test_plugin_event_bus() {
         let mut event_bus = PluginEventBus::new();
-        let mut received_events = Vec::new();
 
         // 订阅事件
         // Use Arc and Mutex to handle shared mutable state in the closure

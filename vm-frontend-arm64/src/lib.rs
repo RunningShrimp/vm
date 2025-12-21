@@ -10,12 +10,10 @@ mod qualcomm_hexagon;
 
 use crate::extended_insns::ExtendedDecoder;
 
-
-
 pub use apple_amx::{AmxDecoder, AmxInstruction, AmxPrecision};
-pub use hisilicon_npu::{NpuDecoder, NpuActType, NpuInstruction};
-pub use mediatek_apu::{ApuDecoder, ApuActType, ApuInstruction, ApuPoolType};
-pub use qualcomm_hexagon::{HexagonDecoder, HexVectorOp, HexagonInstruction};
+pub use hisilicon_npu::{NpuActType, NpuDecoder, NpuInstruction};
+pub use mediatek_apu::{ApuActType, ApuDecoder, ApuInstruction, ApuPoolType};
+pub use qualcomm_hexagon::{HexVectorOp, HexagonDecoder, HexagonInstruction};
 pub enum Cond {
     EQ = 0,
     NE = 1,
@@ -240,7 +238,7 @@ impl Decoder for Arm64Decoder {
             // LDR/STR (Unsigned Immediate)
             if (insn & 0x3F000000) == 0x39000000
                 || (insn & 0xFF000000) == 0xF9000000
-                || (insn & 0xFF000000) == 0xF9400000
+                || (insn & 0xFFC00000) == 0xF9400000
             {
                 let size_bits = (insn >> 30) & 0x3;
                 let is_load = (insn & 0x00400000) != 0;
@@ -525,18 +523,22 @@ impl Decoder for Arm64Decoder {
                     7 => vm_ir::AtomicOp::Min,  // LDUMIN
                     _ => vm_ir::AtomicOp::Xchg,
                 };
-                // ARM64 LSE 指令支持 acquire/release 变体，这里先以保守默认值填充
-                let mut flags = MemFlags::default();
-                flags.atomic = true;
                 let acq = ((insn >> 23) & 1) != 0;
                 let rel = ((insn >> 22) & 1) != 0;
-                if acq && rel {
-                    flags.order = vm_ir::MemOrder::AcqRel;
+                let order = if acq && rel {
+                    vm_ir::MemOrder::AcqRel
                 } else if acq {
-                    flags.order = vm_ir::MemOrder::Acquire;
+                    vm_ir::MemOrder::Acquire
                 } else if rel {
-                    flags.order = vm_ir::MemOrder::Release;
-                }
+                    vm_ir::MemOrder::Release
+                } else {
+                    vm_ir::MemOrder::None
+                };
+                let flags = MemFlags {
+                    atomic: true,
+                    order,
+                    ..MemFlags::default()
+                };
                 builder.push(IROp::AtomicRMWOrder {
                     dst: rt,
                     base: rn,
@@ -563,17 +565,22 @@ impl Decoder for Arm64Decoder {
                     3 => 8,
                     _ => 4,
                 };
-                let mut flags = MemFlags::default();
-                flags.atomic = true;
                 let acq = ((insn >> 23) & 1) != 0;
                 let rel = ((insn >> 22) & 1) != 0;
-                if acq && rel {
-                    flags.order = vm_ir::MemOrder::AcqRel;
+                let order = if acq && rel {
+                    vm_ir::MemOrder::AcqRel
                 } else if acq {
-                    flags.order = vm_ir::MemOrder::Acquire;
+                    vm_ir::MemOrder::Acquire
                 } else if rel {
-                    flags.order = vm_ir::MemOrder::Release;
-                }
+                    vm_ir::MemOrder::Release
+                } else {
+                    vm_ir::MemOrder::None
+                };
+                let flags = MemFlags {
+                    atomic: true,
+                    order,
+                    ..MemFlags::default()
+                };
 
                 builder.push(IROp::AtomicCmpXchgOrder {
                     dst: rt,
@@ -877,7 +884,7 @@ impl Decoder for Arm64Decoder {
 
             // NEG/NEGS (Negate)
             // sf 1 1 0 1 0 1 0 0 0 0 0 0 ...
-            if (insn & 0x1FE00000) == 0x4B000000 || (insn & 0x1FE00000) == 0x4B200000 {
+            if (insn & 0xFFE00000) == 0x4B000000 || (insn & 0xFFE00000) == 0x4B200000 {
                 let sets_flags = (insn & 0x20000000) != 0; // S bit
                 let rm = (insn >> 16) & 0x1F;
                 let rd = insn & 0x1F;
@@ -894,10 +901,10 @@ impl Decoder for Arm64Decoder {
                     let pstate_reg = 17;
                     let one = 201;
                     builder.push(IROp::MovImm { dst: one, imm: 1 });
-                    
+
                     // Read current PSTATE flags
                     builder.push(IROp::ReadPstateFlags { dst: pstate_reg });
-                    
+
                     let z_flag = 202;
                     builder.push(IROp::CmpEq {
                         dst: z_flag,
@@ -981,7 +988,7 @@ impl Decoder for Arm64Decoder {
             // CMP is SUB with zero destination, CMN is ADD with zero destination
             // sf 1 1 0 1 0 0 0 0 0 0 0 0 ... (CMP)
             // sf 1 0 1 1 0 0 0 0 0 0 0 0 ... (CMN)
-            if (insn & 0x1FE00000) == 0x4B000000 && (insn & 0x1FFC00) == 0x1F0000 {
+            if (insn & 0xFFE00000) == 0x4B000000 && (insn & 0x1FFC00) == 0x1F0000 {
                 // CMP: Rn - Rm (SUB with zero destination)
                 let rm = (insn >> 16) & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
@@ -997,7 +1004,7 @@ impl Decoder for Arm64Decoder {
                 let zero = 201;
                 let one = 202;
                 builder.push(IROp::MovImm { dst: zero, imm: 0 });
-                
+
                 // Read current PSTATE flags
                 builder.push(IROp::ReadPstateFlags { dst: pstate_reg });
                 builder.push(IROp::MovImm { dst: one, imm: 1 });
@@ -1080,7 +1087,7 @@ impl Decoder for Arm64Decoder {
                 continue;
             }
 
-            if (insn & 0x1FE00000) == 0x2B000000 && (insn & 0x1FFC00) == 0x1F0000 {
+            if (insn & 0xFFE00000) == 0x2B000000 && (insn & 0x1FFC00) == 0x1F0000 {
                 // CMN: Rn + Rm (ADD with zero destination)
                 let rm = (insn >> 16) & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
@@ -1096,7 +1103,7 @@ impl Decoder for Arm64Decoder {
                 let zero = 201;
                 let one = 202;
                 builder.push(IROp::MovImm { dst: zero, imm: 0 });
-                
+
                 // Read current PSTATE flags
                 builder.push(IROp::ReadPstateFlags { dst: pstate_reg });
                 builder.push(IROp::MovImm { dst: one, imm: 1 });
@@ -1196,7 +1203,7 @@ impl Decoder for Arm64Decoder {
                 let zero = 201;
                 let one = 202;
                 builder.push(IROp::MovImm { dst: zero, imm: 0 });
-                
+
                 // Read current PSTATE flags
                 builder.push(IROp::ReadPstateFlags { dst: pstate_reg });
                 builder.push(IROp::MovImm { dst: one, imm: 1 });
@@ -1814,7 +1821,7 @@ impl Decoder for Arm64Decoder {
                         src: vn,
                         shreg: vm,
                     });
-                    
+
                     // Log element size for debugging purposes
                     println!("NEON SHL element size: {} bytes", element_size);
                     current_pc += 4;
@@ -1847,7 +1854,7 @@ impl Decoder for Arm64Decoder {
                         src: vn,
                         shreg: vm,
                     });
-                    
+
                     // Log element size for debugging purposes
                     println!("NEON SHR element size: {} bytes", element_size);
                     current_pc += 4;
@@ -1913,7 +1920,7 @@ impl Decoder for Arm64Decoder {
                         src: vn,
                         shreg: vm,
                     });
-                    
+
                     // Log element size for debugging purposes
                     let element_size = match size {
                         0 => 1,
@@ -2028,7 +2035,7 @@ impl Decoder for Arm64Decoder {
                         src: temp,
                         imm: 0,
                     });
-                    
+
                     // Log element size for debugging purposes
                     let element_size = match size {
                         0 => 1,
@@ -2071,7 +2078,7 @@ impl Decoder for Arm64Decoder {
                         src: temp,
                         imm: 0,
                     });
-                    
+
                     // Log element size for debugging purposes
                     let element_size = match size {
                         0 => 1,
@@ -3893,7 +3900,7 @@ impl Decoder for Arm64Decoder {
                 } else {
                     (imms + 1) as u8
                 };
-                
+
                 let mask = (1u64 << width) - 1;
 
                 // Extract source bits
@@ -3925,7 +3932,7 @@ impl Decoder for Arm64Decoder {
                         src1: sign_bit,
                         src2: 1,
                     });
-                    
+
                     // If sign bit is set, extend with 1s
                     let sign_mask = 205;
                     builder.push(IROp::MovImm {
@@ -4072,7 +4079,7 @@ impl Decoder for Arm64Decoder {
             // LSL/LSR/ASR (Logical/Arithmetic Shift)
             // These are handled as part of ADD/SUB with shift, but also exist as standalone
             // sf 1 1 0 1 0 1 1 0 0 0 0 0 ...
-            if (insn & 0x1F800000) == 0x1AC00000 {
+            if (insn & 0xFFC00000) == 0x1AC00000 {
                 let shift_type = (insn >> 22) & 3;
                 let rm = (insn >> 16) & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
@@ -4518,9 +4525,11 @@ impl Decoder for Arm64Decoder {
                     _ => 4,
                 };
 
-                let mut flags = MemFlags::default();
-                flags.atomic = true;
-                flags.order = vm_ir::MemOrder::Acquire;
+                let flags = MemFlags {
+                    atomic: true,
+                    order: vm_ir::MemOrder::Acquire,
+                    ..MemFlags::default()
+                };
 
                 if is_load {
                     builder.push(IROp::AtomicLoadReserve {
@@ -4533,9 +4542,11 @@ impl Decoder for Arm64Decoder {
                 } else {
                     // STXR: Store Exclusive Register
                     let rs = (insn >> 16) & 0x1F; // Status register
-                    let mut store_flags = MemFlags::default();
-                    store_flags.atomic = true;
-                    store_flags.order = vm_ir::MemOrder::Release;
+                    let store_flags = MemFlags {
+                        atomic: true,
+                        order: vm_ir::MemOrder::Release,
+                        ..MemFlags::default()
+                    };
                     builder.push(IROp::AtomicStoreCond {
                         src: rt,
                         base: rn,
@@ -4567,9 +4578,11 @@ impl Decoder for Arm64Decoder {
                     _ => 4,
                 };
 
-                let mut flags = MemFlags::default();
-                flags.atomic = true;
-                flags.order = vm_ir::MemOrder::Acquire;
+                let flags = MemFlags {
+                    atomic: true,
+                    order: vm_ir::MemOrder::Acquire,
+                    ..MemFlags::default()
+                };
 
                 if is_load {
                     builder.push(IROp::AtomicLoadReserve {
@@ -4589,9 +4602,11 @@ impl Decoder for Arm64Decoder {
                 } else {
                     // STXP: Store Exclusive Pair
                     let rs = (insn >> 16) & 0x1F; // Status register
-                    let mut store_flags = MemFlags::default();
-                    store_flags.atomic = true;
-                    store_flags.order = vm_ir::MemOrder::Release;
+                    let store_flags = MemFlags {
+                        atomic: true,
+                        order: vm_ir::MemOrder::Release,
+                        ..MemFlags::default()
+                    };
                     builder.push(IROp::AtomicStoreCond {
                         src: rt,
                         base: rn,
@@ -4630,13 +4645,16 @@ impl Decoder for Arm64Decoder {
                     _ => 4,
                 };
 
-                let mut flags = MemFlags::default();
-                flags.atomic = true;
-                if is_load {
-                    flags.order = vm_ir::MemOrder::Acquire;
+                let order = if is_load {
+                    vm_ir::MemOrder::Acquire
                 } else {
-                    flags.order = vm_ir::MemOrder::Release;
-                }
+                    vm_ir::MemOrder::Release
+                };
+                let flags = MemFlags {
+                    atomic: true,
+                    order,
+                    ..MemFlags::default()
+                };
 
                 if is_load {
                     builder.push(IROp::Load {
@@ -4828,7 +4846,7 @@ impl Decoder for Arm64Decoder {
                 // Read current PSTATE flags
                 let pstate_reg = 17; // PSTATE register for flag updates
                 builder.push(IROp::ReadPstateFlags { dst: pstate_reg });
-                
+
                 let zero = 201;
                 let one = 202;
                 builder.push(IROp::MovImm { dst: zero, imm: 0 });
@@ -4937,7 +4955,7 @@ impl Decoder for Arm64Decoder {
                     src1: cleared_pstate,
                     src2: nzcv_flags,
                 });
-                
+
                 builder.push(IROp::WritePstateFlags { src: new_pstate });
 
                 current_pc += 4;
@@ -5230,9 +5248,10 @@ impl Decoder for Arm64Decoder {
                 && let Ok(Some(amx_insn)) = self.amx_decoder.decode(insn, current_pc)
             {
                 let mut reg_file = RegisterFile::new(32, vm_ir::RegisterMode::SSA);
-                if let Err(_) = self
+                if self
                     .amx_decoder
                     .to_ir(&amx_insn, &mut builder, &mut reg_file)
+                    .is_err()
                 {
                     // 错误处理
                 } else {
@@ -5247,9 +5266,10 @@ impl Decoder for Arm64Decoder {
                 && let Ok(Some(hex_insn)) = self.hexagon_decoder.decode(insn, current_pc)
             {
                 let mut reg_file = RegisterFile::new(32, vm_ir::RegisterMode::SSA);
-                if let Err(_) = self
+                if self
                     .hexagon_decoder
                     .to_ir(&hex_insn, &mut builder, &mut reg_file)
+                    .is_err()
                 {
                     // 错误处理
                 } else {
@@ -5295,14 +5315,14 @@ impl Decoder for Arm64Decoder {
             }
 
             // 尝试解码 NEON 指令
-            if ExtendedDecoder::has_neon() {
-                if let Some(_decoded) = ExtendedDecoder::decode_neon(insn) {
-                    // 这里应该实际处理 NEON 指令
-                    // 目前只是占位符实现
-                    builder.push(IROp::Nop); // 占位符
-                    current_pc += 4;
-                    continue;
-                }
+            if ExtendedDecoder::has_neon()
+                && let Some(_decoded) = ExtendedDecoder::decode_neon(insn)
+            {
+                // 这里应该实际处理 NEON 指令
+                // 目前只是占位符实现
+                builder.push(IROp::Nop); // 占位符
+                current_pc += 4;
+                continue;
             }
 
             builder.set_term(Terminator::Fault { cause: 0 });
@@ -6191,12 +6211,12 @@ pub mod api {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_core::{AccessType, Fault, GuestAddr, GuestPhysAddr, MMU};
+    use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
 
     struct TestMmu {
         insn: u32,
     }
-    
+
     impl vm_core::AddressTranslator for TestMmu {
         fn translate(
             &mut self,
@@ -6213,7 +6233,7 @@ mod tests {
             self.flush_tlb();
         }
     }
-    
+
     impl vm_core::MemoryAccess for TestMmu {
         fn read(&self, _pa: GuestAddr, _size: u8) -> Result<u64, VmError> {
             Ok(0)
@@ -6224,7 +6244,12 @@ mod tests {
         fn load_reserved(&mut self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
             self.read(pa, size)
         }
-        fn store_conditional(&mut self, _pa: GuestAddr, _val: u64, _size: u8) -> Result<bool, VmError> {
+        fn store_conditional(
+            &mut self,
+            _pa: GuestAddr,
+            _val: u64,
+            _size: u8,
+        ) -> Result<bool, VmError> {
             Ok(false)
         }
         fn invalidate_reservation(&mut self, _pa: GuestAddr, _size: u8) {}
@@ -6255,19 +6280,16 @@ mod tests {
         fn dump_memory(&self) -> Vec<u8> {
             vec![]
         }
-    }
-    
-    impl vm_core::MmioManager for TestMmu {
-        fn map_mmio(
-            &self,
-            _base: GuestAddr,
-            _size: u64,
-            _device: Box<dyn vm_core::MmioDevice>,
-        ) {
+        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
+            Ok(())
         }
+    }
+
+    impl vm_core::MmioManager for TestMmu {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {}
         fn poll_devices(&self) {}
     }
-    
+
     impl vm_core::MmuAsAny for TestMmu {
         fn as_any(&self) -> &dyn std::any::Any {
             self
@@ -6301,7 +6323,7 @@ mod tests {
         let insn = assemble_lse_base(0x3820_0400, 2, 3, 5, 7, true, false);
         let mmu = TestMmu { insn };
 
-        let mut dec = Arm64Decoder;
+        let mut dec = Arm64Decoder::new();
         let block = dec
             .decode(&mmu, pc)
             .expect("Failed to decode ARM64 LSE CAL instruction");
@@ -6333,7 +6355,7 @@ mod tests {
         let insn = assemble_lse_base(0x3820_0400, 3, 2, 4, 6, true, true);
         let mmu = TestMmu { insn };
 
-        let mut dec = Arm64Decoder;
+        let mut dec = Arm64Decoder::new();
         let block = dec
             .decode(&mmu, pc)
             .expect("Failed to decode ARM64 LSE CASAL instruction");

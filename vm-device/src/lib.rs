@@ -58,6 +58,7 @@ pub mod block;
 #[cfg(feature = "async-io")]
 pub mod block_async;
 pub mod block_service; // DDD服务层
+pub mod device_integration_example; // 设备集成示例
 pub mod net;
 pub mod vhost_net;
 pub mod virtio_9p;
@@ -123,6 +124,7 @@ pub mod virgl;
 // 设备服务
 // ============================================================
 pub mod device_service;
+pub mod minimal_device_set;
 
 // ============================================================
 // 简化设备实现（需要 simple-devices 特性）
@@ -140,5 +142,5 @@ pub mod virtio_devices;
 // 高级网络功能
 // ============================================================
 pub mod dpdk;
-pub mod sriov;
 pub mod network_qos;
+pub mod sriov;

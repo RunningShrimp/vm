@@ -1,11 +1,11 @@
 //! Common instruction pattern recognition for VM cross-architecture translation
-//! 
+//!
 //! This module provides unified instruction pattern matching and semantic analysis
 //! across different architectures, enabling better cross-architecture translation.
 
-use vm_error::{Architecture, RegId};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+use vm_error::{Architecture, RegId};
 
 /// Errors that can occur during pattern matching
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -176,7 +176,13 @@ pub struct MemoryOperand {
 }
 
 impl MemoryOperand {
-    pub fn new(base: Option<RegId>, index: Option<RegId>, scale: u8, displacement: i64, size: u8) -> Self {
+    pub fn new(
+        base: Option<RegId>,
+        index: Option<RegId>,
+        scale: u8,
+        displacement: i64,
+        size: u8,
+    ) -> Self {
         Self {
             base,
             index,
@@ -208,7 +214,7 @@ impl MemoryOperand {
 }
 
 /// Instruction flags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct InstructionFlags {
     pub sets_flags: bool,
     pub reads_flags: bool,
@@ -218,21 +224,6 @@ pub struct InstructionFlags {
     pub is_volatile: bool,
     pub is_privileged: bool,
     pub is_terminal: bool,
-}
-
-impl Default for InstructionFlags {
-    fn default() -> Self {
-        Self {
-            sets_flags: false,
-            reads_flags: false,
-            is_conditional: false,
-            is_predicated: false,
-            is_atomic: false,
-            is_volatile: false,
-            is_privileged: false,
-            is_terminal: false,
-        }
-    }
 }
 
 /// Semantic description of an instruction
@@ -359,7 +350,11 @@ pub trait PatternMatcher {
     fn match_pattern(&self, ir_op: &IROp) -> Option<InstructionPattern>;
 
     /// Get equivalent patterns for a target architecture
-    fn get_equivalent_patterns(&self, pattern: &InstructionPattern, target_arch: Architecture) -> Vec<InstructionPattern>;
+    fn get_equivalent_patterns(
+        &self,
+        pattern: &InstructionPattern,
+        target_arch: Architecture,
+    ) -> Vec<InstructionPattern>;
 
     /// Get all patterns for a category
     fn get_patterns_by_category(&self, category: InstructionCategory) -> Vec<InstructionPattern>;
@@ -409,6 +404,12 @@ pub struct DefaultPatternMatcher {
     architecture_index: HashMap<Architecture, Vec<String>>,
 }
 
+impl Default for DefaultPatternMatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultPatternMatcher {
     pub fn new() -> Self {
         Self {
@@ -421,16 +422,25 @@ impl DefaultPatternMatcher {
     /// Add a pattern to the matcher
     pub fn add_pattern(&mut self, pattern: InstructionPattern) {
         let opcode = pattern.semantics.operation.clone();
-        
+
         // Add to main pattern index
-        self.patterns.entry(opcode.clone()).or_insert_with(Vec::new).push(pattern.clone());
-        
+        self.patterns
+            .entry(opcode.clone())
+            .or_default()
+            .push(pattern.clone());
+
         // Add to category index
-        self.category_index.entry(pattern.category).or_insert_with(Vec::new).push(opcode.clone());
-        
+        self.category_index
+            .entry(pattern.category)
+            .or_default()
+            .push(opcode.clone());
+
         // Add to architecture index
         for &arch in &pattern.architectures {
-            self.architecture_index.entry(arch).or_insert_with(Vec::new).push(opcode.clone());
+            self.architecture_index
+                .entry(arch)
+                .or_default()
+                .push(opcode.clone());
         }
     }
 
@@ -445,66 +455,68 @@ impl DefaultPatternMatcher {
     /// Add common arithmetic patterns
     fn add_arithmetic_patterns(&mut self) {
         // ADD pattern
-        let add_pattern = InstructionPattern::new("add", InstructionCategory::Arithmetic(ArithmeticType::Add))
-            .with_operand(OperandType::Register(0)) // dst
-            .with_operand(OperandType::Register(1)) // src1
-            .with_operand(OperandType::Register(2)) // src2
-            .with_flags(InstructionFlags {
-                sets_flags: true,
-                reads_flags: false,
-                is_conditional: false,
-                is_predicated: false,
-                is_atomic: false,
-                is_volatile: false,
-                is_privileged: false,
-                is_terminal: false,
-            })
-            .with_semantics(SemanticDescription {
-                operation: "add".to_string(),
-                preconditions: vec!["src1 and src2 are valid registers".to_string()],
-                postconditions: vec!["dst = src1 + src2".to_string()],
-                side_effects: vec![],
-                dependencies: vec![1, 2],
-                outputs: vec![0],
-            })
-            .with_architecture(Architecture::X86_64)
-            .with_architecture(Architecture::ARM64)
-            .with_architecture(Architecture::RISCV64)
-            .with_cost(1)
-            .with_latency(1)
-            .with_throughput(0.5);
+        let add_pattern =
+            InstructionPattern::new("add", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_operand(OperandType::Register(0)) // dst
+                .with_operand(OperandType::Register(1)) // src1
+                .with_operand(OperandType::Register(2)) // src2
+                .with_flags(InstructionFlags {
+                    sets_flags: true,
+                    reads_flags: false,
+                    is_conditional: false,
+                    is_predicated: false,
+                    is_atomic: false,
+                    is_volatile: false,
+                    is_privileged: false,
+                    is_terminal: false,
+                })
+                .with_semantics(SemanticDescription {
+                    operation: "add".to_string(),
+                    preconditions: vec!["src1 and src2 are valid registers".to_string()],
+                    postconditions: vec!["dst = src1 + src2".to_string()],
+                    side_effects: vec![],
+                    dependencies: vec![1, 2],
+                    outputs: vec![0],
+                })
+                .with_architecture(Architecture::X86_64)
+                .with_architecture(Architecture::ARM64)
+                .with_architecture(Architecture::RISCV64)
+                .with_cost(1)
+                .with_latency(1)
+                .with_throughput(0.5);
 
         self.add_pattern(add_pattern);
 
         // SUB pattern
-        let sub_pattern = InstructionPattern::new("sub", InstructionCategory::Arithmetic(ArithmeticType::Sub))
-            .with_operand(OperandType::Register(0)) // dst
-            .with_operand(OperandType::Register(1)) // src1
-            .with_operand(OperandType::Register(2)) // src2
-            .with_flags(InstructionFlags {
-                sets_flags: true,
-                reads_flags: false,
-                is_conditional: false,
-                is_predicated: false,
-                is_atomic: false,
-                is_volatile: false,
-                is_privileged: false,
-                is_terminal: false,
-            })
-            .with_semantics(SemanticDescription {
-                operation: "sub".to_string(),
-                preconditions: vec!["src1 and src2 are valid registers".to_string()],
-                postconditions: vec!["dst = src1 - src2".to_string()],
-                side_effects: vec![],
-                dependencies: vec![1, 2],
-                outputs: vec![0],
-            })
-            .with_architecture(Architecture::X86_64)
-            .with_architecture(Architecture::ARM64)
-            .with_architecture(Architecture::RISCV64)
-            .with_cost(1)
-            .with_latency(1)
-            .with_throughput(0.5);
+        let sub_pattern =
+            InstructionPattern::new("sub", InstructionCategory::Arithmetic(ArithmeticType::Sub))
+                .with_operand(OperandType::Register(0)) // dst
+                .with_operand(OperandType::Register(1)) // src1
+                .with_operand(OperandType::Register(2)) // src2
+                .with_flags(InstructionFlags {
+                    sets_flags: true,
+                    reads_flags: false,
+                    is_conditional: false,
+                    is_predicated: false,
+                    is_atomic: false,
+                    is_volatile: false,
+                    is_privileged: false,
+                    is_terminal: false,
+                })
+                .with_semantics(SemanticDescription {
+                    operation: "sub".to_string(),
+                    preconditions: vec!["src1 and src2 are valid registers".to_string()],
+                    postconditions: vec!["dst = src1 - src2".to_string()],
+                    side_effects: vec![],
+                    dependencies: vec![1, 2],
+                    outputs: vec![0],
+                })
+                .with_architecture(Architecture::X86_64)
+                .with_architecture(Architecture::ARM64)
+                .with_architecture(Architecture::RISCV64)
+                .with_cost(1)
+                .with_latency(1)
+                .with_throughput(0.5);
 
         self.add_pattern(sub_pattern);
     }
@@ -512,66 +524,68 @@ impl DefaultPatternMatcher {
     /// Add common logical patterns
     fn add_logical_patterns(&mut self) {
         // AND pattern
-        let and_pattern = InstructionPattern::new("and", InstructionCategory::Logical(LogicalType::And))
-            .with_operand(OperandType::Register(0)) // dst
-            .with_operand(OperandType::Register(1)) // src1
-            .with_operand(OperandType::Register(2)) // src2
-            .with_flags(InstructionFlags {
-                sets_flags: true,
-                reads_flags: false,
-                is_conditional: false,
-                is_predicated: false,
-                is_atomic: false,
-                is_volatile: false,
-                is_privileged: false,
-                is_terminal: false,
-            })
-            .with_semantics(SemanticDescription {
-                operation: "and".to_string(),
-                preconditions: vec!["src1 and src2 are valid registers".to_string()],
-                postconditions: vec!["dst = src1 & src2".to_string()],
-                side_effects: vec![],
-                dependencies: vec![1, 2],
-                outputs: vec![0],
-            })
-            .with_architecture(Architecture::X86_64)
-            .with_architecture(Architecture::ARM64)
-            .with_architecture(Architecture::RISCV64)
-            .with_cost(1)
-            .with_latency(1)
-            .with_throughput(0.33);
+        let and_pattern =
+            InstructionPattern::new("and", InstructionCategory::Logical(LogicalType::And))
+                .with_operand(OperandType::Register(0)) // dst
+                .with_operand(OperandType::Register(1)) // src1
+                .with_operand(OperandType::Register(2)) // src2
+                .with_flags(InstructionFlags {
+                    sets_flags: true,
+                    reads_flags: false,
+                    is_conditional: false,
+                    is_predicated: false,
+                    is_atomic: false,
+                    is_volatile: false,
+                    is_privileged: false,
+                    is_terminal: false,
+                })
+                .with_semantics(SemanticDescription {
+                    operation: "and".to_string(),
+                    preconditions: vec!["src1 and src2 are valid registers".to_string()],
+                    postconditions: vec!["dst = src1 & src2".to_string()],
+                    side_effects: vec![],
+                    dependencies: vec![1, 2],
+                    outputs: vec![0],
+                })
+                .with_architecture(Architecture::X86_64)
+                .with_architecture(Architecture::ARM64)
+                .with_architecture(Architecture::RISCV64)
+                .with_cost(1)
+                .with_latency(1)
+                .with_throughput(0.33);
 
         self.add_pattern(and_pattern);
 
         // OR pattern
-        let or_pattern = InstructionPattern::new("or", InstructionCategory::Logical(LogicalType::Or))
-            .with_operand(OperandType::Register(0)) // dst
-            .with_operand(OperandType::Register(1)) // src1
-            .with_operand(OperandType::Register(2)) // src2
-            .with_flags(InstructionFlags {
-                sets_flags: true,
-                reads_flags: false,
-                is_conditional: false,
-                is_predicated: false,
-                is_atomic: false,
-                is_volatile: false,
-                is_privileged: false,
-                is_terminal: false,
-            })
-            .with_semantics(SemanticDescription {
-                operation: "or".to_string(),
-                preconditions: vec!["src1 and src2 are valid registers".to_string()],
-                postconditions: vec!["dst = src1 | src2".to_string()],
-                side_effects: vec![],
-                dependencies: vec![1, 2],
-                outputs: vec![0],
-            })
-            .with_architecture(Architecture::X86_64)
-            .with_architecture(Architecture::ARM64)
-            .with_architecture(Architecture::RISCV64)
-            .with_cost(1)
-            .with_latency(1)
-            .with_throughput(0.33);
+        let or_pattern =
+            InstructionPattern::new("or", InstructionCategory::Logical(LogicalType::Or))
+                .with_operand(OperandType::Register(0)) // dst
+                .with_operand(OperandType::Register(1)) // src1
+                .with_operand(OperandType::Register(2)) // src2
+                .with_flags(InstructionFlags {
+                    sets_flags: true,
+                    reads_flags: false,
+                    is_conditional: false,
+                    is_predicated: false,
+                    is_atomic: false,
+                    is_volatile: false,
+                    is_privileged: false,
+                    is_terminal: false,
+                })
+                .with_semantics(SemanticDescription {
+                    operation: "or".to_string(),
+                    preconditions: vec!["src1 and src2 are valid registers".to_string()],
+                    postconditions: vec!["dst = src1 | src2".to_string()],
+                    side_effects: vec![],
+                    dependencies: vec![1, 2],
+                    outputs: vec![0],
+                })
+                .with_architecture(Architecture::X86_64)
+                .with_architecture(Architecture::ARM64)
+                .with_architecture(Architecture::RISCV64)
+                .with_cost(1)
+                .with_latency(1)
+                .with_throughput(0.33);
 
         self.add_pattern(or_pattern);
     }
@@ -579,64 +593,66 @@ impl DefaultPatternMatcher {
     /// Add common memory patterns
     fn add_memory_patterns(&mut self) {
         // LOAD pattern
-        let load_pattern = InstructionPattern::new("load", InstructionCategory::Memory(MemoryType::Load))
-            .with_operand(OperandType::Register(0)) // dst
-            .with_operand(OperandType::Memory(MemoryOperand::simple(1, 0, 8))) // [src]
-            .with_flags(InstructionFlags {
-                sets_flags: false,
-                reads_flags: false,
-                is_conditional: false,
-                is_predicated: false,
-                is_atomic: false,
-                is_volatile: false,
-                is_privileged: false,
-                is_terminal: false,
-            })
-            .with_semantics(SemanticDescription {
-                operation: "load".to_string(),
-                preconditions: vec!["src is a valid address".to_string()],
-                postconditions: vec!["dst = *src".to_string()],
-                side_effects: vec!["memory read".to_string()],
-                dependencies: vec![1],
-                outputs: vec![0],
-            })
-            .with_architecture(Architecture::X86_64)
-            .with_architecture(Architecture::ARM64)
-            .with_architecture(Architecture::RISCV64)
-            .with_cost(3)
-            .with_latency(4)
-            .with_throughput(1.0);
+        let load_pattern =
+            InstructionPattern::new("load", InstructionCategory::Memory(MemoryType::Load))
+                .with_operand(OperandType::Register(0)) // dst
+                .with_operand(OperandType::Memory(MemoryOperand::simple(1, 0, 8))) // [src]
+                .with_flags(InstructionFlags {
+                    sets_flags: false,
+                    reads_flags: false,
+                    is_conditional: false,
+                    is_predicated: false,
+                    is_atomic: false,
+                    is_volatile: false,
+                    is_privileged: false,
+                    is_terminal: false,
+                })
+                .with_semantics(SemanticDescription {
+                    operation: "load".to_string(),
+                    preconditions: vec!["src is a valid address".to_string()],
+                    postconditions: vec!["dst = *src".to_string()],
+                    side_effects: vec!["memory read".to_string()],
+                    dependencies: vec![1],
+                    outputs: vec![0],
+                })
+                .with_architecture(Architecture::X86_64)
+                .with_architecture(Architecture::ARM64)
+                .with_architecture(Architecture::RISCV64)
+                .with_cost(3)
+                .with_latency(4)
+                .with_throughput(1.0);
 
         self.add_pattern(load_pattern);
 
         // STORE pattern
-        let store_pattern = InstructionPattern::new("store", InstructionCategory::Memory(MemoryType::Store))
-            .with_operand(OperandType::Memory(MemoryOperand::simple(0, 0, 8))) // [dst]
-            .with_operand(OperandType::Register(1)) // src
-            .with_flags(InstructionFlags {
-                sets_flags: false,
-                reads_flags: false,
-                is_conditional: false,
-                is_predicated: false,
-                is_atomic: false,
-                is_volatile: false,
-                is_privileged: false,
-                is_terminal: false,
-            })
-            .with_semantics(SemanticDescription {
-                operation: "store".to_string(),
-                preconditions: vec!["dst is a valid address".to_string()],
-                postconditions: vec!["*dst = src".to_string()],
-                side_effects: vec!["memory write".to_string()],
-                dependencies: vec![0, 1],
-                outputs: vec![],
-            })
-            .with_architecture(Architecture::X86_64)
-            .with_architecture(Architecture::ARM64)
-            .with_architecture(Architecture::RISCV64)
-            .with_cost(3)
-            .with_latency(4)
-            .with_throughput(1.0);
+        let store_pattern =
+            InstructionPattern::new("store", InstructionCategory::Memory(MemoryType::Store))
+                .with_operand(OperandType::Memory(MemoryOperand::simple(0, 0, 8))) // [dst]
+                .with_operand(OperandType::Register(1)) // src
+                .with_flags(InstructionFlags {
+                    sets_flags: false,
+                    reads_flags: false,
+                    is_conditional: false,
+                    is_predicated: false,
+                    is_atomic: false,
+                    is_volatile: false,
+                    is_privileged: false,
+                    is_terminal: false,
+                })
+                .with_semantics(SemanticDescription {
+                    operation: "store".to_string(),
+                    preconditions: vec!["dst is a valid address".to_string()],
+                    postconditions: vec!["*dst = src".to_string()],
+                    side_effects: vec!["memory write".to_string()],
+                    dependencies: vec![0, 1],
+                    outputs: vec![],
+                })
+                .with_architecture(Architecture::X86_64)
+                .with_architecture(Architecture::ARM64)
+                .with_architecture(Architecture::RISCV64)
+                .with_cost(3)
+                .with_latency(4)
+                .with_throughput(1.0);
 
         self.add_pattern(store_pattern);
     }
@@ -644,32 +660,35 @@ impl DefaultPatternMatcher {
     /// Add common branch patterns
     fn add_branch_patterns(&mut self) {
         // JUMP pattern
-        let jump_pattern = InstructionPattern::new("jump", InstructionCategory::Branch(BranchType::Unconditional))
-            .with_operand(OperandType::Label("target".to_string()))
-            .with_flags(InstructionFlags {
-                sets_flags: false,
-                reads_flags: false,
-                is_conditional: false,
-                is_predicated: false,
-                is_atomic: false,
-                is_volatile: false,
-                is_privileged: false,
-                is_terminal: true,
-            })
-            .with_semantics(SemanticDescription {
-                operation: "jump".to_string(),
-                preconditions: vec![],
-                postconditions: vec!["PC = target".to_string()],
-                side_effects: vec!["control flow change".to_string()],
-                dependencies: vec![],
-                outputs: vec![],
-            })
-            .with_architecture(Architecture::X86_64)
-            .with_architecture(Architecture::ARM64)
-            .with_architecture(Architecture::RISCV64)
-            .with_cost(1)
-            .with_latency(1)
-            .with_throughput(1.0);
+        let jump_pattern = InstructionPattern::new(
+            "jump",
+            InstructionCategory::Branch(BranchType::Unconditional),
+        )
+        .with_operand(OperandType::Label("target".to_string()))
+        .with_flags(InstructionFlags {
+            sets_flags: false,
+            reads_flags: false,
+            is_conditional: false,
+            is_predicated: false,
+            is_atomic: false,
+            is_volatile: false,
+            is_privileged: false,
+            is_terminal: true,
+        })
+        .with_semantics(SemanticDescription {
+            operation: "jump".to_string(),
+            preconditions: vec![],
+            postconditions: vec!["PC = target".to_string()],
+            side_effects: vec!["control flow change".to_string()],
+            dependencies: vec![],
+            outputs: vec![],
+        })
+        .with_architecture(Architecture::X86_64)
+        .with_architecture(Architecture::ARM64)
+        .with_architecture(Architecture::RISCV64)
+        .with_cost(1)
+        .with_latency(1)
+        .with_throughput(1.0);
 
         self.add_pattern(jump_pattern);
     }
@@ -678,7 +697,7 @@ impl DefaultPatternMatcher {
 impl PatternMatcher for DefaultPatternMatcher {
     fn match_pattern(&self, ir_op: &IROp) -> Option<InstructionPattern> {
         let patterns = self.patterns.get(&ir_op.opcode)?;
-        
+
         // Find a pattern with matching operands
         for pattern in patterns {
             if pattern.has_operand_types(&ir_op.operands) {
@@ -689,16 +708,21 @@ impl PatternMatcher for DefaultPatternMatcher {
         None
     }
 
-    fn get_equivalent_patterns(&self, pattern: &InstructionPattern, target_arch: Architecture) -> Vec<InstructionPattern> {
+    fn get_equivalent_patterns(
+        &self,
+        pattern: &InstructionPattern,
+        target_arch: Architecture,
+    ) -> Vec<InstructionPattern> {
         let mut equivalents = Vec::new();
-        
+
         // Look for patterns with the same category and compatible operands
         if let Some(pattern_ids) = self.category_index.get(&pattern.category) {
             for id in pattern_ids {
                 if let Some(candidates) = self.patterns.get(id) {
                     for candidate in candidates {
-                        if candidate.is_compatible_with(target_arch) 
-                            && candidate.has_operand_types(&pattern.operands) {
+                        if candidate.is_compatible_with(target_arch)
+                            && candidate.has_operand_types(&pattern.operands)
+                        {
                             equivalents.push(candidate.clone());
                         }
                     }
@@ -711,7 +735,7 @@ impl PatternMatcher for DefaultPatternMatcher {
 
     fn get_patterns_by_category(&self, category: InstructionCategory) -> Vec<InstructionPattern> {
         let mut patterns = Vec::new();
-        
+
         if let Some(pattern_ids) = self.category_index.get(&category) {
             for id in pattern_ids {
                 if let Some(candidates) = self.patterns.get(id) {
@@ -734,11 +758,12 @@ mod tests {
 
     #[test]
     fn test_instruction_pattern() {
-        let pattern = InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
-            .with_operand(OperandType::Register(0))
-            .with_operand(OperandType::Register(1))
-            .with_architecture(Architecture::X86_64);
-        
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_operand(OperandType::Register(0))
+                .with_operand(OperandType::Register(1))
+                .with_architecture(Architecture::X86_64);
+
         assert_eq!(pattern.operand_count(), 2);
         assert!(pattern.is_compatible_with(Architecture::X86_64));
         assert!(!pattern.is_compatible_with(Architecture::ARM64));
@@ -748,18 +773,21 @@ mod tests {
     fn test_pattern_matcher() {
         let mut matcher = DefaultPatternMatcher::new();
         matcher.initialize_common_patterns();
-        
+
         let ir_op = IROp::new("add")
             .with_operand(OperandType::Register(0))
             .with_operand(OperandType::Register(1))
             .with_operand(OperandType::Register(2));
-        
+
         let pattern = matcher.match_pattern(&ir_op);
         assert!(pattern.is_some());
-        
+
         let pattern = pattern.unwrap();
         assert_eq!(pattern.id, "add");
-        assert!(matches!(pattern.category, InstructionCategory::Arithmetic(ArithmeticType::Add)));
+        assert!(matches!(
+            pattern.category,
+            InstructionCategory::Arithmetic(ArithmeticType::Add)
+        ));
     }
 
     #[test]
@@ -768,7 +796,7 @@ mod tests {
         assert_eq!(mem_op.base, Some(1));
         assert_eq!(mem_op.displacement, 0x1000);
         assert_eq!(mem_op.size, 4);
-        
+
         let indexed_op = MemoryOperand::indexed(1, 2, 4, 0x1000, 4);
         assert_eq!(indexed_op.base, Some(1));
         assert_eq!(indexed_op.index, Some(2));

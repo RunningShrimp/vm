@@ -214,9 +214,8 @@ pub fn serialize_state<B: 'static>(state: Arc<Mutex<VirtualMachineState<B>>>) ->
         memory_dump,
     };
 
-    bincode::serde::encode_to_vec(&migration_state, bincode::config::standard()).map_err(|e| {
-        VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()).to_string())
-    })
+    bincode::serde::encode_to_vec(&migration_state, bincode::config::standard())
+        .map_err(|e| VmError::Io(std::io::Error::other(e.to_string()).to_string()))
 }
 
 /// 从序列化数据中反序列化并恢复虚拟机状态
@@ -225,9 +224,8 @@ pub fn deserialize_state<B: 'static>(
     data: &[u8],
 ) -> VmResult<()> {
     let (migration_state, _): (vm_core::migration::MigrationState, usize) =
-        bincode::serde::decode_from_slice(data, bincode::config::standard()).map_err(|e| {
-            VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()).to_string())
-        })?;
+        bincode::serde::decode_from_slice(data, bincode::config::standard())
+            .map_err(|e| VmError::Io(std::io::Error::other(e.to_string()).to_string()))?;
 
     let state_guard = state.lock().map_err(|_| {
         VmError::Core(vm_core::CoreError::Internal {
