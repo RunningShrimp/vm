@@ -12,7 +12,6 @@ use vm_core::{GuestAddr, PlatformError, VmError};
 // 子模块
 pub mod eltorito;
 pub mod fast_boot;
-pub mod gc_runtime;
 pub mod hotplug;
 pub mod incremental_snapshot;
 pub mod iso9660;
@@ -21,12 +20,9 @@ pub mod runtime_service;
 pub mod snapshot;
 
 // 重新导出常用类型
-pub use gc_runtime::GcRuntime;
 pub use hotplug::{DeviceInfo, DeviceType, HotplugEvent, HotplugManager};
 pub use runtime::{RuntimeCommand, RuntimeController, RuntimeEvent, RuntimeState};
 pub use snapshot::{SnapshotFileManager, SnapshotMetadata, VmSnapshot};
-#[allow(deprecated)]
-pub use snapshot::SnapshotManager; // 保留SnapshotManager以保持向后兼容
 
 /// 启动错误类型别名
 pub type BootError = VmError;

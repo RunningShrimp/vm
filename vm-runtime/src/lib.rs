@@ -36,6 +36,13 @@ pub use scheduler::{
     WorkerThread, YieldReason,
 };
 
+/// GC运行时模块
+pub mod gc;
+pub use gc::{
+    AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcRuntime, GcRuntimeStats, GcStats,
+    LockFreeWriteBarrier, OptimizedGc, ParallelMarker, WriteBarrierType,
+};
+
 /// 遗留的CoroutinePool（已废弃，推荐使用新的CoroutineScheduler）
 // CoroutinePool模块已被移除，推荐使用新的CoroutineScheduler
 // CoroutineScheduler提供更好的性能和GMP模型支持

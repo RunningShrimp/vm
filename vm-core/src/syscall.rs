@@ -3759,14 +3759,10 @@ pub enum SyscallArch {
     Aarch64,
 }
 
-/*
-// #[cfg(test)]
-// NOTE: Tests for syscall module have been temporarily disabled due to API mismatches.
-// The tests use outdated method signatures and expect APIs that have been refactored.
-// TODO: Update tests when the core APIs are stable
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AccessType, Fault, GuestAddr, GuestPhysAddr, MMU, MmioDevice};
+    use crate::{AccessType, GuestAddr, GuestPhysAddr, MmioDevice, VmError, mmu_traits::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny}};
     use std::any::Any;
     use std::collections::HashMap;
 
@@ -3789,49 +3785,78 @@ mod tests {
         }
     }
 
-    impl MMU for MockMmu {
-        fn translate(
-            &mut self,
-            va: GuestAddr,
-            _access: AccessType,
-        ) -> Result<GuestPhysAddr, VmError> {
+    impl AddressTranslator for MockMmu {
+        fn translate(&mut self, va: GuestAddr, _access: AccessType) -> Result<GuestPhysAddr, VmError> {
             Ok(va)
         }
+
+        fn flush_tlb(&mut self) {}
+    }
+
+    impl MemoryAccess for MockMmu {
+        fn read(&self, pa: GuestAddr, _size: u8) -> Result<u64, VmError> {
+            Ok(*self.memory.get(&pa.0).unwrap_or(&0) as u64)
+        }
+
+        fn write(&mut self, pa: GuestAddr, val: u64, _size: u8) -> Result<(), VmError> {
+            self.memory.insert(pa.0, val as u8);
+            Ok(())
+        }
+
         fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
             Ok(0)
         }
-        fn read(&self, pa: GuestAddr, _size: u8) -> Result<u64, VmError> {
-            Ok(*self.memory.get(&pa).unwrap_or(&0) as u64)
-        }
-        fn write(&mut self, pa: GuestAddr, val: u64, _size: u8) -> Result<(), VmError> {
-            self.memory.insert(pa, val as u8);
-            Ok(())
-        }
+
         fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = *self.memory.get(&(pa + i as u64)).unwrap_or(&0);
+                *byte = *self.memory.get(&(pa.0 + i as u64)).unwrap_or(&0);
             }
             Ok(())
         }
+
         fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
             for (i, &byte) in buf.iter().enumerate() {
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
-        fn map_mmio(&mut self, _base: GuestAddr, _size: u64, _device: Box<dyn MmioDevice>) {}
+
         fn memory_size(&self) -> usize {
-            0
+            self.memory.len()
         }
+
         fn dump_memory(&self) -> Vec<u8> {
-            Vec::new()
+            let mut result = Vec::new();
+            for (addr, byte) in &self.memory {
+                let addr = *addr as usize;
+                if addr >= result.len() {
+                    result.resize(addr + 1, 0);
+                }
+                result[addr] = *byte;
+            }
+            result
         }
-        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
+
+        fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
+            self.memory.clear();
+            for (addr, byte) in data.iter().enumerate() {
+                if *byte != 0 {
+                    self.memory.insert(addr as u64, *byte);
+                }
+            }
             Ok(())
         }
+    }
+
+    impl MmioManager for MockMmu {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn MmioDevice>) {}
+    }
+
+    impl MmuAsAny for MockMmu {
         fn as_any(&self) -> &dyn Any {
             self
         }
+
         fn as_any_mut(&mut self) -> &mut dyn Any {
             self
         }
@@ -3843,11 +3868,10 @@ mod tests {
         let mut regs = GuestRegs::default();
         let mut mmu = MockMmu::new();
 
-        // 模拟 write 系统调用
-        regs.gpr[0] = 1; // syscall number (write)
-        regs.gpr[7] = 1; // fd (stdout)
-        regs.gpr[6] = 0x1000; // buf
-        regs.gpr[2] = 10; // count
+        regs.gpr[0] = 1;
+        regs.gpr[7] = 1;
+        regs.gpr[6] = 0x1000;
+        regs.gpr[2] = 10;
 
         let result = handler.handle_syscall(&mut regs, SyscallArch::X86_64, &mut mmu);
         match result {
@@ -3862,15 +3886,13 @@ mod tests {
         let mut regs = GuestRegs::default();
         let mut mmu = MockMmu::new();
 
-        // 1. Write filename to memory
         let filename = "/tmp/test_vm_syscall.txt";
         mmu.write_string(0x1000, filename);
 
-        // 2. Open file (O_RDWR | O_CREAT = 2 | 64 = 66)
-        regs.gpr[0] = 2; // open
-        regs.gpr[7] = 0x1000; // filename addr
-        regs.gpr[6] = 66; // flags
-        regs.gpr[2] = 0o644; // mode
+        regs.gpr[0] = 2;
+        regs.gpr[7] = 0x1000;
+        regs.gpr[6] = 66;
+        regs.gpr[2] = 0o644;
 
         let result = handler.handle_syscall(&mut regs, SyscallArch::X86_64, &mut mmu);
         let fd = match result {
@@ -3879,14 +3901,13 @@ mod tests {
         };
         assert!(fd > 2);
 
-        // 3. Write to file
         let data = b"Hello, World!";
         mmu.write_bulk(0x2000, data).unwrap();
 
-        regs.gpr[0] = 1; // write
+        regs.gpr[0] = 1;
         regs.gpr[7] = fd as u64;
-        regs.gpr[6] = 0x2000; // buf
-        regs.gpr[2] = data.len() as u64; // count
+        regs.gpr[6] = 0x2000;
+        regs.gpr[2] = data.len() as u64;
 
         let result = handler.handle_syscall(&mut regs, SyscallArch::X86_64, &mut mmu);
         match result {
@@ -3894,11 +3915,10 @@ mod tests {
             _ => panic!("Write failed"),
         }
 
-        // 4. Lseek to start
-        regs.gpr[0] = 8; // lseek
+        regs.gpr[0] = 8;
         regs.gpr[7] = fd as u64;
-        regs.gpr[6] = 0; // offset
-        regs.gpr[2] = 0; // SEEK_SET
+        regs.gpr[6] = 0;
+        regs.gpr[2] = 0;
 
         let result = handler.handle_syscall(&mut regs, SyscallArch::X86_64, &mut mmu);
         match result {
@@ -3906,10 +3926,9 @@ mod tests {
             _ => panic!("Lseek failed"),
         }
 
-        // 5. Read from file
-        regs.gpr[0] = 0; // read
+        regs.gpr[0] = 0;
         regs.gpr[7] = fd as u64;
-        regs.gpr[6] = 0x3000; // buf
+        regs.gpr[6] = 0x3000;
         regs.gpr[2] = data.len() as u64;
 
         let result = handler.handle_syscall(&mut regs, SyscallArch::X86_64, &mut mmu);
@@ -3918,13 +3937,11 @@ mod tests {
             _ => panic!("Read failed"),
         }
 
-        // Verify data read back
         let mut read_buf = vec![0u8; data.len()];
         mmu.read_bulk(0x3000, &mut read_buf).unwrap();
         assert_eq!(read_buf, data);
 
-        // 6. Close file
-        regs.gpr[0] = 3; // close
+        regs.gpr[0] = 3;
         regs.gpr[7] = fd as u64;
 
         let result = handler.handle_syscall(&mut regs, SyscallArch::X86_64, &mut mmu);
@@ -3933,9 +3950,6 @@ mod tests {
             _ => panic!("Close failed"),
         }
 
-        // Cleanup
         let _ = std::fs::remove_file(filename);
     }
 }
-*/
-// End of disabled tests

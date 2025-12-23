@@ -13,6 +13,9 @@ use vm_core::{ExecutionEngine, GuestAddr, GuestArch, VmError};
 use vm_ir::IRBlock;
 use vm_mem::SoftMmu;
 
+// GC imports
+use vm_runtime::WriteBarrierType;
+
 /// GC集成配置
 #[derive(Debug, Clone)]
 pub struct GcIntegrationConfig {
@@ -122,7 +125,7 @@ pub struct CrossArchRuntime {
     /// AOT编译器（如果启用）
     aot_compiler: Option<CrossArchAotCompiler>,
     /// GC运行时（如果启用）
-    gc_runtime: Option<Arc<Mutex<vm_boot::gc_runtime::GcRuntime>>>,
+    gc_runtime: Option<Arc<vm_runtime::GcRuntime>>,
     /// 热点追踪（用于AOT和JIT）
     pub(crate) hotspot_tracker: Arc<Mutex<HotspotTracker>>,
     /// JIT代码缓存
@@ -208,10 +211,11 @@ impl CrossArchRuntime {
 
         // 创建GC运行时（如果启用）
         let gc_runtime = if config.gc.enable_gc {
-            Some(Arc::new(Mutex::new(vm_boot::gc_runtime::GcRuntime::new(
-                memory_size,
-                config.gc.incremental_step_size,
-            ))))
+            Some(Arc::new(vm_runtime::GcRuntime::new(
+                num_cpus::get(),
+                (config.gc.gc_trigger_threshold * 1_000_000.0) as u64,
+                vm_runtime::WriteBarrierType::Atomic,
+            )))
         } else {
             None
         };
@@ -335,14 +339,7 @@ impl CrossArchRuntime {
     /// 检查并运行GC
     fn check_and_run_gc(&self) -> Result<(), VmError> {
         if let Some(ref gc_runtime) = self.gc_runtime {
-            let gc = gc_runtime.lock().map_err(|_| {
-                VmError::Core(vm_core::CoreError::Internal {
-                    message: "Failed to lock GC runtime".to_string(),
-                    module: "CrossArchRuntime".to_string(),
-                })
-            })?;
-
-            if gc.check_and_run_gc_step() {
+            if gc_runtime.check_and_run_gc_step() {
                 // GC已触发
                 tracing::debug!("GC triggered");
             }

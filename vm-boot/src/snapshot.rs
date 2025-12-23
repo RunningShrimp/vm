@@ -179,10 +179,6 @@ pub struct SnapshotFileManager {
     snapshot_dir: PathBuf,
 }
 
-/// 向后兼容的类型别名
-#[deprecated(since = "0.2.0", note = "Use SnapshotFileManager instead")]
-pub type SnapshotManager = SnapshotFileManager;
-
 impl SnapshotFileManager {
     /// 创建新的快照管理器
     pub fn new(snapshot_dir: impl AsRef<Path>) -> Result<Self, SnapshotError> {

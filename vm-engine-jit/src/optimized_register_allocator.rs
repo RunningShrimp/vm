@@ -116,6 +116,10 @@ pub struct OptimizedAllocationStats {
     pub register_reuse_count: AtomicU64,
     /// 平均分配时间（纳秒）
     pub avg_allocation_time_ns: AtomicU64,
+    /// 寄存器重载次数
+    pub reload_count: AtomicU64,
+    /// 寄存器存储次数
+    pub store_count: AtomicU64,
 }
 
 impl OptimizedRegisterAllocator {
@@ -312,14 +316,14 @@ impl OptimizedRegisterAllocator {
 
             // 尝试分配可用寄存器
             if !available_registers.is_empty() {
+                // 分配寄存器
+                interval.physical_reg = Some(available_registers.remove(0));
+                self.stats.register_reuse_count.fetch_add(1, Ordering::Relaxed);
+            } else {
                 // 溢出到栈
                 interval.spilled = true;
                 interval.stack_slot = Some(self.allocate_stack_slot());
                 self.stats.spill_count.fetch_add(1, Ordering::Relaxed);
-            } else {
-                // 分配寄存器
-                interval.physical_reg = Some(available_registers.remove(0));
-                self.stats.register_reuse_count.fetch_add(1, Ordering::Relaxed);
             }
 
             active_intervals.push(interval.clone());
@@ -553,8 +557,8 @@ impl RegisterAllocator for OptimizedRegisterAllocator {
             spilled_registers: self.stack_slots.len(),
             stack_slots_used: self.next_stack_slot,
             allocation_time_ns: self.stats.avg_allocation_time_ns.load(Ordering::Relaxed),
-            reload_count: 0, // TODO: track reloads
-            store_count: 0, // TODO: track stores
+            reload_count: self.stats.reload_count.load(Ordering::Relaxed),
+            store_count: self.stats.store_count.load(Ordering::Relaxed),
         }
     }
 }

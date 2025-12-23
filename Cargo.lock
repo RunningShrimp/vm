@@ -7895,7 +7895,6 @@ name = "vm-boot"
 version = "0.1.0"
 dependencies = [
  "log",
- "parking_lot 0.12.5",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -7958,9 +7957,9 @@ version = "0.1.0"
 dependencies = [
  "bincode 2.0.1",
  "fastrand",
+ "num_cpus",
  "thiserror 2.0.17",
  "tracing",
- "vm-boot",
  "vm-core",
  "vm-encoding",
  "vm-engine-interpreter",
@@ -7975,6 +7974,7 @@ dependencies = [
  "vm-memory-access",
  "vm-optimization",
  "vm-register",
+ "vm-runtime",
  "vm-tests",
 ]
 
@@ -8347,6 +8347,7 @@ dependencies = [
  "core_affinity",
  "crossbeam-queue",
  "futures",
+ "gc-optimizer",
  "mio",
  "num_cpus",
  "parking_lot 0.12.5",

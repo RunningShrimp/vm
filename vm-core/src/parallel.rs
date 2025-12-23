@@ -184,148 +184,14 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
         }
     }
 
-    /// 创建传统的 multi-vCPU 执行器（向后兼容）
-    pub fn new_legacy(
-        vcpu_count: u32,
-        mmu: Arc<Mutex<Box<dyn MMU>>>,
-        engine_factory: impl Fn() -> Box<dyn ExecutionEngine<B>>,
-    ) -> Self {
-        let mut vcpus = Vec::new();
-        for _ in 0..vcpu_count {
-            let engine = engine_factory();
-            vcpus.push(Arc::new(Mutex::new(engine)));
-        }
 
-        // 将传统MMU包装成分片MMU（只有一个分片）
-        let sharded_mmu = Arc::new(ShardedMmu {
-            shards: vec![mmu],
-            shard_mask: 0,
-            address_shard_fn: |_| 0,
-        });
-
-        Self {
-            vcpus,
-            sharded_mmu,
-            stats: Arc::new(RwLock::new(ConcurrencyStats::default())),
-            #[cfg(feature = "async")]
-            coroutine_scheduler: None,
-            config: ParallelExecutorConfig::default(),
-        }
-    }
 
     /// 添加 vCPU
     pub fn add_vcpu(&mut self, vcpu: Arc<Mutex<Box<dyn ExecutionEngine<B>>>>) {
         self.vcpus.push(vcpu);
     }
 
-    /// 并行运行所有 vCPU（使用分片锁优化）
-    ///
-    /// # 已弃用
-    ///
-    /// 此方法已弃用，推荐使用 `run_parallel_async` 以获得更好的性能和异步支持。
-    ///
-    /// # 迁移指南
-    ///
-    /// ```rust,ignore
-    /// // 旧代码
-    /// executor.run_parallel(&blocks)?;
-    ///
-    /// // 新代码
-    /// executor.run_parallel_async(&blocks).await?;
-    /// ```
-    #[deprecated(note = "Use run_parallel_async instead for better performance and async support")]
-    #[cfg(not(feature = "async"))]
-    pub fn run_parallel(&mut self, blocks: &[B]) -> Result<Vec<ExecResult>, VmError> {
-        // 同步版本：使用线程（向后兼容）
-        if blocks.len() != self.vcpus.len() {
-            return Err(VmError::Core(CoreError::InvalidState {
-                message: "Block count must match vCPU count".to_string(),
-                current: format!("{} blocks", blocks.len()),
-                expected: format!("{} vCPUs", self.vcpus.len()),
-            }));
-        }
 
-        use std::thread;
-        let results = Arc::new(Mutex::new(Vec::with_capacity(self.vcpus.len())));
-        let mut handles: Vec<thread::JoinHandle<()>> = vec![];
-
-        for (vcpu, block) in self.vcpus.iter().zip(blocks.iter()) {
-            let vcpu_clone: Arc<Mutex<Box<dyn ExecutionEngine<B>>>> = Arc::clone(vcpu);
-            let sharded_mmu_clone: Arc<ShardedMmu> = Arc::clone(&self.sharded_mmu);
-            let results_clone: Arc<Mutex<Vec<ExecResult>>> = Arc::clone(&results);
-            let stats_clone: Arc<RwLock<ConcurrencyStats>> = Arc::clone(&self.stats);
-            let block_clone = block.clone();
-
-            let handle = thread::spawn(move || {
-                let start_time = std::time::Instant::now();
-                let mut vcpu_guard = match vcpu_clone.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => return,
-                };
-                let mut mmu_adapter = ShardedMmuAdapter {
-                    sharded_mmu: sharded_mmu_clone,
-                    stats: stats_clone.clone(),
-                };
-                let result = vcpu_guard.run(&mut mmu_adapter, &block_clone);
-                let elapsed = start_time.elapsed();
-                {
-                    let mut stats = stats_clone.write();
-                    stats.total_executions += 1;
-                    stats.avg_wait_time_ns =
-                        (stats.avg_wait_time_ns + elapsed.as_nanos() as u64) / 2;
-                    if elapsed.as_nanos() as u64 > stats.max_wait_time_ns {
-                        stats.max_wait_time_ns = elapsed.as_nanos() as u64;
-                    }
-                }
-                if let Ok(mut results_guard) = results_clone.lock() {
-                    results_guard.push(result);
-                }
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.join().map_err(|_| {
-                VmError::Core(CoreError::Concurrency {
-                    message: "Thread join failed".to_string(),
-                    operation: "run_parallel".to_string(),
-                })
-            })?;
-        }
-
-        let results_guard = Arc::try_unwrap(results).map_err(|_| {
-            VmError::Core(CoreError::Internal {
-                message: "Failed to unwrap results".to_string(),
-                module: "MultiVcpuExecutor".to_string(),
-            })
-        })?;
-        let results = results_guard.into_inner().map_err(|_| {
-            VmError::Core(CoreError::Internal {
-                message: "Failed to get results".to_string(),
-                module: "MultiVcpuExecutor".to_string(),
-            })
-        })?;
-        Ok(results)
-    }
-
-    /// 并行运行所有 vCPU（使用协程，需要async feature）
-    #[cfg(feature = "async")]
-    pub fn run_parallel(&mut self, blocks: &[B]) -> Result<Vec<ExecResult>, VmError> {
-        if blocks.len() != self.vcpus.len() {
-            return Err(VmError::Core(CoreError::InvalidState {
-                message: "Block count must match vCPU count".to_string(),
-                current: format!("{} blocks", blocks.len()),
-                expected: format!("{} vCPUs", self.vcpus.len()),
-            }));
-        }
-        let rt = tokio::runtime::Runtime::new().map_err(|e| {
-            VmError::Core(CoreError::Internal {
-                message: format!("Failed to create tokio runtime: {}", e),
-                module: "MultiVcpuExecutor".to_string(),
-            })
-        })?;
-        rt.block_on(self.run_parallel_async(blocks))
-    }
 
     /// 获取 vCPU 数量
     pub fn vcpu_count(&self) -> usize {

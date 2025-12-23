@@ -39,20 +39,19 @@ impl TranslationStrategyDomainService {
     }
     
     /// Create a new translation strategy domain service with custom rules
-    // TODO: Re-enable when TranslationBusinessRule is implemented
-    // pub fn with_rules(business_rules: Vec<Box<dyn TranslationBusinessRule>>) -> Self {
-    //     Self {
-    //         business_rules,
-    //         event_bus: None,
-    //     }
-    // }
-    
+    pub fn with_rules(business_rules: Vec<Box<dyn TranslationBusinessRule>>) -> Self {
+        Self {
+            business_rules,
+            event_bus: None,
+        }
+    }
+
     /// Set the event bus for publishing domain events
     pub fn with_event_bus(mut self, event_bus: Arc<dyn DomainEventBus>) -> Self {
         self.event_bus = Some(event_bus);
         self
     }
-    
+
     /// Select the optimal translation strategy based on source and target architectures
     pub fn select_optimal_strategy(
         &self,
@@ -60,12 +59,11 @@ impl TranslationStrategyDomainService {
         target: crate::GuestArch,
         context: &TranslationContext,
     ) -> VmResult<TranslationStrategy> {
-        // TODO: Implement business rules validation when TranslationBusinessRule is ready
-        // for rule in &self.business_rules {
-        //     if let Err(e) = rule.validate_translation_request(source, target, context) {
-        //         return Err(e);
-        //     }
-        // }
+        for rule in &self.business_rules {
+            if let Err(e) = rule.validate_translation_request(source, target, context) {
+                return Err(e);
+            }
+        }
         
         // Select strategy based on architecture compatibility and performance requirements
         let strategy = if self.is_high_performance_required(context) {

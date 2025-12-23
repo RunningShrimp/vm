@@ -440,12 +440,6 @@ pub struct UnifiedMmuConfig {
     /// TLB配置（多级）
     /// 统一TLB配置（合并多级TLB和并发TLB的配置）
     pub unified_tlb_config: UnifiedTlbConfig,
-    /// 已废弃：多级TLB配置（保留用于向后兼容）
-    #[deprecated(note = "使用unified_tlb_config替代")]
-    pub multilevel_tlb_config: MultiLevelTlbConfig,
-    /// 已废弃：并发TLB配置（保留用于向后兼容）
-    #[deprecated(note = "使用unified_tlb_config替代")]
-    pub concurrent_tlb_config: ConcurrentTlbConfig,
     /// 页表缓存容量
     pub page_table_cache_size: usize,
     /// 启用页表缓存
@@ -471,11 +465,6 @@ impl Default for UnifiedMmuConfig {
         Self {
             strategy: MmuOptimizationStrategy::Hybrid,
             unified_tlb_config: UnifiedTlbConfig::default(),
-            // 已弃用字段：保留但不初始化，使用unified_tlb_config替代
-            #[allow(deprecated)]
-            multilevel_tlb_config: MultiLevelTlbConfig::default(),
-            #[allow(deprecated)]
-            concurrent_tlb_config: ConcurrentTlbConfig::default(),
             page_table_cache_size: 1024,
             enable_page_table_cache: true,
             enable_prefetch: true,

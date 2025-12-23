@@ -1,13 +1,11 @@
 //! 协程调度器测试套件
 
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::timeout;
 use vm_runtime::CoroutineScheduler;
 use vm_runtime::Priority;
 
 #[tokio::test]
-fn test_coroutine_scheduler_basic() {
+async fn test_coroutine_scheduler_basic() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
@@ -27,12 +25,12 @@ fn test_coroutine_scheduler_basic() {
 }
 
 #[tokio::test]
-fn test_coroutine_scheduler_multiple_tasks() {
+async fn test_coroutine_scheduler_multiple_tasks() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
     // 提交多个任务
-    for i in 0..5 {
+    for _i in 0..5 {
         let task = move || {
             std::thread::sleep(Duration::from_millis(50));
         };
@@ -50,7 +48,7 @@ fn test_coroutine_scheduler_multiple_tasks() {
 }
 
 #[tokio::test]
-fn test_coroutine_scheduler_priority() {
+async fn test_coroutine_scheduler_priority() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
@@ -74,19 +72,37 @@ fn test_coroutine_scheduler_priority() {
 }
 
 #[tokio::test]
-fn test_coroutine_scheduler_stats() {
+async fn test_coroutine_scheduler_stats() {
     let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     
-    // 提交一些任务
-    for i in 0..3 {
+    // 提交一些任务到全局队列
+    for _i in 0..3 {
         let task = move || {
             std::thread::sleep(Duration::from_millis(10));
         };
         let _coroutine = scheduler.submit_task(Priority::Medium, task);
     }
 
+    // 验证任务在全局队列中
     let stats = scheduler.get_stats();
     assert_eq!(stats.global_queue_size, 3);
-    assert_eq!(stats.total_tasks, 3);
+    assert_eq!(stats.total_tasks, 0);
     assert!(!stats.running);
+    
+    // 启动调度器
+    scheduler.start().expect("Failed to start scheduler");
+    
+    // 分发任务到处理器队列
+    scheduler.distribute_tasks();
+    
+    let stats = scheduler.get_stats();
+    assert_eq!(stats.global_queue_size, 0);
+    assert_eq!(stats.total_tasks, 3);
+    assert!(stats.running);
+    
+    // 等待任务被处理
+    std::thread::sleep(Duration::from_millis(50));
+    
+    scheduler.stop();
+    scheduler.join_all();
 }

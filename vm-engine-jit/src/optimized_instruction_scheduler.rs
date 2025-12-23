@@ -123,6 +123,8 @@ pub struct OptimizedSchedulingStats {
     pub total_instructions: AtomicU64,
     /// 重排序指令数
     pub reordered_instructions: AtomicU64,
+    /// 已调度指令数
+    pub scheduled_instructions: AtomicU64,
     /// 并行执行指令数
     pub parallel_instructions: AtomicU64,
     /// 关键路径长度
@@ -377,64 +379,73 @@ impl OptimizedInstructionScheduler {
     fn critical_path_scheduling(&mut self) -> Vec<usize> {
         let mut scheduled_order = Vec::new();
         let mut current_time = 0u32;
-        
+        let mut critical_path_length = 0u32;
+
         // 计算每个节点的最迟开始时间
         let mut latest_start_times = vec![0u32; self.dependency_graph.len()];
-        
+
         // 从后向前计算最迟开始时间
         let mut sorted_nodes: Vec<usize> = (0..self.dependency_graph.len()).collect();
         sorted_nodes.sort_by(|&a, &b| {
             self.dependency_graph[b].priority.cmp(&self.dependency_graph[a].priority)
         });
-        
+
         for &node_idx in sorted_nodes.iter().rev() {
             let node = &self.dependency_graph[node_idx];
             let mut min_successor_time = u32::MAX;
-            
+
             for &successor in &node.successors {
                 min_successor_time = min_successor_time.min(latest_start_times[successor]);
             }
-            
+
             if min_successor_time == u32::MAX {
                 latest_start_times[node_idx] = 0;
             } else {
                 latest_start_times[node_idx] = min_successor_time - node.estimated_time;
             }
         }
-        
+
         // 按关键路径调度
         let mut remaining_nodes: HashSet<_> = (0..self.dependency_graph.len()).collect();
-        
+
         while !remaining_nodes.is_empty() {
             let mut best_node = None;
             let mut best_priority = i32::MIN;
-            
+
             for &node_idx in &remaining_nodes {
                 let node = &self.dependency_graph[node_idx];
-                
+
                 // 检查所有前驱是否已调度
                 let all_predecessors_scheduled = node.predecessors.iter()
                     .all(|&pred| !remaining_nodes.contains(&pred));
-                
+
                 if all_predecessors_scheduled {
                     let slack = latest_start_times[node_idx] as i32 - current_time as i32;
                     let priority = node.priority + slack;
-                    
+
                     if priority > best_priority {
                         best_priority = priority;
                         best_node = Some(node_idx);
                     }
                 }
             }
-            
+
             if let Some(selected) = best_node {
                 let node = &self.dependency_graph[selected];
                 scheduled_order.push(selected);
                 remaining_nodes.remove(&selected);
                 current_time += node.estimated_time;
+
+                // Update critical path length tracking
+                if current_time > critical_path_length {
+                    critical_path_length = current_time;
+                }
             }
         }
-        
+
+        // Store critical path length
+        self.stats.critical_path_length.store(critical_path_length as u64, Ordering::Relaxed);
+
         scheduled_order
     }
 
@@ -527,11 +538,43 @@ impl OptimizedInstructionScheduler {
         let node = &self.dependency_graph[node_idx];
         let resource_usage = ResourceUsage {
             registers: self.get_required_registers(&node.instruction),
-            functional_units: HashSet::new(), // TODO: implement functional unit tracking
+            functional_units: self.get_required_functional_units(&node.instruction),
             memory_access: self.is_memory_access(&node.instruction),
         };
-        
+
         self.resource_tracker.insert(node_idx, resource_usage);
+    }
+
+    /// 获取指令所需的功能单元
+    fn get_required_functional_units(&self, instruction: &CompiledInstruction) -> HashSet<String> {
+        let mut units = HashSet::new();
+
+        match &instruction.op {
+            IROp::Load { .. } | IROp::LoadImm { .. } => {
+                units.insert("load_unit".to_string());
+            }
+            IROp::Store { .. } => {
+                units.insert("store_unit".to_string());
+            }
+            IROp::Add { .. } | IROp::Sub { .. } => {
+                units.insert("alu".to_string());
+            }
+            IROp::Mul { .. } => {
+                units.insert("multiplier".to_string());
+            }
+            IROp::Div { .. } => {
+                units.insert("divider".to_string());
+            }
+            IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. } | IROp::Bge { .. } => {
+                units.insert("branch_unit".to_string());
+            }
+            IROp::Call { .. } => {
+                units.insert("branch_unit".to_string());
+            }
+            _ => {}
+        }
+
+        units
     }
 
     /// 释放已完成的指令资源
@@ -556,17 +599,19 @@ impl OptimizedInstructionScheduler {
     /// 应用调度结果到指令块
     fn apply_scheduling(&mut self, block: &mut CompiledIRBlock, scheduled_order: Vec<usize>) {
         let mut new_instructions = Vec::with_capacity(block.instructions.len());
-        
+
         for &instruction_idx in &scheduled_order {
             new_instructions.push(self.dependency_graph[instruction_idx].instruction.clone());
         }
-        
+
         block.instructions = new_instructions;
-        
+
         // 更新统计
         self.stats.total_instructions.fetch_add(block.instructions.len() as u64, Ordering::Relaxed);
+        self.stats.scheduled_instructions.fetch_add(scheduled_order.len() as u64, Ordering::Relaxed);
+        self.stats.parallel_instructions.fetch_add(scheduled_order.len() as u64, Ordering::Relaxed);
         self.stats.reordered_instructions.fetch_add(
-            (block.instructions.len() - scheduled_order.len()) as u64, 
+            (block.instructions.len() - scheduled_order.len()) as u64,
             Ordering::Relaxed
         );
     }
@@ -660,19 +705,34 @@ impl InstructionScheduler for OptimizedInstructionScheduler {
 
     fn reset(&mut self) {
         self.dependency_graph.clear();
-        self.resource_table.clear();
+        self.resource_tracker.clear();
         self.stats.total_instructions.store(0, Ordering::Relaxed);
+        self.stats.scheduled_instructions.store(0, Ordering::Relaxed);
         self.stats.reordered_instructions.store(0, Ordering::Relaxed);
+        self.stats.parallel_instructions.store(0, Ordering::Relaxed);
+        self.stats.critical_path_length.store(0, Ordering::Relaxed);
         self.stats.avg_scheduling_time_ns.store(0, Ordering::Relaxed);
+        self.stats.pipeline_stalls.store(0, Ordering::Relaxed);
     }
 
     fn get_stats(&self) -> InstructionSchedulingStats {
+        let total = self.stats.total_instructions.load(Ordering::Relaxed) as f64;
+        let scheduled = self.stats.scheduled_instructions.load(Ordering::Relaxed) as f64;
+        let parallel = self.stats.parallel_instructions.load(Ordering::Relaxed) as f64;
+        let critical_path = self.stats.critical_path_length.load(Ordering::Relaxed) as f64;
+
+        let pipeline_efficiency = if total > 0.0 {
+            parallel / total
+        } else {
+            0.0
+        };
+
         InstructionSchedulingStats {
             total_instructions: self.stats.total_instructions.load(Ordering::Relaxed) as usize,
-            scheduled_instructions: 0, // TODO: track scheduled instructions
+            scheduled_instructions: self.stats.scheduled_instructions.load(Ordering::Relaxed) as usize,
             reordered_instructions: self.stats.reordered_instructions.load(Ordering::Relaxed) as usize,
             scheduling_time_ns: self.stats.avg_scheduling_time_ns.load(Ordering::Relaxed),
-            pipeline_efficiency: 0.0, // TODO: calculate pipeline efficiency
+            pipeline_efficiency,
         }
     }
 }

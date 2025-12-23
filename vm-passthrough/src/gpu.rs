@@ -317,10 +317,6 @@ pub struct PassthroughGpuManager {
     gpus: HashMap<PciAddress, Box<dyn PassthroughDevice>>,
 }
 
-/// 向后兼容的类型别名
-#[deprecated(since = "0.2.0", note = "Use PassthroughGpuManager instead")]
-pub type GpuManager = PassthroughGpuManager;
-
 impl PassthroughGpuManager {
     /// 创建新的 GPU 管理器
     pub fn new() -> Self {

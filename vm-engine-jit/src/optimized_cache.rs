@@ -96,6 +96,10 @@ pub struct OptimizedCacheStats {
     pub hotspot_promotions: AtomicU64,
     /// 缓存淘汰次数
     pub evictions: AtomicU64,
+    /// 缓存插入次数
+    pub inserts: AtomicU64,
+    /// 缓存移除次数
+    pub removals: AtomicU64,
 }
 
 impl OptimizedCodeCache {
@@ -170,10 +174,11 @@ impl OptimizedCodeCache {
         if let Some(entry) = self.l1_cache.remove(&pc) {
             self.l1_current_size.fetch_sub(entry.size, Ordering::Relaxed);
             self.l1_lru.remove(0);
-            
+
             // 将降级的代码移到L2缓存
             self.insert_to_l2(pc, entry);
             self.stats.evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats.removals.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -182,10 +187,11 @@ impl OptimizedCodeCache {
         if let Some(entry) = self.l2_cache.remove(&pc) {
             self.l2_current_size.fetch_sub(entry.size, Ordering::Relaxed);
             self.l2_lru.remove(0);
-            
+
             // 将降级的代码移到L3缓存
             self.insert_to_l3(pc, entry);
             self.stats.evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats.removals.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -195,6 +201,7 @@ impl OptimizedCodeCache {
             self.l3_current_size.fetch_sub(entry.size, Ordering::Relaxed);
             self.l3_lru.remove(0);
             self.stats.evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats.removals.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -203,10 +210,11 @@ impl OptimizedCodeCache {
         self.ensure_l1_space(entry.size);
         entry.cache_level = 1;
         entry.last_access_ns.store(Self::current_time_ns(), Ordering::Relaxed);
-        
+
         self.l1_cache.insert(pc, entry.clone());
         Self::update_lru(&mut self.l1_lru, pc);
         self.l1_current_size.fetch_add(entry.size, Ordering::Relaxed);
+        self.stats.inserts.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 插入到L2缓存
@@ -214,10 +222,11 @@ impl OptimizedCodeCache {
         self.ensure_l2_space(entry.size);
         entry.cache_level = 2;
         entry.last_access_ns.store(Self::current_time_ns(), Ordering::Relaxed);
-        
+
         self.l2_cache.insert(pc, entry.clone());
         Self::update_lru(&mut self.l2_lru, pc);
         self.l2_current_size.fetch_add(entry.size, Ordering::Relaxed);
+        self.stats.inserts.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 插入到L3缓存
@@ -225,10 +234,11 @@ impl OptimizedCodeCache {
         self.ensure_l3_space(entry.size);
         entry.cache_level = 3;
         entry.last_access_ns.store(Self::current_time_ns(), Ordering::Relaxed);
-        
+
         self.l3_cache.insert(pc, entry);
         Self::update_lru(&mut self.l3_lru, pc);
         self.l3_current_size.fetch_add(entry.size, Ordering::Relaxed);
+        self.stats.inserts.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 检查是否应该提升到热点缓存
@@ -403,14 +413,14 @@ impl CodeCache for OptimizedCodeCache {
         let total_misses = self.stats.total_misses.load(Ordering::Relaxed);
         let total_hits = l1_hits + l2_hits + l3_hits;
         let total_accesses = total_hits + total_misses;
-        
+
         crate::code_cache::CacheStats {
             hits: total_hits,
             misses: total_misses,
-            inserts: 0, // TODO: track inserts
-            removals: 0, // TODO: track removals
+            inserts: self.stats.inserts.load(Ordering::Relaxed),
+            removals: self.stats.removals.load(Ordering::Relaxed),
             max_size: self.config.l3_size,
-            current_size: self.l3_current_size.load(Ordering::Relaxed) 
+            current_size: self.l3_current_size.load(Ordering::Relaxed)
                 + self.l2_current_size.load(Ordering::Relaxed)
                 + self.l1_current_size.load(Ordering::Relaxed),
             entry_count: self.l1_cache.len() + self.l2_cache.len() + self.l3_cache.len(),

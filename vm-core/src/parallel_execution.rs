@@ -95,7 +95,7 @@ impl ShardedMmuCache {
         // 查询全局MMU
         let paddr = self
             .global_mmu
-            .translate_addr(vaddr)
+            .fetch_insn(vaddr)
             .map_err(|e| format!("Translation failed: {:?}", e))?;
 
         // 缓存结果
@@ -470,12 +470,4 @@ impl<'a> MMU for OptimizedMmu<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    // NOTE: These tests have been temporarily disabled due to lifetime and type mismatches
-    // in the OptimizedMmu trait implementation. This module needs refactoring.
-    // TODO: Refactor tests when OptimizedMmu lifetime issues are resolved
-    
-    // use super::*;
-    // use crate::VmError;
-}
+

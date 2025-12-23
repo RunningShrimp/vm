@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Instant;
 use vm_core::{AccessType, MMU};
 use vm_mem::{
-    ConcurrentTlbConfig, MmuOptimizationStrategy, MultiLevelTlbConfig, SoftMmu, UnifiedMmu,
+    MmuOptimizationStrategy, SoftMmu, UnifiedMmu,
     UnifiedMmuConfig,
 };
 
@@ -22,15 +22,6 @@ fn test_multilevel_tlb_performance() {
     // 多级TLB优化MMU
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::MultiLevel,
-        multilevel_tlb_config: MultiLevelTlbConfig {
-            l1_capacity: 64,
-            l2_capacity: 256,
-            l3_capacity: 1024,
-            prefetch_window: 4,
-            adaptive_replacement: true,
-            ..Default::default()
-        },
-        concurrent_tlb_config: ConcurrentTlbConfig::default(),
         ..Default::default()
     };
     let mut optimized_mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -88,14 +79,6 @@ fn test_concurrent_tlb_performance() {
     // 并发TLB配置
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::Concurrent,
-        concurrent_tlb_config: ConcurrentTlbConfig {
-            sharded_capacity: 4096,
-            shard_count: 16,
-            fast_path_capacity: 64,
-            enable_fast_path: true,
-            ..Default::default()
-        },
-        multilevel_tlb_config: MultiLevelTlbConfig::default(),
         ..Default::default()
     };
     let concurrent_mmu = Arc::new(UnifiedMmu::new(64 * 1024 * 1024, false, config));
@@ -162,10 +145,6 @@ fn test_hybrid_strategy_performance() {
     // 混合策略配置
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::Hybrid,
-        enable_prefetch: true,
-        prefetch_window: 8,
-        multilevel_tlb_config: MultiLevelTlbConfig::default(),
-        concurrent_tlb_config: ConcurrentTlbConfig::default(),
         ..Default::default()
     };
     let mut hybrid_mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -219,13 +198,6 @@ fn test_tlb_capacity_optimization() {
     for &capacity in &capacities {
         let config = UnifiedMmuConfig {
             strategy: MmuOptimizationStrategy::MultiLevel,
-            multilevel_tlb_config: MultiLevelTlbConfig {
-                l1_capacity: capacity / 4,
-                l2_capacity: capacity / 2,
-                l3_capacity: capacity,
-                ..Default::default()
-            },
-            concurrent_tlb_config: ConcurrentTlbConfig::default(),
             ..Default::default()
         };
         let mut mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);

@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 use vm_core::{AccessType, MMU};
 use vm_mem::{
-    ConcurrentTlbConfig, MmuOptimizationStrategy, MultiLevelTlbConfig, SoftMmu, UnifiedMmu,
+    MmuOptimizationStrategy, SoftMmu, UnifiedMmu,
     UnifiedMmuConfig,
 };
 
@@ -22,13 +22,6 @@ fn bench_multilevel_vs_original(c: &mut Criterion) {
     // 多级TLB优化的MMU
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::MultiLevel,
-        multilevel_tlb_config: MultiLevelTlbConfig {
-            l1_capacity: 64,
-            l2_capacity: 256,
-            l3_capacity: 1024,
-            ..Default::default()
-        },
-        concurrent_tlb_config: ConcurrentTlbConfig::default(),
         ..Default::default()
     };
     let mut multilevel_mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -69,13 +62,6 @@ fn bench_concurrent_tlb(c: &mut Criterion) {
     // 并发TLB配置
     let config = UnifiedMmuConfig {
         strategy: MmuOptimizationStrategy::Concurrent,
-        concurrent_tlb_config: ConcurrentTlbConfig {
-            sharded_capacity: 4096,
-            shard_count: 16,
-            fast_path_capacity: 64,
-            ..Default::default()
-        },
-        multilevel_tlb_config: MultiLevelTlbConfig::default(),
         ..Default::default()
     };
     let concurrent_mmu = Arc::new(UnifiedMmu::new(64 * 1024 * 1024, false, config));
@@ -180,13 +166,6 @@ fn bench_tlb_hit_rates(c: &mut Criterion) {
     for working_set_size in [64, 256, 1024, 4096].iter() {
         let config = UnifiedMmuConfig {
             strategy: MmuOptimizationStrategy::MultiLevel,
-            multilevel_tlb_config: MultiLevelTlbConfig {
-                l1_capacity: *working_set_size / 4,
-                l2_capacity: *working_set_size / 2,
-                l3_capacity: *working_set_size,
-                ..Default::default()
-            },
-            concurrent_tlb_config: ConcurrentTlbConfig::default(),
             ..Default::default()
         };
         let mut mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);
@@ -321,13 +300,6 @@ fn bench_tlb_capacity_impact(c: &mut Criterion) {
     for capacity in [128, 512, 1024, 2048, 4096].iter() {
         let config = UnifiedMmuConfig {
             strategy: MmuOptimizationStrategy::MultiLevel,
-            multilevel_tlb_config: MultiLevelTlbConfig {
-                l1_capacity: *capacity / 4,
-                l2_capacity: *capacity / 2,
-                l3_capacity: *capacity,
-                ..Default::default()
-            },
-            concurrent_tlb_config: ConcurrentTlbConfig::default(),
             ..Default::default()
         };
         let mut mmu = UnifiedMmu::new(64 * 1024 * 1024, false, config);

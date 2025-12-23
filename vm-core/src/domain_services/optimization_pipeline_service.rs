@@ -249,12 +249,7 @@ impl OptimizationPipelineDomainService {
             business_rules: Vec::new(),
             event_bus: None,
         };
-        
-        // TODO: Add default business rules when optimization_pipeline_rules is implemented
-        // service.add_business_rule(Box::new(crate::domain_services::rules::optimization_pipeline_rules::PipelineConfigValidationRule));
-        // service.add_business_rule(Box::new(crate::domain_services::rules::optimization_pipeline_rules::StageExecutionValidationRule));
-        // service.add_business_rule(Box::new(crate::domain_services::rules::optimization_pipeline_rules::PipelineContinuationRule));
-        
+
         service
     }
     

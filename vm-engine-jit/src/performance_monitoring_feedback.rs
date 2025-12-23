@@ -273,43 +273,12 @@ impl PerformanceMonitoringFeedbackManager {
             while Self::is_monitoring_active(&event_sender) {
                 // 收集性能数据
                 Self::collect_performance_samples(&event_sender, &config);
-                
+
                 // 等待下一个采样间隔
                 thread::sleep(sampling_interval);
             }
         });
-        
-        // 启动分析线程 - TODO: Fix receiver cloning issue
-        // let feedback_sender = self.feedback_sender.clone();
-        // let analysis_config = config.clone();
-        // 
-        // thread::spawn(move || {
-        //     // Move receiver into closure
-        //     let (event_receiver, _) = mpsc::channel();
-        //     // This is a simplified approach - in a real implementation,
-        //     // we would need to properly handle the receiver
-        //     Self::process_performance_events(event_receiver, feedback_sender, analysis_config);
-        // });
-        
-        // 启动反馈处理线程 - TODO: Fix receiver cloning issue
-        // let feedback_receiver = &self.feedback_receiver;
-        // let feedback_config = config.clone();
-        // let jit_engine = self.jit_engine.clone();
-        // let strategy_manager = self.strategy_manager.clone();
-        // let recompilation_manager = self.recompilation_manager.clone();
-        // let hot_update_manager = self.hot_update_manager.clone();
-        // 
-        // thread::spawn(move || {
-        //     Self::process_performance_feedback(
-        //         feedback_receiver,
-        //         feedback_config,
-        //         jit_engine,
-        //         strategy_manager,
-        //         recompilation_manager,
-        //         hot_update_manager,
-        //     );
-        // });
-        
+
         Ok(())
     }
 

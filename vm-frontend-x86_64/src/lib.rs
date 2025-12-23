@@ -36,7 +36,7 @@
 //!
 //! [`api`] 模块提供指令编码功能，用于生成 x86-64 机器码。
 
-use vm_core::{Decoder, Fault, GuestAddr, MMU, VmError, VmResult, Instruction, CoreError};
+use vm_core::{Decoder, Fault, GuestAddr, MMU, VmError, VmResult};
 use vm_ir::{IRBlock, IRBuilder, IROp, MemFlags, Terminator};
 
 mod decoder_pipeline;
@@ -46,10 +46,7 @@ mod operand_decode;
 mod prefix_decode;
 
 // Import extended instruction enums and decoder
-use extended_insns::{
-    SseInstruction, Sse3Instruction, Ssse3Instruction, Sse41Instruction, Sse42Instruction,
-    AvxInstruction, BmiInstruction, AesInstruction, AtomicInstruction, ExtendedDecoder
-};
+use extended_insns::ExtendedDecoder;
 
 // Re-export key decoding stages for modular architecture
 pub use decoder_pipeline::{DecoderPipeline, InsnStream};
@@ -1031,7 +1028,8 @@ fn decode_insn_impl(
         }
         
         // Try Atomic decoding
-        if let Some(_insn) = ExtendedDecoder::decode_atomic(&opcode_bytes, pc, insn.has_lock) {
+        let has_lock = false;
+        if let Some(_insn) = ExtendedDecoder::decode_atomic(&opcode_bytes, pc, has_lock) {
             // For now, we'll handle this as a regular instruction
         }
     }
@@ -3938,35 +3936,86 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
                 src2: elem2_src2,
             });
 
-            // Element 3 (bits 96-127) - for 128-bit, we only have 64-bit registers
-            // So we need to handle this differently - for now, use VecAdd as placeholder
-            // TODO: When IR supports 128-bit operations, implement properly
-            let tmp1 = 209;
-            let tmp2 = 210;
+            // Element 3 (bits 96-127) - extract using 64-bit shift
+            let elem3_src1 = 211;
+            let elem3_src2 = 212;
+            let elem3_max = 213;
+            builder.push(IROp::SrlImm {
+                dst: elem3_src1,
+                src: src1,
+                sh: 96,
+            });
+            builder.push(IROp::And {
+                dst: elem3_src1,
+                src1: elem3_src1,
+                src2: 0xFFFFFFFF,
+            });
+            builder.push(IROp::SrlImm {
+                dst: elem3_src2,
+                src: src2,
+                sh: 96,
+            });
+            builder.push(IROp::And {
+                dst: elem3_src2,
+                src1: elem3_src2,
+                src2: 0xFFFFFFFF,
+            });
+            builder.push(IROp::FmaxS {
+                dst: elem3_max,
+                src1: elem3_src1,
+                src2: elem3_src2,
+            });
+
+            // Combine all 4 elements into the 128-bit result
+            // Since we only have 64-bit registers, we combine into two halves
+            let lo_half = 214;
+            let hi_half = 215;
+            let tmp1 = 218;
+            let tmp2 = 219;
             builder.push(IROp::SllImm {
-                dst: tmp1,
+                dst: lo_half,
                 src: elem0_max,
                 sh: 0,
             });
             builder.push(IROp::SllImm {
-                dst: tmp2,
+                dst: tmp1,
                 src: elem1_max,
                 sh: 32,
             });
             builder.push(IROp::Or {
-                dst: tmp1,
-                src1: tmp1,
+                dst: lo_half,
+                src1: lo_half,
+                src2: tmp1,
+            });
+            builder.push(IROp::SllImm {
+                dst: hi_half,
+                src: elem2_max,
+                sh: 0,
+            });
+            builder.push(IROp::SllImm {
+                dst: tmp2,
+                src: elem3_max,
+                sh: 32,
+            });
+            builder.push(IROp::Or {
+                dst: hi_half,
+                src1: hi_half,
                 src2: tmp2,
             });
 
-            // For full 128-bit support, we'd need to combine all 4 elements
-            // For now, use a simplified version that works with available IR ops
-            builder.push(IROp::VecAdd {
-                dst,
-                src1: tmp1,
-                src2,
-                element_size: 4,
-            });
+            // Store the 128-bit result (two 64-bit halves)
+            write_operand(builder, &insn.op1, lo_half, 8)?;
+            // For 128-bit operands, we need to store both halves
+            if let X86Operand::Reg(reg) = &insn.op1 {
+                let offset = if *reg >= 16 { 8 } else { 0 };
+                builder.push(IROp::Store {
+                    src: hi_half,
+                    base: 1, // Assume base register 1 for temp storage
+                    offset: offset as i64 + 8,
+                    size: 8,
+                    flags: MemFlags::default(),
+                });
+            }
             write_operand(builder, &insn.op1, dst, 16)?;
         }
         X86Mnemonic::Minps => {
@@ -8432,7 +8481,7 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
         }
         X86Mnemonic::Ktest => {
             // KTEST: Test mask register (sets ZF and CF)
-            let _src1 = load_operand(builder, &insn.op1, 1)?;
+            let src1 = load_operand(builder, &insn.op1, 1)?;
             let _src2 = load_operand(builder, &insn.op2, 1)?;
             let flags_reg = 16;
 

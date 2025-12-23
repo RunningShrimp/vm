@@ -262,13 +262,13 @@ impl VmLifecycleDomainService {
     ) -> VmResult<()> {
         // Record event in aggregate
         aggregate.record_event(event.clone());
-        
+
         // If we have an event bus, publish immediately
-        if let Some(_event_bus) = &self.event_bus {
-            // TODO: Convert BaseDomainEventEnum to events::DomainEventEnum if needed
-            // For now, just skip publishing to the event bus
+        if let Some(event_bus) = &self.event_bus {
+            let domain_event: DomainEventEnum = event.into();
+            event_bus.publish(domain_event);
         }
-        
+
         Ok(())
     }
 

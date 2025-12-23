@@ -95,9 +95,6 @@ fn test_tlb_asid_partitioning() {
         // For the SimpleTlb implementation, we need to set the current ASID first.
         // In a real implementation, this would be done by the MMU/CPU context.
         // For the purpose of this test, we'll assume the ASID is already set.
-        
-        // TODO: Modify the SimpleTlb to support per-ASID translation.
-        // Currently, it ignores the ASID field.
     }
     
     // Test that global entries are visible to all ASIDs
