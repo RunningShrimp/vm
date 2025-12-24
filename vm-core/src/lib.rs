@@ -45,6 +45,7 @@ pub mod error;
 pub mod mmu_traits;
 pub mod domain;
 pub mod domain_type_safety;
+pub mod value_objects;
 pub mod syscall;
 pub mod domain_event_bus;
 pub mod migration;
@@ -52,7 +53,7 @@ pub mod snapshot;
 pub mod template;
 pub mod vm_state;
 pub mod domain_events;
-mod snapshot_legacy;
+pub mod device_emulation;
 
 // 重新导出系统调用相关类型
 pub use syscall::SyscallResult;
@@ -67,6 +68,7 @@ pub use error::{ExecutionError, VmError as CoreVmError, VmError, CoreError, Memo
 // Re-export domain types
 pub use domain::{TlbManager, TlbEntry, TlbStats, PageTableWalker, ExecutionManager};
 pub use domain_type_safety::{GuestAddrExt, GuestPhysAddrExt, PageSize};
+pub use value_objects::{MemorySize, VmId, VcpuCount, PortNumber, DeviceId};
 
 // ============================================================================
 // 基础类型定义
@@ -254,15 +256,17 @@ pub enum GuestArch {
     Arm64,
     /// x86-64架构
     X86_64,
+    /// PowerPC 64位架构
+    PowerPC64,
 }
 
 impl GuestArch {
-    /// 返回架构的名称字符串
     pub fn name(&self) -> &'static str {
         match self {
             GuestArch::Riscv64 => "riscv64",
             GuestArch::Arm64 => "arm64",
             GuestArch::X86_64 => "x86_64",
+            GuestArch::PowerPC64 => "powerpc64",
         }
     }
 }
@@ -337,14 +341,51 @@ pub type VmResult<T> = Result<T, VmError>;
 
 
 /// 指令解码器trait
+///
+/// 负责将二进制机器码解码为可执行的指令表示。这是虚拟机执行流程的第一步，
+/// 将目标架构的原始字节码转换为虚拟机内部可处理的指令对象。
+///
+/// # 使用场景
+/// - 解释执行模式：每次执行前解码一条指令
+/// - JIT编译模式：解码基本块进行编译优化
+/// - 调试器：反汇编和单步调试时使用
+/// - 静态分析：二进制代码分析工具
+///
+/// # 示例
+/// ```ignore
+/// let mut decoder = X86Decoder::new();
+/// let insn = decoder.decode_insn(&mmu, GuestAddr(0x1000))?;
+/// ```
 pub trait Decoder {
+    /// 指令类型关联类型
     type Instruction;
+    
+    /// 基本块类型关联类型
     type Block;
     
     /// 解码单条指令
+    ///
+    /// 从指定地址解码一条指令，返回对应的指令表示。
+    ///
+    /// # 参数
+    /// - `mmu`: MMU引用，用于读取虚拟内存中的指令
+    /// - `pc`: 程序计数器，指向要解码的指令地址
+    ///
+    /// # 返回
+    /// 解码后的指令对象
     fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Instruction>;
     
     /// 解码指令块
+    ///
+    /// 从指定地址解码一个基本块，直到遇到跳转指令或其他终止指令。
+    /// 基本块是指只有一个入口和一个出口的指令序列。
+    ///
+    /// # 参数
+    /// - `mmu`: MMU引用，用于读取虚拟内存中的指令
+    /// - `pc`: 程序计数器，指向基本块起始地址
+    ///
+    /// # 返回
+    /// 解码后的基本块对象
     fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Block>;
 }
 
@@ -360,40 +401,144 @@ pub struct Instruction {
 }
 
 /// 执行引擎trait
+///
+/// 负责执行解码后的指令或基本块，管理vCPU状态（寄存器、PC等）。
+/// 这是虚拟机的核心执行组件，支持解释执行和JIT执行两种模式。
+///
+/// # 使用场景
+/// - 解释执行模式：逐条或逐块解释执行指令
+/// - JIT执行模式：执行JIT编译生成的机器码
+/// - vCPU状态管理：保存和恢复vCPU上下文
+/// - 调试器：单步执行、断点、状态检查
+///
+/// # 示例
+/// ```ignore
+/// let mut engine = InterpreterEngine::new();
+/// engine.run(&mut mmu, &block)?;
+/// ```
 pub trait ExecutionEngine<BlockType>: Send + Sync {
     /// 执行单条指令
+    ///
+    /// 解释执行单条指令，更新vCPU状态。
+    /// 适用于调试和单步执行场景。
+    ///
+    /// # 参数
+    /// - `instruction`: 要执行的指令
     fn execute_instruction(&mut self, instruction: &Instruction) -> VmResult<()>;
     
     /// 运行虚拟机
+    ///
+    /// 执行一个基本块或执行上下文，直到遇到终止条件（如系统调用、中断等）。
+    ///
+    /// # 参数
+    /// - `mmu`: 可变MMU引用，用于内存访问
+    /// - `block`: 要执行的基本块
+    ///
+    /// # 返回
+    /// 执行结果，包含终止原因和可能的错误
     fn run(&mut self, mmu: &mut dyn MMU, block: &BlockType) -> ExecResult;
     
     /// 获取指定编号的寄存器值
+    ///
+    /// # 参数
+    /// - `idx`: 寄存器编号
+    ///
+    /// # 返回
+    /// 寄存器的当前值
     fn get_reg(&self, idx: usize) -> u64;
     
     /// 设置指定编号的寄存器值
+    ///
+    /// # 参数
+    /// - `idx`: 寄存器编号
+    /// - `val`: 要设置的值
     fn set_reg(&mut self, idx: usize, val: u64);
     
     /// 获取程序计数器（PC）
+    ///
+    /// # 返回
+    /// 当前程序计数器值
     fn get_pc(&self) -> GuestAddr;
     
     /// 设置程序计数器（PC）
+    ///
+    /// # 参数
+    /// - `pc`: 新的程序计数器值
     fn set_pc(&mut self, pc: GuestAddr);
     
     /// 获取VCPU状态
+    ///
+    /// # 返回
+    /// vCPU的完整状态容器，包含所有寄存器和控制寄存器
     fn get_vcpu_state(&self) -> VcpuStateContainer;
     
     /// 设置VCPU状态
+    ///
+    /// # 参数
+    /// - `state`: 要设置的vCPU状态
     fn set_vcpu_state(&mut self, state: &VcpuStateContainer);
 }
 
 
 
 /// MMIO设备trait
+///
+/// 定义内存映射I/O设备的接口。MMIO设备是通过内存地址映射进行访问的外设，
+/// 如UART、PCI设备、VGA显卡等。
+///
+/// # 使用场景
+/// - 外设模拟：UART、PCI设备、网络控制器等
+/// - 设备驱动开发：Guest OS驱动程序与设备交互
+/// - 调试和测试：模拟特定硬件环境
+/// - 虚拟化：半虚拟化设备的实现
+///
+/// # 示例
+/// ```ignore
+/// struct UartDevice {
+///     tx_data: u8,
+///     rx_data: u8,
+/// }
+///
+/// impl MmioDevice for UartDevice {
+///     fn read(&self, offset: u64, size: u8) -> VmResult<u64> {
+///         match offset {
+///             0 => Ok(self.rx_data as u64),
+///             _ => Ok(0),
+///         }
+///     }
+///
+///     fn write(&mut self, offset: u64, value: u64, size: u8) -> VmResult<()> {
+///         match offset {
+///             0 => { self.tx_data = value as u8; Ok(()) }
+///             _ => Ok(()),
+///         }
+///     }
+/// }
+/// ```
 pub trait MmioDevice: Send + Sync {
     /// 读取MMIO寄存器
+    ///
+    /// 从设备指定偏移地址读取数据。
+    ///
+    /// # 参数
+    /// - `offset`: 设备内的偏移地址（字节）
+    /// - `size`: 读取大小（1/2/4/8 字节）
+    ///
+    /// # 返回
+    /// 读取的数据值
     fn read(&self, offset: u64, size: u8) -> VmResult<u64>;
     
     /// 写入MMIO寄存器
+    ///
+    /// 向设备指定偏移地址写入数据。
+    ///
+    /// # 参数
+    /// - `offset`: 设备内的偏移地址（字节）
+    /// - `value`: 要写入的值
+    /// - `size`: 写入大小（1/2/4/8 字节）
+    ///
+    /// # 返回
+    /// 写入成功返回Ok(())，失败返回错误
     fn write(&mut self, offset: u64, value: u64, size: u8) -> VmResult<()>;
 }
 

@@ -7,26 +7,94 @@ use vm_core::VmError;
 use vm_ir::IROp;
 
 /// 代码生成器接口
+///
+/// 负责将优化后的IR块转换为目标架构的机器码。
+/// 代码生成是JIT编译的最后一步，将平台无关的IR转换为平台相关的机器指令。
+///
+/// # 使用场景
+/// - 跨平台编译：为x86-64、ARM64、RISC-V等架构生成机器码
+/// - 代码优化：根据目标架构特性进行优化
+/// - 指令调度：优化指令顺序以提高流水线效率
+/// - 寄存器分配：分配物理寄存器给虚拟寄存器
+///
+/// # 代码生成流程
+/// 1. 寄存器分配：将虚拟寄存器映射到物理寄存器或栈槽
+/// 2. 指令选择：选择最佳的目标指令实现IR操作
+/// 3. 指令调度：重排指令以提高并行度
+/// 4. 代码生成：生成最终的机器码
+///
+/// # 示例
+/// ```ignore
+/// let mut generator = DefaultCodeGenerator::new();
+/// generator.set_option("target_arch", "x86_64")?;
+/// let result = generator.generate(&compiled_block)?;
+/// ```
 pub trait CodeGenerator: Send + Sync {
     /// 生成机器码
+    ///
+    /// 将编译后的IR块转换为机器码。
+    /// 生成的代码可以直接在宿主机上执行。
+    ///
+    /// # 参数
+    /// - `block`: 编译后的IR块，包含优化后的IR和元数据
+    ///
+    /// # 返回
+    /// JIT编译结果，包含机器码和统计信息
+    ///
+    /// # 错误
+    /// - 不支持的指令
+    /// - 寄存器溢出
+    /// - 代码生成失败
     fn generate(&mut self, block: &crate::compiler::CompiledIRBlock) -> Result<crate::core::JITCompilationResult, VmError>;
     
     /// 获取代码生成器名称
+    ///
+    /// # 返回
+    /// 代码生成器名称字符串
     fn name(&self) -> &str;
     
     /// 获取代码生成器版本
+    ///
+    /// # 返回
+    /// 代码生成器版本字符串
     fn version(&self) -> &str;
     
     /// 设置代码生成选项
+    ///
+    /// 配置代码生成器的行为，如目标架构、优化模式等。
+    ///
+    /// # 参数
+    /// - `option`: 选项名称
+    /// - `value`: 选项值
+    ///
+    /// # 返回
+    /// 设置成功返回Ok(())，失败返回错误
+    ///
+    /// # 常见选项
+    /// - `target_arch`: 目标架构（x86_64/aarch64/riscv64）
+    /// - `code_gen_mode`: 生成模式（compact/fast/balanced）
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError>;
     
     /// 获取代码生成选项
+    ///
+    /// 获取指定选项的当前值。
+    ///
+    /// # 参数
+    /// - `option`: 选项名称
+    ///
+    /// # 返回
+    /// 选项值（如果存在），否则返回None
     fn get_option(&self, option: &str) -> Option<String>;
     
     /// 重置代码生成器状态
+    ///
+    /// 清除内部状态和统计信息，为新的编译做准备。
     fn reset(&mut self);
     
     /// 获取代码生成统计信息
+    ///
+    /// # 返回
+    /// 代码生成统计信息，包括指令数量、代码大小、生成时间等
     fn get_stats(&self) -> CodeGenerationStats;
 }
 

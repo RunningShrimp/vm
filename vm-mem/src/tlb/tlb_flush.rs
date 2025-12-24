@@ -9,7 +9,41 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use vm_core::VmError;
+use vm_core::{AccessType, VmError};
+
+fn access_type_to_hashable(access_type: AccessType) -> u8 {
+    match access_type {
+        AccessType::Read => 0,
+        AccessType::Write => 1,
+        AccessType::Execute => 2,
+        AccessType::Atomic => 3,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct HashableAccessType(u8);
+
+impl From<AccessType> for HashableAccessType {
+    fn from(access_type: AccessType) -> Self {
+        Self(access_type_to_hashable(access_type))
+    }
+}
+
+impl From<HashableAccessType> for AccessType {
+    fn from(hashable: HashableAccessType) -> Self {
+        match hashable.0 {
+            0 => AccessType::Read,
+            1 => AccessType::Write,
+            2 => AccessType::Execute,
+            3 => AccessType::Atomic,
+            _ => AccessType::Read,
+        }
+    }
+}
+
+fn page_count_between(start: GuestAddr, end: GuestAddr) -> u64 {
+    (end.0 - start.0) / 4096 + 1
+}
 
 /// 刷新策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,6 +355,94 @@ impl Default for TlbFlushConfig {
     }
 }
 
+/// 预测性刷新配置
+#[derive(Debug, Clone)]
+pub struct PredictiveFlushConfig {
+    pub enabled: bool,
+    pub prediction_window: usize,
+    pub accuracy_threshold: f64,
+    pub max_predictive_flushes: usize,
+    pub history_size: usize,
+}
+
+impl Default for PredictiveFlushConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prediction_window: 8,
+            accuracy_threshold: 0.7,
+            max_predictive_flushes: 4,
+            history_size: 256,
+        }
+    }
+}
+
+/// 选择性刷新配置
+#[derive(Debug, Clone)]
+pub struct SelectiveFlushConfig {
+    pub enabled: bool,
+    pub hot_page_threshold: u64,
+    pub cold_page_threshold: u64,
+    pub frequency_weight: f64,
+    pub recency_weight: f64,
+    pub size_weight: f64,
+}
+
+impl Default for SelectiveFlushConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            hot_page_threshold: 50,
+            cold_page_threshold: 5,
+            frequency_weight: 0.5,
+            recency_weight: 0.3,
+            size_weight: 0.2,
+        }
+    }
+}
+
+/// 自适应刷新配置
+#[derive(Debug, Clone)]
+pub struct AdaptiveFlushConfig {
+    pub enabled: bool,
+    pub monitoring_window: usize,
+    pub performance_threshold: f64,
+    pub strategy_switch_interval: u64,
+    pub min_samples: usize,
+}
+
+impl Default for AdaptiveFlushConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            monitoring_window: 100,
+            performance_threshold: 0.1,
+            strategy_switch_interval: 30,
+            min_samples: 20,
+        }
+    }
+}
+
+/// 高级TLB刷新配置
+#[derive(Debug, Clone)]
+pub struct AdvancedTlbFlushConfig {
+    pub base_config: TlbFlushConfig,
+    pub predictive_config: PredictiveFlushConfig,
+    pub selective_config: SelectiveFlushConfig,
+    pub adaptive_config: AdaptiveFlushConfig,
+}
+
+impl Default for AdvancedTlbFlushConfig {
+    fn default() -> Self {
+        Self {
+            base_config: TlbFlushConfig::default(),
+            predictive_config: PredictiveFlushConfig::default(),
+            selective_config: SelectiveFlushConfig::default(),
+            adaptive_config: AdaptiveFlushConfig::default(),
+        }
+    }
+}
+
 /// 刷新统计信息
 #[derive(Debug, Default)]
 pub struct TlbFlushStats {
@@ -408,6 +530,592 @@ pub struct TlbFlushStatsSnapshot {
     pub current_queue_size: usize,
     pub max_queue_size: usize,
     pub optimization_rate: f64,
+}
+
+/// 访问预测器
+#[derive(Debug, Clone)]
+pub struct AccessPredictor {
+    access_history: VecDeque<(GuestAddr, u16, Instant)>,
+    prediction_history: VecDeque<(Vec<GuestAddr>, bool)>,
+    max_history: usize,
+    prediction_window: usize,
+    pattern_map: HashMap<Vec<GuestAddr>, Vec<GuestAddr>>,
+}
+
+impl AccessPredictor {
+    pub fn new(max_history: usize, prediction_window: usize) -> Self {
+        Self {
+            access_history: VecDeque::with_capacity(max_history),
+            prediction_history: VecDeque::with_capacity(max_history),
+            max_history,
+            prediction_window,
+            pattern_map: HashMap::new(),
+        }
+    }
+
+    pub fn record_access(&mut self, gva: GuestAddr, asid: u16) {
+        let now = Instant::now();
+        let page_base = GuestAddr(gva & !(4096 - 1));
+        self.access_history.push_back((page_base, asid, now));
+        if self.access_history.len() > self.max_history {
+            self.access_history.pop_front();
+        }
+        self.update_pattern_map();
+    }
+
+    pub fn predict_next_accesses(&self, asid: u16) -> Vec<GuestAddr> {
+        if self.access_history.len() < self.prediction_window {
+            return Vec::new();
+        }
+        let recent_pattern: Vec<_> = self.access_history
+            .iter()
+            .rev()
+            .take(self.prediction_window)
+            .filter(|(_, a, _)| *a == asid)
+            .map(|(gva, _, _)| *gva)
+            .collect();
+        if recent_pattern.len() < self.prediction_window / 2 {
+            return Vec::new();
+        }
+        for (pattern, next_pages) in &self.pattern_map {
+            if self.pattern_matches(&recent_pattern, pattern) {
+                return next_pages.clone();
+            }
+        }
+        Vec::new()
+    }
+
+    pub fn validate_prediction(&mut self, predicted: &[GuestAddr], actual: GuestAddr) -> bool {
+        let page_base = GuestAddr(actual & !(4096 - 1));
+        let is_correct = predicted.contains(&page_base);
+        self.prediction_history.push_back((predicted.to_vec(), is_correct));
+        if self.prediction_history.len() > self.max_history {
+            self.prediction_history.pop_front();
+        }
+        is_correct
+    }
+
+    pub fn get_accuracy(&self) -> f64 {
+        if self.prediction_history.is_empty() {
+            return 0.0;
+        }
+        let correct = self.prediction_history.iter().filter(|(_, correct)| *correct).count();
+        correct as f64 / self.prediction_history.len() as f64
+    }
+
+    fn update_pattern_map(&mut self) {
+        if self.access_history.len() < self.prediction_window * 2 {
+            return;
+        }
+        let accesses: Vec<_> = self.access_history.iter().map(|(gva, asid, _)| (*gva, *asid)).collect();
+        for i in 0..=accesses.len() - self.prediction_window * 2 {
+            let pattern: Vec<_> = accesses[i..i + self.prediction_window]
+                .iter()
+                .filter(|(_, asid)| *asid == accesses[i].1)
+                .map(|(gva, _)| *gva)
+                .collect();
+            let next_pages: Vec<_> = accesses[i + self.prediction_window..i + self.prediction_window * 2]
+                .iter()
+                .filter(|(_, asid)| *asid == accesses[i].1)
+                .map(|(gva, _)| *gva)
+                .collect();
+            if pattern.len() >= self.prediction_window / 2 && !next_pages.is_empty() {
+                self.pattern_map.insert(pattern, next_pages);
+            }
+        }
+    }
+
+    fn pattern_matches(&self, pattern1: &[GuestAddr], pattern2: &[GuestAddr]) -> bool {
+        if pattern1.len() != pattern2.len() {
+            return false;
+        }
+        let mut matches = 0;
+        for (p1, p2) in pattern1.iter().zip(pattern2.iter()) {
+            if p1 == p2 {
+                matches += 1;
+            }
+        }
+        matches as f64 / pattern1.len() as f64 >= 0.8
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PageStats {
+    access_count: u64,
+    last_access: Instant,
+    page_size: u64,
+    access_types: HashMap<HashableAccessType, u64>,
+    access_timestamps: Vec<Instant>,
+    access_pattern: Option<AccessPattern>,
+}
+
+impl PageStats {
+    fn new() -> Self {
+        Self {
+            access_count: 0,
+            last_access: Instant::now(),
+            page_size: 4096,
+            access_types: HashMap::new(),
+            access_timestamps: Vec::new(),
+            access_pattern: None,
+        }
+    }
+}
+
+/// 页面重要性评估器
+#[derive(Debug)]
+pub struct PageImportanceEvaluator {
+    page_stats: Arc<Mutex<HashMap<(GuestAddr, u16), PageStats>>>,
+    config: SelectiveFlushConfig,
+    last_cleanup: Arc<Mutex<Instant>>,
+}
+
+impl PageImportanceEvaluator {
+    pub fn new(config: SelectiveFlushConfig) -> Self {
+        Self {
+            page_stats: Arc::new(Mutex::new(HashMap::new())),
+            config,
+            last_cleanup: Arc::new(Mutex::new(Instant::now())),
+        }
+    }
+
+    pub fn record_access(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
+        let page_base = GuestAddr(gva & !(4096 - 1));
+        let key = (page_base, asid);
+        let now = Instant::now();
+        {
+            let mut stats = self.page_stats.lock().unwrap();
+            let page_stats = stats.entry(key).or_insert_with(PageStats::new);
+            page_stats.access_count += 1;
+            page_stats.last_access = now;
+            *page_stats.access_types.entry(access_type.into()).or_insert(0) += 1;
+            page_stats.access_timestamps.push(now);
+            if page_stats.access_timestamps.len() > 100 {
+                page_stats.access_timestamps.remove(0);
+            }
+            if page_stats.access_timestamps.len() > 10 {
+                let mut intervals = Vec::new();
+                for i in 1..page_stats.access_timestamps.len() {
+                    let interval = page_stats.access_timestamps[i]
+                        .duration_since(page_stats.access_timestamps[i-1])
+                        .as_millis();
+                    intervals.push(interval);
+                }
+                if intervals.len() > 0 {
+                    let interval_count = intervals.len() as u128;
+                    let avg_interval = intervals.iter().sum::<u128>() / interval_count;
+                    let variance = intervals.iter()
+                        .map(|&x| (x as i128 - avg_interval as i128).pow(2))
+                        .sum::<i128>() / interval_count as i128;
+                    if variance < (avg_interval as i128 / 5) {
+                        page_stats.access_pattern = Some(AccessPattern::Sequential);
+                    } else {
+                        page_stats.access_pattern = Some(AccessPattern::Random);
+                    }
+                }
+            }
+        }
+        {
+            let mut last_cleanup = self.last_cleanup.lock().unwrap();
+            if now.duration_since(*last_cleanup) > Duration::from_secs(60) {
+                self.cleanup_expired_stats();
+                *last_cleanup = now;
+            }
+        }
+    }
+
+    pub fn evaluate_importance(&self, gva: GuestAddr, asid: u16) -> f64 {
+        let page_base = GuestAddr(gva & !(4096 - 1));
+        let key = (page_base, asid);
+        let stats = self.page_stats.lock().unwrap();
+        if let Some(page_stats) = stats.get(&key) {
+            let frequency_score = (page_stats.access_count as f64).log10();
+            let recency_score = 1.0 / (1.0 + page_stats.last_access.elapsed().as_secs_f64());
+            let size_score = (page_stats.page_size as f64).log10();
+            let pattern_score = match &page_stats.access_pattern {
+                Some(AccessPattern::Sequential) => 1.5,
+                Some(AccessPattern::Random) => 0.8,
+                Some(AccessPattern::Strided { .. }) => 1.2,
+                Some(AccessPattern::Localized) => 1.3,
+                Some(AccessPattern::Unknown) => 1.0,
+                None => 1.0,
+            };
+            let trend_score = if page_stats.access_timestamps.len() > 5 {
+                let recent_window = page_stats.access_timestamps.iter()
+                    .rev()
+                    .take(5)
+                    .collect::<Vec<_>>();
+                if recent_window.len() > 1 {
+                    let recent_interval = recent_window[0].duration_since(*recent_window[4]).as_secs_f64();
+                    let recent_frequency = 4.0 / recent_interval;
+                    let total_interval = page_stats.access_timestamps.last().unwrap()
+                        .duration_since(*page_stats.access_timestamps.first().unwrap())
+                        .as_secs_f64();
+                    let avg_frequency = (page_stats.access_timestamps.len() - 1) as f64 / total_interval;
+                    if recent_frequency > avg_frequency {
+                        1.2
+                    } else if recent_frequency < avg_frequency * 0.5 {
+                        0.7
+                    } else {
+                        1.0
+                    }
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
+            self.config.frequency_weight * frequency_score +
+            self.config.recency_weight * recency_score +
+            self.config.size_weight * size_score +
+            0.5 * pattern_score +
+            0.3 * trend_score
+        } else {
+            0.0
+        }
+    }
+
+    pub fn get_hot_pages(&self, asid: u16) -> Vec<(GuestAddr, f64)> {
+        let stats = self.page_stats.lock().unwrap();
+        let mut hot_pages: Vec<_> = stats
+            .iter()
+            .filter(|((_, a), page_stats)| *a == asid && page_stats.access_count >= self.config.hot_page_threshold)
+            .map(|((gva, _), _)| (*gva, self.evaluate_importance(*gva, asid)))
+            .collect();
+        hot_pages.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        hot_pages
+    }
+
+    pub fn get_cold_pages(&self, asid: u16) -> Vec<(GuestAddr, f64)> {
+        let stats = self.page_stats.lock().unwrap();
+        let mut cold_pages: Vec<_> = stats
+            .iter()
+            .filter(|((_, a), page_stats)| *a == asid && page_stats.access_count <= self.config.cold_page_threshold)
+            .map(|((gva, _), _)| (*gva, self.evaluate_importance(*gva, asid)))
+            .collect();
+        cold_pages.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        cold_pages
+    }
+
+    fn cleanup_expired_stats(&self) {
+        let cutoff = Instant::now() - Duration::from_secs(300);
+        let mut stats = self.page_stats.lock().unwrap();
+        stats.retain(|_, page_stats| page_stats.last_access > cutoff);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PerformanceSnapshot {
+    timestamp: Instant,
+    hit_rate: f64,
+    avg_latency: Duration,
+    flush_count: u64,
+    strategy: FlushStrategy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PerformanceTrend {
+    Improving,
+    Degrading,
+    Stable,
+}
+
+/// 性能监控器
+#[derive(Debug)]
+pub struct PerformanceMonitor {
+    performance_history: VecDeque<PerformanceSnapshot>,
+    window_size: usize,
+    last_strategy_switch: Arc<Mutex<Instant>>,
+}
+
+impl PerformanceMonitor {
+    pub fn new(window_size: usize) -> Self {
+        Self {
+            performance_history: VecDeque::with_capacity(window_size),
+            window_size,
+            last_strategy_switch: Arc::new(Mutex::new(Instant::now())),
+        }
+    }
+
+    pub fn record_snapshot(&mut self, snapshot: PerformanceSnapshot) {
+        self.performance_history.push_back(snapshot);
+        if self.performance_history.len() > self.window_size {
+            self.performance_history.pop_front();
+        }
+    }
+
+    pub fn analyze_trend(&self) -> PerformanceTrend {
+        if self.performance_history.len() < 2 {
+            return PerformanceTrend::Stable;
+        }
+        let recent: Vec<_> = self.performance_history
+            .iter()
+            .rev()
+            .take(self.window_size / 2)
+            .collect();
+        let older: Vec<_> = self.performance_history
+            .iter()
+            .take(self.window_size / 2)
+            .collect();
+        let recent_avg_hit_rate: f64 = recent.iter().map(|s| s.hit_rate).sum::<f64>() / recent.len() as f64;
+        let older_avg_hit_rate: f64 = older.iter().map(|s| s.hit_rate).sum::<f64>() / older.len() as f64;
+        let recent_avg_latency: Duration = recent.iter().map(|s| s.avg_latency).sum::<Duration>() / recent.len() as u32;
+        let older_avg_latency: Duration = older.iter().map(|s| s.avg_latency).sum::<Duration>() / older.len() as u32;
+        let recent_total_flush: u64 = recent.iter().map(|s| s.flush_count).sum();
+        let older_total_flush: u64 = older.iter().map(|s| s.flush_count).sum();
+        let flush_rate_change = (recent_total_flush as f64 / recent.len() as f64) - (older_total_flush as f64 / older.len() as f64);
+        let recent_avg_duration = if recent.len() > 1 {
+            let first_ts = recent.first().unwrap().timestamp;
+            let last_ts = recent.last().unwrap().timestamp;
+            last_ts.duration_since(first_ts).as_secs_f64() / (recent.len() - 1) as f64
+        } else {
+            0.0
+        };
+        let older_avg_duration = if older.len() > 1 {
+            let first_ts = older.first().unwrap().timestamp;
+            let last_ts = older.last().unwrap().timestamp;
+            last_ts.duration_since(first_ts).as_secs_f64() / (older.len() - 1) as f64
+        } else {
+            0.0
+        };
+        let hit_rate_change = recent_avg_hit_rate - older_avg_hit_rate;
+        let latency_change = recent_avg_latency.as_nanos() as f64 - older_avg_latency.as_nanos() as f64;
+        let sampling_rate_change = (1.0 / recent_avg_duration.max(0.0001)) - (1.0 / older_avg_duration.max(0.0001));
+        let is_improving = hit_rate_change > 0.05 && latency_change < 0.0 && flush_rate_change < 0.0;
+        let is_degrading = hit_rate_change < -0.05 || latency_change > 0.1 || flush_rate_change > 0.1 || sampling_rate_change > 10.0;
+        if is_improving {
+            PerformanceTrend::Improving
+        } else if is_degrading {
+            PerformanceTrend::Degrading
+        } else {
+            PerformanceTrend::Stable
+        }
+    }
+
+    pub fn recommend_strategy(&self) -> FlushStrategy {
+        let trend = self.analyze_trend();
+        match trend {
+            PerformanceTrend::Improving => {
+                self.performance_history.back().map(|s| s.strategy).unwrap_or(FlushStrategy::Adaptive)
+            }
+            PerformanceTrend::Degrading => {
+                match self.performance_history.back().map(|s| s.strategy).unwrap_or(FlushStrategy::Adaptive) {
+                    FlushStrategy::Immediate => FlushStrategy::Batched,
+                    FlushStrategy::Delayed => FlushStrategy::Intelligent,
+                    FlushStrategy::Batched => FlushStrategy::Intelligent,
+                    FlushStrategy::Intelligent => FlushStrategy::Adaptive,
+                    FlushStrategy::Adaptive => FlushStrategy::Immediate,
+                }
+            }
+            PerformanceTrend::Stable => {
+                FlushStrategy::Adaptive
+            }
+        }
+    }
+
+    pub fn should_switch_strategy(&self, config: &AdaptiveFlushConfig) -> bool {
+        let last_switch = self.last_strategy_switch.lock().unwrap();
+        last_switch.elapsed() >= Duration::from_secs(config.strategy_switch_interval) &&
+        self.performance_history.len() >= config.min_samples
+    }
+}
+
+#[derive(Debug, Default)]
+struct PredictiveFlushStats {
+    predictive_flushes: AtomicU64,
+    successful_predictions: AtomicU64,
+    failed_predictions: AtomicU64,
+    selective_flushes: AtomicU64,
+    skipped_hot_pages: AtomicU64,
+}
+
+/// 预测性刷新统计快照
+#[derive(Debug, Clone)]
+pub struct PredictiveFlushStatsSnapshot {
+    pub predictive_flushes: u64,
+    pub successful_predictions: u64,
+    pub failed_predictions: u64,
+    pub selective_flushes: u64,
+    pub skipped_hot_pages: u64,
+    pub prediction_accuracy: f64,
+}
+
+/// 高级TLB刷新管理器
+pub struct AdvancedTlbFlushManager {
+    base_manager: TlbFlushManager,
+    config: AdvancedTlbFlushConfig,
+    predictor: Arc<Mutex<AccessPredictor>>,
+    evaluator: Arc<Mutex<PageImportanceEvaluator>>,
+    monitor: Arc<Mutex<PerformanceMonitor>>,
+    current_strategy: Arc<Mutex<FlushStrategy>>,
+    predictive_stats: Arc<PredictiveFlushStats>,
+}
+
+impl AdvancedTlbFlushManager {
+    pub fn new(
+        config: AdvancedTlbFlushConfig,
+        tlb_manager: Arc<PerCpuTlbManager>,
+    ) -> Self {
+        let base_manager = TlbFlushManager::new(
+            config.base_config.clone(),
+            tlb_manager.clone(),
+        );
+        let predictor = AccessPredictor::new(
+            config.predictive_config.history_size,
+            config.predictive_config.prediction_window,
+        );
+        let evaluator = PageImportanceEvaluator::new(config.selective_config.clone());
+        let monitor = PerformanceMonitor::new(config.adaptive_config.monitoring_window);
+        Self {
+            base_manager,
+            config,
+            predictor: Arc::new(Mutex::new(predictor)),
+            evaluator: Arc::new(Mutex::new(evaluator)),
+            monitor: Arc::new(Mutex::new(monitor)),
+            current_strategy: Arc::new(Mutex::new(FlushStrategy::Adaptive)),
+            predictive_stats: Arc::new(PredictiveFlushStats::default()),
+        }
+    }
+
+    pub fn with_default_config(tlb_manager: Arc<PerCpuTlbManager>) -> Self {
+        Self::new(AdvancedTlbFlushConfig::default(), tlb_manager)
+    }
+
+    pub fn get_stats(&self) -> TlbFlushStatsSnapshot {
+        self.base_manager.get_stats()
+    }
+
+    pub fn reset_stats(&self) {
+        self.base_manager.reset_stats();
+    }
+
+    pub fn record_access(&self, gva: GuestAddr, asid: u16, access_type: AccessType) {
+        self.base_manager.record_access(gva, asid);
+        if self.config.predictive_config.enabled {
+            let mut predictor = self.predictor.lock().unwrap();
+            predictor.record_access(gva, asid);
+        }
+        if self.config.selective_config.enabled {
+            let evaluator = self.evaluator.lock().unwrap();
+            evaluator.record_access(gva, asid, access_type);
+        }
+    }
+
+    pub fn request_flush(&self, mut request: FlushRequest) -> Result<(), VmError> {
+        if self.config.adaptive_config.enabled {
+            self.adapt_strategy();
+        }
+        if self.config.predictive_config.enabled {
+            self.perform_predictive_flush(&request)?;
+        }
+        if self.config.selective_config.enabled {
+            request = self.optimize_flush_selectively(request)?;
+        }
+        self.base_manager.request_flush(request)
+    }
+
+    fn perform_predictive_flush(&self, request: &FlushRequest) -> Result<(), VmError> {
+        let predictor = self.predictor.lock().unwrap();
+        if predictor.get_accuracy() < self.config.predictive_config.accuracy_threshold {
+            return Ok(());
+        }
+        let predicted_pages = predictor.predict_next_accesses(request.asid);
+        if predicted_pages.is_empty() || 
+           predicted_pages.len() > self.config.predictive_config.max_predictive_flushes {
+            return Ok(());
+        }
+        for &page in &predicted_pages {
+            let predictive_request = FlushRequest::new(
+                FlushScope::SinglePage,
+                page,
+                page,
+                request.asid,
+                request.priority - 1,
+                request.source_cpu,
+            );
+            self.base_manager.request_flush(predictive_request)?;
+            self.predictive_stats.predictive_flushes.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
+    fn optimize_flush_selectively(&self, request: FlushRequest) -> Result<FlushRequest, VmError> {
+        let evaluator = self.evaluator.lock().unwrap();
+        match request.scope {
+            FlushScope::PageRange => {
+                let hot_pages = evaluator.get_hot_pages(request.asid);
+                let cold_pages = evaluator.get_cold_pages(request.asid);
+                let hot_in_range = hot_pages.iter()
+                    .filter(|(gva, _)| gva.0 >= request.gva.0 && gva.0 <= request.end_gva.0)
+                    .count();
+                let total_in_range = page_count_between(request.gva, request.end_gva);
+                if hot_in_range as f64 / total_in_range as f64 > 0.7 {
+                    let mut optimized_requests = Vec::new();
+                    for (cold_page, _) in cold_pages {
+                        if cold_page.0 >= request.gva.0 && cold_page.0 <= request.end_gva.0 {
+                            let cold_request = FlushRequest::new(
+                                FlushScope::SinglePage,
+                                cold_page,
+                                cold_page,
+                                request.asid,
+                                request.priority,
+                                request.source_cpu,
+                            );
+                            optimized_requests.push(cold_request);
+                        }
+                    }
+                    for cold_request in optimized_requests {
+                        self.base_manager.request_flush(cold_request)?;
+                        self.predictive_stats.selective_flushes.fetch_add(1, Ordering::Relaxed);
+                    }
+                    self.predictive_stats.skipped_hot_pages.fetch_add(hot_in_range as u64, Ordering::Relaxed);
+                    return Ok(FlushRequest::new(
+                        FlushScope::SinglePage,
+                        GuestAddr(0),
+                        GuestAddr(0),
+                        request.asid,
+                        0,
+                        request.source_cpu,
+                    ));
+                }
+            }
+            _ => {}
+        }
+        Ok(request)
+    }
+
+    fn adapt_strategy(&self) {
+        let monitor = self.monitor.lock().unwrap();
+        let mut current_strategy = self.current_strategy.lock().unwrap();
+        if !monitor.should_switch_strategy(&self.config.adaptive_config) {
+            return;
+        }
+        let recommended_strategy = monitor.recommend_strategy();
+        if *current_strategy != recommended_strategy {
+            *current_strategy = recommended_strategy;
+            let mut last_switch = monitor.last_strategy_switch.lock().unwrap();
+            *last_switch = Instant::now();
+        }
+    }
+
+    pub fn get_predictive_stats(&self) -> PredictiveFlushStatsSnapshot {
+        PredictiveFlushStatsSnapshot {
+            predictive_flushes: self.predictive_stats.predictive_flushes.load(Ordering::Relaxed),
+            successful_predictions: self.predictive_stats.successful_predictions.load(Ordering::Relaxed),
+            failed_predictions: self.predictive_stats.failed_predictions.load(Ordering::Relaxed),
+            selective_flushes: self.predictive_stats.selective_flushes.load(Ordering::Relaxed),
+            skipped_hot_pages: self.predictive_stats.skipped_hot_pages.load(Ordering::Relaxed),
+            prediction_accuracy: {
+                let total = self.predictive_stats.successful_predictions.load(Ordering::Relaxed) +
+                           self.predictive_stats.failed_predictions.load(Ordering::Relaxed);
+                if total > 0 {
+                    self.predictive_stats.successful_predictions.load(Ordering::Relaxed) as f64 / total as f64
+                } else {
+                    0.0
+                }
+            },
+        }
+    }
 }
 
 /// TLB刷新管理器
@@ -1084,5 +1792,65 @@ mod tests {
         let stats = flush_manager.get_stats();
         assert_eq!(stats.total_requests, 1);
         assert_eq!(stats.immediate_flushes, 1);
+    }
+
+    #[test]
+    fn test_access_predictor() {
+        let mut predictor = AccessPredictor::new(100, 4);
+        
+        for i in 0..10 {
+            predictor.record_access(i * 4096, 0);
+        }
+        
+        let predicted = predictor.predict_next_accesses(0);
+        assert!(!predicted.is_empty());
+        
+        let is_correct = predictor.validate_prediction(&predicted, 10 * 4096);
+        assert!(is_correct);
+        
+        let accuracy = predictor.get_accuracy();
+        assert!(accuracy > 0.0);
+    }
+
+    #[test]
+    fn test_page_importance_evaluator() {
+        let mut evaluator = PageImportanceEvaluator::new(SelectiveFlushConfig::default());
+        
+        for _ in 0..10 {
+            evaluator.record_access(0x1000, 0, AccessType::Read);
+        }
+        
+        let importance = evaluator.evaluate_importance(0x1000, 0);
+        assert!(importance > 0.0);
+        
+        let hot_pages = evaluator.get_hot_pages(0);
+        assert!(!hot_pages.is_empty());
+        assert_eq!(hot_pages[0].0, 0x1000);
+    }
+
+    #[test]
+    fn test_advanced_flush_manager() {
+        let tlb_manager = Arc::new(PerCpuTlbManager::with_default_config());
+        let flush_manager = AdvancedTlbFlushManager::with_default_config(tlb_manager);
+        
+        flush_manager.record_access(0x1000, 0, AccessType::Read);
+        
+        let request = FlushRequest::new(
+            FlushScope::SinglePage,
+            0x1000,
+            0x1000,
+            0,
+            10,
+            0,
+        );
+        
+        let result = flush_manager.request_flush(request);
+        assert!(result.is_ok());
+        
+        let stats = flush_manager.get_stats();
+        assert_eq!(stats.total_requests, 1);
+        
+        let predictive_stats = flush_manager.get_predictive_stats();
+        assert_eq!(predictive_stats.predictive_flushes, 0);
     }
 }

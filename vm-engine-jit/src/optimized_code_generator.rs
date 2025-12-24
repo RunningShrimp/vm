@@ -188,12 +188,11 @@ impl CodeLayoutAnalyzer {
     
     /// 判断是否为分支指令
     fn is_branch_instruction(&self, op: &vm_ir::IROp) -> bool {
-        matches!(op, 
+        matches!(op,
                 vm_ir::IROp::Beq { .. } |
                 vm_ir::IROp::Bne { .. } |
                 vm_ir::IROp::Blt { .. } |
-                vm_ir::IROp::Bge { .. } |
-                vm_ir::IROp::Jmp { .. })
+                vm_ir::IROp::Bge { .. })
     }
 }
 
@@ -407,7 +406,6 @@ impl OptimizedCodeGenerator {
             vm_ir::IROp::Bne { .. } => "jmp".to_string(),
             vm_ir::IROp::Blt { .. } => "jmp".to_string(),
             vm_ir::IROp::Bge { .. } => "jmp".to_string(),
-            vm_ir::IROp::Jmp { .. } => "jmp".to_string(),
             _ => "unknown".to_string(),
         }
     }
@@ -509,7 +507,6 @@ impl OptimizedCodeGenerator {
             vm_ir::IROp::Bne { src1, src2, .. } => vec![*src1, *src2],
             vm_ir::IROp::Blt { src1, src2, .. } => vec![*src1, *src2],
             vm_ir::IROp::Bge { src1, src2, .. } => vec![*src1, *src2],
-            vm_ir::IROp::Jmp { .. } => Vec::new(),
         }
     }
     
@@ -523,8 +520,7 @@ impl OptimizedCodeGenerator {
                 stats.memory_instructions += 1;
             }
             vm_ir::IROp::Beq { .. } | vm_ir::IROp::Bne { .. } | 
-            vm_ir::IROp::Blt { .. } | vm_ir::IROp::Bge { .. } | 
-            vm_ir::IROp::Jmp { .. } => {
+            vm_ir::IROp::Blt { .. } | vm_ir::IROp::Bge { .. } => {
                 stats.branch_instructions += 1;
             }
             _ => {}

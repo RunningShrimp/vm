@@ -11,14 +11,53 @@ use std::time::SystemTime;
 /// 聚合根trait
 ///
 /// 所有聚合根都应该实现这个trait，提供事件发布能力。
+/// 聚合根是领域驱动设计（DDD）中的核心概念，代表一个业务实体的一致性边界。
+///
+/// # 使用场景
+/// - 事件溯源：通过事件重建聚合状态
+/// - 领域事件发布：通知其他组件聚合状态的变化
+/// - 乐观锁控制：通过版本号防止并发冲突
+/// - 审计和调试：追踪聚合状态变化历史
+///
+/// # 设计原则
+/// - 聚合根维护聚合内部的不变式
+/// - 外部只能通过聚合根访问聚合内的实体
+/// - 领域事件通过聚合根发布
+///
+/// # 示例
+/// ```ignore
+/// let mut aggregate = VirtualMachineAggregate::new("vm-1".to_string(), config);
+/// let events = aggregate.uncommitted_events();
+/// aggregate.commit_events()?;
+/// ```
 pub trait AggregateRoot: Send + Sync {
     /// 获取聚合ID
+    ///
+    /// 返回聚合的唯一标识符，用于聚合的持久化和检索。
+    ///
+    /// # 返回
+    /// 聚合ID字符串引用
     fn aggregate_id(&self) -> &str;
 
     /// 获取未提交的事件
+    ///
+    /// 返回自上次提交以来产生的所有领域事件。
+    /// 这些事件还没有持久化到事件存储中。
+    ///
+    /// # 返回
+    /// 未提交的事件列表
+    ///
+    /// # 注意
+    /// 调用mark_events_as_committed()后，此列表将被清空。
     fn uncommitted_events(&self) -> Vec<DomainEventEnum>;
 
     /// 标记事件为已提交
+    ///
+    /// 将所有未提交的事件标记为已提交，清空事件列表。
+    /// 通常在事件成功持久化到事件存储后调用。
+    ///
+    /// # 注意
+    /// 调用此方法后，uncommitted_events()将返回空列表。
     fn mark_events_as_committed(&mut self);
 }
 
@@ -154,7 +193,7 @@ impl VirtualMachineAggregate {
     pub fn from_events(
         vm_id: String,
         config: VmConfig,
-        events: Vec<crate::event_store_legacy::StoredEvent>,
+        events: Vec<crate::event_store::StoredEvent>,
     ) -> Self {
         let mut aggregate = Self {
             vm_id: vm_id.clone(),

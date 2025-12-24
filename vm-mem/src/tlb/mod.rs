@@ -9,21 +9,26 @@
 pub mod tlb;
 pub mod tlb_concurrent;
 pub mod tlb_manager;
-pub mod tlb_optimized;
 pub mod per_cpu_tlb;
 pub mod tlb_sync;
 pub mod tlb_flush;
-pub mod tlb_flush_advanced;
 pub mod unified_tlb;
 
 // 重新导出主要类型
 pub use tlb::*;
 pub use tlb_concurrent::*;
 pub use tlb_manager::*;
-pub use tlb_optimized::*;
 pub use per_cpu_tlb::*;
 pub use tlb_sync::*;
 pub use tlb_flush::*;
-pub use tlb_flush_advanced::*;
+pub use tlb_flush::{
+    PredictiveFlushConfig, SelectiveFlushConfig, AdaptiveFlushConfig, AdvancedTlbFlushConfig,
+    AccessPredictor, PageImportanceEvaluator, PerformanceMonitor, PerformanceTrend,
+    AdvancedTlbFlushManager, PredictiveFlushStatsSnapshot
+};
 // 使用显式导入避免 TlbStats 冲突
-pub use unified_tlb::{TlbFactory, TlbResult, UnifiedTlb};
+pub use unified_tlb::{
+    TlbFactory, TlbResult, UnifiedTlb,
+    OptimizedTlbEntry, MultiLevelTlbConfig, AtomicTlbStats,
+    AdaptiveReplacementPolicy, SingleLevelTlb, MultiLevelTlb
+};

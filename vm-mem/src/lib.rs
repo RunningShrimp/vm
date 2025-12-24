@@ -20,6 +20,7 @@ pub mod memory;
 pub mod optimization;
 pub mod tlb;
 pub mod unified_mmu;
+pub mod domain_services;
 
 #[cfg(feature = "async")]
 pub mod async_mmu;
@@ -38,11 +39,16 @@ pub use tlb::{
     TlbFactory, TlbResult, UnifiedTlb,
     ConcurrentTlbConfig, ConcurrentTlbManager, ConcurrentTlbManagerAdapter, ShardedTlb,
     StandardTlbManager, MultiLevelTlb, MultiLevelTlbConfig, OptimizedTlbEntry,
+    AtomicTlbStats, AdaptiveReplacementPolicy, SingleLevelTlb,
 };
 // 显式导入 TlbStats 避免冲突
 pub use tlb::unified_tlb::TlbStats;
 pub use unified_mmu::{MmuOptimizationStrategy, UnifiedMmu, UnifiedMmuConfig, UnifiedMmuStats};
+pub use domain_services::AddressTranslationDomainService;
+pub mod mmu;
 
+#[cfg(feature = "async")]
+pub mod async_mmu;
 #[cfg(feature = "async")]
 pub use async_mmu::async_file_io;
 #[cfg(feature = "async")]
@@ -1442,5 +1448,3 @@ mod tests {
     }
 }
 
-
-pub mod mmu;

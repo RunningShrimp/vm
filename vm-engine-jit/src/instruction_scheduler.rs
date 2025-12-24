@@ -1,10 +1,17 @@
 //! 指令调度器接口和实现
 //!
 //! 定义了指令调度器的抽象接口和多种实现策略，负责优化指令执行顺序以提高性能。
+//! 支持多种调度策略：
+//! - ListScheduling：列表调度（基础）
+//! - CriticalPathScheduling：关键路径调度
+//! - GreedyScheduling：贪婪调度
+//! - DynamicScheduling：动态调度（高级）
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use vm_core::VmError;
 use vm_ir::IROp;
+use crate::compiler::{CompiledIRBlock, CompiledInstruction};
 
 /// 指令调度器接口
 pub trait InstructionScheduler: Send + Sync {
@@ -847,5 +854,538 @@ impl InstructionScheduler for ListScheduler {
     
     fn get_stats(&self) -> InstructionSchedulingStats {
         self.stats.clone()
+    }
+}
+
+/// 调度策略
+#[derive(Debug, Clone, PartialEq)]
+pub enum SchedulingStrategy {
+    /// 列表调度
+    ListScheduling,
+    /// 关键路径调度
+    CriticalPathScheduling,
+    /// 贪婪调度
+    GreedyScheduling,
+    /// 动态调度
+    DynamicScheduling,
+}
+
+/// 延迟模型
+#[derive(Debug, Clone)]
+pub struct LatencyModel {
+    /// 加载指令延迟
+    pub load_latency: u8,
+    /// 存储指令延迟
+    pub store_latency: u8,
+    /// 算术指令延迟
+    pub arithmetic_latency: u8,
+    /// 分支指令延迟
+    pub branch_latency: u8,
+    /// 调用指令延迟
+    pub call_latency: u8,
+}
+
+/// 优化的调度器配置
+#[derive(Debug, Clone)]
+pub struct OptimizedSchedulerConfig {
+    /// 调度策略
+    pub strategy: SchedulingStrategy,
+    /// 最大并行度
+    pub max_parallelism: usize,
+    /// 是否启用指令重排序
+    pub enable_reordering: bool,
+    /// 是否启用流水线优化
+    pub enable_pipeline_optimization: bool,
+    /// 延迟模型
+    pub latency_model: LatencyModel,
+}
+
+impl Default for OptimizedSchedulerConfig {
+    fn default() -> Self {
+        Self {
+            strategy: SchedulingStrategy::CriticalPathScheduling,
+            max_parallelism: 4,
+            enable_reordering: true,
+            enable_pipeline_optimization: true,
+            latency_model: LatencyModel {
+                load_latency: 3,
+                store_latency: 2,
+                arithmetic_latency: 1,
+                branch_latency: 2,
+                call_latency: 5,
+            },
+        }
+    }
+}
+
+/// 指令依赖节点
+#[derive(Debug, Clone)]
+struct DependencyNode {
+    /// 指令索引
+    instruction_index: usize,
+    /// 指令
+    instruction: CompiledInstruction,
+    /// 前驱节点（依赖的指令）
+    predecessors: HashSet<usize>,
+    /// 后继节点（依赖此指令的指令）
+    successors: HashSet<usize>,
+    /// 就绪时间
+    ready_time: u32,
+    /// 调度优先级
+    priority: i32,
+    /// 是否已调度
+    scheduled: bool,
+    /// 估计执行时间
+    estimated_time: u32,
+}
+
+/// 资源使用信息
+#[derive(Debug, Clone)]
+struct ResourceUsage {
+    /// 使用的寄存器
+    registers: HashSet<String>,
+    /// 使用的功能单元
+    functional_units: HashSet<String>,
+    /// 内存访问标记
+    memory_access: bool,
+}
+
+/// 优化的调度统计
+#[derive(Debug, Default)]
+pub struct OptimizedSchedulingStats {
+    /// 总调度指令数
+    pub total_instructions: AtomicU64,
+    /// 重排序指令数
+    pub reordered_instructions: AtomicU64,
+    /// 已调度指令数
+    pub scheduled_instructions: AtomicU64,
+    /// 并行执行指令数
+    pub parallel_instructions: AtomicU64,
+    /// 关键路径长度
+    pub critical_path_length: AtomicU64,
+    /// 平均调度时间（纳秒）
+    pub avg_scheduling_time_ns: AtomicU64,
+    /// 流水线停顿周期数
+    pub pipeline_stalls: AtomicU64,
+}
+
+impl Clone for OptimizedSchedulingStats {
+    fn clone(&self) -> Self {
+        Self {
+            total_instructions: AtomicU64::new(self.total_instructions.load(Ordering::Relaxed)),
+            reordered_instructions: AtomicU64::new(self.reordered_instructions.load(Ordering::Relaxed)),
+            scheduled_instructions: AtomicU64::new(self.scheduled_instructions.load(Ordering::Relaxed)),
+            parallel_instructions: AtomicU64::new(self.parallel_instructions.load(Ordering::Relaxed)),
+            critical_path_length: AtomicU64::new(self.critical_path_length.load(Ordering::Relaxed)),
+            avg_scheduling_time_ns: AtomicU64::new(self.avg_scheduling_time_ns.load(Ordering::Relaxed)),
+            pipeline_stalls: AtomicU64::new(self.pipeline_stalls.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+/// 优化的指令调度器
+///
+/// 提供高性能的指令调度，支持多种策略：
+/// - ListScheduling：列表调度（基础）
+/// - CriticalPathScheduling：关键路径调度
+/// - GreedyScheduling：贪婪调度
+/// - DynamicScheduling：动态调度（高级）
+pub struct OptimizedInstructionScheduler {
+    /// 配置
+    config: OptimizedSchedulerConfig,
+    /// 依赖图
+    dependency_graph: Vec<DependencyNode>,
+    /// 资源使用跟踪
+    resource_tracker: HashMap<usize, ResourceUsage>,
+    /// 当前时间
+    current_time: u32,
+    /// 调度统计
+    stats: OptimizedSchedulingStats,
+}
+
+impl OptimizedInstructionScheduler {
+    /// 创建新的优化指令调度器
+    pub fn new(config: OptimizedSchedulerConfig) -> Self {
+        Self {
+            config,
+            dependency_graph: Vec::new(),
+            resource_tracker: HashMap::new(),
+            current_time: 0,
+            stats: OptimizedSchedulingStats::default(),
+        }
+    }
+
+    /// 创建默认配置的优化指令调度器
+    pub fn default_config() -> Self {
+        Self::new(OptimizedSchedulerConfig::default())
+    }
+
+    /// 构建依赖图
+    fn build_dependency_graph(&mut self, block: &CompiledIRBlock) {
+        self.dependency_graph.clear();
+        
+        for (i, instruction) in block.ops.iter().enumerate() {
+            let node = DependencyNode {
+                instruction_index: i,
+                instruction: instruction.clone(),
+                predecessors: HashSet::new(),
+                successors: HashSet::new(),
+                ready_time: 0,
+                priority: self.calculate_instruction_priority(instruction),
+                scheduled: false,
+                estimated_time: self.estimate_instruction_time(instruction),
+            };
+            self.dependency_graph.push(node);
+        }
+
+        for (i, node) in self.dependency_graph.iter().enumerate() {
+            for (j, other_node) in self.dependency_graph.iter().enumerate() {
+                if i != j && self.has_dependency(&node.instruction, &other_node.instruction) {
+                    self.dependency_graph[i].predecessors.insert(j);
+                    self.dependency_graph[i].successors.insert(j);
+                }
+            }
+        }
+    }
+
+    /// 计算指令优先级
+    fn calculate_instruction_priority(&self, instruction: &CompiledInstruction) -> i32 {
+        match &instruction.op {
+            IROp::Load { .. } | IROp::MovImm { .. } => 10,
+            IROp::Store { .. } => 5,
+            IROp::Add { .. } | IROp::Sub { .. } | IROp::Mul { .. } | IROp::Div { .. } => 8,
+            IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. } | IROp::Bge { .. } => 3,
+            IROp::Call { .. } => 2,
+            _ => 0,
+        }
+    }
+
+    /// 估计指令执行时间
+    fn estimate_instruction_time(&self, instruction: &CompiledInstruction) -> u32 {
+        match &instruction.op {
+            IROp::Load { .. } => self.config.latency_model.load_latency as u32,
+            IROp::Store { .. } => self.config.latency_model.store_latency as u32,
+            IROp::Add { .. } | IROp::Sub { .. } => self.config.latency_model.arithmetic_latency as u32,
+            IROp::Mul { .. } => self.config.latency_model.arithmetic_latency as u32 + 1,
+            IROp::Div { .. } => self.config.latency_model.arithmetic_latency as u32 + 4,
+            IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. } | IROp::Bge { .. } => self.config.latency_model.branch_latency as u32,
+            _ => 1,
+        }
+    }
+
+    /// 检查指令间是否存在依赖关系
+    fn has_dependency(&self, inst1: &CompiledInstruction, inst2: &CompiledInstruction) -> bool {
+        self.reads_or_writes_register(inst1, inst2) || self.has_memory_dependency(inst1, inst2)
+    }
+
+    /// 检查是否存在寄存器依赖
+    fn reads_or_writes_register(&self, inst1: &CompiledInstruction, inst2: &CompiledInstruction) -> bool {
+        let regs1 = self.get_registers(inst1);
+        let regs2 = self.get_registers(inst2);
+        regs1.iter().any(|r| regs2.contains(r))
+    }
+
+    /// 获取指令使用的寄存器
+    fn get_registers(&self, instruction: &CompiledInstruction) -> Vec<String> {
+        let mut regs = Vec::new();
+        match &instruction.op {
+            IROp::Add { dst, src1, src2 } |
+            IROp::Sub { dst, src1, src2 } |
+            IROp::Mul { dst, src1, src2 } |
+            IROp::Div { dst, src1, src2, .. } => {
+                regs.push(format!("{}", dst));
+                regs.push(format!("{}", src1));
+                regs.push(format!("{}", src2));
+            }
+            IROp::Load { dst, .. } |
+            IROp::MovImm { dst, .. } => {
+                regs.push(format!("{}", dst));
+            }
+            IROp::Store { src, .. } => {
+                regs.push(format!("{}", src));
+            }
+            IROp::Mov { dst, src } => {
+                regs.push(format!("{}", dst));
+                regs.push(format!("{}", src));
+            }
+            IROp::Beq { src1, src2, .. } |
+            IROp::Bne { src1, src2, .. } |
+            IROp::Blt { src1, src2, .. } |
+            IROp::Bge { src1, src2, .. } => {
+                regs.push(format!("{}", src1));
+                regs.push(format!("{}", src2));
+            }
+            _ => {}
+        }
+        regs
+    }
+
+    /// 检查是否存在内存依赖
+    fn has_memory_dependency(&self, inst1: &CompiledInstruction, inst2: &CompiledInstruction) -> bool {
+        let has_mem1 = self.has_memory_access(inst1);
+        let has_mem2 = self.has_memory_access(inst2);
+        has_mem1 && has_mem2
+    }
+
+    /// 检查指令是否有内存访问
+    fn has_memory_access(&self, instruction: &CompiledInstruction) -> bool {
+        matches!(&instruction.op, IROp::Load { .. } | IROp::Store { .. })
+    }
+
+    /// 列表调度
+    fn list_scheduling(&mut self) -> Vec<usize> {
+        let mut ready_list = VecDeque::new();
+        let mut scheduled_order = Vec::new();
+        
+        for (i, node) in self.dependency_graph.iter().enumerate() {
+            if node.predecessors.is_empty() {
+                ready_list.push_back(i);
+            }
+        }
+        
+        while let Some(next_idx) = ready_list.pop_front() {
+            let successors: Vec<_> = self.dependency_graph[next_idx].successors.iter().cloned().collect();
+            let node = &mut self.dependency_graph[next_idx];
+            if node.scheduled {
+                continue;
+            }
+
+            node.scheduled = true;
+            scheduled_order.push(next_idx);
+
+            for succ_idx in successors {
+                let succ_node = &mut self.dependency_graph[succ_idx];
+                succ_node.predecessors.remove(&next_idx);
+                if succ_node.predecessors.is_empty() {
+                    ready_list.push_back(succ_idx);
+                }
+            }
+        }
+        
+        scheduled_order
+    }
+
+    /// 关键路径调度
+    fn critical_path_scheduling(&mut self) -> Vec<usize> {
+        let mut scheduled_order = Vec::new();
+        let mut available = Vec::new();
+        
+        for (i, node) in self.dependency_graph.iter().enumerate() {
+            if node.predecessors.is_empty() {
+                available.push(i);
+            }
+        }
+        
+        while !available.is_empty() {
+            available.sort_by_key(|&i| {
+                let node = &self.dependency_graph[i];
+                (node.ready_time, -node.priority)
+            });
+
+            let best_idx = available.remove(0);
+            let successors: Vec<_> = self.dependency_graph[best_idx].successors.iter().cloned().collect();
+            let node = &self.dependency_graph[best_idx];
+            if node.scheduled {
+                continue;
+            }
+
+            self.dependency_graph[best_idx].scheduled = true;
+            scheduled_order.push(best_idx);
+
+            for succ_idx in successors {
+                let succ_node = &mut self.dependency_graph[succ_idx];
+                let new_ready_time = node.ready_time + node.estimated_time;
+                if new_ready_time > succ_node.ready_time {
+                    succ_node.ready_time = new_ready_time;
+                }
+                succ_node.predecessors.remove(&best_idx);
+                if succ_node.predecessors.is_empty() {
+                    available.push(succ_idx);
+                }
+            }
+        }
+        
+        scheduled_order
+    }
+
+    /// 贪婪调度
+    fn greedy_scheduling(&mut self) -> Vec<usize> {
+        let mut scheduled_order = Vec::new();
+        let mut available: Vec<usize> = self.dependency_graph.iter()
+            .enumerate()
+            .filter(|(_, node)| node.predecessors.is_empty())
+            .map(|(i, _)| i)
+            .collect();
+        
+        while !available.is_empty() {
+            available.sort_by(|a, b| {
+                let node_a = &self.dependency_graph[*a];
+                let node_b = &self.dependency_graph[*b];
+                node_b.priority.cmp(&node_a.priority)
+                    .then_with(|| node_a.ready_time.cmp(&node_b.ready_time))
+            });
+
+            let best_idx = available.remove(0);
+            let successors: Vec<_> = self.dependency_graph[best_idx].successors.iter().cloned().collect();
+            let node = &self.dependency_graph[best_idx];
+            if node.scheduled {
+                continue;
+            }
+
+            self.dependency_graph[best_idx].scheduled = true;
+            scheduled_order.push(best_idx);
+
+            for succ_idx in successors {
+                let succ_node = &mut self.dependency_graph[succ_idx];
+                succ_node.predecessors.remove(&best_idx);
+                if succ_node.predecessors.is_empty() {
+                    available.push(succ_idx);
+                }
+            }
+        }
+        
+        scheduled_order
+    }
+
+    /// 应用调度结果
+    fn apply_scheduling(&mut self, block: &mut CompiledIRBlock, scheduled_order: Vec<usize>) {
+        if !self.config.enable_reordering {
+            return;
+        }
+        
+        let mut new_instructions = Vec::with_capacity(scheduled_order.len());
+        for &idx in &scheduled_order {
+            new_instructions.push(block.ops[idx].clone());
+        }
+        block.ops = new_instructions;
+    }
+}
+
+impl InstructionScheduler for OptimizedInstructionScheduler {
+    fn schedule(&mut self, block: &CompiledIRBlock) -> Result<CompiledIRBlock, VmError> {
+        let start_time = std::time::Instant::now();
+        
+        let mut result_block = block.clone();
+        
+        self.build_dependency_graph(&result_block);
+        
+        let scheduled_order = match self.config.strategy {
+            SchedulingStrategy::ListScheduling => {
+                self.list_scheduling()
+            }
+            SchedulingStrategy::CriticalPathScheduling => {
+                self.critical_path_scheduling()
+            }
+            SchedulingStrategy::GreedyScheduling => {
+                self.greedy_scheduling()
+            }
+            SchedulingStrategy::DynamicScheduling => {
+                if self.dependency_graph.len() > 100 {
+                    self.critical_path_scheduling()
+                } else {
+                    self.list_scheduling()
+                }
+            }
+        };
+        
+        self.apply_scheduling(&mut result_block, scheduled_order);
+        
+        let elapsed = start_time.elapsed().as_nanos() as u64;
+        self.stats.avg_scheduling_time_ns.store(elapsed, Ordering::Relaxed);
+        self.stats.total_instructions.fetch_add(block.instructions.len() as u64, Ordering::Relaxed);
+        self.stats.scheduled_instructions.fetch_add(scheduled_order.len() as u64, Ordering::Relaxed);
+        
+        Ok(result_block)
+    }
+
+    fn name(&self) -> &str {
+        "OptimizedInstructionScheduler"
+    }
+
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+
+    fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError> {
+        match option {
+            "strategy" => {
+                self.config.strategy = match value {
+                    "list" => SchedulingStrategy::ListScheduling,
+                    "critical_path" => SchedulingStrategy::CriticalPathScheduling,
+                    "greedy" => SchedulingStrategy::GreedyScheduling,
+                    "dynamic" => SchedulingStrategy::DynamicScheduling,
+                    _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                        name: "strategy".to_string(),
+                        value: value.to_string(),
+                        message: format!("Invalid strategy: {}", value),
+                    })),
+                };
+            }
+            "max_parallelism" => {
+                self.config.max_parallelism = value.parse()
+                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                        name: "max_parallelism".to_string(),
+                        value: value.to_string(),
+                        message: "Invalid max_parallelism".to_string(),
+                    }))?;
+            }
+            "enable_reordering" => {
+                self.config.enable_reordering = value.parse()
+                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                        name: "enable_reordering".to_string(),
+                        value: value.to_string(),
+                        message: "Invalid enable_reordering".to_string(),
+                    }))?;
+            }
+            "enable_pipeline_optimization" => {
+                self.config.enable_pipeline_optimization = value.parse()
+                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                        name: "enable_pipeline_optimization".to_string(),
+                        value: value.to_string(),
+                        message: "Invalid enable_pipeline_optimization".to_string(),
+                    }))?;
+            }
+            _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                name: "option".to_string(),
+                value: option.to_string(),
+                message: format!("Unknown option: {}", option),
+            })),
+        }
+        Ok(())
+    }
+
+    fn get_option(&self, option: &str) -> Option<String> {
+        match option {
+            "strategy" => Some(format!("{:?}", self.config.strategy)),
+            "max_parallelism" => Some(self.config.max_parallelism.to_string()),
+            "enable_reordering" => Some(self.config.enable_reordering.to_string()),
+            "enable_pipeline_optimization" => Some(self.config.enable_pipeline_optimization.to_string()),
+            _ => None,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.dependency_graph.clear();
+        self.resource_tracker.clear();
+        self.current_time = 0;
+        self.stats = OptimizedSchedulingStats::default();
+    }
+
+    fn get_stats(&self) -> InstructionSchedulingStats {
+        let total = self.stats.total_instructions.load(Ordering::Relaxed);
+        InstructionSchedulingStats {
+            original_insn_count: total as usize,
+            scheduled_insn_count: self.stats.scheduled_instructions.load(Ordering::Relaxed) as usize,
+            scheduling_time_ns: self.stats.avg_scheduling_time_ns.load(Ordering::Relaxed),
+            dependency_edges: self.dependency_graph.iter()
+                .map(|n| n.predecessors.len() + n.successors.len())
+                .sum::<usize>(),
+            critical_path_length: self.stats.critical_path_length.load(Ordering::Relaxed) as usize,
+            parallelism_improvement: if total > 0 {
+                (self.stats.parallel_instructions.load(Ordering::Relaxed) as f64) / (total as f64)
+            } else {
+                0.0
+            },
+        }
     }
 }

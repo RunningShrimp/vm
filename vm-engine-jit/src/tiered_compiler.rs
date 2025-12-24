@@ -305,72 +305,80 @@ impl Interpreter {
 
     fn execute_op(&mut self, op: &vm_ir::IROp) -> Result<(), VmError> {
         use vm_ir::IROp;
-        
+
         match op {
-            IROp::MovImm { rd, imm } => {
-                let idx = *rd as usize;
+            IROp::MovImm { dst, imm } => {
+                let idx = *dst as usize;
                 if idx < self.registers.len() {
                     self.registers[idx] = *imm;
                 }
             },
-            IROp::Add { rd, rs1, rs2 } => {
-                let idx = *rd as usize;
-                let idx1 = *rs1 as usize;
-                let idx2 = *rs2 as usize;
+            IROp::Add { dst, src1, src2 } => {
+                let idx = *dst as usize;
+                let idx1 = *src1 as usize;
+                let idx2 = *src2 as usize;
                 if idx < self.registers.len() && idx1 < self.registers.len() && idx2 < self.registers.len() {
                     self.registers[idx] = self.registers[idx1].wrapping_add(self.registers[idx2]);
                 }
             },
-            IROp::Sub { rd, rs1, rs2 } => {
-                let idx = *rd as usize;
-                let idx1 = *rs1 as usize;
-                let idx2 = *rs2 as usize;
+            IROp::Sub { dst, src1, src2 } => {
+                let idx = *dst as usize;
+                let idx1 = *src1 as usize;
+                let idx2 = *src2 as usize;
                 if idx < self.registers.len() && idx1 < self.registers.len() && idx2 < self.registers.len() {
                     self.registers[idx] = self.registers[idx1].wrapping_sub(self.registers[idx2]);
                 }
             },
-            IROp::Load { rd, addr, size } => {
-                let idx = *rd as usize;
-                if idx < self.registers.len() && *addr < self.memory.len() as u64 {
+            IROp::Load { dst, base, offset, size, .. } => {
+                let idx = *dst as usize;
+                let base_idx = *base as usize;
+                let addr = (self.registers[base_idx] as i64 + offset) as u64;
+                if idx < self.registers.len() && base_idx < self.registers.len() && addr < self.memory.len() as u64 {
                     let val = match size {
-                        8 => self.memory[*addr as usize] as u64,
-                        16 => u16::from_le_bytes([self.memory[*addr as usize], self.memory[(*addr + 1) as usize]]) as u64,
+                        8 => self.memory[addr as usize] as u64,
+                        16 => u16::from_le_bytes([self.memory[addr as usize], self.memory[(addr + 1) as usize]]) as u64,
                         32 => u32::from_le_bytes([
-                            self.memory[*addr as usize],
-                            self.memory[(*addr + 1) as usize],
-                            self.memory[(*addr + 2) as usize],
-                            self.memory[(*addr + 3) as usize],
+                            self.memory[addr as usize],
+                            self.memory[(addr + 1) as usize],
+                            self.memory[(addr + 2) as usize],
+                            self.memory[(addr + 3) as usize],
                         ]) as u64,
                         64 => u64::from_le_bytes([
-                            self.memory[*addr as usize],
-                            self.memory[(*addr + 1) as usize],
-                            self.memory[(*addr + 2) as usize],
-                            self.memory[(*addr + 3) as usize],
-                            self.memory[(*addr + 4) as usize],
-                            self.memory[(*addr + 5) as usize],
-                            self.memory[(*addr + 6) as usize],
-                            self.memory[(*addr + 7) as usize],
+                            self.memory[addr as usize],
+                            self.memory[(addr + 1) as usize],
+                            self.memory[(addr + 2) as usize],
+                            self.memory[(addr + 3) as usize],
+                            self.memory[(addr + 4) as usize],
+                            self.memory[(addr + 5) as usize],
+                            self.memory[(addr + 6) as usize],
+                            self.memory[(addr + 7) as usize],
                         ]),
-                        _ => return Err(VmError::InvalidArgument),
+                        _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                            name: "size".to_string(),
+                            value: size.to_string(),
+                            message: "Invalid size".to_string(),
+                        })),
                     };
                     self.registers[idx] = val;
                 }
             },
-            IROp::Store { rs, addr, size } => {
-                let idx = *rs as usize;
-                if idx < self.registers.len() && *addr < self.memory.len() as u64 {
+            IROp::Store { src, base, offset, size, .. } => {
+                let idx = *src as usize;
+                let base_idx = *base as usize;
+                let addr = (self.registers[base_idx] as i64 + offset) as u64;
+                if idx < self.registers.len() && base_idx < self.registers.len() && addr < self.memory.len() as u64 {
                     let val = self.registers[idx];
                     match size {
-                        8 => self.memory[*addr as usize] = val as u8,
+                        8 => self.memory[addr as usize] = val as u8,
                         16 => {
                             let bytes = (val as u16).to_le_bytes();
-                            self.memory[*addr as usize] = bytes[0];
-                            self.memory[(*addr + 1) as usize] = bytes[1];
+                            self.memory[addr as usize] = bytes[0];
+                            self.memory[(addr + 1) as usize] = bytes[1];
                         },
                         32 => {
                             let bytes = (val as u32).to_le_bytes();
                             for i in 0..4 {
-                                self.memory[(*addr + i) as usize] = bytes[i];
+                                self.memory[(addr + i) as usize] = bytes[i];
                             }
                         },
                         64 => {
@@ -379,7 +387,11 @@ impl Interpreter {
                                 self.memory[(*addr + i) as usize] = bytes[i];
                             }
                         },
-                        _ => return Err(VmError::InvalidArgument),
+                        _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                            name: "size".to_string(),
+                            value: size.to_string(),
+                            message: "Invalid size".to_string(),
+                        })),
                     }
                 }
             },

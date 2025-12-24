@@ -1,5 +1,6 @@
 use std::fmt;
 use vm_encoder::Architecture;
+use vm_core::error::{CoreError, VmError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SourceArch {
@@ -55,6 +56,10 @@ impl fmt::Display for TargetArch {
     }
 }
 
+/// 跨架构翻译错误
+///
+/// 定义跨架构指令翻译过程中可能发生的错误。
+/// 此错误类型可以自动转换为统一的 `VmError`。
 #[derive(Debug, thiserror::Error)]
 pub enum TranslationError {
     #[error("字符串错误: {0}")]
@@ -83,3 +88,20 @@ impl From<String> for TranslationError {
         TranslationError::StringError(s)
     }
 }
+
+/// 将 `TranslationError` 转换为统一的 `VmError`
+impl From<TranslationError> for VmError {
+    fn from(e: TranslationError) -> Self {
+        VmError::Core(CoreError::DecodeError {
+            message: e.to_string(),
+            position: None,
+            module: "vm-cross-arch".to_string(),
+        })
+    }
+}
+
+/// 结果类型别名，使用 `TranslationError` 作为错误类型
+///
+/// 注意：此别名用于函数返回类型，与 `TranslationResult` 结构体（翻译结果）
+/// 是不同的概念。
+pub type TranslationOutcome<T> = Result<T, TranslationError>;

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Refactored architecture encoder using common modules
 //! 
 //! This module demonstrates how to use the new common encoding framework

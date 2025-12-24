@@ -8,17 +8,18 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant, SystemTime};
 
 use vm_core::{GuestAddr, MMU};
 use vm_ir::{IRBlock, IROp};
 
 use crate::{
-    code_cache::CodeCache, 
-    optimizer::IROptimizer, 
+    code_cache::CodeCache,
+    optimizer::IROptimizer,
     register_allocator::RegisterAllocator,
     instruction_scheduler::InstructionScheduler,
-    simd_optimizer::SIMDOptimizer,
+    simd_optimizer::SimdOptimizer,
 };
 
 /// 调试事件类型
@@ -805,43 +806,6 @@ impl<T: InstructionScheduler> InstructionScheduler for DebuggerDecorator<T> {
     }
 }
 
-/// 为SIMDOptimizer添加调试功能
-impl<T: SIMDOptimizer> SIMDOptimizer for DebuggerDecorator<T> {
-    fn optimize_simd(&self, ir_block: &mut IRBlock) -> Result<(), String> {
-        let pc = ir_block.start_pc;
-        
-        self.debugger.log_event(DebugEvent::SIMDOptimizationStart { pc });
-        
-        let result = self.inner.optimize_simd(ir_block);
-        
-        // 计算向量化操作数（简化实现）
-        let vectorized_ops = ir_block.ops.iter()
-            .filter(|op| {
-                // 检查是否是SIMD相关的操作
-                match op {
-                    IROp::Load { .. } | IROp::Store { .. } => true,
-                    _ => false,
-                }
-            })
-            .count();
-        
-        self.debugger.log_event(DebugEvent::SIMDOptimizationEnd { 
-            pc, 
-            vectorized_ops 
-        });
-        
-        result
-    }
-
-    fn vectorize_operations(&self, ir_block: &mut IRBlock) -> Result<usize, String> {
-        self.inner.vectorize_operations(ir_block)
-    }
-
-    fn optimize_simd_memory_access(&self, ir_block: &mut IRBlock) -> Result<(), String> {
-        self.inner.optimize_simd_memory_access(ir_block)
-    }
-}
-
 /// 为CodeCache添加调试功能
 pub struct DebugCodeCache<T> {
     /// 内部代码缓存
@@ -997,5 +961,358 @@ mod tests {
         assert!(report.contains("JIT引擎调试报告"));
         assert!(report.contains("统计摘要"));
         assert!(report.contains("总编译次数: 1"));
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum PerformanceAnalysisType {
+    HotspotDetection,
+    ExecutionTimeAnalysis,
+    BranchPredictionAnalysis,
+    CacheMissAnalysis,
+    ThroughputAnalysis,
+}
+
+#[derive(Debug, Clone)]
+pub enum MemoryAccessType {
+    Read,
+    Write,
+    Fetch,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdvancedDebugEvent {
+    pub timestamp: SystemTime,
+    pub event_type: AdvancedEventType,
+}
+
+#[derive(Debug, Clone)]
+pub enum AdvancedEventType {
+    Basic(DebugEvent),
+    PerformanceAnalysis {
+        pc: GuestAddr,
+        analysis_type: PerformanceAnalysisType,
+        metrics: HashMap<String, f64>,
+    },
+    MemoryAccess {
+        pc: GuestAddr,
+        access_type: MemoryAccessType,
+        address: GuestAddr,
+        size: usize,
+    },
+    RegisterStateChange {
+        pc: GuestAddr,
+        register: String,
+        old_value: u64,
+        new_value: u64,
+    },
+    ControlFlowChange {
+        from_pc: GuestAddr,
+        to_pc: GuestAddr,
+        reason: String,
+    },
+    OptimizationDecision {
+        pc: GuestAddr,
+        optimization: String,
+        decision: bool,
+        reason: String,
+    },
+    HotspotPrediction {
+        pc: GuestAddr,
+        predicted_hotspot: bool,
+        confidence: f64,
+    },
+    CacheStrategyDecision {
+        pc: GuestAddr,
+        cache_level: u32,
+        decision: String,
+    },
+    ParallelCompilationEvent {
+        pc: GuestAddr,
+        worker_id: usize,
+        stage: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct AdvancedDebuggerConfig {
+    pub track_memory_accesses: bool,
+    pub track_register_changes: bool,
+    pub track_control_flow: bool,
+    pub performance_analysis: bool,
+    pub hotspot_prediction: bool,
+    pub parallel_compilation_tracking: bool,
+}
+
+impl Default for AdvancedDebuggerConfig {
+    fn default() -> Self {
+        Self {
+            track_memory_accesses: false,
+            track_register_changes: false,
+            track_control_flow: false,
+            performance_analysis: false,
+            hotspot_prediction: false,
+            parallel_compilation_tracking: false,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct AdvancedDebugStats {
+    pub memory_access_count: AtomicUsize,
+    pub register_change_count: AtomicUsize,
+    pub control_flow_change_count: AtomicUsize,
+    pub optimization_decision_count: AtomicUsize,
+    pub hotspot_prediction_count: AtomicUsize,
+    pub parallel_compilation_events: AtomicUsize,
+}
+
+impl Clone for AdvancedDebugStats {
+    fn clone(&self) -> Self {
+        Self {
+            memory_access_count: AtomicUsize::new(self.memory_access_count.load(Ordering::Relaxed)),
+            register_change_count: AtomicUsize::new(self.register_change_count.load(Ordering::Relaxed)),
+            control_flow_change_count: AtomicUsize::new(self.control_flow_change_count.load(Ordering::Relaxed)),
+            optimization_decision_count: AtomicUsize::new(self.optimization_decision_count.load(Ordering::Relaxed)),
+            hotspot_prediction_count: AtomicUsize::new(self.hotspot_prediction_count.load(Ordering::Relaxed)),
+            parallel_compilation_events: AtomicUsize::new(self.parallel_compilation_events.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+impl Default for AdvancedDebugStats {
+    fn default() -> Self {
+        Self {
+            memory_access_count: AtomicUsize::new(0),
+            register_change_count: AtomicUsize::new(0),
+            control_flow_change_count: AtomicUsize::new(0),
+            optimization_decision_count: AtomicUsize::new(0),
+            hotspot_prediction_count: AtomicUsize::new(0),
+            parallel_compilation_events: AtomicUsize::new(0),
+        }
+    }
+}
+
+pub struct AdvancedJitDebugger {
+    base_debugger: JitDebugger,
+    advanced_events: Arc<Mutex<Vec<AdvancedDebugEvent>>>,
+    advanced_stats: Arc<Mutex<AdvancedDebugStats>>,
+    config: AdvancedDebuggerConfig,
+}
+
+impl AdvancedJitDebugger {
+    pub fn new(base_config: DebuggerConfig, advanced_config: AdvancedDebuggerConfig) -> Self {
+        Self {
+            base_debugger: JitDebugger::new(base_config),
+            advanced_events: Arc::new(Mutex::new(Vec::new())),
+            advanced_stats: Arc::new(Mutex::new(AdvancedDebugStats::default())),
+            config: advanced_config,
+        }
+    }
+
+    pub fn with_default_configs() -> Self {
+        Self::new(DebuggerConfig::default(), AdvancedDebuggerConfig::default())
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.base_debugger.is_enabled()
+    }
+
+    pub fn enable(&self) {
+        self.base_debugger.enable();
+    }
+
+    pub fn disable(&self) {
+        self.base_debugger.disable();
+    }
+
+    pub fn log_event(&self, event: DebugEvent) {
+        self.base_debugger.log_event(event);
+    }
+
+    pub fn log_advanced_event(&self, event: AdvancedEventType) {
+        if !self.is_enabled() {
+            return;
+        }
+
+        let advanced_event = AdvancedDebugEvent {
+            timestamp: SystemTime::now(),
+            event_type: event.clone(),
+        };
+
+        let mut events = self.advanced_events.lock().unwrap();
+        events.push(advanced_event);
+
+        let stats = self.advanced_stats.lock().unwrap();
+        match event {
+            AdvancedEventType::MemoryAccess { .. } => {
+                stats.memory_access_count.fetch_add(1, Ordering::Relaxed);
+            }
+            AdvancedEventType::RegisterStateChange { .. } => {
+                stats.register_change_count.fetch_add(1, Ordering::Relaxed);
+            }
+            AdvancedEventType::ControlFlowChange { .. } => {
+                stats.control_flow_change_count.fetch_add(1, Ordering::Relaxed);
+            }
+            AdvancedEventType::OptimizationDecision { .. } => {
+                stats.optimization_decision_count.fetch_add(1, Ordering::Relaxed);
+            }
+            AdvancedEventType::HotspotPrediction { .. } => {
+                stats.hotspot_prediction_count.fetch_add(1, Ordering::Relaxed);
+            }
+            AdvancedEventType::ParallelCompilationEvent { .. } => {
+                stats.parallel_compilation_events.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn log_memory_access(&self, pc: GuestAddr, access_type: MemoryAccessType, address: GuestAddr, size: usize) {
+        if self.config.track_memory_accesses {
+            self.log_advanced_event(AdvancedEventType::MemoryAccess {
+                pc,
+                access_type,
+                address,
+                size,
+            });
+        }
+    }
+
+    pub fn log_register_change(&self, pc: GuestAddr, register: String, old_value: u64, new_value: u64) {
+        if self.config.track_register_changes {
+            self.log_advanced_event(AdvancedEventType::RegisterStateChange {
+                pc,
+                register,
+                old_value,
+                new_value,
+            });
+        }
+    }
+
+    pub fn log_control_flow_change(&self, from_pc: GuestAddr, to_pc: GuestAddr, reason: String) {
+        if self.config.track_control_flow {
+            self.log_advanced_event(AdvancedEventType::ControlFlowChange {
+                from_pc,
+                to_pc,
+                reason,
+            });
+        }
+    }
+
+    pub fn log_optimization_decision(&self, pc: GuestAddr, optimization: String, decision: bool, reason: String) {
+        self.log_advanced_event(AdvancedEventType::OptimizationDecision {
+            pc,
+            optimization,
+            decision,
+            reason,
+        });
+    }
+
+    pub fn log_hotspot_prediction(&self, pc: GuestAddr, predicted_hotspot: bool, confidence: f64) {
+        if self.config.hotspot_prediction {
+            self.log_advanced_event(AdvancedEventType::HotspotPrediction {
+                pc,
+                predicted_hotspot,
+                confidence,
+            });
+        }
+    }
+
+    pub fn log_cache_strategy_decision(&self, pc: GuestAddr, cache_level: u32, decision: String) {
+        self.log_advanced_event(AdvancedEventType::CacheStrategyDecision {
+            pc,
+            cache_level,
+            decision,
+        });
+    }
+
+    pub fn log_parallel_compilation(&self, pc: GuestAddr, worker_id: usize, stage: String) {
+        if self.config.parallel_compilation_tracking {
+            self.log_advanced_event(AdvancedEventType::ParallelCompilationEvent {
+                pc,
+                worker_id,
+                stage,
+            });
+        }
+    }
+
+    pub fn log_performance_analysis(&self, pc: GuestAddr, analysis_type: PerformanceAnalysisType, metrics: HashMap<String, f64>) {
+        if self.config.performance_analysis {
+            self.log_advanced_event(AdvancedEventType::PerformanceAnalysis {
+                pc,
+                analysis_type,
+                metrics,
+            });
+        }
+    }
+
+    pub fn get_base_debugger(&self) -> &JitDebugger {
+        &self.base_debugger
+    }
+
+    pub fn get_advanced_events(&self) -> Vec<AdvancedDebugEvent> {
+        let events = self.advanced_events.lock().unwrap();
+        events.clone()
+    }
+
+    pub fn get_advanced_stats(&self) -> AdvancedDebugStats {
+        let stats = self.advanced_stats.lock().unwrap();
+        AdvancedDebugStats {
+            memory_access_count: AtomicUsize::new(stats.memory_access_count.load(Ordering::Relaxed)),
+            register_change_count: AtomicUsize::new(stats.register_change_count.load(Ordering::Relaxed)),
+            control_flow_change_count: AtomicUsize::new(stats.control_flow_change_count.load(Ordering::Relaxed)),
+            optimization_decision_count: AtomicUsize::new(stats.optimization_decision_count.load(Ordering::Relaxed)),
+            hotspot_prediction_count: AtomicUsize::new(stats.hotspot_prediction_count.load(Ordering::Relaxed)),
+            parallel_compilation_events: AtomicUsize::new(stats.parallel_compilation_events.load(Ordering::Relaxed)),
+        }
+    }
+
+    pub fn clear_events(&self) {
+        self.base_debugger.clear();
+        let mut events = self.advanced_events.lock().unwrap();
+        events.clear();
+    }
+
+    pub fn dump_events(&self) -> String {
+        let mut output = String::new();
+        output.push_str("=== Advanced JIT Debugger Events ===\n\n");
+
+        let events = self.advanced_events.lock().unwrap();
+        for event in events.iter() {
+            output.push_str(&format!("{:?}\n", event));
+        }
+
+        output.push_str("\n=== Advanced Statistics ===\n");
+        let stats = self.advanced_stats.lock().unwrap();
+        output.push_str(&format!("Memory accesses: {}\n", stats.memory_access_count.load(Ordering::Relaxed)));
+        output.push_str(&format!("Register changes: {}\n", stats.register_change_count.load(Ordering::Relaxed)));
+        output.push_str(&format!("Control flow changes: {}\n", stats.control_flow_change_count.load(Ordering::Relaxed)));
+        output.push_str(&format!("Optimization decisions: {}\n", stats.optimization_decision_count.load(Ordering::Relaxed)));
+        output.push_str(&format!("Hotspot predictions: {}\n", stats.hotspot_prediction_count.load(Ordering::Relaxed)));
+        output.push_str(&format!("Parallel compilation events: {}\n", stats.parallel_compilation_events.load(Ordering::Relaxed)));
+
+        output
+    }
+
+    pub fn analyze_performance(&self) -> HashMap<String, Vec<(GuestAddr, f64)>> {
+        let mut analysis: HashMap<String, Vec<(GuestAddr, f64)>> = HashMap::new();
+        let events = self.advanced_events.lock().unwrap();
+
+        for event in events.iter() {
+            if let AdvancedEventType::PerformanceAnalysis {
+                pc,
+                analysis_type,
+                metrics,
+            } = &event.event_type
+            {
+                let type_name = format!("{:?}", analysis_type);
+                for (metric_name, value) in metrics.iter() {
+                    let key = format!("{}:{}", type_name, metric_name);
+                    analysis.entry(key).or_default().push((*pc, *value));
+                }
+            }
+        }
+
+        analysis
     }
 }

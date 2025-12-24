@@ -5,39 +5,167 @@
 
 use crate::aggregate_root::VirtualMachineAggregate;
 use crate::domain_events::{DomainEventEnum, EventVersionMigrator};
-// use crate::snapshot;
+use crate::snapshot::Snapshot;
 use crate::{VmConfig, VmError, VmId, VmResult, VmState};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// 聚合根仓储trait
 ///
-/// 定义聚合根的持久化和检索接口，支持事件溯源
+/// 定义聚合根的持久化和检索接口，支持事件溯源。
+/// 仓储模式是DDD中的核心模式之一，提供对聚合根的抽象访问。
+///
+/// # 使用场景
+/// - 聚合持久化：保存和加载聚合根状态
+/// - 事件溯源：通过事件历史重建聚合状态
+/// - 乐观锁控制：通过版本号防止并发冲突
+/// - 缓存管理：聚合状态的缓存和失效
+///
+/// # 设计原则
+/// - 仓储是聚合的集合抽象，类似数据库表的抽象
+/// - 每个聚合根对应一个仓储
+/// - 仓储不包含业务逻辑，只负责持久化
+///
+/// # 示例
+/// ```ignore
+/// let repo = InMemoryAggregateRepository::new(event_repo);
+/// repo.save_aggregate(&aggregate)?;
+/// let loaded = repo.load_aggregate(&vm_id)?;
+/// ```
 pub trait AggregateRepository: Send + Sync {
     /// 保存聚合根
+    ///
+    /// 持久化聚合根到仓储中。
+    /// 通常会保存聚合的当前状态和未提交的事件。
+    ///
+    /// # 参数
+    /// - `aggregate`: 要保存的聚合根
+    ///
+    /// # 返回
+    /// 保存成功返回Ok(())，失败返回错误
+    ///
+    /// # 注意
+    /// - 保存不会自动提交事件，需要单独调用commit_events()
+    /// - 如果聚合已存在，会更新状态
     fn save_aggregate(&self, aggregate: &VirtualMachineAggregate) -> VmResult<()>;
 
     /// 加载聚合根
+    ///
+    /// 从仓储中加载聚合根。
+    /// 如果聚合不存在，会尝试从事件历史重建。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    ///
+    /// # 返回
+    /// 加载的聚合根（如果存在），否则返回None
+    ///
+    /// # 注意
+    /// - 首先尝试从缓存加载
+    /// - 如果缓存未命中，从事件存储重建聚合
     fn load_aggregate(&self, vm_id: &VmId) -> VmResult<Option<VirtualMachineAggregate>>;
 
     /// 删除聚合根
+    ///
+    /// 从仓储中删除聚合根及其相关数据。
+    ///
+    /// # 参数
+    /// - `vm_id`: 要删除的虚拟机ID
+    ///
+    /// # 返回
+    /// 删除成功返回Ok(())，失败返回错误
+    ///
+    /// # 注意
+    /// - 删除操作通常不可逆
+    /// - 需要考虑是否同时删除事件历史
     fn delete_aggregate(&self, vm_id: &VmId) -> VmResult<()>;
 
     /// 检查聚合根是否存在
+    ///
+    /// 检查指定ID的聚合根是否存在于仓储中。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    ///
+    /// # 返回
+    /// 存在返回true，不存在返回false
     fn aggregate_exists(&self, vm_id: &VmId) -> bool;
 
     /// 获取聚合根版本
+    ///
+    /// 获取聚合根的当前版本号。
+    /// 版本号用于乐观锁控制，防止并发修改冲突。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    ///
+    /// # 返回
+    /// 当前版本号（如果存在），否则返回None
     fn get_aggregate_version(&self, vm_id: &VmId) -> VmResult<Option<u64>>;
 }
 
 /// 事件仓储trait
 ///
-/// 定义领域事件的持久化接口，支持事件溯源
+/// 定义领域事件的持久化接口，支持事件溯源。
+/// 事件溯源是一种持久化模式，通过保存领域事件来重建聚合状态。
+///
+/// # 使用场景
+/// - 事件持久化：保存领域事件到事件存储
+/// - 事件重放：从事件历史重建聚合状态
+/// - 审计日志：完整的操作历史记录
+/// - 事件版本迁移：升级事件schema
+///
+/// # 事件溯源优势
+/// - 完整的审计日志
+/// - 可以重放事件到任意历史状态
+/// - 支持事件驱动的架构
+/// - 天然支持分布式系统
+///
+/// # 示例
+/// ```ignore
+/// let repo = InMemoryEventRepository::new();
+/// repo.save_event(&vm_id, event)?;
+/// let events = repo.load_events(&vm_id, Some(1), Some(10))?;
+/// ```
 pub trait EventRepository: Send + Sync {
     /// 保存事件
+    ///
+    /// 将领域事件持久化到事件存储。
+    /// 每个事件都会分配一个递增的序列号。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    /// - `event`: 要保存的领域事件
+    ///
+    /// # 返回
+    /// 保存成功返回Ok(())，失败返回错误
+    ///
+    /// # 注意
+    /// - 事件是不可变的，一旦保存不能修改
+    /// - 序列号由仓储自动分配
     fn save_event(&self, vm_id: &VmId, event: DomainEventEnum) -> VmResult<()>;
 
     /// 加载事件历史
+    ///
+    /// 从事件存储中加载指定范围的事件。
+    /// 可以指定版本范围进行精确加载。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    /// - `from_version`: 起始版本号（None表示从第一个开始）
+    /// - `to_version`: 结束版本号（None表示到最后一个）
+    ///
+    /// # 返回
+    /// 加载的事件列表，按序列号排序
+    ///
+    /// # 示例
+    /// ```ignore
+    /// // 加载所有事件
+    /// let all_events = repo.load_events(&vm_id, None, None)?;
+    ///
+    /// // 加载版本1到10的事件
+    /// let range_events = repo.load_events(&vm_id, Some(1), Some(10))?;
+    /// ```
     fn load_events(
         &self,
         vm_id: &VmId,
@@ -46,9 +174,30 @@ pub trait EventRepository: Send + Sync {
     ) -> VmResult<Vec<crate::event_store_legacy::StoredEvent>>;
 
     /// 获取最新事件版本
+    ///
+    /// 获取指定虚拟机的最新事件版本号。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    ///
+    /// # 返回
+    /// 最新版本号（如果存在），否则返回None
     fn get_latest_version(&self, vm_id: &VmId) -> VmResult<Option<u64>>;
 
     /// 迁移事件版本
+    ///
+    /// 将事件迁移到最新版本。
+    /// 用于事件schema升级和向后兼容。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    ///
+    /// # 返回
+    /// 迁移后的事件列表
+    ///
+    /// # 注意
+    /// 默认实现会加载所有事件并迁移到最新版本。
+    /// 实现可以覆盖此方法以提供更高效的迁移策略。
     fn migrate_events(&self, vm_id: &VmId) -> VmResult<Vec<DomainEventEnum>> {
         let stored_events = self.load_events(vm_id, None, None)?;
         let migrated_events = stored_events
@@ -61,23 +210,103 @@ pub trait EventRepository: Send + Sync {
 
 /// 快照仓储trait
 ///
-/// 定义快照的持久化接口，支持快照优化
+/// 定义快照的持久化接口，支持快照优化。
+/// 快照是虚拟机在某个时间点的完整状态，用于快速恢复和备份。
+///
+/// # 使用场景
+/// - 虚拟机快照：保存和恢复虚拟机状态
+/// - 备份和恢复：定期快照作为备份
+/// - 开发和测试：快速切换到不同状态
+/// - 调试：保存问题发生时的状态
+///
+/// # 快照优化
+/// 快照可以显著加速事件溯源，因为：
+/// - 不需要从初始状态重放所有事件
+/// - 从最近的快照开始重放
+/// - 可以定期创建快照进行优化
+///
+/// # 示例
+/// ```ignore
+/// let snapshot = vm.take_snapshot()?;
+/// repo.save_snapshot(&snapshot)?;
+/// let loaded = repo.load_snapshot("vm-1", "snap-001")?;
+/// vm.restore_snapshot(loaded)?;
+/// ```
 pub trait SnapshotRepository: Send + Sync {
     /// 保存快照
-    fn save_snapshot(&self, snapshot: &snapshot_legacy::Snapshot) -> VmResult<()>;
+    ///
+    /// 将快照持久化到仓储中。
+    /// 快照包含虚拟机的完整状态（内存、寄存器、设备状态等）。
+    ///
+    /// # 参数
+    /// - `snapshot`: 要保存的快照
+    ///
+    /// # 返回
+    /// 保存成功返回Ok(())，失败返回错误
+    ///
+    /// # 注意
+    /// - 快照可能很大，需要考虑存储空间
+    /// - 快照ID必须唯一
+    fn save_snapshot(&self, snapshot: &Snapshot) -> VmResult<()>;
 
     /// 加载快照
+    ///
+    /// 从仓储中加载指定快照。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    /// - `snapshot_id`: 快照ID
+    ///
+    /// # 返回
+    /// 加载的快照（如果存在），否则返回None
+    ///
+    /// # 注意
+    /// - 快照加载后需要应用到虚拟机
+    /// - 可以从快照重建聚合状态
     fn load_snapshot(&self, vm_id: &str, snapshot_id: &str)
-    -> VmResult<Option<snapshot_legacy::Snapshot>>;
+    -> VmResult<Option<Snapshot>>;
 
     /// 删除快照
+    ///
+    /// 从仓储中删除指定快照。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    /// - `snapshot_id`: 快照ID
+    ///
+    /// # 返回
+    /// 删除成功返回Ok(())，失败返回错误
+    ///
+    /// # 注意
+    /// - 删除操作通常不可逆
+    /// - 删除快照不会影响虚拟机运行
     fn delete_snapshot(&self, vm_id: &str, snapshot_id: &str) -> VmResult<()>;
 
     /// 列出快照
-    fn list_snapshots(&self, vm_id: &str) -> VmResult<Vec<snapshot_legacy::Snapshot>>;
+    ///
+    /// 列出指定虚拟机的所有快照。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    ///
+    /// # 返回
+    /// 快照列表，按创建时间排序
+    fn list_snapshots(&self, vm_id: &str) -> VmResult<Vec<Snapshot>>;
 
     /// 获取最新快照
-    fn get_latest_snapshot(&self, vm_id: &str) -> VmResult<Option<snapshot_legacy::Snapshot>>;
+    ///
+    /// 获取指定虚拟机的最新快照。
+    ///
+    /// # 参数
+    /// - `vm_id`: 虚拟机ID
+    ///
+    /// # 返回
+    /// 最新快照（如果存在），否则返回None
+    ///
+    /// # 注意
+    /// - 通常基于创建时间判断最新
+    /// - 用于事件溯源优化，从最新快照开始重放
+    fn get_latest_snapshot(&self, vm_id: &str) -> VmResult<Option<Snapshot>>;
 }
 
 /// 虚拟机状态仓储trait
@@ -448,7 +677,7 @@ pub struct RepositorySuite {
 
 /// 内存快照仓储实现
 pub struct InMemorySnapshotRepository {
-    snapshots: Arc<std::sync::RwLock<HashMap<String, HashMap<String, snapshot_legacy::Snapshot>>>>,
+    snapshots: Arc<std::sync::RwLock<HashMap<String, HashMap<String, Snapshot>>>>,
 }
 
 impl Default for InMemorySnapshotRepository {
@@ -471,7 +700,7 @@ impl InMemorySnapshotRepository {
     /// 2. 如果snapshot.name不为空，使用name的第一个单词作为vm_id
     /// 3. 否则，尝试从memory_dump_path中提取
     /// 4. 最后返回默认值
-    fn extract_vm_id_from_snapshot(snapshot: &snapshot_legacy::Snapshot) -> String {
+    fn extract_vm_id_from_snapshot(snapshot: &Snapshot) -> String {
         // 策略1：从id中提取（格式：vm_id:snapshot_uuid 或 vm_id-snapshot_uuid）
         if let Some(colon_pos) = snapshot.id.find(':') {
             return snapshot.id[..colon_pos].to_string();
@@ -516,7 +745,7 @@ impl InMemorySnapshotRepository {
 }
 
 impl SnapshotRepository for InMemorySnapshotRepository {
-    fn save_snapshot(&self, snapshot: &snapshot_legacy::Snapshot) -> VmResult<()> {
+    fn save_snapshot(&self, snapshot: &Snapshot) -> VmResult<()> {
         // 从snapshot的id或name中提取vm_id
         // 约定：snapshot.id格式为 "vm_id:snapshot_uuid" 或 snapshot.name以vm_id开头
         let vm_id = Self::extract_vm_id_from_snapshot(snapshot);
@@ -539,7 +768,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
         &self,
         vm_id: &str,
         snapshot_id: &str,
-    ) -> VmResult<Option<snapshot_legacy::Snapshot>> {
+    ) -> VmResult<Option<Snapshot>> {
         let snapshots = self.snapshots.read().map_err(|_| {
             VmError::Core(crate::CoreError::Concurrency {
                 message: "Failed to acquire read lock".to_string(),
@@ -567,7 +796,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
         Ok(())
     }
 
-    fn list_snapshots(&self, vm_id: &str) -> VmResult<Vec<snapshot_legacy::Snapshot>> {
+    fn list_snapshots(&self, vm_id: &str) -> VmResult<Vec<Snapshot>> {
         let snapshots = self.snapshots.read().map_err(|_| {
             VmError::Core(crate::CoreError::Concurrency {
                 message: "Failed to acquire read lock".to_string(),
@@ -581,7 +810,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
             .unwrap_or_default())
     }
 
-    fn get_latest_snapshot(&self, vm_id: &str) -> VmResult<Option<snapshot_legacy::Snapshot>> {
+    fn get_latest_snapshot(&self, vm_id: &str) -> VmResult<Option<Snapshot>> {
         let snapshots = self.list_snapshots(vm_id)?;
         // 注意：当前Snapshot结构没有created_at字段，我们按ID排序作为临时方案
         // 这是一个临时解决方案，需要扩展Snapshot结构

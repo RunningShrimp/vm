@@ -140,6 +140,7 @@ mod types;
 mod translation_impl;
 mod unified_executor;
 mod vm_service_ext;
+mod powerpc;
 
 pub use auto_executor::{AutoExecutor, UnifiedDecoder};
 pub use block_cache::{CacheReplacementPolicy, CrossArchBlockCache, SourceBlockKey, TranslatedBlock};
@@ -184,7 +185,7 @@ pub use smart_register_allocator::{
 };
 pub use runtime::{CrossArchConfig, CrossArchStrategy, HostArch};
 pub use translator::{ArchTranslator};
-pub use types::{SourceArch, TargetArch, TranslationError};
+pub use types::{SourceArch, TargetArch, TranslationError, TranslationOutcome};
 pub use translation_impl::{TargetInstruction, TranslationResult, TranslationStats};
 pub use unified_executor::{ExecutionStats, UnifiedExecutor};
 pub use vm_service_ext::{VmConfigExt, create_auto_vm_config};

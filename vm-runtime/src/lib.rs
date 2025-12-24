@@ -38,6 +38,7 @@ pub use scheduler::{
 
 /// GC运行时模块
 pub mod gc;
+pub mod profiler;
 pub use gc::{
     AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcRuntime, GcRuntimeStats, GcStats,
     LockFreeWriteBarrier, OptimizedGc, ParallelMarker, WriteBarrierType,

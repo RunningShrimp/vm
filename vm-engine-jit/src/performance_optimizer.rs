@@ -199,7 +199,7 @@ impl PerformanceOptimizer {
                 registers.insert(*src2);
             }
             vm_ir::IROp::Load { dst, .. } |
-            vm_ir::IROp::LoadImm { dst, .. } => {
+            vm_ir::IROp::MovImm { dst, .. } => {
                 registers.insert(*dst);
             }
             vm_ir::IROp::Store { src, .. } => {

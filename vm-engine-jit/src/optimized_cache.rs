@@ -1,7 +1,6 @@
 //! 优化的代码缓存实现
 //!
 //! 提供高性能的代码缓存，包括热点检测、预取和分层缓存策略。
-
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -39,7 +38,7 @@ impl Default for OptimizedCacheConfig {
 }
 
 /// 缓存条目
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct OptimizedCacheEntry {
     /// 编译后的代码
     code: Vec<u8>,
@@ -53,6 +52,19 @@ struct OptimizedCacheEntry {
     cache_level: u8,
     /// 预取标记
     prefetch_mark: bool,
+}
+
+impl Clone for OptimizedCacheEntry {
+    fn clone(&self) -> Self {
+        Self {
+            code: self.code.clone(),
+            access_count: AtomicU64::new(self.access_count.load(Ordering::Relaxed)),
+            last_access_ns: AtomicU64::new(self.last_access_ns.load(Ordering::Relaxed)),
+            size: self.size,
+            cache_level: self.cache_level,
+            prefetch_mark: self.prefetch_mark,
+        }
+    }
 }
 
 /// 优化的代码缓存
@@ -80,7 +92,7 @@ pub struct OptimizedCodeCache {
 }
 
 /// 优化的缓存统计
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct OptimizedCacheStats {
     /// L1命中次数
     pub l1_hits: AtomicU64,
@@ -100,6 +112,22 @@ pub struct OptimizedCacheStats {
     pub inserts: AtomicU64,
     /// 缓存移除次数
     pub removals: AtomicU64,
+}
+
+impl Clone for OptimizedCacheStats {
+    fn clone(&self) -> Self {
+        Self {
+            l1_hits: AtomicU64::new(self.l1_hits.load(Ordering::Relaxed)),
+            l2_hits: AtomicU64::new(self.l2_hits.load(Ordering::Relaxed)),
+            l3_hits: AtomicU64::new(self.l3_hits.load(Ordering::Relaxed)),
+            total_misses: AtomicU64::new(self.total_misses.load(Ordering::Relaxed)),
+            prefetch_hits: AtomicU64::new(self.prefetch_hits.load(Ordering::Relaxed)),
+            hotspot_promotions: AtomicU64::new(self.hotspot_promotions.load(Ordering::Relaxed)),
+            evictions: AtomicU64::new(self.evictions.load(Ordering::Relaxed)),
+            inserts: AtomicU64::new(self.inserts.load(Ordering::Relaxed)),
+            removals: AtomicU64::new(self.removals.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 impl OptimizedCodeCache {
@@ -142,9 +170,10 @@ impl OptimizedCodeCache {
     /// 确保L1缓存有足够空间
     fn ensure_l1_space(&mut self, required_size: usize) {
         while self.l1_current_size.load(Ordering::Relaxed) + required_size > self.config.l1_size 
-            && !self.l1_lru.is_empty() {
-            if let Some(oldest_pc) = self.l1_lru.front().cloned() {
-                self.evict_from_l1(oldest_pc);
+            && !self.l1_lru.lock().unwrap().is_empty() {
+            let oldest_pc = self.l1_lru.lock().unwrap().front().copied();
+            if let Some(pc) = oldest_pc {
+                self.evict_from_l1(pc);
             }
         }
     }
@@ -152,9 +181,10 @@ impl OptimizedCodeCache {
     /// 确保L2缓存有足够空间
     fn ensure_l2_space(&mut self, required_size: usize) {
         while self.l2_current_size.load(Ordering::Relaxed) + required_size > self.config.l2_size 
-            && !self.l2_lru.is_empty() {
-            if let Some(oldest_pc) = self.l2_lru.front().cloned() {
-                self.evict_from_l2(oldest_pc);
+            && !self.l2_lru.lock().unwrap().is_empty() {
+            let oldest_pc = self.l2_lru.lock().unwrap().front().copied();
+            if let Some(pc) = oldest_pc {
+                self.evict_from_l2(pc);
             }
         }
     }
@@ -162,46 +192,50 @@ impl OptimizedCodeCache {
     /// 确保L3缓存有足够空间
     fn ensure_l3_space(&mut self, required_size: usize) {
         while self.l3_current_size.load(Ordering::Relaxed) + required_size > self.config.l3_size 
-            && !self.l3_lru.is_empty() {
-            if let Some(oldest_pc) = self.l3_lru.front().cloned() {
-                self.evict_from_l3(oldest_pc);
+            && !self.l3_lru.lock().unwrap().is_empty() {
+            let oldest_pc = self.l3_lru.lock().unwrap().front().copied();
+            if let Some(pc) = oldest_pc {
+                self.evict_from_l3(pc);
             }
         }
     }
 
     /// 从L1缓存淘汰条目
     fn evict_from_l1(&mut self, pc: GuestAddr) {
-        if let Some(entry) = self.l1_cache.remove(&pc) {
+        let entry = self.l1_cache.lock().unwrap().remove(&pc);
+        if let Some(entry) = entry {
             self.l1_current_size.fetch_sub(entry.size, Ordering::Relaxed);
-            self.l1_lru.remove(0);
+            Self::update_lru(&mut self.l1_lru.lock().unwrap(), pc);
 
             // 将降级的代码移到L2缓存
             self.insert_to_l2(pc, entry);
-            self.stats.evictions.fetch_add(1, Ordering::Relaxed);
-            self.stats.removals.fetch_add(1, Ordering::Relaxed);
+            self.stats.lock().unwrap().evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats.lock().unwrap().removals.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     /// 从L2缓存淘汰条目
     fn evict_from_l2(&mut self, pc: GuestAddr) {
-        if let Some(entry) = self.l2_cache.remove(&pc) {
+        let entry = self.l2_cache.lock().unwrap().remove(&pc);
+        if let Some(entry) = entry {
             self.l2_current_size.fetch_sub(entry.size, Ordering::Relaxed);
-            self.l2_lru.remove(0);
+            Self::update_lru(&mut self.l2_lru.lock().unwrap(), pc);
 
             // 将降级的代码移到L3缓存
             self.insert_to_l3(pc, entry);
-            self.stats.evictions.fetch_add(1, Ordering::Relaxed);
-            self.stats.removals.fetch_add(1, Ordering::Relaxed);
+            self.stats.lock().unwrap().evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats.lock().unwrap().removals.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     /// 从L3缓存淘汰条目
     fn evict_from_l3(&mut self, pc: GuestAddr) {
-        if let Some(entry) = self.l3_cache.remove(&pc) {
+        let entry = self.l3_cache.lock().unwrap().remove(&pc);
+        if let Some(entry) = entry {
             self.l3_current_size.fetch_sub(entry.size, Ordering::Relaxed);
-            self.l3_lru.remove(0);
-            self.stats.evictions.fetch_add(1, Ordering::Relaxed);
-            self.stats.removals.fetch_add(1, Ordering::Relaxed);
+            Self::update_lru(&mut self.l3_lru.lock().unwrap(), pc);
+            self.stats.lock().unwrap().evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats.lock().unwrap().removals.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -211,10 +245,10 @@ impl OptimizedCodeCache {
         entry.cache_level = 1;
         entry.last_access_ns.store(Self::current_time_ns(), Ordering::Relaxed);
 
-        self.l1_cache.insert(pc, entry.clone());
-        Self::update_lru(&mut self.l1_lru, pc);
+        self.l1_cache.lock().unwrap().insert(pc, entry.clone());
+        Self::update_lru(&mut self.l1_lru.lock().unwrap(), pc);
         self.l1_current_size.fetch_add(entry.size, Ordering::Relaxed);
-        self.stats.inserts.fetch_add(1, Ordering::Relaxed);
+        self.stats.lock().unwrap().inserts.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 插入到L2缓存
@@ -223,10 +257,10 @@ impl OptimizedCodeCache {
         entry.cache_level = 2;
         entry.last_access_ns.store(Self::current_time_ns(), Ordering::Relaxed);
 
-        self.l2_cache.insert(pc, entry.clone());
-        Self::update_lru(&mut self.l2_lru, pc);
+        self.l2_cache.lock().unwrap().insert(pc, entry.clone());
+        Self::update_lru(&mut self.l2_lru.lock().unwrap(), pc);
         self.l2_current_size.fetch_add(entry.size, Ordering::Relaxed);
-        self.stats.inserts.fetch_add(1, Ordering::Relaxed);
+        self.stats.lock().unwrap().inserts.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 插入到L3缓存
@@ -235,10 +269,10 @@ impl OptimizedCodeCache {
         entry.cache_level = 3;
         entry.last_access_ns.store(Self::current_time_ns(), Ordering::Relaxed);
 
-        self.l3_cache.insert(pc, entry);
-        Self::update_lru(&mut self.l3_lru, pc);
+        self.l3_cache.lock().unwrap().insert(pc, entry);
+        Self::update_lru(&mut self.l3_lru.lock().unwrap(), pc);
         self.l3_current_size.fetch_add(entry.size, Ordering::Relaxed);
-        self.stats.inserts.fetch_add(1, Ordering::Relaxed);
+        self.stats.lock().unwrap().inserts.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 检查是否应该提升到热点缓存
@@ -248,12 +282,13 @@ impl OptimizedCodeCache {
 
     /// 提升热点代码到L1缓存
     fn promote_to_hotspot(&mut self, pc: GuestAddr) {
-        if let Some(entry) = self.l2_cache.remove(&pc) {
+        let entry = self.l2_cache.lock().unwrap().remove(&pc);
+        if let Some(entry) = entry {
             self.l2_current_size.fetch_sub(entry.size, Ordering::Relaxed);
-            self.l2_lru.remove(|&x| x == pc);
-            
+            Self::update_lru(&mut self.l2_lru.lock().unwrap(), pc);
+
             self.insert_to_l1(pc, entry);
-            self.stats.hotspot_promotions.fetch_add(1, Ordering::Relaxed);
+            self.stats.lock().unwrap().hotspot_promotions.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -261,13 +296,13 @@ impl OptimizedCodeCache {
     fn prefetch_neighbors(&mut self, pc: GuestAddr) {
         for offset in 1..=self.config.prefetch_window {
             let neighbor_pc = pc + (offset * self.config.cache_line_size) as u64;
-            
+
             // 检查L3缓存中是否有相邻代码
-            if let Some(entry) = self.l3_cache.get(&neighbor_pc) {
+            if let Some(entry) = self.l3_cache.lock().unwrap().get(&neighbor_pc).cloned() {
                 if !entry.prefetch_mark {
                     // 预取到L2缓存
-                    self.insert_to_l2(neighbor_pc, entry.clone());
-                    self.stats.prefetch_hits.fetch_add(1, Ordering::Relaxed);
+                    self.insert_to_l2(neighbor_pc, entry);
+                    self.stats.lock().unwrap().prefetch_hits.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
@@ -366,28 +401,27 @@ impl CodeCache for OptimizedCodeCache {
     }
 
     fn contains(&self, pc: GuestAddr) -> bool {
-        self.l1_cache.contains_key(&pc) 
-            || self.l2_cache.contains_key(&pc) 
-            || self.l3_cache.contains_key(&pc)
+        self.l1_cache.lock().unwrap().contains_key(&pc)
+            || self.l2_cache.lock().unwrap().contains_key(&pc)
+            || self.l3_cache.lock().unwrap().contains_key(&pc)
     }
 
     fn remove(&mut self, pc: GuestAddr) -> Option<Vec<u8>> {
-        // 按优先级顺序检查并移除
-        if let Some(entry) = self.l1_cache.remove(&pc) {
+        if let Some(entry) = self.l1_cache.lock().unwrap().remove(&pc) {
             self.l1_current_size.fetch_sub(entry.size, Ordering::Relaxed);
-            self.l1_lru.remove(|&x| x == pc);
+            self.l1_lru.lock().unwrap().retain(|&x| x != pc);
             return Some(entry.code);
         }
 
-        if let Some(entry) = self.l2_cache.remove(&pc) {
+        if let Some(entry) = self.l2_cache.lock().unwrap().remove(&pc) {
             self.l2_current_size.fetch_sub(entry.size, Ordering::Relaxed);
-            self.l2_lru.remove(|&x| x == pc);
+            self.l2_lru.lock().unwrap().retain(|&x| x != pc);
             return Some(entry.code);
         }
 
-        if let Some(entry) = self.l3_cache.remove(&pc) {
+        if let Some(entry) = self.l3_cache.lock().unwrap().remove(&pc) {
             self.l3_current_size.fetch_sub(entry.size, Ordering::Relaxed);
-            self.l3_lru.remove(|&x| x == pc);
+            self.l3_lru.lock().unwrap().retain(|&x| x != pc);
             return Some(entry.code);
         }
 
@@ -395,12 +429,12 @@ impl CodeCache for OptimizedCodeCache {
     }
 
     fn clear(&mut self) {
-        self.l1_cache.clear();
-        self.l2_cache.clear();
-        self.l3_cache.clear();
-        self.l1_lru.clear();
-        self.l2_lru.clear();
-        self.l3_lru.clear();
+        self.l1_cache.lock().unwrap().clear();
+        self.l2_cache.lock().unwrap().clear();
+        self.l3_cache.lock().unwrap().clear();
+        self.l1_lru.lock().unwrap().clear();
+        self.l2_lru.lock().unwrap().clear();
+        self.l3_lru.lock().unwrap().clear();
         self.l1_current_size.store(0, Ordering::Relaxed);
         self.l2_current_size.store(0, Ordering::Relaxed);
         self.l3_current_size.store(0, Ordering::Relaxed);
@@ -423,7 +457,7 @@ impl CodeCache for OptimizedCodeCache {
             current_size: self.l3_current_size.load(Ordering::Relaxed)
                 + self.l2_current_size.load(Ordering::Relaxed)
                 + self.l1_current_size.load(Ordering::Relaxed),
-            entry_count: self.l1_cache.len() + self.l2_cache.len() + self.l3_cache.len(),
+            entry_count: self.l1_cache.lock().unwrap().len() + self.l2_cache.lock().unwrap().len() + self.l3_cache.lock().unwrap().len(),
             hit_rate: if total_accesses > 0 {
                 total_hits as f64 / total_accesses as f64
             } else {
@@ -434,9 +468,8 @@ impl CodeCache for OptimizedCodeCache {
 
     fn set_size_limit(&mut self, limit: usize) {
         self.config.l3_size = limit;
-        // 确保当前大小不超过新限制
         while self.current_size() > limit {
-            if let Some(oldest_pc) = self.l3_lru.front().cloned() {
+            if let Some(oldest_pc) = self.l3_lru.lock().unwrap().front().cloned() {
                 self.evict_from_l3(oldest_pc);
             }
         }
@@ -447,12 +480,12 @@ impl CodeCache for OptimizedCodeCache {
     }
 
     fn current_size(&self) -> usize {
-        self.l1_current_size.load(Ordering::Relaxed) 
+        self.l1_current_size.load(Ordering::Relaxed)
             + self.l2_current_size.load(Ordering::Relaxed)
             + self.l3_current_size.load(Ordering::Relaxed)
     }
 
     fn entry_count(&self) -> usize {
-        self.l1_cache.len() + self.l2_cache.len() + self.l3_cache.len()
+        self.l1_cache.lock().unwrap().len() + self.l2_cache.lock().unwrap().len() + self.l3_cache.lock().unwrap().len()
     }
 }

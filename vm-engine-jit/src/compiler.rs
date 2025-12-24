@@ -7,20 +7,85 @@ use vm_core::{VmError, GuestAddr};
 use vm_ir::{IRBlock, IROp};
 
 /// JIT编译器接口
+///
+/// 负责将IR（中间表示）块编译为优化的机器码。
+/// JIT（Just-In-Time）编译器在运行时将指令块编译为本地机器码，
+/// 显著提高执行性能。
+///
+/// # 使用场景
+/// - 动态代码生成：运行时编译热点代码
+/// - 性能优化：通过编译和优化提高执行速度
+/// - 自适应优化：根据运行时信息选择最佳优化策略
+/// - 多级优化：支持不同优化级别的编译
+///
+/// # 编译流程
+/// 1. IR解析和验证
+/// 2. 优化passes（常量折叠、死代码消除等）
+/// 3. 寄存器分配
+/// 4. 指令调度
+/// 5. 代码生成
+///
+/// # 示例
+/// ```ignore
+/// let mut compiler = DefaultJITCompiler::new(config);
+/// let compiled = compiler.compile(&ir_block)?;
+/// ```
 pub trait JITCompiler: Send + Sync {
     /// 编译IR块
+    ///
+    /// 将IR块编译为优化的机器码。
+    /// 编译过程包括优化、寄存器分配和代码生成。
+    ///
+    /// # 参数
+    /// - `block`: 要编译的IR块
+    ///
+    /// # 返回
+    /// 编译后的IR块，包含机器码和元数据
+    ///
+    /// # 错误
+    /// - IR验证失败
+    /// - 寄存器分配失败
+    /// - 代码生成错误
     fn compile(&mut self, block: &IRBlock) -> Result<CompiledIRBlock, VmError>;
     
     /// 获取编译器名称
+    ///
+    /// # 返回
+    /// 编译器名称字符串
     fn name(&self) -> &str;
     
     /// 获取编译器版本
+    ///
+    /// # 返回
+    /// 编译器版本字符串
     fn version(&self) -> &str;
     
     /// 设置编译选项
+    ///
+    /// 设置编译器的配置选项，如优化级别、调试信息等。
+    ///
+    /// # 参数
+    /// - `option`: 选项名称
+    /// - `value`: 选项值
+    ///
+    /// # 返回
+    /// 设置成功返回Ok(())，失败返回错误
+    ///
+    /// # 常见选项
+    /// - `optimization_level`: 优化级别（0-3）
+    /// - `debug_info`: 是否生成调试信息
+    /// - `inline_threshold`: 内联阈值
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError>;
     
     /// 获取编译选项
+    ///
+    /// 获取指定选项的当前值。
+    ///
+    /// # 参数
+    /// - `option`: 选项名称
+    ///
+    /// # 返回
+    /// 选项值（如果存在），否则返回None
     fn get_option(&self, option: &str) -> Option<String>;
 }
 

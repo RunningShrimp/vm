@@ -1,5 +1,5 @@
-use std::collections::{HashMap, BTreeMap};
-use vm_ir::{IRBlock, IROp, RegId};
+use std::collections::{HashMap};
+use vm_ir::{IRBlock, IROp, RegId, Terminator};
 use crate::common::OptimizationStats;
 
 pub struct MemoryLayoutOptimizer {

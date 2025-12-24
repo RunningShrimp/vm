@@ -1,273 +1,259 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use vm_engine_jit::{
-    TieredJITCompiler,
-    tiered_compiler::TieredCompilerConfig,
-    inline_cache::InlineCache,
-    code_cache::LRUCache,
-};
-use vm_ir::{IRBlock, IROp};
-use vm_core::GuestAddr;
+//! JIT 性能基准测试
 
-/// 基准测试配置
-pub fn benchmark_config() -> Criterion {
-    Criterion::default()
-        .sample_size(100)
-        .warm_up_time(std::time::Duration::from_secs(1))
-        .measurement_time(std::time::Duration::from_secs(5))
-}
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use vm_core::{GuestAddr, GuestArch};
+use vm_engine_jit::{core::IRBlock, JITCompilationConfig, JITEngine, JITExecutionStats};
+use std::time::Duration;
 
-/// 创建测试 IR 块
-fn create_test_block(size: usize) -> IRBlock {
-    let mut ops = Vec::with_capacity(size);
-    for i in 0..size {
-        ops.push(IROp::MovImm {
-            rd: (i % 32) as u8,
-            imm: (i as u64) % 1000,
-        });
-        ops.push(IROp::Add {
-            rd: (i % 32) as u8,
-            rs1: (i % 32) as u8,
-            rs2: ((i + 1) % 32) as u8,
+fn create_test_ir_block(instruction_count: usize) -> IRBlock {
+    let mut instructions = Vec::with_capacity(instruction_count);
+
+    for i in 0..instruction_count {
+        instructions.push(vm_engine_jit::core::IRInstruction::Const {
+            dest: (i % 32) as u32,
+            value: (i * 42) as u64,
         });
     }
-    IRBlock {
-        start_pc: GuestAddr(0x1000),
-        ops,
-        term: vm_ir::Terminator::Return,
+
+    for i in 0..instruction_count {
+        instructions.push(vm_engine_jit::core::IRInstruction::BinaryOp {
+            op: vm_engine_jit::core::BinaryOperator::Add,
+            dest: (i % 32) as u32,
+            src1: (i % 16) as u32,
+            src2: ((i + 1) % 16) as u32,
+        });
     }
+
+    instructions.push(vm_engine_jit::core::IRInstruction::Return {
+        value: 0,
+    });
+
+    IRBlock { instructions }
 }
 
-/// 分层编译器性能基准测试
-fn bench_tiered_compiler(c: &mut Criterion) {
-    let config = TieredCompilerConfig::default();
-    let mut compiler = TieredJITCompiler::new(config);
-    
-    let mut group = c.benchmark_group("tiered_compiler");
-    
+fn bench_jit_compilation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("jit_compilation");
+    group.measurement_time(Duration::from_secs(10));
+
     for size in [10, 50, 100, 500, 1000].iter() {
-        let block = create_test_block(*size);
-        
-        group.bench_with_input(BenchmarkId::new("compile", size), size, |b, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            let config = JITCompilationConfig::default();
+            let mut engine = JITEngine::new(config);
+            let ir_block = create_test_ir_block(size);
+
             b.iter(|| {
-                let _ = compiler.execute(black_box(&block));
-            });
-        });
-        
-        group.bench_with_input(BenchmarkId::new("execute_baseline", size), size, |b, _| {
-            let _ = compiler.execute(&block);
-            b.iter(|| {
-                let _ = compiler.execute(black_box(&block));
-            });
-        });
-        
-        group.bench_with_input(BenchmarkId::new("execute_optimized", size), size, |b, _| {
-            for _ in 0..150 {
-                let _ = compiler.execute(&block);
-            }
-            b.iter(|| {
-                let _ = compiler.execute(black_box(&block));
+                engine.compile_block(black_box(&ir_block)).unwrap();
             });
         });
     }
-    
+
     group.finish();
 }
 
-/// 内联缓存性能基准测试
-fn bench_inline_cache(c: &mut Criterion) {
-    let cache = InlineCache::default();
-    
-    let mut group = c.benchmark_group("inline_cache");
-    
-    group.bench_function("lookup_hit", |b| {
-        let call_site = GuestAddr(0x2000);
-        cache.update(call_site, 42, GuestAddr(0x3000));
-        
+fn bench_tlb_lookup(c: &mut Criterion) {
+    use vm_mem::{MultiLevelTlb, tlb::{TlbEntry, TlbConfig}, GuestPhysAddr};
+    use vm_core::AccessType;
+
+    let mut group = c.benchmark_group("tlb_lookup");
+    group.measurement_time(Duration::from_secs(10));
+
+    let config = TlbConfig::default();
+    let mut tlb = MultiLevelTlb::new(config);
+
+    for i in 0..1000 {
+        let entry = TlbEntry {
+            guest_addr: GuestAddr(i * 0x1000),
+            phys_addr: GuestPhysAddr(i * 0x1000),
+            asid: i % 10,
+            flags: vm_mem::mmu::PageTableFlags::default(),
+        };
+        tlb.update(entry);
+    }
+
+    group.bench_function("sequential", |b| {
         b.iter(|| {
-            black_box(cache.lookup(black_box(call_site), black_box(42)));
+            for i in 0..1000 {
+                black_box(tlb.lookup(GuestAddr(i * 0x1000), i % 10, AccessType::Read));
+            }
         });
     });
-    
-    group.bench_function("lookup_miss", |b| {
-        let call_site = GuestAddr(0x2000);
-        cache.update(call_site, 42, GuestAddr(0x3000));
-        
+
+    group.bench_function("random", |b| {
         b.iter(|| {
-            black_box(cache.lookup(black_box(call_site), black_box(99)));
+            for i in 0..1000 {
+                let idx = ((i * 7) % 1000) as usize;
+                black_box(tlb.lookup(GuestAddr(idx * 0x1000), idx % 10, AccessType::Read));
+            }
         });
     });
-    
-    group.bench_function("update", |b| {
-        let call_site = GuestAddr(0x2000);
+
+    group.bench_function("miss", |b| {
         b.iter(|| {
-            cache.update(black_box(call_site), black_box(42), black_box(GuestAddr(0x3000)));
+            for i in 0..1000 {
+                black_box(tlb.lookup(GuestAddr(i * 0x1000 + 0x8000), i % 10, AccessType::Read));
+            }
         });
     });
-    
-    group.bench_function("polymorphic_lookup", |b| {
-        let call_site = GuestAddr(0x2000);
-        for i in 0..10 {
-            cache.update(call_site, i, GuestAddr(0x3000 + i));
-        }
-        
-        b.iter(|| {
-            let receiver = black_box(5);
-            black_box(cache.lookup(black_box(call_site), receiver));
-        });
-    });
-    
+
     group.finish();
 }
 
-/// LRU 缓存性能基准测试
-fn bench_lru_cache(c: &mut Criterion) {
-    let mut group = c.benchmark_group("lru_cache");
-    
-    for cache_size in [100, 1000, 10000].iter() {
-        let mut cache = LRUCache::new(*cache_size * 1024);
-        
-        group.bench_with_input(BenchmarkId::new("insert", cache_size), cache_size, |b, size| {
-            b.iter(|| {
-                for i in 0..*size {
-                    cache.insert(GuestAddr(i as u64 * 4), vec![0x90; 100]);
+fn bench_instruction_decoding(c: &mut Criterion) {
+    use vm_core::Decoder;
+
+    let mut group = c.benchmark_group("instruction_decoding");
+    group.measurement_time(Duration::from_secs(10));
+
+    let riscv_decoder = Decoder::new(GuestArch::Riscv64);
+
+    let instructions: Vec<u32> = (0..1000)
+        .map(|i| 0x13 | ((i % 32) << 7) | ((i % 32) << 15))
+        .collect();
+
+    group.bench_function("riscv_single", |b| {
+        b.iter(|| {
+            for &instr in &instructions {
+                black_box(riscv_decoder.decode(&instr.to_le_bytes()));
+            }
+        });
+    });
+
+    group.bench_function("riscv_batch", |b| {
+        b.iter(|| {
+            let mut decoded = Vec::with_capacity(instructions.len());
+            for &instr in &instructions {
+                if let Ok(decoded_instr) = riscv_decoder.decode(&instr.to_le_bytes()) {
+                    decoded.push(decoded_instr);
                 }
-            });
-        });
-        
-        group.bench_with_input(BenchmarkId::new("get_hit", cache_size), cache_size, |b, size| {
-            for i in 0..*size {
-                cache.insert(GuestAddr(i as u64 * 4), vec![0x90; 100]);
             }
-            b.iter(|| {
-                black_box(cache.get(black_box(GuestAddr(0))));
-            });
+            black_box(decoded);
         });
-        
-        group.bench_with_input(BenchmarkId::new("get_miss", cache_size), cache_size, |b, size| {
-            for i in 0..*size {
-                cache.insert(GuestAddr(i as u64 * 4), vec![0x90; 100]);
-            }
-            b.iter(|| {
-                black_box(cache.get(black_box(GuestAddr(0x7FFF_FFFF))));
-            });
-        });
-    }
-    
+    });
+
     group.finish();
 }
 
-/// 分层缓存性能基准测试
-fn bench_tiered_cache(c: &mut Criterion) {
-    use vm_engine_jit::tiered_cache::TieredCodeCache;
-    
-    let config = vm_engine_jit::tiered_cache::TieredCacheConfig::default();
-    let cache = TieredCodeCache::new(config);
-    
-    let mut group = c.benchmark_group("tiered_cache");
-    
-    group.bench_function("l1_lookup", |b| {
-        let pc = GuestAddr(0x4000);
-        cache.insert(pc, vec![0x90; 100]);
-        for _ in 0..1000 {
-            let _ = cache.get(pc);
-        }
-        
+fn bench_memory_operations(c: &mut Criterion) {
+    use vm_mem::SoftwareMmu;
+
+    let mut group = c.benchmark_group("memory_operations");
+    group.measurement_time(Duration::from_secs(10));
+
+    let memory = vec![0u8; 16 * 1024 * 1024];
+    let memory_arc = std::sync::Arc::new(std::sync::Mutex::new(memory));
+
+    let mut mmu = SoftwareMmu::new(
+        vm_mem::mmu::MmuArch::RiscVSv39,
+        {
+            let memory_clone = std::sync::Arc::clone(&memory_arc);
+            move |addr: GuestAddr, size: usize| -> Result<Vec<u8>, vm_core::VmError> {
+                let mem = memory_clone.lock().unwrap();
+                let start = addr.0 as usize;
+                let end = (start + size).min(mem.len());
+                Ok(mem[start..end].to_vec())
+            }
+        },
+    );
+
+    group.bench_function("read_single", |b| {
         b.iter(|| {
-            black_box(cache.get(black_box(pc)));
+            black_box(mmu.read(GuestAddr(0x1000), 8));
         });
     });
-    
-    group.bench_function("l2_lookup", |b| {
-        let pc = GuestAddr(0x5000);
-        cache.insert(pc, vec![0x90; 100]);
-        for _ in 0..200 {
-            let _ = cache.get(pc);
-        }
-        
+
+    group.bench_function("write_single", |b| {
         b.iter(|| {
-            black_box(cache.get(black_box(pc)));
+            black_box(mmu.write(GuestAddr(0x1000), 0xDEADBEEF, 8));
         });
     });
-    
-    group.bench_function("l3_lookup", |b| {
-        let pc = GuestAddr(0x6000);
-        cache.insert(pc, vec![0x90; 100]);
-        for _ in 0..10 {
-            let _ = cache.get(pc);
-        }
-        
+
+    group.bench_function("read_batch", |b| {
         b.iter(|| {
-            black_box(cache.get(black_box(pc)));
+            let mut buffer = vec![0u8; 4096];
+            black_box(mmu.read_bulk(GuestAddr(0x1000), &mut buffer));
         });
     });
-    
-    group.bench_function("insert_promotion", |b| {
-        let pc = GuestAddr(0x7000);
+
+    group.bench_function("write_batch", |b| {
+        let buffer = vec![0u8; 4096];
         b.iter(|| {
-            cache.insert(black_box(pc), vec![0x90; 100]);
+            black_box(mmu.write_bulk(GuestAddr(0x1000), &buffer));
         });
     });
-    
+
     group.finish();
 }
 
-/// 编译器综合基准测试
-fn bench_compiler_comprehensive(c: &mut Criterion) {
-    let config = TieredCompilerConfig::default();
-    let mut compiler = TieredJITCompiler::new(config);
-    
-    let mut group = c.benchmark_group("compiler_comprehensive");
-    
-    group.bench_function("cold_start", |b| {
-        let block = create_test_block(100);
+fn bench_gc_operations(c: &mut Criterion) {
+    use vm_runtime::{GcRuntime, GcConfig};
+
+    let mut group = c.benchmark_group("gc_operations");
+    group.measurement_time(Duration::from_secs(10));
+
+    let config = GcConfig::default();
+    let gc = GcRuntime::new(config);
+
+    let mut heap = vec![0u8; 1024 * 1024];
+
+    group.bench_function("mark", |b| {
         b.iter(|| {
-            let mut compiler = TieredJITCompiler::new(TieredCompilerConfig::default());
-            black_box(compiler.execute(black_box(&block)));
+            let refs: Vec<usize> = (0..100).map(|i| i * 1024).collect();
+            gc.mark(&mut heap, &refs);
         });
     });
-    
-    group.bench_function("warm_execution", |b| {
-        let block = create_test_block(100);
-        for _ in 0..200 {
-            let _ = compiler.execute(&block);
-        }
+
+    group.bench_function("sweep", |b| {
         b.iter(|| {
-            black_box(compiler.execute(black_box(&block)));
+            gc.sweep(&mut heap);
         });
     });
-    
-    group.bench_function("multiple_blocks", |b| {
-        let blocks: Vec<_> = (0..10).map(|i| {
-            let mut ops = Vec::new();
-            for j in 0..50 {
-                ops.push(IROp::MovImm {
-                    rd: (j % 32) as u8,
-                    imm: (i * 50 + j) as u64,
+
+    group.finish();
+}
+
+fn bench_coroutine_scheduling(c: &mut Criterion) {
+    use vm_runtime::{CoroutineScheduler, SchedulerConfig};
+
+    let mut group = c.benchmark_group("coroutine_scheduling");
+    group.measurement_time(Duration::from_secs(10));
+
+    let config = SchedulerConfig::default();
+    let mut scheduler = CoroutineScheduler::new(config);
+
+    group.bench_function("spawn_10", |b| {
+        b.iter(|| {
+            for i in 0..10 {
+                let mut task = Box::pin(async move {
+                    tokio::time::sleep(Duration::from_micros(1)).await;
+                    i
                 });
-            }
-            IRBlock {
-                start_pc: GuestAddr(0x1000 + i as u64 * 0x100),
-                ops,
-                term: vm_ir::Terminator::Return,
-            }
-        });
-        
-        b.iter(|| {
-            for block in &blocks {
-                black_box(compiler.execute(black_box(block)));
+                scheduler.spawn_coroutine(&mut task);
             }
         });
     });
-    
+
+    group.bench_function("spawn_100", |b| {
+        b.iter(|| {
+            for i in 0..100 {
+                let mut task = Box::pin(async move {
+                    tokio::time::sleep(Duration::from_micros(1)).await;
+                    i
+                });
+                scheduler.spawn_coroutine(&mut task);
+            }
+        });
+    });
+
     group.finish();
 }
 
 criterion_group!(
     benches,
-    bench_tiered_compiler,
-    bench_inline_cache,
-    bench_lru_cache,
-    bench_tiered_cache,
-    bench_compiler_comprehensive
+    bench_jit_compilation,
+    bench_tlb_lookup,
+    bench_instruction_decoding,
+    bench_memory_operations,
+    bench_gc_operations,
+    bench_coroutine_scheduling
 );
 criterion_main!(benches);

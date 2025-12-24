@@ -114,10 +114,13 @@ pub mod hot_update;
 pub mod compilation_predictor;
 pub mod memory_layout_optimizer;
 pub mod optimized_cache;
-pub mod optimized_register_allocator;
-pub mod optimized_instruction_scheduler;
 pub mod optimized_code_generator;
 pub use simd_optimizer::DefaultSIMDOptimizer;
+pub use code_cache::{OptimizedCodeCache, OptimizedCacheConfig, OptimizedCacheStats};
+pub use register_allocator::{OptimizedRegisterAllocator, AllocatorConfig, AllocationStrategy, OptimizedAllocationStats};
+pub use instruction_scheduler::{OptimizedInstructionScheduler, OptimizedSchedulerConfig, SchedulingStrategy, LatencyModel, OptimizedSchedulingStats};
+pub use optimizer::{AdvancedOptimizer, AdvancedOptimizerConfig, AdvancedOptimizationStats, ValueRange};
+pub use debugger::{PerformanceAnalysisType, MemoryAccessType, AdvancedDebugEvent, AdvancedEventType, AdvancedDebuggerConfig, AdvancedDebugStats, AdvancedJitDebugger};
 // pub mod performance_benchmark;
 // pub mod hotspot_detector;
 // pub mod adaptive_threshold;
@@ -134,13 +137,14 @@ pub use simd_optimizer::DefaultSIMDOptimizer;
 // pub mod performance_monitoring_feedback;
 // pub mod integration_test;
 // pub mod benchmark_suite;
-// pub mod debugger;
+pub mod debugger;
 // pub mod advanced_debugger;
 // pub mod exception_handler;
 // pub mod config_validator;
 // pub mod performance_analyzer;
 // pub mod hw_acceleration;
 pub mod common;
+pub mod hot_reload;
 
 /// JIT代码指针
 #[derive(Debug, Clone, Copy)]
