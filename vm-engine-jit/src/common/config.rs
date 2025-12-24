@@ -617,9 +617,9 @@ mod tests {
         assert!(manager.validate_all().is_ok());
         
         let cache_config = manager.get_config::<CacheConfig>("cache");
-        assert!(cache_config.is_some());
+        assert!(cache_config.is_ok() && cache_config.unwrap().is_some());
         
         let hw_config = manager.get_config::<HardwareAccelerationConfig>("hw_accel");
-        assert!(hw_config.is_some());
+        assert!(hw_config.is_ok() && hw_config.unwrap().is_some());
     }
 }

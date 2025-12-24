@@ -3,19 +3,20 @@
 //! 负责加载 AOT 镜像
 
 use crate::aot::format::AotImage;
+use crate::executable_memory::ExecutableMemory;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use vm_core::GuestAddr;
 
 /// 代码块条目
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BlockEntry {
     pub guest_pc: GuestAddr,
     pub host_addr: *const u8,
     pub size: usize,
-    // 保持对数据的引用，防止释放
-    _data: std::sync::Arc<Vec<u8>>,
+    // 可执行内存，防止释放
+    _exec_mem: Option<Box<ExecutableMemory>>,
 }
 
 unsafe impl Send for BlockEntry {}
@@ -44,14 +45,22 @@ impl AotLoader {
     /// 构建内存映射
     fn build_map(&mut self) {
         for section in &self.image.sections {
-            let data_arc = std::sync::Arc::new(section.data.clone());
-            let entry = BlockEntry {
-                guest_pc: section.addr,
-                host_addr: data_arc.as_ptr(),
-                size: section.data.len(),
-                _data: data_arc,
-            };
-            self.block_map.insert(section.addr, entry);
+            if let Some(mut exec_mem) = ExecutableMemory::new(section.data.len()) {
+                let slice = exec_mem.as_mut_slice();
+                slice.copy_from_slice(&section.data);
+
+                if exec_mem.make_executable() {
+                    exec_mem.invalidate_icache();
+
+                    let entry = BlockEntry {
+                        guest_pc: section.addr,
+                        host_addr: exec_mem.as_mut_slice().as_ptr(),
+                        size: section.data.len(),
+                        _exec_mem: Some(Box::new(exec_mem)),
+                    };
+                    self.block_map.insert(section.addr, entry);
+                }
+            }
         }
     }
 

@@ -16,6 +16,9 @@ pub mod cross_architecture_translation_service;
 pub mod register_allocation_service;
 pub mod architecture_compatibility_service;
 pub mod performance_optimization_service;
+pub mod tlb_management_service;
+pub mod page_table_walker_service;
+pub mod execution_manager_service;
 pub mod rules;
 pub mod events;
 
@@ -30,4 +33,15 @@ pub use cross_architecture_translation_service::CrossArchitectureTranslationDoma
 pub use register_allocation_service::RegisterAllocationDomainService;
 pub use architecture_compatibility_service::ArchitectureCompatibilityDomainService;
 pub use performance_optimization_service::PerformanceOptimizationDomainService;
-pub use events::{DomainEventBus, DomainEventEnum};
+pub use tlb_management_service::{
+    TlbManagementDomainService, TlbLevel, TlbReplacementPolicy, TlbManagedEntry, TlbStatistics,
+};
+pub use page_table_walker_service::{
+    PageTableWalkerDomainService, PageTableLevel, PageTableEntryFlags, PageTableEntry,
+    WalkResult, WalkStatistics,
+};
+pub use execution_manager_service::{
+    ExecutionManagerDomainService, ExecutionState, ExecutionContext, ExecutionPriority,
+    ExecutionStatistics,
+};
+pub use events::{DomainEventBus, DomainEventEnum, TlbEvent, PageTableEvent, ExecutionEvent};

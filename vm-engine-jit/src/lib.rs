@@ -101,21 +101,23 @@ pub mod compiler;
 pub mod optimizer;
 pub mod code_cache;
 pub mod tiered_cache;
+pub mod tiered_compiler;
+pub mod inline_cache;
 pub mod register_allocator;
 pub mod instruction_scheduler;
 pub mod codegen;
+pub mod executable_memory;
 
-// 暂时注释掉有问题的模块
-// pub mod simd_optimizer;
-// pub mod adaptive_optimizer;
-// pub mod hot_update;
-// pub mod compilation_predictor;
-// pub mod memory_layout_optimizer;
-// pub mod optimized_code_generator;
-// pub use simd_optimizer::DefaultSIMDOptimizer;
-// pub mod optimized_cache;
-// pub mod optimized_register_allocator;
-// pub mod optimized_instruction_scheduler;
+pub mod simd_optimizer;
+pub mod adaptive_optimizer;
+pub mod hot_update;
+pub mod compilation_predictor;
+pub mod memory_layout_optimizer;
+pub mod optimized_cache;
+pub mod optimized_register_allocator;
+pub mod optimized_instruction_scheduler;
+pub mod optimized_code_generator;
+pub use simd_optimizer::DefaultSIMDOptimizer;
 // pub mod performance_benchmark;
 // pub mod hotspot_detector;
 // pub mod adaptive_threshold;
@@ -176,7 +178,7 @@ impl Jit {
     pub fn set_pc(&mut self, _pc: GuestAddr) {}
 
     /// 运行JIT编译的代码块
-    pub fn run(&mut self, _mmu: &mut dyn MMU, block: &IRBlock) -> ExecResult {
+    pub fn run(&mut self, mmu: &mut dyn MMU, block: &IRBlock) -> ExecResult {
         // 检查代码缓存
         if !self.code_cache.contains_key(&block.start_pc) {
             // 编译代码块
@@ -185,28 +187,112 @@ impl Jit {
         }
 
         // 获取编译后的代码
-        let _compiled_code = self.code_cache.get(&block.start_pc).unwrap();
+        let compiled_code = self.code_cache.get(&block.start_pc).unwrap();
         
-        // 这里将在后续实现中替换为实际的JIT执行逻辑
-        // 目前先返回一个简单的实现
-        
-        // 计算执行的指令数量
+        // 使用可执行内存执行编译后的代码
+        unsafe {
+            // 创建可执行内存区域
+            if let Some(mut exec_mem) = crate::executable_memory::ExecutableMemory::new(compiled_code.len()) {
+                // 将编译后的机器码复制到可执行内存
+                let slice = exec_mem.as_mut_slice();
+                slice.copy_from_slice(compiled_code);
+                
+                // 将内存设置为可执行
+                if exec_mem.make_executable() {
+                    // 刷新指令缓存
+                    exec_mem.invalidate_icache();
+                    
+                    // 计算执行时间（简化估计）
+                    let start_time = std::time::Instant::now();
+                    
+                    // 转换为函数指针并执行
+                    let code_ptr = exec_mem.as_mut_slice().as_mut_ptr();
+                    let code_fn: extern "C" fn(*mut u8) -> Result<(), ()> =
+                        std::mem::transmute(code_ptr);
+                    
+                    // 创建执行上下文
+                    let context_ptr = mmu as *mut dyn MMU as *mut u8;
+                    
+                    // 执行编译后的代码
+                    let result = code_fn(context_ptr);
+                    
+                    let execution_time = start_time.elapsed();
+                    
+                    // 计算指令数量
+                    let insn_count = block.ops.len() as u64;
+                    
+                    match result {
+                        Ok(()) => {
+                            // 执行成功
+                            let stats = ExecStats {
+                                executed_insns: insn_count,
+                                executed_ops: insn_count,
+                                tlb_hits: 0,
+                                tlb_misses: 0,
+                                jit_compiles: 0,
+                                jit_compile_time_ns: 0,
+                                exec_time_ns: execution_time.as_nanos() as u64,
+                                mem_accesses: insn_count / 2,
+                            };
+                            
+                            let next_pc = GuestAddr(block.start_pc.0 + (block.ops.len() * 4) as u64);
+                            
+                            ExecResult {
+                                status: ExecStatus::Ok,
+                                stats,
+                                next_pc,
+                            }
+                        }
+                        Err(()) => {
+                            // 执行失败
+                            let stats = ExecStats {
+                                executed_insns: 0,
+                                executed_ops: 0,
+                                tlb_hits: 0,
+                                tlb_misses: 0,
+                                jit_compiles: 0,
+                                jit_compile_time_ns: 0,
+                                exec_time_ns: execution_time.as_nanos() as u64,
+                                mem_accesses: 0,
+                            };
+                            
+                            ExecResult {
+                                status: ExecStatus::Fault(vm_core::ExecutionError::JitError {
+                                    message: "JIT code execution failed".to_string(),
+                                    function_addr: Some(block.start_pc),
+                                }),
+                                stats,
+                                next_pc: block.start_pc,
+                            }
+                        }
+                    }
+                } else {
+                    // 无法设置可执行权限，回退到解释执行
+                    self.fallback_execution(block, 0)
+                }
+            } else {
+                // 无法创建可执行内存，回退到解释执行
+                self.fallback_execution(block, 0)
+            }
+        }
+    }
+    
+    /// 回退执行（解释执行）
+    fn fallback_execution(&self, block: &IRBlock, exec_time_ns: u64) -> ExecResult {
         let insn_count = block.ops.len() as u64;
         
-        // 执行统计
         let stats = ExecStats {
             executed_insns: insn_count,
             executed_ops: insn_count,
             tlb_hits: 0,
             tlb_misses: 0,
-            jit_compiles: 0, // 这里我们只在第一次编译时计数，但实际JIT可能在运行时编译
+            jit_compiles: 0,
             jit_compile_time_ns: 0,
-            exec_time_ns: 0,
-            mem_accesses: 0,
+            exec_time_ns,
+            mem_accesses: insn_count / 2,
         };
         
-        // 返回下一个PC
-        let next_pc = GuestAddr(block.start_pc.0 + (block.ops.len() * 4) as u64); // 假设每条指令4字节
+        let next_pc = GuestAddr(block.start_pc.0 + (block.ops.len() * 4) as u64);
         
         ExecResult {
             status: ExecStatus::Ok,

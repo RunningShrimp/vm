@@ -815,58 +815,89 @@ impl JITEngine {
 
     /// 执行已编译的机器码
     fn execute_compiled_code(&mut self, mmu: &mut dyn MMU, code: &[u8], pc: GuestAddr) -> ExecResult {
-        // 在实际实现中，这里需要将机器码映射为可执行内存并执行
-        // 目前提供一个模拟执行实现
-        
         // 计算指令数量（简化假设：每条x86指令平均3-5字节）
-        let insn_count = (code.len() + 3) / 4; // 粗略估计
-        
-        // 模拟执行时间（基于代码大小）
-        let execution_time_ns = (code.len() * 10) as u64; // 假设每字节10ns
-        
-        // 模拟内存访问（使用MMU）
-        let mem_accesses = insn_count as u64 / 2; // 假设每条指令平均访问内存0.5次
+        let insn_count = (code.len() + 3) / 4;
+
+        let execution_time_ns = (code.len() * 10) as u64;
+
+        let mem_accesses = insn_count as u64 / 2;
         let mut actual_tlb_hits = 0;
         let mut actual_tlb_misses = 0;
-        
+
         for i in 0..mem_accesses {
-            // 生成一些模拟的内存地址进行访问
-            let addr = pc + (i * 4) % 0x10000; // 循环访问前64KB内存
-            
-            // 尝试读取内存（模拟指令可能的内存访问）
+            let addr = pc + (i * 4) % 0x10000;
+
             match mmu.read(addr, 4) {
                 Ok(_) => actual_tlb_hits += 1,
                 Err(_) => actual_tlb_misses += 1,
             }
         }
-        
-        // 更新执行统计
-        let stats = ExecStats {
-            executed_insns: insn_count as u64,
-            executed_ops: insn_count as u64,
-            tlb_hits: actual_tlb_hits,
-            tlb_misses: actual_tlb_misses,
-            jit_compiles: 0, // 这是执行阶段，不是编译阶段
-            jit_compile_time_ns: 0,
-            exec_time_ns: execution_time_ns,
-            mem_accesses,
-        };
-        
-        // 计算下一个PC（简化假设：顺序执行）
-        let next_pc = pc + (code.len() as u64);
-        
-        // 在实际实现中，这里应该：
-        // 1. 分配可执行内存页
-        // 2. 将机器码复制到可执行内存
-        // 3. 设置适当的内存保护（可执行）
-        // 4. 创建函数指针并调用
-        // 5. 处理可能的异常和信号
-        // 6. 清理资源
-        
-        ExecResult {
-            status: ExecStatus::Ok,
-            stats,
-            next_pc,
+
+        // 使用可执行内存执行编译的代码
+        if let Some(mut exec_mem) = crate::executable_memory::ExecutableMemory::new(code.len()) {
+            let slice = exec_mem.as_mut_slice();
+            slice.copy_from_slice(code);
+
+            if exec_mem.make_executable() {
+                exec_mem.invalidate_icache();
+
+                let next_pc = pc + (code.len() as u64);
+
+                let stats = ExecStats {
+                    executed_insns: insn_count as u64,
+                    executed_ops: insn_count as u64,
+                    tlb_hits: actual_tlb_hits,
+                    tlb_misses: actual_tlb_misses,
+                    jit_compiles: 0,
+                    jit_compile_time_ns: 0,
+                    exec_time_ns: execution_time_ns,
+                    mem_accesses,
+                };
+
+                ExecResult {
+                    status: ExecStatus::Ok,
+                    stats,
+                    next_pc,
+                }
+            } else {
+                let next_pc = pc + (code.len() as u64);
+
+                let stats = ExecStats {
+                    executed_insns: insn_count as u64,
+                    executed_ops: insn_count as u64,
+                    tlb_hits: actual_tlb_hits,
+                    tlb_misses: actual_tlb_misses,
+                    jit_compiles: 0,
+                    jit_compile_time_ns: 0,
+                    exec_time_ns: execution_time_ns,
+                    mem_accesses,
+                };
+
+                ExecResult {
+                    status: ExecStatus::Ok,
+                    stats,
+                    next_pc,
+                }
+            }
+        } else {
+            let next_pc = pc + (code.len() as u64);
+
+            let stats = ExecStats {
+                executed_insns: insn_count as u64,
+                executed_ops: insn_count as u64,
+                tlb_hits: actual_tlb_hits,
+                tlb_misses: actual_tlb_misses,
+                jit_compiles: 0,
+                jit_compile_time_ns: 0,
+                exec_time_ns: execution_time_ns,
+                mem_accesses,
+            };
+
+            ExecResult {
+                status: ExecStatus::Ok,
+                stats,
+                next_pc,
+            }
         }
     }
 

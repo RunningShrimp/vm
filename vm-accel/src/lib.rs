@@ -796,3 +796,82 @@ pub fn add_i32x4(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cpu_features_default() {
+        let features = CpuFeatures::default();
+        assert_eq!(features.avx2, false);
+        assert_eq!(features.avx512, false);
+        assert_eq!(features.neon, false);
+        assert_eq!(features.vmx, false);
+        assert_eq!(features.svm, false);
+        assert_eq!(features.arm_el2, false);
+    }
+
+    #[test]
+    fn test_accel_kind_detect_best() {
+        let kind = AccelKind::detect_best();
+        match kind {
+            AccelKind::Kvm | AccelKind::Hvf | AccelKind::Whpx | AccelKind::None => {}
+        }
+    }
+
+    #[test]
+    fn test_mem_flags_creation() {
+        let flags = MemFlags {
+            read: true,
+            write: true,
+            exec: false,
+        };
+        assert_eq!(flags.read, true);
+        assert_eq!(flags.write, true);
+        assert_eq!(flags.exec, false);
+    }
+
+    #[test]
+    fn test_mem_flags_copy() {
+        let flags1 = MemFlags {
+            read: true,
+            write: false,
+            exec: false,
+        };
+        let flags2 = flags1;
+        assert_eq!(flags1.read, flags2.read);
+        assert_eq!(flags1.write, flags2.write);
+        assert_eq!(flags1.exec, flags2.exec);
+    }
+
+    #[test]
+    fn test_accel_kind_equality() {
+        assert_eq!(AccelKind::Kvm, AccelKind::Kvm);
+        assert_eq!(AccelKind::Hvf, AccelKind::Hvf);
+        assert_eq!(AccelKind::Whpx, AccelKind::Whpx);
+        assert_eq!(AccelKind::None, AccelKind::None);
+
+        assert_ne!(AccelKind::Kvm, AccelKind::Hvf);
+        assert_ne!(AccelKind::Hvf, AccelKind::Whpx);
+    }
+
+    #[test]
+    fn test_no_accel_name() {
+        let no_accel = NoAccel;
+        assert_eq!(no_accel.name(), "None");
+    }
+
+    #[test]
+    fn test_accel_legacy_error_display() {
+        let err = AccelLegacyError::NotAvailable("test".to_string());
+        assert!(format!("{:?}", err).contains("NotAvailable"));
+    }
+
+    #[test]
+    fn test_accel_kind_copy() {
+        let kind1 = AccelKind::Kvm;
+        let kind2 = kind1;
+        assert_eq!(kind1, kind2);
+    }
+}

@@ -6,6 +6,47 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
 
+/// JIT优化统计基础结构
+#[derive(Debug, Clone, Default)]
+pub struct OptimizationStats {
+    pub blocks_optimized: u64,
+    pub ops_vectorized: u64,
+    pub simd_ops_generated: u64,
+    pub fma_fusions: u64,
+    pub masked_ops: u64,
+    pub load_store_vectorized: u64,
+    pub horizontal_ops_optimized: u64,
+    pub compilation_time: Duration,
+    pub optimization_time: Duration,
+}
+
+impl OptimizationStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn total_time(&self) -> Duration {
+        self.compilation_time + self.optimization_time
+    }
+
+    pub fn ops_per_ms(&self) -> f64 {
+        if self.optimization_time.as_millis() > 0 {
+            self.ops_vectorized as f64 / self.optimization_time.as_millis() as f64
+        } else {
+            0.0
+        }
+    }
+
+    pub fn speedup_estimate(&self) -> f64 {
+        if self.ops_vectorized > 0 && self.simd_ops_generated > 0 {
+            let vector_width = 4.0;
+            self.ops_vectorized as f64 * (vector_width - 1.0) / self.ops_vectorized as f64
+        } else {
+            1.0
+        }
+    }
+}
+
 /// 通用统计特征
 pub trait Stats: Clone + Default + Send + Sync {
     /// 重置统计信息

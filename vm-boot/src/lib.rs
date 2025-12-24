@@ -12,6 +12,7 @@ use vm_core::{GuestAddr, PlatformError, VmError};
 // 子模块
 pub mod eltorito;
 pub mod fast_boot;
+pub mod gc_runtime;
 pub mod hotplug;
 pub mod incremental_snapshot;
 pub mod iso9660;
@@ -20,6 +21,7 @@ pub mod runtime_service;
 pub mod snapshot;
 
 // 重新导出常用类型
+pub use gc_runtime::{GcConfig, GcIntegrationManager, GcIntegrationState, GcRuntime};
 pub use hotplug::{DeviceInfo, DeviceType, HotplugEvent, HotplugManager};
 pub use runtime::{RuntimeCommand, RuntimeController, RuntimeEvent, RuntimeState};
 pub use snapshot::{SnapshotFileManager, SnapshotMetadata, VmSnapshot};

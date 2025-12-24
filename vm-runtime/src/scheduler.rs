@@ -792,4 +792,42 @@ mod tests {
         let stats = scheduler.get_stats();
         assert_eq!(stats.global_queue_size, 3);
     }
+
+    #[test]
+    fn test_priority_from_usize() {
+        assert_eq!(Priority::from_usize(2), Priority::High);
+        assert_eq!(Priority::from_usize(1), Priority::Medium);
+        assert_eq!(Priority::from_usize(0), Priority::Low);
+        assert_eq!(Priority::from_usize(3), Priority::Low);
+    }
+
+    #[test]
+    fn test_coroutine_state_conversions() {
+        assert_eq!(CoroutineState::Ready.as_usize(), 0);
+        assert_eq!(CoroutineState::Running.as_usize(), 1);
+        assert_eq!(CoroutineState::Blocked.as_usize(), 2);
+        assert_eq!(CoroutineState::Dead.as_usize(), 3);
+
+        assert_eq!(CoroutineState::from_usize(0), CoroutineState::Ready);
+        assert_eq!(CoroutineState::from_usize(1), CoroutineState::Running);
+        assert_eq!(CoroutineState::from_usize(2), CoroutineState::Blocked);
+        assert_eq!(CoroutineState::from_usize(3), CoroutineState::Dead);
+        assert_eq!(CoroutineState::from_usize(99), CoroutineState::Dead);
+    }
+
+    #[test]
+    fn test_token_value() {
+        let token = Token(42);
+        assert_eq!(token.value(), 42);
+    }
+
+    #[test]
+    fn test_scheduler_stats() {
+        let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+        let stats = scheduler.get_stats();
+
+        assert_eq!(stats.total_tasks, 0);
+        assert_eq!(stats.global_queue_size, 0);
+        assert!(!stats.running);
+    }
 }

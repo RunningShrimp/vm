@@ -262,6 +262,172 @@ impl DomainEvent for OptimizationEvent {
     }
 }
 
+/// TLB events for translation lookaside buffer management
+#[derive(Debug, Clone)]
+pub enum TlbEvent {
+    /// TLB entry was inserted
+    EntryInserted {
+        level: super::tlb_management_service::TlbLevel,
+        va: u64,
+        asid: u16,
+    },
+    /// TLB entry was evicted
+    EntryEvicted {
+        level: super::tlb_management_service::TlbLevel,
+        va: u64,
+        asid: u16,
+    },
+    /// TLB entry was flushed
+    EntryFlushed {
+        level: super::tlb_management_service::TlbLevel,
+        va: u64,
+        asid: u16,
+    },
+    /// All TLB entries were flushed
+    FlushAll {
+        level: super::tlb_management_service::TlbLevel,
+    },
+    /// TLB entries were flushed by ASID
+    FlushAsid {
+        asid: u16,
+    },
+    /// TLB entries were flushed by range
+    FlushRange {
+        start_va: u64,
+        end_va: u64,
+    },
+    /// TLB entries were invalidated by physical address
+    InvalidatePa {
+        pa: u64,
+    },
+}
+
+impl DomainEvent for TlbEvent {
+    fn event_type(&self) -> &'static str {
+        match self {
+            TlbEvent::EntryInserted { .. } => "tlb.entry_inserted",
+            TlbEvent::EntryEvicted { .. } => "tlb.entry_evicted",
+            TlbEvent::EntryFlushed { .. } => "tlb.entry_flushed",
+            TlbEvent::FlushAll { .. } => "tlb.flush_all",
+            TlbEvent::FlushAsid { .. } => "tlb.flush_asid",
+            TlbEvent::FlushRange { .. } => "tlb.flush_range",
+            TlbEvent::InvalidatePa { .. } => "tlb.invalidate_pa",
+        }
+    }
+
+    fn occurred_at(&self) -> SystemTime {
+        SystemTime::now()
+    }
+}
+
+/// Page table events for page table walking
+#[derive(Debug, Clone)]
+pub enum PageTableEvent {
+    /// Page fault occurred
+    PageFault {
+        va: u64,
+        access_type: AccessType,
+    },
+    /// Access violation occurred
+    AccessViolation {
+        va: u64,
+        access_type: AccessType,
+    },
+    /// Invalid entry encountered
+    InvalidEntry {
+        va: u64,
+    },
+    /// Cache entry was invalidated
+    CacheInvalidated {
+        va: u64,
+    },
+    /// Cache was flushed
+    CacheFlushed {
+        count: usize,
+    },
+}
+
+impl DomainEvent for PageTableEvent {
+    fn event_type(&self) -> &'static str {
+        match self {
+            PageTableEvent::PageFault { .. } => "page_table.page_fault",
+            PageTableEvent::AccessViolation { .. } => "page_table.access_violation",
+            PageTableEvent::InvalidEntry { .. } => "page_table.invalid_entry",
+            PageTableEvent::CacheInvalidated { .. } => "page_table.cache_invalidated",
+            PageTableEvent::CacheFlushed { .. } => "page_table.cache_flushed",
+        }
+    }
+
+    fn occurred_at(&self) -> SystemTime {
+        SystemTime::now()
+    }
+}
+
+/// Execution events for execution management
+#[derive(Debug, Clone)]
+pub enum ExecutionEvent {
+    /// Execution context was created
+    ContextCreated {
+        id: u64,
+        pc: u64,
+        priority: super::execution_manager_service::ExecutionPriority,
+    },
+    /// Execution context was deleted
+    ContextDeleted {
+        id: u64,
+        final_state: super::execution_manager_service::ExecutionState,
+        execution_time: std::time::Duration,
+        instructions_executed: u64,
+    },
+    /// Execution context was scheduled
+    ContextScheduled {
+        id: u64,
+        priority: super::execution_manager_service::ExecutionPriority,
+    },
+    /// Execution context was started
+    ContextStarted {
+        id: u64,
+    },
+    /// Execution context was completed
+    ContextCompleted {
+        id: u64,
+        execution_time: std::time::Duration,
+        instructions_executed: u64,
+    },
+    /// Execution context failed
+    ContextFailed {
+        id: u64,
+        error: String,
+    },
+    /// Execution context was paused
+    ContextPaused {
+        id: u64,
+    },
+    /// Execution context was resumed
+    ContextResumed {
+        id: u64,
+    },
+}
+
+impl DomainEvent for ExecutionEvent {
+    fn event_type(&self) -> &'static str {
+        match self {
+            ExecutionEvent::ContextCreated { .. } => "execution.context_created",
+            ExecutionEvent::ContextDeleted { .. } => "execution.context_deleted",
+            ExecutionEvent::ContextScheduled { .. } => "execution.context_scheduled",
+            ExecutionEvent::ContextStarted { .. } => "execution.context_started",
+            ExecutionEvent::ContextCompleted { .. } => "execution.context_completed",
+            ExecutionEvent::ContextFailed { .. } => "execution.context_failed",
+            ExecutionEvent::ContextPaused { .. } => "execution.context_paused",
+            ExecutionEvent::ContextResumed { .. } => "execution.context_resumed",
+        }
+    }
+
+    fn occurred_at(&self) -> SystemTime {
+        SystemTime::now()
+    }
+}
+
 /// Extended domain event enumeration that includes all base events plus domain service specific events
 #[derive(Debug, Clone)]
 pub enum DomainEventEnum {
@@ -271,6 +437,12 @@ pub enum DomainEventEnum {
     Translation(TranslationEvent),
     /// Optimization events
     Optimization(OptimizationEvent),
+    /// TLB events
+    Tlb(TlbEvent),
+    /// Page table events
+    PageTable(PageTableEvent),
+    /// Execution events
+    Execution(ExecutionEvent),
 }
 
 impl DomainEvent for DomainEventEnum {
@@ -279,6 +451,9 @@ impl DomainEvent for DomainEventEnum {
             DomainEventEnum::Base(e) => e.event_type(),
             DomainEventEnum::Translation(e) => e.event_type(),
             DomainEventEnum::Optimization(e) => e.event_type(),
+            DomainEventEnum::Tlb(e) => e.event_type(),
+            DomainEventEnum::PageTable(e) => e.event_type(),
+            DomainEventEnum::Execution(e) => e.event_type(),
         }
     }
 
@@ -287,6 +462,9 @@ impl DomainEvent for DomainEventEnum {
             DomainEventEnum::Base(e) => e.occurred_at(),
             DomainEventEnum::Translation(e) => e.occurred_at(),
             DomainEventEnum::Optimization(e) => e.occurred_at(),
+            DomainEventEnum::Tlb(e) => e.occurred_at(),
+            DomainEventEnum::PageTable(e) => e.occurred_at(),
+            DomainEventEnum::Execution(e) => e.occurred_at(),
         }
     }
 }
@@ -306,6 +484,24 @@ impl From<TranslationEvent> for DomainEventEnum {
 impl From<OptimizationEvent> for DomainEventEnum {
     fn from(event: OptimizationEvent) -> Self {
         DomainEventEnum::Optimization(event)
+    }
+}
+
+impl From<ExecutionEvent> for DomainEventEnum {
+    fn from(event: ExecutionEvent) -> Self {
+        DomainEventEnum::Execution(event)
+    }
+}
+
+impl From<PageTableEvent> for DomainEventEnum {
+    fn from(event: PageTableEvent) -> Self {
+        DomainEventEnum::PageTable(event)
+    }
+}
+
+impl From<TlbEvent> for DomainEventEnum {
+    fn from(event: TlbEvent) -> Self {
+        DomainEventEnum::Tlb(event)
     }
 }
 

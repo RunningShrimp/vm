@@ -322,6 +322,7 @@ version = "0.1.0"
 dependencies = [
  "parking_lot 0.12.5",
  "tokio",
+ "vm-engine-jit",
 ]
 
 [[package]]
@@ -7894,7 +7895,10 @@ dependencies = [
 name = "vm-boot"
 version = "0.1.0"
 dependencies = [
+ "gc-optimizer",
  "log",
+ "num_cpus",
+ "parking_lot 0.12.5",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -8085,8 +8089,10 @@ dependencies = [
 name = "vm-engine-jit"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "chrono",
  "criterion 0.5.1",
+ "libc",
  "log",
  "num_cpus",
  "parking_lot 0.12.5",
@@ -8100,6 +8106,7 @@ dependencies = [
  "vm-core",
  "vm-error",
  "vm-ir",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8199,6 +8206,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "thiserror 2.0.17",
  "tokio",
+ "vm-common",
  "vm-core",
 ]
 

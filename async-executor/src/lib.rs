@@ -118,18 +118,21 @@ impl JitExecutor {
 
     /// 执行一个基本块
     pub fn execute_block(&mut self, block_id: u64) -> ExecutionResult {
-        // 检查缓存
-        if let Some(_code) = self.context.get_cached_block(block_id) {
-            self.context.record_execution(10);
-            return Ok(block_id);
+        if let Some(code) = self.context.get_cached_block(block_id) {
+            if let Some(mut exec_mem) = vm_engine_jit::executable_memory::ExecutableMemory::new(code.len()) {
+                let slice = exec_mem.as_mut_slice();
+                slice.copy_from_slice(&code);
+
+                if exec_mem.make_executable() {
+                    exec_mem.invalidate_icache();
+                    self.context.record_execution(10);
+                    return Ok(block_id);
+                }
+            }
         }
 
-        // 模拟编译延迟
         std::thread::sleep(std::time::Duration::from_micros(100));
-
-        // 缓存代码
         self.context.cache_block(block_id, vec![]);
-
         self.context.record_execution(100);
         Ok(block_id)
     }

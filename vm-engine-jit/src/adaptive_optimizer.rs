@@ -1,432 +1,340 @@
-//! 自适应优化器
-//!
-//! 实现了根据运行时性能动态调整优化策略的自适应优化器。
-
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use vm_core::GuestAddr;
-use vm_ir::IRBlock;
-use crate::optimizer::IROptimizer;
-use crate::simd_optimizer::SIMDOptimizer;
-use crate::register_allocator::RegisterAllocator;
-use crate::instruction_scheduler::InstructionScheduler;
-use crate::codegen::CodeGenerator;
-use crate::compiler::CompiledIRBlock;
+use vm_ir::{IRBlock, IROp, RegId};
+use crate::common::{OptimizationStats, CacheStats};
 
-/// 自适应优化配置
-#[derive(Debug, Clone)]
-pub struct AdaptiveOptimizationConfig {
-    /// 性能采样间隔（毫秒）
-    pub sampling_interval_ms: u64,
-    /// 性能历史窗口大小
-    pub history_window_size: usize,
-    /// 优化调整阈值（性能变化百分比）
-    pub adjustment_threshold: f64,
-    /// 最大优化级别
-    pub max_optimization_level: u8,
-    /// 最小优化级别
-    pub min_optimization_level: u8,
-    /// 启用SIMD自适应
-    pub enable_simd_adaptation: bool,
-    /// 启用调度自适应
-    pub enable_scheduling_adaptation: bool,
-    /// 启用寄存器分配自适应
-    pub enable_register_adaptation: bool,
+pub struct AdaptiveOptimizer {
+    config: AdaptiveOptimizerConfig,
+    execution_history: HashMap<RegId, ExecutionHistory>,
+    block_profiles: HashMap<u64, BlockProfile>,
+    hot_threshold: u64,
+    cold_threshold: u64,
+    stats: OptimizationStats,
 }
 
-impl Default for AdaptiveOptimizationConfig {
+#[derive(Debug, Clone)]
+pub struct AdaptiveOptimizerConfig {
+    pub initial_hot_threshold: u64,
+    pub initial_cold_threshold: u64,
+    pub adjustment_factor: f64,
+    pub min_threshold: u64,
+    pub max_threshold: u64,
+    pub sampling_rate: u32,
+    pub profile_window_size: usize,
+    pub enable_adaptive_recompilation: bool,
+}
+
+impl Default for AdaptiveOptimizerConfig {
     fn default() -> Self {
         Self {
-            sampling_interval_ms: 100,
-            history_window_size: 1000,
-            adjustment_threshold: 0.1, // 10%
-            max_optimization_level: 3,
-            min_optimization_level: 0,
-            enable_simd_adaptation: true,
-            enable_scheduling_adaptation: true,
-            enable_register_adaptation: true,
+            initial_hot_threshold: 100,
+            initial_cold_threshold: 10,
+            adjustment_factor: 0.1,
+            min_threshold: 5,
+            max_threshold: 1000,
+            sampling_rate: 100,
+            profile_window_size: 1000,
+            enable_adaptive_recompilation: true,
         }
     }
 }
 
-/// 性能指标
+impl AdaptiveOptimizerConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_hot_threshold(mut self, threshold: u64) -> Self {
+        self.initial_hot_threshold = threshold;
+        self
+    }
+
+    pub fn with_cold_threshold(mut self, threshold: u64) -> Self {
+        self.initial_cold_threshold = threshold;
+        self
+    }
+
+    pub fn with_adjustment_factor(mut self, factor: f64) -> Self {
+        self.adjustment_factor = factor.clamp(0.01, 1.0);
+        self
+    }
+
+    pub fn with_enable_adaptive_recompilation(mut self, enable: bool) -> Self {
+        self.enable_adaptive_recompilation = enable;
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct PerformanceMetrics {
-    /// 执行时间（纳秒）
-    pub execution_time_ns: u64,
-    /// 指令执行数量
-    pub instruction_count: u64,
-    /// 缓存命中次数
-    pub cache_hits: u64,
-    /// 缓存未命中次数
-    pub cache_misses: u64,
-    /// 内存访问次数
-    pub memory_accesses: u64,
-    /// 分支预测失败次数
-    pub branch_mispredictions: u64,
-    /// 采样时间戳
-    pub timestamp: Instant,
+pub struct ExecutionHistory {
+    pub execution_count: u64,
+    pub total_time: Duration,
+    pub avg_time: Duration,
+    pub last_execution: Option<Instant>,
+    pub optimization_level: OptimizationLevel,
 }
 
-impl PerformanceMetrics {
-    /// 计算每条指令的平均执行时间
-    pub fn avg_instruction_time(&self) -> f64 {
-        if self.instruction_count == 0 {
-            return 0.0;
+impl Default for ExecutionHistory {
+    fn default() -> Self {
+        Self {
+            execution_count: 0,
+            total_time: Duration::ZERO,
+            avg_time: Duration::ZERO,
+            last_execution: None,
+            optimization_level: OptimizationLevel::None,
         }
-        self.execution_time_ns as f64 / self.instruction_count as f64
-    }
-    
-    /// 计算缓存命中率
-    pub fn cache_hit_rate(&self) -> f64 {
-        let total_accesses = self.cache_hits + self.cache_misses;
-        if total_accesses == 0 {
-            return 0.0;
-        }
-        self.cache_hits as f64 / total_accesses as f64
-    }
-    
-    /// 计算每千条指令的内存访问次数
-    pub fn memory_access_per_kilo_insn(&self) -> f64 {
-        if self.instruction_count == 0 {
-            return 0.0;
-        }
-        (self.memory_accesses as f64 * 1000.0) / self.instruction_count as f64
-    }
-    
-    /// 计算分支预测准确率
-    pub fn branch_prediction_accuracy(&self) -> f64 {
-        let total_branches = self.cache_hits + self.branch_mispredictions;
-        if total_branches == 0 {
-            return 1.0;
-        }
-        self.cache_hits as f64 / total_branches as f64
     }
 }
 
-/// 优化策略
 #[derive(Debug, Clone, PartialEq)]
-pub enum OptimizationStrategy {
-    /// 最低延迟优化
-    MinimizeLatency,
-    /// 最大吞吐量优化
-    MaximizeThroughput,
-    /// 最小内存占用优化
-    MinimizeMemoryUsage,
-    /// 平衡优化
-    Balanced,
-    /// 功耗优化
-    MinimizePowerConsumption,
+pub enum OptimizationLevel {
+    None,
+    Basic,
+    Aggressive,
+    Maximum,
 }
 
-/// 自适应优化器
-pub struct AdaptiveOptimizer {
-    /// 配置
-    config: AdaptiveOptimizationConfig,
-    /// 当前优化策略
-    current_strategy: OptimizationStrategy,
-    /// 当前优化级别
-    current_optimization_level: u8,
-    /// 性能历史记录
-    performance_history: Arc<Mutex<Vec<PerformanceMetrics>>>,
-    /// 策略性能映射
-    strategy_performance: Arc<Mutex<HashMap<OptimizationStrategy, Vec<PerformanceMetrics>>>>,
-    /// 优化级别性能映射
-    level_performance: Arc<Mutex<HashMap<u8, Vec<PerformanceMetrics>>>>,
-    /// 最后采样时间
-    last_sample_time: Arc<Mutex<Instant>>,
-    /// 当前IR块
-    current_block: Arc<Mutex<Option<IRBlock>>>,
-    /// 优化器组件
-    optimizer: Box<dyn IROptimizer>,
-    simd_optimizer: Box<dyn SIMDOptimizer>,
-    register_allocator: Box<dyn RegisterAllocator>,
-    instruction_scheduler: Box<dyn InstructionScheduler>,
-    code_generator: Box<dyn CodeGenerator>,
+#[derive(Debug, Clone)]
+pub struct BlockProfile {
+    pub block_id: u64,
+    pub execution_count: u64,
+    pub total_time_ns: u64,
+    pub avg_time_ns: u64,
+    pub current_optimization: OptimizationLevel,
+    pub recommended_optimization: OptimizationLevel,
+    pub recompilation_count: u64,
+}
+
+impl BlockProfile {
+    pub fn new(block_id: u64) -> Self {
+        Self {
+            block_id,
+            execution_count: 0,
+            total_time_ns: 0,
+            avg_time_ns: 0,
+            current_optimization: OptimizationLevel::None,
+            recommended_optimization: OptimizationLevel::None,
+            recompilation_count: 0,
+        }
+    }
+
+    pub fn record_execution(&mut self, time_ns: u64) {
+        self.execution_count += 1;
+        self.total_time_ns += time_ns;
+        self.avg_time_ns = self.total_time_ns / self.execution_count;
+    }
+
+    pub fn needs_recompilation(&self, config: &AdaptiveOptimizerConfig) -> bool {
+        if self.execution_count < config.sampling_rate as u64 {
+            return false;
+        }
+        
+        self.current_optimization != self.recommended_optimization
+    }
 }
 
 impl AdaptiveOptimizer {
-    /// 创建新的自适应优化器
-    pub fn new(
-        config: AdaptiveOptimizationConfig,
-        optimizer: Box<dyn IROptimizer>,
-        simd_optimizer: Box<dyn SIMDOptimizer>,
-        register_allocator: Box<dyn RegisterAllocator>,
-        instruction_scheduler: Box<dyn InstructionScheduler>,
-        code_generator: Box<dyn CodeGenerator>,
-    ) -> Self {
+    pub fn new(config: AdaptiveOptimizerConfig) -> Self {
         Self {
+            hot_threshold: config.initial_hot_threshold,
+            cold_threshold: config.initial_cold_threshold,
             config,
-            current_strategy: OptimizationStrategy::Balanced,
-            current_optimization_level: 2,
-            performance_history: Arc::new(Mutex::new(Vec::new())),
-            strategy_performance: Arc::new(Mutex::new(HashMap::new())),
-            level_performance: Arc::new(Mutex::new(HashMap::new())),
-            last_sample_time: Arc::new(Mutex::new(Instant::now())),
-            current_block: Arc::new(Mutex::new(None)),
-            optimizer,
-            simd_optimizer,
-            register_allocator,
-            instruction_scheduler,
-            code_generator,
+            execution_history: HashMap::new(),
+            block_profiles: HashMap::new(),
+            stats: OptimizationStats::default(),
         }
     }
-    
-    /// 设置当前IR块
-    pub fn set_current_block(&self, block: IRBlock) {
-        *self.current_block.lock().unwrap() = Some(block);
-    }
-    
-    /// 采样性能指标
-    pub fn sample_performance(&self, metrics: PerformanceMetrics) {
-        let mut history = self.performance_history.lock().unwrap();
-        history.push(metrics.clone());
+
+    pub fn optimize_block(&mut self, block: &IRBlock) -> OptimizationLevel {
+        let block_id = block.start_pc.0;
+        let sampling_rate = self.config.sampling_rate as u64;
+        let hot_threshold = self.hot_threshold;
+        let cold_threshold = self.cold_threshold;
         
-        // 保持历史窗口大小
-        if history.len() > self.config.history_window_size {
-            history.remove(0);
-        }
+        let profile = self.block_profiles.entry(block_id)
+            .or_insert_with(|| BlockProfile::new(block_id));
         
-        // 更新最后采样时间
-        *self.last_sample_time.lock().unwrap() = metrics.timestamp;
-        
-        // 检查是否需要调整优化策略
-        if history.len() >= 10 { // 至少需要10个样本
-            self.adjust_optimization_strategy();
-        }
-    }
-    
-    /// 调整优化策略
-    fn adjust_optimization_strategy(&self) {
-        let history = self.performance_history.lock().unwrap();
-        if history.len() < 10 {
-            return;
-        }
-        
-        // 计算最近性能指标
-        let recent_metrics = &history[history.len() - 10..];
-        let avg_instruction_time = recent_metrics.iter()
-            .map(|m| m.avg_instruction_time())
-            .sum::<f64>() / recent_metrics.len() as f64;
-        
-        let avg_cache_hit_rate = recent_metrics.iter()
-            .map(|m| m.cache_hit_rate())
-            .sum::<f64>() / recent_metrics.len() as f64;
-        
-        let avg_memory_access = recent_metrics.iter()
-            .map(|m| m.memory_access_per_kilo_insn())
-            .sum::<f64>() / recent_metrics.len() as f64;
-        
-        // 根据性能特征选择最佳策略
-        let new_strategy = self.select_optimal_strategy(avg_instruction_time, avg_cache_hit_rate, avg_memory_access);
-        
-        // 如果策略发生变化，应用新策略
-        if new_strategy != self.current_strategy {
-            self.apply_optimization_strategy(new_strategy);
-            self.current_strategy = new_strategy;
-        }
-        
-        // 调整优化级别
-        self.adjust_optimization_level(avg_instruction_time);
-    }
-    
-    /// 选择最优策略
-    fn select_optimal_strategy(&self, 
-                             avg_instruction_time: f64, 
-                             avg_cache_hit_rate: f64, 
-                             avg_memory_access: f64) -> OptimizationStrategy {
-        // 策略选择逻辑
-        if avg_instruction_time > 100.0 && avg_cache_hit_rate < 0.8 {
-            // 高延迟且缓存命中率低，优化内存访问
-            OptimizationStrategy::MinimizeMemoryUsage
-        } else if avg_memory_access > 500.0 {
-            // 内存访问频繁，优化内存布局
-            OptimizationStrategy::MinimizeMemoryUsage
-        } else if avg_instruction_time < 10.0 && avg_cache_hit_rate > 0.95 {
-            // 性能已经很好，追求更低功耗
-            OptimizationStrategy::MinimizePowerConsumption
-        } else if avg_cache_hit_rate > 0.9 {
-            // 缓存命中率高，优化吞吐量
-            OptimizationStrategy::MaximizeThroughput
+        let recommended_level = if profile.execution_count < sampling_rate {
+            OptimizationLevel::Basic
+        } else if profile.execution_count >= hot_threshold {
+            OptimizationLevel::Maximum
+        } else if profile.execution_count >= hot_threshold / 2 {
+            OptimizationLevel::Aggressive
+        } else if profile.execution_count <= cold_threshold {
+            OptimizationLevel::None
         } else {
-            // 默认平衡策略
-            OptimizationStrategy::Balanced
-        }
-    }
-    
-    /// 应用优化策略
-    fn apply_optimization_strategy(&self, strategy: OptimizationStrategy) {
-        match strategy {
-            OptimizationStrategy::MinimizeLatency => {
-                // 降低优化级别，减少编译开销
-                self.current_optimization_level = self.config.min_optimization_level;
-                // 禁用SIMD优化（可能增加延迟）
-                // 这里需要与具体优化器组件交互
-            }
-            OptimizationStrategy::MaximizeThroughput => {
-                // 提高优化级别，启用所有优化
-                self.current_optimization_level = self.config.max_optimization_level;
-                // 启用SIMD和指令调度
-            }
-            OptimizationStrategy::MinimizeMemoryUsage => {
-                // 中等优化级别，专注于内存优化
-                self.current_optimization_level = (self.config.min_optimization_level + self.config.max_optimization_level) / 2;
-                // 启用内存相关的优化
-            }
-            OptimizationStrategy::Balanced => {
-                // 默认平衡设置
-                self.current_optimization_level = 2;
-            }
-            OptimizationStrategy::MinimizePowerConsumption => {
-                // 降低优化级别，减少功耗
-                self.current_optimization_level = self.config.min_optimization_level + 1;
-            }
-        }
-    }
-    
-    /// 调整优化级别
-    fn adjust_optimization_level(&self, avg_instruction_time: f64) {
-        let mut level_performance = self.level_performance.lock().unwrap();
-        
-        // 记录当前级别的性能
-        let current_metrics = PerformanceMetrics {
-            execution_time_ns: (avg_instruction_time * 1000.0) as u64,
-            instruction_count: 1000,
-            cache_hits: 0,
-            cache_misses: 0,
-            memory_accesses: 0,
-            branch_mispredictions: 0,
-            timestamp: Instant::now(),
+            OptimizationLevel::Basic
         };
         
-        level_performance.entry(self.current_optimization_level)
-            .or_insert_with(Vec::new)
-            .push(current_metrics);
+        let needs_recompile = recommended_level != profile.current_optimization;
+        if needs_recompile && self.config.enable_adaptive_recompilation {
+            profile.current_optimization = recommended_level.clone();
+            profile.recompilation_count += 1;
+            self.stats.blocks_optimized += 1;
+        }
+        profile.recommended_optimization = recommended_level.clone();
+        recommended_level
+    }
+
+    pub fn record_execution(&mut self, block_id: u64, execution_time_ns: u64) {
+        let profile = self.block_profiles.entry(block_id)
+            .or_insert_with(|| BlockProfile::new(block_id));
+        profile.record_execution(execution_time_ns);
         
-        // 保持历史记录大小
-        for (_, metrics) in level_performance.iter_mut() {
-            if metrics.len() > 100 {
-                metrics.remove(0);
+        let execution_count = profile.execution_count;
+        
+        if execution_count >= self.config.sampling_rate as u64 {
+            if execution_count as f64 > self.hot_threshold as f64 * 2.0 {
+                let new_hot_threshold = (self.hot_threshold as f64 * (1.0 - self.config.adjustment_factor)) as u64;
+                self.hot_threshold = new_hot_threshold.max(self.config.min_threshold);
+            }
+
+            if execution_count as f64 > self.cold_threshold as f64 * 2.0 {
+                let new_cold_threshold = (self.cold_threshold as f64 * (1.0 + self.config.adjustment_factor)) as u64;
+                self.cold_threshold = new_cold_threshold.min(self.config.max_threshold);
             }
         }
+    }
+
+    pub fn get_block_profile(&self, block_id: u64) -> Option<&BlockProfile> {
+        self.block_profiles.get(&block_id)
+    }
+
+    pub fn get_current_thresholds(&self) -> (u64, u64) {
+        (self.hot_threshold, self.cold_threshold)
+    }
+
+    pub fn get_stats(&self) -> &OptimizationStats {
+        &self.stats
+    }
+
+    pub fn reset_stats(&mut self) {
+        self.stats = OptimizationStats::default();
+    }
+
+    pub fn analyze_hotspots(&self) -> Vec<HotspotInfo> {
+        let mut hotspots = Vec::new();
         
-        // 分析各优化级别的性能
-        let mut best_level = self.current_optimization_level;
-        let mut best_performance = avg_instruction_time;
-        
-        for (&level, metrics) in level_performance.iter() {
-            if metrics.len() >= 5 {
-                let level_avg = metrics.iter()
-                    .map(|m| m.avg_instruction_time())
-                    .sum::<f64>() / metrics.len() as f64;
-                
-                if level_avg < best_performance * (1.0 - self.config.adjustment_threshold) {
-                    best_level = level;
-                    best_performance = level_avg;
-                }
+        for profile in self.block_profiles.values() {
+            if profile.execution_count >= self.hot_threshold {
+                hotspots.push(HotspotInfo {
+                    block_id: profile.block_id,
+                    execution_count: profile.execution_count,
+                    avg_time_ns: profile.avg_time_ns,
+                    optimization_level: profile.current_optimization.clone(),
+                });
             }
         }
-        
-        // 如果找到更好的优化级别，则调整
-        if best_level != self.current_optimization_level {
-            self.current_optimization_level = best_level;
+
+        hotspots.sort_by(|a, b| {
+            b.execution_count.cmp(&a.execution_count)
+                .then_with(|| a.avg_time_ns.cmp(&b.avg_time_ns))
+        });
+
+        hotspots
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HotspotInfo {
+    pub block_id: u64,
+    pub execution_count: u64,
+    pub avg_time_ns: u64,
+    pub optimization_level: OptimizationLevel,
+}
+
+pub struct DefaultAdaptiveOptimizer {
+    inner: AdaptiveOptimizer,
+}
+
+impl DefaultAdaptiveOptimizer {
+    pub fn new() -> Self {
+        let config = AdaptiveOptimizerConfig::default();
+        Self {
+            inner: AdaptiveOptimizer::new(config),
         }
     }
-    
-    /// 获取当前优化策略
-    pub fn current_strategy(&self) -> OptimizationStrategy {
-        self.current_strategy.clone()
+
+    pub fn optimize(&mut self, block: &IRBlock) -> OptimizationLevel {
+        self.inner.optimize_block(block)
     }
-    
-    /// 获取当前优化级别
-    pub fn current_optimization_level(&self) -> u8 {
-        self.current_optimization_level
+
+    pub fn record_execution(&mut self, block_id: u64, execution_time_ns: u64) {
+        self.inner.record_execution(block_id, execution_time_ns);
     }
-    
-    /// 获取性能历史
-    pub fn performance_history(&self) -> Vec<PerformanceMetrics> {
-        self.performance_history.lock().unwrap().clone()
+
+    pub fn get_hotspots(&self) -> Vec<HotspotInfo> {
+        self.inner.analyze_hotspots()
     }
-    
-    /// 获取策略性能统计
-    pub fn strategy_performance(&self) -> HashMap<OptimizationStrategy, Vec<PerformanceMetrics>> {
-        self.strategy_performance.lock().unwrap().clone()
+
+    pub fn get_current_thresholds(&self) -> (u64, u64) {
+        self.inner.get_current_thresholds()
     }
-    
-    /// 优化IR块
-    pub fn optimize(&self, block: &IRBlock) -> Result<IRBlock, vm_core::VmError> {
-        // 根据当前优化级别调整优化器参数
-        self.configure_optimizer_for_level();
+}
+
+impl Default for DefaultAdaptiveOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_adaptive_optimizer_creation() {
+        let config = AdaptiveOptimizerConfig::new();
+        let optimizer = AdaptiveOptimizer::new(config);
+        assert_eq!(optimizer.hot_threshold, 100);
+        assert_eq!(optimizer.cold_threshold, 10);
+    }
+
+    #[test]
+    fn test_optimization_levels() {
+        let config = AdaptiveOptimizerConfig::default();
+        let mut optimizer = AdaptiveOptimizer::new(config);
         
-        // 执行基础优化
-        let mut optimized_block = self.optimizer.optimize(block)?;
-        
-        // 根据策略执行特定优化
-        match self.current_strategy {
-            OptimizationStrategy::MinimizeLatency => {
-                // 执行延迟优化
-                self.optimize_for_latency(&mut optimized_block)?;
-            }
-            OptimizationStrategy::MaximizeThroughput => {
-                // 执行吞吐量优化
-                self.optimize_for_throughput(&mut optimized_block)?;
-            }
-            OptimizationStrategy::MinimizeMemoryUsage => {
-                // 执行内存优化
-                self.optimize_for_memory(&mut optimized_block)?;
-            }
-            OptimizationStrategy::Balanced => {
-                // 执行平衡优化
-                self.optimize_for_balance(&mut optimized_block)?;
-            }
-            OptimizationStrategy::MinimizePowerConsumption => {
-                // 执行功耗优化
-                self.optimize_for_power(&mut optimized_block)?;
-            }
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![IROp::MovImm { dst: 0, imm: 42 }],
+            term: vm_ir::Terminator::Ret,
+        };
+
+        for _ in 0..50 {
+            optimizer.record_execution(0x1000, 100);
         }
+        let level = optimizer.optimize_block(&block);
+        assert_eq!(level, OptimizationLevel::Basic);
+    }
+
+    #[test]
+    fn test_threshold_adjustment() {
+        let config = AdaptiveOptimizerConfig::new()
+            .with_hot_threshold(100)
+            .with_cold_threshold(10);
+        let mut optimizer = AdaptiveOptimizer::new(config);
+
+        optimizer.record_execution(0x1000, 100);
+        optimizer.record_execution(0x1000, 100);
         
-        Ok(optimized_block)
+        let (hot, cold) = optimizer.get_current_thresholds();
+        assert_eq!(hot, 100);
+        assert_eq!(cold, 10);
     }
-    
-    /// 配置优化器参数
-    fn configure_optimizer_for_level(&self) {
-        // 这里需要与具体优化器实现交互
-        // 根据优化级别调整优化器参数
-    }
-    
-    /// 延迟优化
-    fn optimize_for_latency(&self, block: &mut IRBlock) -> Result<(), vm_core::VmError> {
-        // 实现延迟特定的优化
-        // 例如：减少指令依赖、优化关键路径等
-        Ok(())
-    }
-    
-    /// 吞吐量优化
-    fn optimize_for_throughput(&self, block: &mut IRBlock) -> Result<(), vm_core::VmError> {
-        // 实现吞吐量特定的优化
-        // 例如：指令级并行、循环展开等
-        Ok(())
-    }
-    
-    /// 内存优化
-    fn optimize_for_memory(&self, block: &mut IRBlock) -> Result<(), vm_core::VmError> {
-        // 实现内存特定的优化
-        // 例如：内存访问模式优化、缓存友好布局等
-        Ok(())
-    }
-    
-    /// 平衡优化
-    fn optimize_for_balance(&self, block: &mut IRBlock) -> Result<(), vm_core::VmError> {
-        // 实现平衡优化
-        // 在延迟、吞吐量、内存使用之间取得平衡
-        Ok(())
-    }
-    
-    /// 功耗优化
-    fn optimize_for_power(&self, block: &mut IRBlock) -> Result<(), vm_core::VmError> {
-        // 实现功耗特定的优化
-        // 例如：减少指令数量、降低频率等
-        Ok(())
+
+    #[test]
+    fn test_hotspot_detection() {
+        let config = AdaptiveOptimizerConfig::default();
+        let mut optimizer = AdaptiveOptimizer::new(config);
+        
+        optimizer.record_execution(0x1000, 100);
+        for _ in 0..150 {
+            optimizer.record_execution(0x2000, 50);
+        }
+
+        let hotspots = optimizer.analyze_hotspots();
+        assert!(!hotspots.is_empty());
+        assert!(hotspots[0].execution_count >= 100);
     }
 }

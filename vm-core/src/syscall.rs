@@ -1,22 +1,23 @@
-//! 系统调用处理
+//! System Call Handling
 //!
-//! 实现对 Linux、Windows 和 macOS 系统调用的模拟
+//! Implements simulation for Linux, Windows, and macOS system calls
 
 use crate::{GuestAddr, GuestRegs, MMU};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::fd::{FromRawFd, IntoRawFd};
 use std::sync::{Arc, Mutex};
 
-/// 系统调用结果
+/// System call result
 #[derive(Debug, Clone)]
 pub enum SyscallResult {
     Success(i64),
     Error(i32),
-    Block,     // 系统调用需要阻塞
-    Exit(i32), // 进程退出
+    Block,     // System call needs to block
+    Exit(i32), // Process exit
 }
 
-/// 文件句柄类型
+/// File handle type
 #[derive(Debug, Clone)]
 pub enum FileHandle {
     Stdin,
@@ -25,7 +26,7 @@ pub enum FileHandle {
     HostFile(Arc<Mutex<File>>),
 }
 
-/// 文件描述符
+/// File descriptor
 #[derive(Debug, Clone)]
 pub struct FileDescriptor {
     pub handle: FileHandle,
@@ -33,7 +34,7 @@ pub struct FileDescriptor {
     pub flags: i32,
 }
 
-/// 系统调用参数结构体：mbind
+/// System call argument structure: mbind
 type MbindArgs = (
     u64,   // start
     usize, // len
@@ -43,7 +44,7 @@ type MbindArgs = (
     u32,   // flags
 );
 
-/// 系统调用参数结构体：pselect6
+/// System call argument structure: pselect6
 type Pselect6Args = (
     i32, // n
     u64, // inp
@@ -53,7 +54,7 @@ type Pselect6Args = (
     u64, // sigmask
 );
 
-/// 系统调用参数结构体：futex
+/// System call argument structure: futex
 type FutexArgs = (
     u64, // uaddr
     i32, // futex_op
@@ -63,7 +64,7 @@ type FutexArgs = (
     u32, // val3
 );
 
-/// 系统调用参数结构体：ppoll
+/// System call argument structure: ppoll
 type PpollArgs = (
     u64,   // ufds
     usize, // nfds
@@ -72,7 +73,7 @@ type PpollArgs = (
     usize, // sigsetsize
 );
 
-/// 系统调用参数结构体：sendto
+/// System call argument structure: sendto
 type SendtoArgs = (
     i32,   // sockfd
     u64,   // buf
@@ -82,7 +83,7 @@ type SendtoArgs = (
     u32,   // addrlen
 );
 
-/// 系统调用参数结构体：recvfrom
+/// System call argument structure: recvfrom
 type RecvfromArgs = (
     i32,        // sockfd
     u64,        // buf
@@ -92,7 +93,7 @@ type RecvfromArgs = (
     *mut u32,   // addrlen
 );
 
-/// 系统调用参数结构体：splice
+/// System call argument structure: splice
 type SpliceArgs = (
     i32,   // fd_in
     u64,   // off_in
@@ -1507,56 +1508,229 @@ impl SyscallHandler {
 
     fn sys_pread64(
         &mut self,
-        _fd: i32,
-        _buf: u64,
-        _count: usize,
-        _offset: i64,
-        _mmu: &mut dyn MMU,
+        fd: i32,
+        buf: u64,
+        count: usize,
+        offset: i64,
+        mmu: &mut dyn MMU,
     ) -> SyscallResult {
-        SyscallResult::Error(-38)
+        if fd < 0 || (fd as usize) >= self.fd_table.len() {
+            return SyscallResult::Error(-9); // EBADF
+        }
+
+        if let Some(desc) = &self.fd_table[fd as usize] {
+            let mut host_buf = vec![0u8; count];
+            if let FileHandle::HostFile(file) = &desc.handle {
+                match file.lock().unwrap().seek(SeekFrom::Start(offset as u64)) {
+                    Ok(_) => {}
+                    Err(_) => return SyscallResult::Error(-29), // ESPIPE
+                }
+                match file.lock().unwrap().read(&mut host_buf) {
+                    Ok(n) => {
+                        if mmu.write_bulk(GuestAddr(buf), &host_buf[0..n]).is_err() {
+                            return SyscallResult::Error(-14); // EFAULT
+                        }
+                        SyscallResult::Success(n as i64)
+                    }
+                    Err(_) => SyscallResult::Error(-5), // EIO
+                }
+            } else {
+                SyscallResult::Error(-29) // ESPIPE (stdin/stdout not seekable)
+            }
+        } else {
+            SyscallResult::Error(-9) // EBADF
+        }
     }
 
     fn sys_pwrite64(
         &mut self,
-        _fd: i32,
-        _buf: u64,
-        _count: usize,
-        _offset: i64,
-        _mmu: &mut dyn MMU,
+        fd: i32,
+        buf: u64,
+        count: usize,
+        offset: i64,
+        mmu: &mut dyn MMU,
     ) -> SyscallResult {
-        SyscallResult::Error(-38)
+        if fd < 0 || (fd as usize) >= self.fd_table.len() {
+            return SyscallResult::Error(-9); // EBADF
+        }
+
+        if let Some(desc) = &self.fd_table[fd as usize] {
+            let mut host_buf = vec![0u8; count];
+            if mmu.read_bulk(GuestAddr(buf), &mut host_buf).is_err() {
+                return SyscallResult::Error(-14); // EFAULT
+            }
+            if let FileHandle::HostFile(file) = &desc.handle {
+                match file.lock().unwrap().seek(SeekFrom::Start(offset as u64)) {
+                    Ok(_) => {}
+                    Err(_) => return SyscallResult::Error(-29), // ESPIPE
+                }
+                match file.lock().unwrap().write(&host_buf) {
+                    Ok(n) => SyscallResult::Success(n as i64),
+                    Err(_) => SyscallResult::Error(-5), // EIO
+                }
+            } else {
+                SyscallResult::Error(-29) // ESPIPE (stdin/stdout not seekable)
+            }
+        } else {
+            SyscallResult::Error(-9) // EBADF
+        }
     }
 
     fn sys_readv(
         &mut self,
-        _fd: i32,
-        _iov: u64,
-        _iovcnt: i32,
-        _mmu: &mut dyn MMU,
+        fd: i32,
+        iov: u64,
+        iovcnt: i32,
+        mmu: &mut dyn MMU,
     ) -> SyscallResult {
-        SyscallResult::Error(-38)
+        if fd < 0 || (fd as usize) >= self.fd_table.len() {
+            return SyscallResult::Error(-9); // EBADF
+        }
+
+        if let Some(desc) = &self.fd_table[fd as usize] {
+            let mut total_read = 0;
+
+            for i in 0..iovcnt {
+                let iov_base_addr = iov + (i as u64 * 16);
+                let base = mmu.read(GuestAddr(iov_base_addr), 8).unwrap_or(0);
+                let len = mmu.read(GuestAddr(iov_base_addr + 8), 8).unwrap_or(0) as usize;
+
+                let mut buf = vec![0u8; len];
+                let read_res = match &desc.handle {
+                    FileHandle::Stdin => std::io::stdin().read(&mut buf),
+                    FileHandle::HostFile(f) => f.lock().unwrap().read(&mut buf),
+                    _ => return SyscallResult::Error(-9),
+                };
+
+                match read_res {
+                    Ok(n) => {
+                        if n > 0 && mmu.write_bulk(GuestAddr(base), &buf[0..n]).is_err() {
+                            return SyscallResult::Error(-14);
+                        }
+                        total_read += n as i64;
+                        if n < len {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            SyscallResult::Success(total_read)
+        } else {
+            SyscallResult::Error(-9)
+        }
     }
 
     fn sys_writev(
         &mut self,
-        _fd: i32,
-        _iov: u64,
-        _iovcnt: i32,
-        _mmu: &mut dyn MMU,
+        fd: i32,
+        iov: u64,
+        iovcnt: i32,
+        mmu: &mut dyn MMU,
     ) -> SyscallResult {
-        SyscallResult::Error(-38)
+        if fd < 0 || (fd as usize) >= self.fd_table.len() {
+            return SyscallResult::Error(-9); // EBADF
+        }
+
+        if let Some(desc) = &self.fd_table[fd as usize] {
+            let mut total_written = 0;
+
+            for i in 0..iovcnt {
+                let iov_base_addr = iov + (i as u64 * 16);
+                let base = mmu.read(GuestAddr(iov_base_addr), 8).unwrap_or(0);
+                let len = mmu.read(GuestAddr(iov_base_addr + 8), 8).unwrap_or(0) as usize;
+
+                let mut buf = vec![0u8; len];
+                if mmu.read_bulk(GuestAddr(base), &mut buf).is_err() {
+                    return SyscallResult::Error(-14);
+                }
+
+                let write_res = match &desc.handle {
+                    FileHandle::Stdout => std::io::stdout().write(&buf),
+                    FileHandle::Stderr => std::io::stderr().write(&buf),
+                    FileHandle::HostFile(f) => f.lock().unwrap().write(&buf),
+                    _ => return SyscallResult::Error(-9),
+                };
+
+                match write_res {
+                    Ok(n) => {
+                        total_written += n as i64;
+                        if n < len as usize {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            SyscallResult::Success(total_written)
+        } else {
+            SyscallResult::Error(-9)
+        }
     }
 
-    fn sys_access(&mut self, _pathname: u64, _mode: i32, _mmu: &mut dyn MMU) -> SyscallResult {
-        SyscallResult::Error(-38)
+    fn sys_access(&mut self, pathname: u64, mode: i32, mmu: &mut dyn MMU) -> SyscallResult {
+        let path = match self.read_c_string(pathname, mmu) {
+            Ok(p) => p,
+            Err(e) => return SyscallResult::Error(e),
+        };
+
+        match std::fs::metadata(&path) {
+            Ok(metadata) => {
+                let mode = mode as u32;
+                if mode & 1 != 0 && metadata.permissions().readonly() {
+                    return SyscallResult::Error(-13); // EACCES
+                }
+                SyscallResult::Success(0)
+            }
+            Err(_) => SyscallResult::Error(-2), // ENOENT
+        }
     }
 
-    fn sys_pipe(&mut self, _pipefd: u64, _mmu: &mut dyn MMU) -> SyscallResult {
-        SyscallResult::Error(-38)
+    fn sys_pipe(&mut self, pipefd: u64, mmu: &mut dyn MMU) -> SyscallResult {
+        self.sys_pipe2(pipefd, 0, mmu)
     }
 
-    fn sys_pipe2(&mut self, _pipefd: u64, _flags: i32, _mmu: &mut dyn MMU) -> SyscallResult {
-        SyscallResult::Error(-38)
+    fn sys_pipe2(&mut self, pipefd: u64, _flags: i32, mmu: &mut dyn MMU) -> SyscallResult {
+        let (read_end, write_end) = match std::os::unix::net::UnixStream::pair() {
+            Ok((r, w)) => (r, w),
+            Err(_) => return SyscallResult::Error(-12), // ENOMEM
+        };
+
+        let read_fd = self.fd_table.len() as i32;
+        let write_fd = read_fd + 1;
+
+        let read_raw = read_end.into_raw_fd();
+        let write_raw = write_end.into_raw_fd();
+
+        self.fd_table.push(Some(FileDescriptor {
+            handle: FileHandle::HostFile(Arc::new(Mutex::new(
+                unsafe { File::from_raw_fd(read_raw) }
+            ))),
+            path: "pipe:[read]".to_string(),
+            flags: 0,
+        }));
+
+        self.fd_table.push(Some(FileDescriptor {
+            handle: FileHandle::HostFile(Arc::new(Mutex::new(
+                unsafe { File::from_raw_fd(write_raw) }
+            ))),
+            path: "pipe:[write]".to_string(),
+            flags: 1,
+        }));
+
+        let read_bytes = (read_fd as i64).to_le_bytes();
+        let write_bytes = (write_fd as i64).to_le_bytes();
+
+        if mmu.write_bulk(GuestAddr(pipefd), &read_bytes).is_err() {
+            return SyscallResult::Error(-14); // EFAULT
+        }
+        if mmu.write_bulk(GuestAddr(pipefd + 8), &write_bytes).is_err() {
+            return SyscallResult::Error(-14); // EFAULT
+        }
+
+        SyscallResult::Success(0)
     }
 
     fn sys_select(
@@ -1881,8 +2055,53 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    fn sys_uname(&mut self, _buf: u64, _mmu: &mut dyn MMU) -> SyscallResult {
-        SyscallResult::Error(-38)
+    fn sys_uname(&mut self, buf: u64, mmu: &mut dyn MMU) -> SyscallResult {
+        let sysname = b"Linux";
+        let nodename = b"vm";
+        let release = b"5.0.0-vm";
+        let version = b"VM kernel version";
+
+        let mut field_data = [0u8; 65];
+
+        field_data[..sysname.len()].copy_from_slice(sysname);
+        if mmu.write_bulk(GuestAddr(buf), &field_data).is_err() {
+            return SyscallResult::Error(-14);
+        }
+
+        field_data.fill(0);
+        field_data[..nodename.len()].copy_from_slice(nodename);
+        if mmu.write_bulk(GuestAddr(buf + 65), &field_data).is_err() {
+            return SyscallResult::Error(-14);
+        }
+
+        field_data.fill(0);
+        field_data[..release.len()].copy_from_slice(release);
+        if mmu.write_bulk(GuestAddr(buf + 130), &field_data).is_err() {
+            return SyscallResult::Error(-14);
+        }
+
+        field_data.fill(0);
+        field_data[..version.len()].copy_from_slice(version);
+        if mmu.write_bulk(GuestAddr(buf + 195), &field_data).is_err() {
+            return SyscallResult::Error(-14);
+        }
+
+        field_data.fill(0);
+        if cfg!(target_arch = "x86_64") {
+            let machine = b"x86_64";
+            field_data[..machine.len()].copy_from_slice(machine);
+        } else if cfg!(target_arch = "aarch64") {
+            let machine = b"aarch64";
+            field_data[..machine.len()].copy_from_slice(machine);
+        } else {
+            let machine = b"unknown";
+            field_data[..machine.len()].copy_from_slice(machine);
+        }
+        if mmu.write_bulk(GuestAddr(buf + 260), &field_data).is_err() {
+            return SyscallResult::Error(-14);
+        }
+
+        SyscallResult::Success(0)
     }
 
     fn sys_semget(&mut self, _key: i32, _nsems: i32, _semflg: i32) -> SyscallResult {
@@ -3787,7 +4006,7 @@ mod tests {
 
     impl AddressTranslator for MockMmu {
         fn translate(&mut self, va: GuestAddr, _access: AccessType) -> Result<GuestPhysAddr, VmError> {
-            Ok(va)
+            Ok(GuestPhysAddr(va.0))
         }
 
         fn flush_tlb(&mut self) {}
@@ -3902,7 +4121,7 @@ mod tests {
         assert!(fd > 2);
 
         let data = b"Hello, World!";
-        mmu.write_bulk(0x2000, data).unwrap();
+        mmu.write_bulk(GuestAddr(0x2000), data).unwrap();
 
         regs.gpr[0] = 1;
         regs.gpr[7] = fd as u64;
@@ -3938,7 +4157,7 @@ mod tests {
         }
 
         let mut read_buf = vec![0u8; data.len()];
-        mmu.read_bulk(0x3000, &mut read_buf).unwrap();
+        mmu.read_bulk(GuestAddr(0x3000), &mut read_buf).unwrap();
         assert_eq!(read_buf, data);
 
         regs.gpr[0] = 3;

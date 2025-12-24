@@ -1396,5 +1396,51 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_page_size_constants() {
+        assert_eq!(PAGE_SIZE, 4096);
+        assert_eq!(PAGE_SHIFT, 12);
+        assert_eq!(PTE_SIZE, 8);
+        assert_eq!(PTES_PER_PAGE, 512);
+    }
+
+    #[test]
+    fn test_vpn_bits_and_mask() {
+        assert_eq!(VPN_BITS, 9);
+        assert_eq!(VPN_MASK, 0x1FF);
+    }
+
+    #[test]
+    fn test_pte_flags() {
+        assert_eq!(pte_flags::V, 1 << 0);
+        assert_eq!(pte_flags::R, 1 << 1);
+        assert_eq!(pte_flags::W, 1 << 2);
+        assert_eq!(pte_flags::X, 1 << 3);
+        assert_eq!(pte_flags::U, 1 << 4);
+        assert_eq!(pte_flags::G, 1 << 5);
+        assert_eq!(pte_flags::A, 1 << 6);
+        assert_eq!(pte_flags::D, 1 << 7);
+    }
+
+    #[test]
+    fn test_paging_mode_variants() {
+        let bare = PagingMode::Bare;
+        let sv39 = PagingMode::Sv39;
+        let sv48 = PagingMode::Sv48;
+        let arm64 = PagingMode::Arm64;
+        let x86_64 = PagingMode::X86_64;
+
+        assert_eq!(bare, PagingMode::Bare);
+        assert_eq!(sv39, PagingMode::Sv39);
+        assert_eq!(sv48, PagingMode::Sv48);
+        assert_eq!(arm64, PagingMode::Arm64);
+        assert_eq!(x86_64, PagingMode::X86_64);
+    }
+}
+
 
 pub mod mmu;

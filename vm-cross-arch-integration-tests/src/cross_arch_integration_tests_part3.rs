@@ -414,8 +414,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_simple_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_simple_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_simple_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_simple_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_simple_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -433,8 +433,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_complex_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_complex_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_complex_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_complex_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_complex_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -452,8 +452,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_register_intensive_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_register_intensive_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_register_intensive_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_register_intensive_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_register_intensive_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -471,8 +471,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_memory_access_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_memory_access_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_memory_access_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_memory_access_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_memory_access_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -490,8 +490,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_branch_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_branch_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_branch_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_branch_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_branch_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -509,8 +509,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_floating_point_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_floating_point_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_floating_point_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_floating_point_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_floating_point_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -528,8 +528,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_simd_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_simd_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_simd_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_simd_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_simd_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -547,8 +547,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_syscall_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_syscall_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_syscall_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_syscall_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_syscall_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -566,8 +566,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_performance_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_performance_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_performance_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_performance_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_performance_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -585,8 +585,8 @@ mod tests {
         let framework = CrossArchIntegrationTestFramework::new(CrossArchTestConfig::default());
         
         let x86_code = framework.create_stress_test_code(GuestArch::X86_64);
-        let arm_code = framework.create_stress_test_code(GuestArch::ARM64);
-        let riscv_code = framework.create_stress_test_code(GuestArch::RISCV64);
+        let arm_code = framework.create_stress_test_code(GuestArch::Arm64);
+        let riscv_code = framework.create_stress_test_code(GuestArch::Riscv64);
         
         // 验证代码不为空
         assert!(!x86_code.is_empty());
@@ -617,12 +617,12 @@ mod tests {
         
         // 测试性能指标验证
         let execution_time = Duration::from_millis(500); // 在阈值内
-        let result = framework.verify_performance_metrics(execution_time, GuestArch::X86_64, GuestArch::ARM64);
+        let result = framework.verify_performance_metrics(execution_time, GuestArch::X86_64, GuestArch::Arm64);
         assert!(result.is_ok());
         
         // 测试性能指标验证（超出阈值）
         let execution_time = Duration::from_millis(2000); // 超出阈值
-        let result = framework.verify_performance_metrics(execution_time, GuestArch::X86_64, GuestArch::ARM64);
+        let result = framework.verify_performance_metrics(execution_time, GuestArch::X86_64, GuestArch::Arm64);
         assert!(result.is_err());
     }
 
@@ -635,7 +635,7 @@ mod tests {
             CrossArchTestResult {
                 name: "test_basic_translation_X86_64_to_ARM64".to_string(),
                 src_arch: GuestArch::X86_64,
-                dst_arch: GuestArch::ARM64,
+                dst_arch: GuestArch::Arm64,
                 success: true,
                 execution_time_ms: 100,
                 error_message: None,
@@ -650,7 +650,7 @@ mod tests {
             CrossArchTestResult {
                 name: "test_basic_translation_X86_64_to_RISCV64".to_string(),
                 src_arch: GuestArch::X86_64,
-                dst_arch: GuestArch::RISCV64,
+                dst_arch: GuestArch::Riscv64,
                 success: false,
                 execution_time_ms: 200,
                 error_message: Some("Translation failed".to_string()),

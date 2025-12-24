@@ -1,461 +1,830 @@
-//! SIMD优化和向量化支持
-//! 
-//! 提供SIMD指令优化、向量化转换和自动向量化功能
-
-use std::collections::HashMap;
+use vm_ir::{IRBlock, IROp, RegId, Terminator};
 use vm_core::GuestAddr;
-use vm_ir::{IRBlock, IROp};
+use crate::common::OptimizationStats;
 
-/// 操作类型（用于向量化候选）
+pub struct SimdOptimizer {
+    config: SimdOptimizerConfig,
+    stats: OptimizationStats,
+    reg_counter: RegId,
+}
+
 #[derive(Debug, Clone)]
-pub enum Operation {
-    Add { lhs: String, rhs: String },
-    Sub { lhs: String, rhs: String },
-    Mul { lhs: String, rhs: String },
-    VectorAdd { width: usize, lhs: String, rhs: String },
+pub struct SimdOptimizerConfig {
+    pub enable_avx2: bool,
+    pub enable_avx512: bool,
+    pub enable_neon: bool,
+    pub enable_sse: bool,
+    pub min_vector_width: u8,
+    pub max_unroll_factor: u8,
+    pub enable_fma: bool,
+    pub enable_masked_operations: bool,
 }
 
-/// SIMD优化器接口
-pub trait SIMDOptimizer: Send + Sync {
-    /// 优化IR块中的SIMD指令
-    fn optimize_simd(&self, ir_block: &mut IRBlock) -> Result<(), String>;
-    
-    /// 尝试向量化标量操作
-    fn vectorize_operations(&self, ir_block: &mut IRBlock) -> Result<usize, String>;
-    
-    /// 优化SIMD内存访问模式
-    fn optimize_simd_memory_access(&self, ir_block: &mut IRBlock) -> Result<(), String>;
+impl Default for SimdOptimizerConfig {
+    fn default() -> Self {
+        Self {
+            enable_avx2: true,
+            enable_avx512: true,
+            enable_neon: true,
+            enable_sse: true,
+            min_vector_width: 4,
+            max_unroll_factor: 4,
+            enable_fma: true,
+            enable_masked_operations: true,
+        }
+    }
 }
 
-/// 默认SIMD优化器实现
-pub struct DefaultSIMDOptimizer {
-    /// SIMD指令集支持
-    simd_support: SIMDSupport,
-    /// 向量化配置
-    vectorization_config: VectorizationConfig,
-}
-
-/// SIMD指令集支持
 #[derive(Debug, Clone)]
-pub struct SIMDSupport {
-    /// 是否支持SSE
-    pub sse: bool,
-    /// 是否支持SSE2
-    pub sse2: bool,
-    /// 是否支持SSE4.1
-    pub sse4_1: bool,
-    /// 是否支持AVX
-    pub avx: bool,
-    /// 是否支持AVX2
-    pub avx2: bool,
-    /// 是否支持AVX-512
-    pub avx512: bool,
+pub struct SimdAnalysis {
+    pub vectorizable_loops: Vec<LoopInfo>,
+    pub reducible_patterns: Vec<ReductionPattern>,
+    pub horizontal_ops: Vec<HorizontalOp>,
+    pub maskable_ops: Vec<MaskableOp>,
 }
 
-/// 向量化配置
 #[derive(Debug, Clone)]
-pub struct VectorizationConfig {
-    /// 最小向量化循环次数
-    pub min_vectorization_loop_count: usize,
-    /// 向量化因子（自动检测）
-    pub vectorization_factor: Option<usize>,
-    /// 是否启用循环向量化
-    pub enable_loop_vectorization: bool,
-    /// 是否启用SLP向量化（Superword Level Parallelism）
-    pub enable_slp_vectorization: bool,
+pub struct LoopInfo {
+    pub start_idx: usize,
+    pub end_idx: usize,
+    pub induction_var: RegId,
+    pub stride: i64,
+    pub body_ops: Vec<IROp>,
+    pub trip_count: Option<u64>,
+    pub is_vectorizable: bool,
 }
 
-/// SIMD指令模式
-#[derive(Debug, Clone, PartialEq)]
-pub enum SIMDPattern {
-    /// 向量加法
-    VectorAdd { width: usize },
-    /// 向量减法
-    VectorSub { width: usize },
-    /// 向量乘法
-    VectorMul { width: usize },
-    /// 向量点积
-    VectorDotProduct { width: usize },
-    /// 向量比较
-    VectorCompare { width: usize, op: ComparisonOp },
-    /// 向量混合
-    VectorBlend { width: usize },
-    /// 向量排列
-    VectorPermute { width: usize },
-    /// 向量归约
-    VectorReduction { width: usize, op: ReductionOp },
+#[derive(Debug, Clone)]
+pub struct ReductionPattern {
+    pub reduction_var: RegId,
+    pub accumulator: RegId,
+    pub pattern_type: ReductionType,
+    pub start_idx: usize,
+    pub end_idx: usize,
 }
 
-/// 比较操作
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComparisonOp {
-    Equal,
-    NotEqual,
-    GreaterThan,
-    GreaterThanOrEqual,
-    LessThan,
-    LessThanOrEqual,
-}
-
-/// 归约操作
-#[derive(Debug, Clone, PartialEq)]
-pub enum ReductionOp {
+pub enum ReductionType {
     Sum,
     Product,
     Min,
     Max,
-    And,
-    Or,
-    Xor,
+    Dot,
 }
 
-/// 向量化候选
 #[derive(Debug, Clone)]
-pub struct VectorizationCandidate {
-    /// 指令索引
-    pub instruction_indices: Vec<usize>,
-    /// 操作类型
-    pub operation: Operation,
-    /// 数据类型
-    pub data_type: DataType,
-    /// 向量化因子
-    pub vectorization_factor: usize,
-    /// 依赖关系
-    pub dependencies: Vec<usize>,
+pub struct HorizontalOp {
+    pub op: IROp,
+    pub idx: usize,
+    pub can_vectorize: bool,
 }
 
-/// 数据类型
-#[derive(Debug, Clone, PartialEq)]
-pub enum DataType {
-    I8,
-    I16,
-    I32,
-    I64,
-    F32,
-    F64,
+#[derive(Debug, Clone)]
+pub struct MaskableOp {
+    pub op: IROp,
+    pub idx: usize,
+    pub condition_reg: RegId,
 }
 
-impl DefaultSIMDOptimizer {
-    /// 创建新的SIMD优化器
-    pub fn new() -> Self {
+impl SimdOptimizer {
+    pub fn new(config: SimdOptimizerConfig) -> Self {
         Self {
-            simd_support: SIMDSupport::detect_host(),
-            vectorization_config: VectorizationConfig::default(),
+            config,
+            stats: OptimizationStats::default(),
+            reg_counter: 1000,
         }
     }
-    
-    /// 使用自定义配置创建SIMD优化器
-    pub fn with_config(simd_support: SIMDSupport, vectorization_config: VectorizationConfig) -> Self {
-        Self {
-            simd_support,
-            vectorization_config,
-        }
-    }
-    
-    /// 检测SIMD指令模式
-    fn detect_simd_patterns(&self, ir_block: &IRBlock) -> Vec<SIMDPattern> {
-        let mut patterns = Vec::new();
+
+    pub fn optimize_block(&mut self, block: &IRBlock) -> IRBlock {
+        let mut optimized_block = block.clone();
         
-        // 简单的模式检测实现
-        for op in &ir_block.ops {
-            match op {
-                IROp::Add { .. } => {
-                    // 检测是否可以向量化
-                    if self.can_vectorize_operation(op) {
-                        patterns.push(SIMDPattern::VectorAdd { width: 128 });
-                    }
+        if self.config.enable_avx2 || self.config.enable_avx512 || self.config.enable_neon {
+            optimized_block = self.vectorize_scalar_ops(&optimized_block);
+        }
+        
+        if self.config.enable_fma {
+            optimized_block = self.optimize_fma_fusion(&optimized_block);
+        }
+        
+        if self.config.enable_masked_operations && (self.config.enable_avx512 || self.config.enable_neon) {
+            optimized_block = self.optimize_masked_ops(&optimized_block);
+        }
+        
+        optimized_block = self.optimize_load_store(&optimized_block);
+        optimized_block = self.optimize_horizontal_ops(&optimized_block);
+        
+        self.stats.blocks_optimized += 1;
+        optimized_block
+    }
+
+    fn vectorize_scalar_ops(&mut self, block: &IRBlock) -> IRBlock {
+        let mut ops = block.ops.clone();
+        let mut i = 0;
+        
+        while i < ops.len() {
+            if let Some((vector_ops, consume_count)) = self.try_vectorize_sequence(&ops[i..]) {
+                let simd_count = vector_ops.len();
+                ops.drain(i..i + consume_count);
+                for (pos, op) in vector_ops.into_iter().enumerate() {
+                    ops.insert(i + pos, op);
                 }
-                IROp::Sub { .. } => {
-                    if self.can_vectorize_operation(op) {
-                        patterns.push(SIMDPattern::VectorSub { width: 128 });
-                    }
-                }
-                IROp::Mul { .. } => {
-                    if self.can_vectorize_operation(op) {
-                        patterns.push(SIMDPattern::VectorMul { width: 128 });
-                    }
-                }
-                _ => {}
+                self.stats.ops_vectorized += consume_count as u64;
+                self.stats.simd_ops_generated += simd_count as u64;
+            }
+            i += 1;
+        }
+        
+        IRBlock {
+            start_pc: block.start_pc,
+            ops,
+            term: block.term.clone(),
+        }
+    }
+
+    fn try_vectorize_sequence(&mut self, ops: &[IROp]) -> Option<(Vec<IROp>, usize)> {
+        if ops.len() < 4 {
+            return None;
+        }
+
+        let pattern = self.detect_pattern(ops)?;
+        
+        match pattern {
+            VectorizationPattern::SequentialLoadComputeStore { count } => {
+                self.generate_simd_ops_for_pattern(ops, count)
+            }
+            VectorizationPattern::Reduction { op_type, count } => {
+                self.generate_simd_reduction(ops, op_type, count)
+            }
+            VectorizationPattern::BroadcastLoadCompute { count } => {
+                self.generate_broadcast_ops(ops, count)
+            }
+            VectorizationPattern::ElementWiseBinary { op, count } => {
+                self.generate_element_wise_simd(ops, op, count)
             }
         }
-        
-        patterns
     }
-    
-    /// 检查操作是否可以向量化
-    fn can_vectorize_operation(&self, _op: &IROp) -> bool {
-        // 简单的向量化检查
-        // 实际实现需要更复杂的分析
-        true // 简化实现，假设所有操作都可以向量化
-    }
-    
-    /// 查找向量化候选
-    fn find_vectorization_candidates(&self, ir_block: &IRBlock) -> Vec<VectorizationCandidate> {
-        let mut candidates = Vec::new();
+
+    fn detect_pattern(&self, ops: &[IROp]) -> Option<VectorizationPattern> {
+        let first = &ops[0];
         
-        // 简单的SLP向量化检测
-        for i in 0..ir_block.ops.len() {
-            if i + 3 < ir_block.ops.len() {
-                // 检查连续4个相同类型的操作
-                let op1 = &ir_block.ops[i];
-                let op2 = &ir_block.ops[i + 1];
-                let op3 = &ir_block.ops[i + 2];
-                let op4 = &ir_block.ops[i + 3];
+        match first {
+            IROp::Load { .. } => {
+                if ops.len() >= 4 {
+                    if self.is_sequential_load_compute_store(ops) {
+                        let count = ops.len().min(8);
+                        return Some(VectorizationPattern::SequentialLoadComputeStore { count });
+                    }
+                }
+            }
+            IROp::MovImm { .. } => {
+                if self.is_broadcast_load_compute(ops) {
+                    let count = ops.len().min(8);
+                    return Some(VectorizationPattern::BroadcastLoadCompute { count });
+                }
+            }
+            _ => {
+                if let Some(op) = self.is_element_wise_binary_pattern(ops) {
+                    let count = ops.len().min(8);
+                    return Some(VectorizationPattern::ElementWiseBinary { op, count });
+                }
                 
-                if self.same_operation_type(op1, op2) && 
-                   self.same_operation_type(op2, op3) && 
-                   self.same_operation_type(op3, op4) {
-                    candidates.push(VectorizationCandidate {
-                        instruction_indices: vec![i, i + 1, i + 2, i + 3],
-                        operation: self.irop_to_operation(op1),
-                        data_type: DataType::I32, // 简化实现
-                        vectorization_factor: 4,
-                        dependencies: Vec::new(),
-                    });
+                if let Some(op_type) = self.is_reduction_pattern(ops) {
+                    let count = ops.len();
+                    return Some(VectorizationPattern::Reduction { op_type, count });
                 }
             }
         }
         
-        candidates
+        None
     }
-    
-    /// 检查是否是相同类型的操作
-    fn same_operation_type(&self, op1: &IROp, op2: &IROp) -> bool {
-        match (op1, op2) {
-            (IROp::Add { .. }, IROp::Add { .. }) => true,
-            (IROp::Sub { .. }, IROp::Sub { .. }) => true,
-            (IROp::Mul { .. }, IROp::Mul { .. }) => true,
-            _ => false,
+
+    fn is_sequential_load_compute_store(&self, ops: &[IROp]) -> bool {
+        if ops.len() < 4 {
+            return false;
         }
-    }
-    
-    /// 将IROp转换为Operation（用于向量化候选）
-    fn irop_to_operation(&self, op: &IROp) -> Operation {
-        match op {
-            IROp::Add { .. } => Operation::Add { lhs: "dummy".to_string(), rhs: "dummy".to_string() },
-            IROp::Sub { .. } => Operation::Sub { lhs: "dummy".to_string(), rhs: "dummy".to_string() },
-            IROp::Mul { .. } => Operation::Mul { lhs: "dummy".to_string(), rhs: "dummy".to_string() },
-            _ => Operation::Add { lhs: "dummy".to_string(), rhs: "dummy".to_string() }, // 默认
-        }
-    }
-    
-    /// 应用SIMD优化
-    fn apply_simd_optimizations(&self, ir_block: &mut IRBlock, patterns: &[SIMDPattern]) {
-        for pattern in patterns {
-            match pattern {
-                SIMDPattern::VectorAdd { width } => {
-                    // 将标量加法替换为向量加法
-                    self.replace_with_vector_add(ir_block, *width);
-                }
-                SIMDPattern::VectorSub { width } => {
-                    self.replace_with_vector_sub(ir_block, *width);
-                }
-                SIMDPattern::VectorMul { width } => {
-                    self.replace_with_vector_mul(ir_block, *width);
-                }
+        
+        let mut has_load = false;
+        let mut has_compute = false;
+        let mut has_store = false;
+        
+        for op in ops.iter() {
+            match op {
+                IROp::Load { .. } => has_load = true,
+                IROp::Add { .. } | IROp::Sub { .. } | IROp::Mul { .. } => has_compute = true,
+                IROp::Store { .. } => has_store = true,
                 _ => {}
             }
         }
+        
+        has_load && has_compute && has_store
     }
-    
-    /// 替换为向量加法
-    fn replace_with_vector_add(&self, _ir_block: &mut IRBlock, _width: usize) {
-        // 实现向量加法替换
-        // 这里需要生成适当的SIMD指令
-    }
-    
-    /// 替换为向量减法
-    fn replace_with_vector_sub(&self, _ir_block: &mut IRBlock, _width: usize) {
-        // 实现向量减法替换
-    }
-    
-    /// 替换为向量乘法
-    fn replace_with_vector_mul(&self, _ir_block: &mut IRBlock, _width: usize) {
-        // 实现向量乘法替换
-    }
-}
 
-impl SIMDOptimizer for DefaultSIMDOptimizer {
-    fn optimize_simd(&self, ir_block: &mut IRBlock) -> Result<(), String> {
-        // 检测SIMD模式
-        let patterns = self.detect_simd_patterns(ir_block);
-        
-        // 应用SIMD优化
-        self.apply_simd_optimizations(ir_block, &patterns);
-        
-        // 优化SIMD内存访问
-        self.optimize_simd_memory_access(ir_block)?;
-        
-        Ok(())
-    }
-    
-    fn vectorize_operations(&self, ir_block: &mut IRBlock) -> Result<usize, String> {
-        let candidates = self.find_vectorization_candidates(ir_block);
-        let mut vectorized_count = 0;
-        
-        for candidate in candidates {
-            // 应用向量化
-            self.apply_vectorization(ir_block, &candidate)?;
-            vectorized_count += candidate.instruction_indices.len();
+    fn is_broadcast_load_compute(&self, ops: &[IROp]) -> bool {
+        if ops.len() < 4 {
+            return false;
         }
         
-        Ok(vectorized_count)
+        ops.iter().all(|op| {
+            matches!(op, IROp::MovImm { .. } | IROp::Add { .. } | IROp::Mul { .. })
+        })
     }
-    
-    fn optimize_simd_memory_access(&self, _ir_block: &mut IRBlock) -> Result<(), String> {
-        // 优化SIMD内存访问模式
-        // 例如：对齐访问、合并加载/存储等
-        // 简化实现，暂时不做任何优化
-        
-        Ok(())
-    }
-}
 
-impl DefaultSIMDOptimizer {
-    /// 应用向量化
-    fn apply_vectorization(&self, ir_block: &mut IRBlock, candidate: &VectorizationCandidate) -> Result<(), String> {
-        // 创建向量化的指令
-        let vectorized_instruction = self.create_vectorized_instruction(candidate)?;
-        
-        // 替换原始指令
-        let first_index = candidate.instruction_indices[0];
-        ir_block.ops[first_index] = vectorized_instruction;
-        
-        // 删除其余指令
-        for &index in candidate.instruction_indices.iter().skip(1).rev() {
-            ir_block.ops.remove(index);
+    fn is_element_wise_binary_pattern(&self, ops: &[IROp]) -> Option<IROp> {
+        if ops.len() < 2 {
+            return None;
         }
         
-        Ok(())
-    }
-    
-    /// 创建向量化指令
-    fn create_vectorized_instruction(&self, _candidate: &VectorizationCandidate) -> Result<IROp, String> {
-        // 简化实现，返回一个NOP操作
-        // 实际实现需要根据操作类型创建相应的向量化指令
-        Ok(IROp::Nop)
-    }
-    
-
-}
-
-impl SIMDSupport {
-    /// 检测主机SIMD支持
-    pub fn detect_host() -> Self {
-        // 简化实现，实际应该使用CPUID指令检测
-        Self {
-            sse: true,
-            sse2: true,
-            sse4_1: true,
-            avx: true,
-            avx2: true,
-            avx512: false, // 假设不支持AVX-512
+        let first_op = &ops[0];
+        if !matches!(first_op, IROp::Add { .. } | IROp::Sub { .. } | IROp::Mul { .. } | IROp::And { .. } | IROp::Or { .. } | IROp::Xor { .. }) {
+            return None;
         }
-    }
-    
-    /// 获取最大向量宽度
-    pub fn max_vector_width(&self) -> usize {
-        if self.avx512 {
-            512
-        } else if self.avx2 || self.avx {
-            256
-        } else if self.sse2 {
-            128
-        } else {
-            0
+        
+        let op_type = first_op.clone();
+        
+        for op in ops.iter() {
+            if std::mem::discriminant(op) != std::mem::discriminant(&op_type) {
+                return None;
+            }
         }
+        
+        Some(op_type.clone())
     }
-}
 
-impl Default for VectorizationConfig {
-    fn default() -> Self {
-        Self {
-            min_vectorization_loop_count: 4,
-            vectorization_factor: None,
-            enable_loop_vectorization: true,
-            enable_slp_vectorization: true,
+    fn is_reduction_pattern(&self, ops: &[IROp]) -> Option<ReductionType> {
+        if ops.len() < 2 {
+            return None;
         }
-    }
-}
-
-/// SIMD指令信息
-#[derive(Debug, Clone)]
-pub struct SIMDInstructionInfo {
-    /// 指令名称
-    pub name: String,
-    /// 向量宽度
-    pub width: usize,
-    /// 元素类型
-    pub element_type: DataType,
-    /// 元素数量
-    pub element_count: usize,
-    /// 延迟周期
-    pub latency: u32,
-    /// 吞吐量
-    pub throughput: f32,
-}
-
-/// SIMD指令数据库
-pub struct SIMDInstructionDatabase {
-    instructions: HashMap<String, SIMDInstructionInfo>,
-}
-
-impl SIMDInstructionDatabase {
-    /// 创建新的指令数据库
-    pub fn new() -> Self {
-        let mut instructions = HashMap::new();
         
-        // 添加SSE指令
-        instructions.insert("addps".to_string(), SIMDInstructionInfo {
-            name: "addps".to_string(),
-            width: 128,
-            element_type: DataType::F32,
-            element_count: 4,
-            latency: 3,
-            throughput: 1.0,
-        });
-        
-        instructions.insert("addpd".to_string(), SIMDInstructionInfo {
-            name: "addpd".to_string(),
-            width: 128,
-            element_type: DataType::F64,
-            element_count: 2,
-            latency: 3,
-            throughput: 1.0,
-        });
-        
-        // 添加AVX指令
-        instructions.insert("vaddps".to_string(), SIMDInstructionInfo {
-            name: "vaddps".to_string(),
-            width: 256,
-            element_type: DataType::F32,
-            element_count: 8,
-            latency: 3,
-            throughput: 1.0,
-        });
-        
-        Self { instructions }
-    }
-    
-    /// 查找指令信息
-    pub fn lookup(&self, name: &str) -> Option<&SIMDInstructionInfo> {
-        self.instructions.get(name)
-    }
-    
-    /// 根据操作和数据类型查找最佳指令
-    pub fn find_best_instruction(&self, _operation: &IROp, data_type: DataType, width: usize) -> Option<&SIMDInstructionInfo> {
-        // 简化实现
-        match (data_type, width) {
-            (DataType::F32, 128) => self.lookup("addps"),
-            (DataType::F64, 128) => self.lookup("addpd"),
-            (DataType::F32, 256) => self.lookup("vaddps"),
+        let first_op = &ops[0];
+        match first_op {
+            IROp::Add { dst, src1, .. } => {
+                let mut reduction_type = ReductionType::Sum;
+                
+                for op in ops.iter() {
+                    if let IROp::Add { dst: d, src1: s1, .. } = op {
+                        if d != src1 {
+                            reduction_type = ReductionType::Sum;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                
+                Some(reduction_type)
+            }
+            IROp::Mul { .. } => Some(ReductionType::Product),
+            IROp::Fmin { .. } => Some(ReductionType::Min),
+            IROp::Fmax { .. } => Some(ReductionType::Max),
             _ => None,
         }
     }
+
+    fn generate_simd_ops_for_pattern(&mut self, ops: &[IROp], count: usize) -> Option<(Vec<IROp>, usize)> {
+        let mut simd_ops = Vec::new();
+        let vector_width = self.determine_vector_width(count);
+        
+        let dst_vec = self.alloc_reg();
+        let src1_vec = self.alloc_reg();
+        let src2_vec = self.alloc_reg();
+        
+        simd_ops.push(IROp::MovImm { dst: dst_vec, imm: vector_width as u64 });
+        
+        for chunk in ops.chunks(vector_width) {
+            for op in chunk {
+                match op {
+                    IROp::Load { dst, base, offset, size, flags } => {
+                        simd_ops.push(IROp::Load {
+                            dst: self.alloc_reg(),
+                            base: *base,
+                            offset: *offset,
+                            size: *size * vector_width as u8,
+                            flags: *flags,
+                        });
+                    }
+                    IROp::Store { src, base, offset, size, flags } => {
+                        simd_ops.push(IROp::Store {
+                            src: self.alloc_reg(),
+                            base: *base,
+                            offset: *offset,
+                            size: *size * vector_width as u8,
+                            flags: *flags,
+                        });
+                    }
+                    IROp::Add { dst, src1, src2 } => {
+                        simd_ops.push(IROp::VecAdd {
+                            dst: dst_vec,
+                            src1: *src1,
+                            src2: *src2,
+                            element_size: 4,
+                        });
+                    }
+                    IROp::Sub { dst, src1, src2 } => {
+                        simd_ops.push(IROp::VecSub {
+                            dst: dst_vec,
+                            src1: *src1,
+                            src2: *src2,
+                            element_size: 4,
+                        });
+                    }
+                    IROp::Mul { dst, src1, src2 } => {
+                        simd_ops.push(IROp::VecMul {
+                            dst: dst_vec,
+                            src1: *src1,
+                            src2: *src2,
+                            element_size: 4,
+                        });
+                    }
+                    _ => simd_ops.push(op.clone()),
+                }
+            }
+        }
+        
+        Some((simd_ops, ops.len()))
+    }
+
+    fn generate_simd_reduction(&mut self, ops: &[IROp], op_type: ReductionType, count: usize) -> Option<(Vec<IROp>, usize)> {
+        let mut simd_ops = Vec::new();
+        let vector_width = self.determine_vector_width(count);
+        
+        let accumulator = self.alloc_reg();
+        
+        match op_type {
+            ReductionType::Sum => {
+                simd_ops.push(IROp::Vec128Add {
+                    dst_lo: self.alloc_reg(),
+                    dst_hi: self.alloc_reg(),
+                    src1_lo: self.alloc_reg(),
+                    src1_hi: self.alloc_reg(),
+                    src2_lo: self.alloc_reg(),
+                    src2_hi: self.alloc_reg(),
+                    element_size: 4,
+                    signed: false,
+                });
+            }
+            ReductionType::Product => {
+                simd_ops.push(IROp::Vec256Mul {
+                    dst0: self.alloc_reg(),
+                    dst1: self.alloc_reg(),
+                    dst2: self.alloc_reg(),
+                    dst3: self.alloc_reg(),
+                    src10: self.alloc_reg(),
+                    src11: self.alloc_reg(),
+                    src12: self.alloc_reg(),
+                    src13: self.alloc_reg(),
+                    src20: self.alloc_reg(),
+                    src21: self.alloc_reg(),
+                    src22: self.alloc_reg(),
+                    src23: self.alloc_reg(),
+                    element_size: 4,
+                    signed: false,
+                });
+            }
+            _ => {
+                for op in ops {
+                    simd_ops.push(op.clone());
+                }
+            }
+        }
+        
+        Some((simd_ops, ops.len()))
+    }
+
+    fn generate_broadcast_ops(&mut self, ops: &[IROp], count: usize) -> Option<(Vec<IROp>, usize)> {
+        let mut simd_ops = Vec::new();
+        
+        if let Some(IROp::MovImm { imm, .. }) = ops.first() {
+            let broadcast_reg = self.alloc_reg();
+            simd_ops.push(IROp::MovImm { dst: broadcast_reg, imm: *imm });
+            
+            let vector_width = self.determine_vector_width(count);
+            
+            for i in 0..vector_width {
+                simd_ops.push(IROp::MovImm {
+                    dst: self.alloc_reg(),
+                    imm: *imm,
+                });
+            }
+        }
+        
+        Some((simd_ops, ops.len()))
+    }
+
+    fn generate_element_wise_simd(&mut self, ops: &[IROp], op: IROp, count: usize) -> Option<(Vec<IROp>, usize)> {
+        let mut simd_ops = Vec::new();
+        let vector_width = self.determine_vector_width(count);
+        
+        match op {
+            IROp::Add { .. } => {
+                simd_ops.push(IROp::VecAdd {
+                    dst: self.alloc_reg(),
+                    src1: self.alloc_reg(),
+                    src2: self.alloc_reg(),
+                    element_size: 4,
+                });
+            }
+            IROp::Sub { .. } => {
+                simd_ops.push(IROp::VecSub {
+                    dst: self.alloc_reg(),
+                    src1: self.alloc_reg(),
+                    src2: self.alloc_reg(),
+                    element_size: 4,
+                });
+            }
+            IROp::Mul { .. } => {
+                simd_ops.push(IROp::VecMul {
+                    dst: self.alloc_reg(),
+                    src1: self.alloc_reg(),
+                    src2: self.alloc_reg(),
+                    element_size: 4,
+                });
+            }
+            _ => {
+                for op in ops {
+                    simd_ops.push(op.clone());
+                }
+            }
+        }
+        
+        Some((simd_ops, ops.len()))
+    }
+
+    fn optimize_fma_fusion(&mut self, block: &IRBlock) -> IRBlock {
+        let mut ops = block.ops.clone();
+        let mut i = 0;
+        
+        while i + 2 < ops.len() {
+            if let Some(fma_op) = self.try_fuse_fma(&ops[i..=i+2]) {
+                ops[i] = fma_op;
+                ops.remove(i + 1);
+                ops.remove(i + 1);
+                self.stats.fma_fusions += 1;
+            } else {
+                i += 1;
+            }
+        }
+        
+        IRBlock {
+            start_pc: block.start_pc,
+            ops,
+            term: block.term.clone(),
+        }
+    }
+
+    fn try_fuse_fma(&self, ops: &[IROp]) -> Option<IROp> {
+        match (&ops[0], &ops[1], &ops[2]) {
+            (IROp::Mul { dst: mul_dst, src1, src2 }, IROp::Add { dst: add_dst, src1: add_src1, src2: add_src2 }, _) => {
+                if add_dst == mul_dst || add_src1 == mul_dst || add_src2 == mul_dst {
+                    let acc = if add_src1 == mul_dst { add_src2 } else { add_src1 };
+                    Some(IROp::Fmadd {
+                        dst: *add_dst,
+                        src1: *src1,
+                        src2: *src2,
+                        src3: *acc,
+                    })
+                } else {
+                    None
+                }
+            }
+            (IROp::Mul { dst: mul_dst, src1, src2 }, IROp::Sub { dst: sub_dst, src1: sub_src1, src2: sub_src2 }, _) => {
+                if sub_dst == mul_dst || sub_src1 == mul_dst {
+                    let acc = if sub_src1 == mul_dst { sub_src2 } else { sub_src1 };
+                    Some(IROp::Fmsub {
+                        dst: *sub_dst,
+                        src1: *src1,
+                        src2: *src2,
+                        src3: *acc,
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn optimize_masked_ops(&mut self, block: &IRBlock) -> IRBlock {
+        let mut ops = block.ops.clone();
+        let mut i = 0;
+        
+        while i + 1 < ops.len() {
+            if let IROp::CmpEq { dst: cond, lhs, rhs } = &ops[i] {
+                if self.can_mask_following_op(&ops[i + 1]) {
+                    let masked_op = self.create_masked_op(&ops[i + 1], *cond);
+                    ops[i + 1] = masked_op;
+                    ops.remove(i);
+                    self.stats.masked_ops += 1;
+                } else {
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
+        
+        IRBlock {
+            start_pc: block.start_pc,
+            ops,
+            term: block.term.clone(),
+        }
+    }
+
+    fn can_mask_following_op(&self, op: &IROp) -> bool {
+        matches!(op, IROp::Load { .. } | IROp::Store { .. } | IROp::Add { .. } | IROp::Mul { .. })
+    }
+
+    fn create_masked_op(&self, op: &IROp, mask_reg: RegId) -> IROp {
+        match op {
+            IROp::Load { dst, base, offset, size, flags } => {
+                IROp::VendorLoad {
+                    dst: *dst,
+                    base: *base,
+                    offset: *offset,
+                    vendor: "masked_load".to_string(),
+                    tile_id: mask_reg as u8,
+                }
+            }
+            IROp::Store { src, base, offset, size, flags } => {
+                IROp::VendorStore {
+                    src: *src,
+                    base: *base,
+                    offset: *offset,
+                    vendor: "masked_store".to_string(),
+                    tile_id: mask_reg as u8,
+                }
+            }
+            _ => op.clone(),
+        }
+    }
+
+    fn optimize_load_store(&mut self, block: &IRBlock) -> IRBlock {
+        let mut ops = block.ops.clone();
+        let mut i = 0;
+        
+        while i + 3 < ops.len() {
+            if self.is_consecutive_load_pattern(&ops[i..=i+3]) {
+                let vec_load = self.create_vector_load(&ops[i..=i+3]);
+                ops[i] = vec_load;
+                ops.remove(i + 1);
+                ops.remove(i + 1);
+                ops.remove(i + 1);
+                self.stats.load_store_vectorized += 1;
+            } else if self.is_consecutive_store_pattern(&ops[i..=i+3]) {
+                let vec_store = self.create_vector_store(&ops[i..=i+3]);
+                ops[i] = vec_store;
+                ops.remove(i + 1);
+                ops.remove(i + 1);
+                ops.remove(i + 1);
+                self.stats.load_store_vectorized += 1;
+            } else {
+                i += 1;
+            }
+        }
+        
+        IRBlock {
+            start_pc: block.start_pc,
+            ops,
+            term: block.term.clone(),
+        }
+    }
+
+    fn is_consecutive_load_pattern(&self, ops: &[IROp]) -> bool {
+        if ops.len() != 4 {
+            return false;
+        }
+        
+        ops.iter().all(|op| matches!(op, IROp::Load { .. }))
+    }
+
+    fn is_consecutive_store_pattern(&self, ops: &[IROp]) -> bool {
+        if ops.len() != 4 {
+            return false;
+        }
+        
+        ops.iter().all(|op| matches!(op, IROp::Store { .. }))
+    }
+
+    fn create_vector_load(&mut self, ops: &[IROp]) -> IROp {
+        if let Some(IROp::Load { base, offset, size, flags, .. }) = ops.first() {
+            IROp::Load {
+                dst: self.alloc_reg(),
+                base: *base,
+                offset: *offset,
+                size: *size * 4,
+                flags: *flags,
+            }
+        } else {
+            ops[0].clone()
+        }
+    }
+
+    fn create_vector_store(&mut self, ops: &[IROp]) -> IROp {
+        if let Some(IROp::Store { base, offset, size, flags, .. }) = ops.first() {
+            IROp::Store {
+                src: self.alloc_reg(),
+                base: *base,
+                offset: *offset,
+                size: *size * 4,
+                flags: *flags,
+            }
+        } else {
+            ops[0].clone()
+        }
+    }
+
+    fn optimize_horizontal_ops(&mut self, block: &IRBlock) -> IRBlock {
+        let mut ops = block.ops.clone();
+        let mut i = 0;
+        
+        while i + 3 < ops.len() {
+            if self.is_horizontal_reduction(&ops[i..=i+3]) {
+                let horizontal_op = self.create_horizontal_op(&ops[i..=i+3]);
+                ops[i] = horizontal_op;
+                ops.remove(i + 1);
+                ops.remove(i + 1);
+                ops.remove(i + 1);
+                self.stats.horizontal_ops_optimized += 1;
+            } else {
+                i += 1;
+            }
+        }
+        
+        IRBlock {
+            start_pc: block.start_pc,
+            ops,
+            term: block.term.clone(),
+        }
+    }
+
+    fn is_horizontal_reduction(&self, ops: &[IROp]) -> bool {
+        if ops.len() != 4 {
+            return false;
+        }
+        
+        let mut same_op = true;
+        let op_disc = std::mem::discriminant(&ops[0]);
+        
+        for op in ops.iter() {
+            if std::mem::discriminant(op) != op_disc {
+                same_op = false;
+                break;
+            }
+        }
+        
+        same_op && matches!(&ops[0], IROp::Add { .. } | IROp::Fadd { .. })
+    }
+
+    fn create_horizontal_op(&mut self, ops: &[IROp]) -> IROp {
+        if let Some(IROp::Add { dst, src1, src2 }) = ops.first() {
+            IROp::Vec128Add {
+                dst_lo: *dst,
+                dst_hi: self.alloc_reg(),
+                src1_lo: *src1,
+                src1_hi: self.alloc_reg(),
+                src2_lo: *src2,
+                src2_hi: self.alloc_reg(),
+                element_size: 4,
+                signed: false,
+            }
+        } else {
+            ops[0].clone()
+        }
+    }
+
+    fn determine_vector_width(&self, count: usize) -> usize {
+        let min_width = self.config.min_vector_width as usize;
+        
+        if self.config.enable_avx512 && count >= 16 {
+            16
+        } else if self.config.enable_avx2 && count >= 8 {
+            8
+        } else if self.config.enable_neon && count >= 4 {
+            4
+        } else if self.config.enable_sse && count >= 4 {
+            4
+        } else {
+            min_width.min(count)
+        }
+    }
+
+    fn alloc_reg(&mut self) -> RegId {
+        let reg = self.reg_counter;
+        self.reg_counter += 1;
+        reg
+    }
+
+    pub fn analyze_block(&mut self, block: &IRBlock) -> SimdAnalysis {
+        let vectorizable_loops = Vec::new();
+        let mut reducible_patterns = Vec::new();
+        let horizontal_ops = Vec::new();
+        let maskable_ops = Vec::new();
+        
+        let mut i = 0;
+        while i < block.ops.len() {
+            if let Some(pattern) = self.detect_pattern(&block.ops[i..]) {
+                match pattern {
+                    VectorizationPattern::Reduction { op_type, count } => {
+                        reducible_patterns.push(ReductionPattern {
+                            reduction_var: self.alloc_reg(),
+                            accumulator: self.alloc_reg(),
+                            pattern_type: op_type,
+                            start_idx: i,
+                            end_idx: i + count,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            i += 1;
+        }
+        
+        SimdAnalysis {
+            vectorizable_loops,
+            reducible_patterns,
+            horizontal_ops,
+            maskable_ops,
+        }
+    }
+
+    pub fn get_stats(&self) -> &OptimizationStats {
+        &self.stats
+    }
+
+    pub fn reset_stats(&mut self) {
+        self.stats = OptimizationStats::default();
+    }
 }
 
-impl Default for SIMDInstructionDatabase {
+#[derive(Debug, Clone, PartialEq)]
+enum VectorizationPattern {
+    SequentialLoadComputeStore { count: usize },
+    Reduction { op_type: ReductionType, count: usize },
+    BroadcastLoadCompute { count: usize },
+    ElementWiseBinary { op: IROp, count: usize },
+}
+
+pub struct DefaultSIMDOptimizer {
+    inner: SimdOptimizer,
+}
+
+impl DefaultSIMDOptimizer {
+    pub fn new() -> Self {
+        let config = SimdOptimizerConfig::default();
+        Self {
+            inner: SimdOptimizer::new(config),
+        }
+    }
+
+    pub fn optimize(&mut self, block: &IRBlock) -> IRBlock {
+        self.inner.optimize_block(block)
+    }
+
+    pub fn analyze(&mut self, block: &IRBlock) -> SimdAnalysis {
+        self.inner.analyze_block(block)
+    }
+
+    pub fn get_stats(&self) -> &OptimizationStats {
+        self.inner.get_stats()
+    }
+}
+
+impl Default for DefaultSIMDOptimizer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vm_core::GuestAddr;
+
+    #[test]
+    fn test_simd_optimizer_creation() {
+        let config = SimdOptimizerConfig::default();
+        let optimizer = SimdOptimizer::new(config);
+        assert!(optimizer.config.enable_avx2);
+    }
+
+    #[test]
+    fn test_empty_block_optimization() {
+        let config = SimdOptimizerConfig::default();
+        let mut optimizer = SimdOptimizer::new(config);
+        let block = IRBlock {
+            start_pc: GuestAddr(0x1000),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        };
+        let optimized = optimizer.optimize_block(&block);
+        assert_eq!(optimized.ops.len(), 0);
+    }
+
+    #[test]
+    fn test_vector_width_determination() {
+        let config = SimdOptimizerConfig::default();
+        let optimizer = SimdOptimizer::new(config);
+        
+        assert_eq!(optimizer.determine_vector_width(16), 16);
+        assert_eq!(optimizer.determine_vector_width(8), 8);
+        assert_eq!(optimizer.determine_vector_width(4), 4);
     }
 }

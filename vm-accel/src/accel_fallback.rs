@@ -154,7 +154,7 @@ impl AccelFallbackManager {
     /// # 返回值
     ///
     /// 软件回退执行的结果
-    pub fn fallback_execute(&self, error: FallbackError, pc: GuestAddr) -> ExecResult {
+    pub fn fallback_execute(&self, error: FallbackError, pc: vm_core::GuestAddr) -> ExecResult {
         self.record_failure(error);
 
         // 如果不应该回退，直接返回失败
@@ -282,9 +282,9 @@ mod tests {
     fn test_fallback_execute_unsupported() {
         let manager = AccelFallbackManager::new();
 
-        let result = manager.fallback_execute(FallbackError::UnsupportedInstruction, 0x1000);
+        let result = manager.fallback_execute(FallbackError::UnsupportedInstruction, vm_core::GuestAddr(0x1000));
         assert!(result.success);
-        assert_eq!(result.pc, 0x1004);
+        assert_eq!(result.pc, vm_core::GuestAddr(0x1004));
         assert_eq!(manager.fallback_count(), 1);
     }
 
@@ -292,7 +292,7 @@ mod tests {
     fn test_fallback_execute_io_error() {
         let manager = AccelFallbackManager::new();
 
-        let result = manager.fallback_execute(FallbackError::IoError, 0x1000);
+        let result = manager.fallback_execute(FallbackError::IoError, vm_core::GuestAddr(0x1000));
         assert!(!result.success);
         assert_eq!(result.error, Some(FallbackError::IoError));
         assert_eq!(manager.fallback_count(), 1);

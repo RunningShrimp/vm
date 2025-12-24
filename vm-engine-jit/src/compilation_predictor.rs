@@ -1,505 +1,398 @@
-//! 编译时间预测器
-//!
-//! 实现了基于机器学习的编译时间预测，帮助优化编译决策。
-
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use vm_ir::IRBlock;
+use crate::common::OptimizationStats;
 
-/// 预测模型类型
-#[derive(Debug, Clone, PartialEq)]
-pub enum PredictionModel {
-    /// 线性回归模型
-    LinearRegression,
-    /// 决策树模型
-    DecisionTree,
-    /// 神经网络模型
-    NeuralNetwork,
-    /// 集成模型
-    Ensemble,
+pub struct CompilationPredictor {
+    config: CompilationPredictorConfig,
+    history: VecDeque<CompilationRecord>,
+    predictions: HashMap<u64, Prediction>,
+    stats: OptimizationStats,
 }
 
-/// 编译时间预测配置
 #[derive(Debug, Clone)]
 pub struct CompilationPredictorConfig {
-    /// 启用预测
-    pub enabled: bool,
-    /// 预测模型类型
-    pub model_type: PredictionModel,
-    /// 训练数据窗口大小
-    pub training_window_size: usize,
-    /// 最小训练样本数
-    pub min_training_samples: usize,
-    /// 预测精度阈值
-    pub accuracy_threshold: f64,
-    /// 启用在线学习
-    pub enable_online_learning: bool,
-    /// 模型更新间隔
-    pub model_update_interval: usize,
+    pub history_size: usize,
+    pub min_samples_for_prediction: usize,
+    pub prediction_window: Duration,
+    pub enable_ml_prediction: bool,
+    pub confidence_threshold: f64,
 }
 
 impl Default for CompilationPredictorConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            model_type: PredictionModel::LinearRegression,
-            training_window_size: 1000,
-            min_training_samples: 50,
-            accuracy_threshold: 0.8,
-            enable_online_learning: true,
-            model_update_interval: 100,
+            history_size: 1000,
+            min_samples_for_prediction: 10,
+            prediction_window: Duration::from_secs(60),
+            enable_ml_prediction: false,
+            confidence_threshold: 0.7,
         }
     }
 }
 
-/// 编译特征
-#[derive(Debug, Clone)]
-pub struct CompilationFeatures {
-    /// IR块大小（字节）
-    pub block_size: usize,
-    /// 指令数量
-    pub instruction_count: usize,
-    /// 基本块数量
-    pub basic_block_count: usize,
-    /// 循环数量
-    pub loop_count: usize,
-    /// 分支数量
-    pub branch_count: usize,
-    /// 内存访问次数
-    pub memory_access_count: usize,
-    /// 寄存器压力
-    pub register_pressure: f64,
-    /// 代码复杂度
-    pub complexity_score: f64,
-    /// 优化级别
-    pub optimization_level: u8,
-    /// 启用SIMD
-    pub simd_enabled: bool,
-    /// 启用并行编译
-    pub parallel_compilation: bool,
-    /// 目标架构
-    pub target_arch: String,
-}
-
-/// 编译时间记录
 #[derive(Debug, Clone)]
 pub struct CompilationRecord {
-    /// 编译特征
-    pub features: CompilationFeatures,
-    /// 实际编译时间（纳秒）
-    pub actual_time_ns: u64,
-    /// 预测时间（纳秒）
-    pub predicted_time_ns: Option<u64>,
-    /// 预测误差
-    pub prediction_error: Option<f64>,
-    /// 记录时间戳
-    pub timestamp: std::time::Instant,
+    pub block_id: u64,
+    pub compilation_time: Duration,
+    pub code_size: usize,
+    pub optimization_level: u8,
+    pub timestamp: Instant,
+    pub execution_count: u64,
+    pub predicted: bool,
 }
 
-/// 线性回归模型
-#[derive(Debug)]
-struct LinearRegressionModel {
-    /// 特征权重
-    weights: Vec<f64>,
-    /// 偏置
-    bias: f64,
-    /// 学习率
-    learning_rate: f64,
-    /// 训练样本数
-    sample_count: usize,
+#[derive(Debug, Clone)]
+pub struct Prediction {
+    pub block_id: u64,
+    pub predicted_compilation_time: Duration,
+    pub confidence: f64,
+    pub recommended_optimization: u8,
+    pub predicted_code_size: usize,
+    pub method: PredictionMethod,
 }
 
-impl LinearRegressionModel {
-    /// 创建新的线性回归模型
-    fn new(feature_count: usize) -> Self {
-        Self {
-            weights: vec![0.0; feature_count],
-            bias: 0.0,
-            learning_rate: 0.01,
-            sample_count: 0,
-        }
-    }
-    
-    /// 预测编译时间
-    fn predict(&self, features: &[f64]) -> f64 {
-        let mut prediction = self.bias;
-        for (weight, feature) in self.weights.iter().zip(features.iter()) {
-            prediction += weight * feature;
-        }
-        prediction
-    }
-    
-    /// 训练模型
-    fn train(&mut self, features: &[f64], target: f64) {
-        let prediction = self.predict(features);
-        let error = prediction - target;
-        
-        // 更新权重
-        for (weight, feature) in self.weights.iter_mut().zip(features.iter()) {
-            *weight -= self.learning_rate * error * feature;
-        }
-        
-        // 更新偏置
-        self.bias -= self.learning_rate * error;
-        self.sample_count += 1;
-        
-        // 动态调整学习率
-        if self.sample_count % 100 == 0 {
-            self.learning_rate *= 0.99; // 衰减学习率
-        }
-    }
-    
-    /// 获取模型准确度
-    fn accuracy(&self, records: &[CompilationRecord]) -> f64 {
-        if records.is_empty() {
-            return 0.0;
-        }
-        
-        let mut correct_predictions = 0;
-        for record in records {
-            if let Some(predicted) = record.predicted_time_ns {
-                let error = (predicted as f64 - record.actual_time_ns as f64).abs();
-                let relative_error = error / record.actual_time_ns as f64;
-                if relative_error < 0.2 { // 20%误差内认为正确
-                    correct_predictions += 1;
-                }
-            }
-        }
-        
-        correct_predictions as f64 / records.len() as f64
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum PredictionMethod {
+    LinearRegression,
+    MovingAverage,
+    NeuralNetwork,
+    Heuristic,
 }
 
-/// 编译时间预测器
-pub struct CompilationTimePredictor {
-    /// 配置
-    config: CompilationPredictorConfig,
-    /// 线性回归模型
-    linear_model: Arc<Mutex<LinearRegressionModel>>,
-    /// 编译历史记录
-    compilation_history: Arc<Mutex<VecDeque<CompilationRecord>>>,
-    /// 特征提取器
-    feature_extractor: Arc<Mutex<FeatureExtractor>>,
-    /// 预测统计
-    prediction_stats: Arc<Mutex<PredictionStats>>,
+#[derive(Debug, Clone)]
+pub struct PredictionAccuracy {
+    pub mean_absolute_error: Duration,
+    pub mean_squared_error: f64,
+    pub accuracy_percentage: f64,
+    pub sample_count: usize,
 }
 
-/// 预测统计
-#[derive(Debug, Clone, Default)]
-pub struct PredictionStats {
-    /// 总预测次数
-    pub total_predictions: u64,
-    /// 准确预测次数
-    pub accurate_predictions: u64,
-    /// 平均预测误差
-    pub avg_error: f64,
-    /// 最大预测误差
-    pub max_error: f64,
-    /// 最小预测误差
-    pub min_error: f64,
-}
-
-/// 特征提取器
-#[derive(Debug)]
-struct FeatureExtractor;
-
-impl FeatureExtractor {
-    /// 提取编译特征
-    fn extract_features(&self, block: &IRBlock, config: &CompilationPredictorConfig) -> Vec<f64> {
-        let mut features = Vec::new();
-        
-        // 基本特征
-        features.push(block.ops.len() as f64); // 指令数量
-        features.push(block.ops.iter().map(|op| op.op.to_string().len()).sum::<usize>() as f64); // 代码复杂度
-        features.push(self.count_basic_blocks(block) as f64); // 基本块数量
-        features.push(self.count_loops(block) as f64); // 循环数量
-        features.push(self.count_branches(block) as f64); // 分支数量
-        features.push(self.count_memory_accesses(block) as f64); // 内存访问次数
-        features.push(self.calculate_register_pressure(block)); // 寄存器压力
-        features.push(self.calculate_complexity_score(block)); // 复杂度分数
-        
-        // 配置特征
-        features.push(config.optimization_level as f64);
-        features.push(if config.enable_online_learning { 1.0 } else { 0.0 });
-        
-        features
-    }
-    
-    /// 计算基本块数量
-    fn count_basic_blocks(&self, block: &IRBlock) -> usize {
-        let mut count = 0;
-        let mut has_branch = false;
-        
-        for op in &block.ops {
-            match &op.op {
-                vm_ir::IROp::Beq { .. } |
-                vm_ir::IROp::Bne { .. } |
-                vm_ir::IROp::Blt { .. } |
-                vm_ir::IROp::Bge { .. } |
-                vm_ir::IROp::Jmp { .. } => {
-                    if !has_branch {
-                        count += 1;
-                        has_branch = true;
-                    }
-                }
-                _ => {
-                    has_branch = false;
-                }
-            }
-        }
-        
-        count + 1 // 最后一个基本块
-    }
-    
-    /// 计算循环数量
-    fn count_loops(&self, block: &IRBlock) -> usize {
-        let mut loop_count = 0;
-        
-        for i in 0..block.ops.len() {
-            if let vm_ir::IROp::Blt { .. } | vm_ir::IROp::Bge { .. } = &block.ops[i].op {
-                // 简化的循环检测：向后跳转
-                if let Some(target) = self.get_branch_target(&block.ops[i]) {
-                    if target < i {
-                        loop_count += 1;
-                    }
-                }
-            }
-        }
-        
-        loop_count
-    }
-    
-    /// 计算分支数量
-    fn count_branches(&self, block: &IRBlock) -> usize {
-        block.ops.iter().filter(|op| {
-            matches!(&op.op, 
-                    vm_ir::IROp::Beq { .. } |
-                    vm_ir::IROp::Bne { .. } |
-                    vm_ir::IROp::Blt { .. } |
-                    vm_ir::IROp::Bge { .. } |
-                    vm_ir::IROp::Jmp { .. })
-        }).count()
-    }
-    
-    /// 计算内存访问次数
-    fn count_memory_accesses(&self, block: &IRBlock) -> usize {
-        block.ops.iter().filter(|op| {
-            matches!(&op.op, 
-                    vm_ir::IROp::Load { .. } |
-                    vm_ir::IROp::Store { .. })
-        }).count()
-    }
-    
-    /// 计算寄存器压力
-    fn calculate_register_pressure(&self, block: &IRBlock) -> f64 {
-        let mut register_usage = HashMap::new();
-        let mut max_pressure = 0.0;
-        
-        for op in &block.ops {
-            let used_registers = self.get_used_registers(&op.op);
-            for reg in used_registers {
-                let count = register_usage.entry(reg).or_insert(0);
-                *count += 1;
-                max_pressure = max_pressure.max(*count as f64);
-            }
-        }
-        
-        max_pressure
-    }
-    
-    /// 计算复杂度分数
-    fn calculate_complexity_score(&self, block: &IRBlock) -> f64 {
-        let mut score = 0.0;
-        
-        for op in &block.ops {
-            match &op.op {
-                vm_ir::IROp::Mul { .. } | vm_ir::IROp::Div { .. } => score += 3.0,
-                vm_ir::IROp::Add { .. } | vm_ir::IROp::Sub { .. } => score += 1.0,
-                vm_ir::IROp::Load { .. } | vm_ir::IROp::Store { .. } => score += 2.0,
-                vm_ir::IROp::Beq { .. } | vm_ir::IROp::Bne { .. } => score += 2.5,
-                _ => score += 1.0,
-            }
-        }
-        
-        score / block.ops.len() as f64
-    }
-    
-    /// 获取使用的寄存器
-    fn get_used_registers(&self, op: &vm_ir::IROp) -> Vec<u32> {
-        match op {
-            vm_ir::IROp::Add { dst, src1, src2 } => vec![*dst, *src1, *src2],
-            vm_ir::IROp::Sub { dst, src1, src2 } => vec![*dst, *src1, *src2],
-            vm_ir::IROp::Mul { dst, src1, src2 } => vec![*dst, *src1, *src2],
-            vm_ir::IROp::Div { dst, src1, src2, .. } => vec![*dst, *src1, *src2],
-            vm_ir::IROp::Load { dst, base, .. } => vec![*dst, *base],
-            vm_ir::IROp::Store { src, base, .. } => vec![*src, *base],
-            vm_ir::IROp::Mov { dst, src } => vec![*dst, *src],
-            vm_ir::IROp::MovImm { dst, .. } => vec![*dst],
-            _ => Vec::new(),
-        }
-    }
-    
-    /// 获取分支目标
-    fn get_branch_target(&self, op: &crate::compiler::CompiledIROp) -> Option<usize> {
-        match &op.op {
-            vm_ir::IROp::Beq { target, .. } |
-            vm_ir::IROp::Bne { target, .. } |
-            vm_ir::IROp::Blt { target, .. } |
-            vm_ir::IROp::Bge { target, .. } |
-            vm_ir::IROp::Jmp { target } => Some(*target as usize),
-            _ => None,
-        }
-    }
-}
-
-impl CompilationTimePredictor {
-    /// 创建新的编译时间预测器
+impl CompilationPredictor {
     pub fn new(config: CompilationPredictorConfig) -> Self {
-        let feature_count = 10; // 特征数量
-        let linear_model = LinearRegressionModel::new(feature_count);
-        
         Self {
             config,
-            linear_model: Arc::new(Mutex::new(linear_model)),
-            compilation_history: Arc::new(Mutex::new(VecDeque::new())),
-            feature_extractor: Arc::new(Mutex::new(FeatureExtractor)),
-            prediction_stats: Arc::new(Mutex::new(PredictionStats::default())),
+            history: VecDeque::new(),
+            predictions: HashMap::new(),
+            stats: OptimizationStats::default(),
         }
     }
-    
-    /// 预测编译时间
-    pub fn predict_compilation_time(&self, block: &IRBlock) -> Option<u64> {
-        if !self.config.enabled {
+
+    pub fn record_compilation(&mut self, block_id: u64, compilation_time: Duration, code_size: usize, optimization_level: u8, execution_count: u64) {
+        let record = CompilationRecord {
+            block_id,
+            compilation_time,
+            code_size,
+            optimization_level,
+            timestamp: Instant::now(),
+            execution_count,
+            predicted: false,
+        };
+
+        self.history.push_back(record);
+
+        if self.history.len() > self.config.history_size {
+            self.history.pop_front();
+        }
+
+        self.update_predictions();
+    }
+
+    pub fn predict_compilation_time(&mut self, block: &IRBlock, execution_count: u64) -> Option<Prediction> {
+        let block_id = block.start_pc.0;
+
+        if let Some(prediction) = self.predictions.get(&block_id) {
+            if prediction.confidence >= self.config.confidence_threshold {
+                return Some(prediction.clone());
+            }
+        }
+
+        let samples: Vec<&CompilationRecord> = self.history
+            .iter()
+            .filter(|r| r.block_id == block_id || r.code_size == block.ops.len())
+            .collect();
+
+        if samples.len() < self.config.min_samples_for_prediction {
             return None;
         }
-        
-        // 提取特征
-        let features = {
-            let extractor = self.feature_extractor.lock().unwrap();
-            extractor.extract_features(block, &self.config)
+
+        let prediction = if self.config.enable_ml_prediction {
+            self.ml_predict(block_id, &samples, execution_count)
+        } else {
+            self.heuristic_predict(block_id, &samples, execution_count)
         };
-        
-        // 使用模型预测
-        let prediction = {
-            let model = self.linear_model.lock().unwrap();
-            model.predict(&features)
-        };
-        
-        Some(prediction as u64)
+
+        self.predictions.insert(block_id, prediction.clone());
+        self.stats.blocks_optimized += 1;
+        Some(prediction)
     }
-    
-    /// 记录编译结果
-    pub fn record_compilation(&self, block: &IRBlock, actual_time_ns: u64) {
-        // 提取特征
-        let features = {
-            let extractor = self.feature_extractor.lock().unwrap();
-            CompilationFeatures {
-                block_size: block.ops.len(),
-                instruction_count: block.ops.len(),
-                basic_block_count: extractor.count_basic_blocks(block),
-                loop_count: extractor.count_loops(block),
-                branch_count: extractor.count_branches(block),
-                memory_access_count: extractor.count_memory_accesses(block),
-                register_pressure: extractor.calculate_register_pressure(block),
-                complexity_score: extractor.calculate_complexity_score(block),
-                optimization_level: self.config.optimization_level,
-                simd_enabled: false, // 从配置获取
-                parallel_compilation: false, // 从配置获取
-                target_arch: "x86_64".to_string(), // 从配置获取
-            }
+
+    fn heuristic_predict(&self, block_id: u64, samples: &[&CompilationRecord], execution_count: u64) -> Prediction {
+        let avg_time = self.calculate_average_time(samples);
+        let avg_size = self.calculate_average_size(samples);
+        let confidence = self.calculate_confidence(samples);
+
+        let recommended_level = if execution_count > 1000 {
+            3
+        } else if execution_count > 100 {
+            2
+        } else if execution_count > 10 {
+            1
+        } else {
+            0
         };
-        
-        // 预测时间
-        let feature_vector = {
-            let extractor = self.feature_extractor.lock().unwrap();
-            extractor.extract_features(block, &self.config)
-        };
-        
-        let predicted_time_ns = {
-            let model = self.linear_model.lock().unwrap();
-            Some(model.predict(&feature_vector) as u64)
-        };
-        
-        // 计算预测误差
-        let prediction_error = predicted_time_ns
-            .map(|pred| (pred as f64 - actual_time_ns as f64).abs() / actual_time_ns as f64);
-        
-        // 创建记录
-        let record = CompilationRecord {
-            features,
-            actual_time_ns,
-            predicted_time_ns,
-            prediction_error,
-            timestamp: std::time::Instant::now(),
-        };
-        
-        // 添加到历史记录
-        let mut history = self.compilation_history.lock().unwrap();
-        history.push_back(record);
-        
-        // 保持历史窗口大小
-        while history.len() > self.config.training_window_size {
-            history.pop_front();
-        }
-        
-        // 更新预测统计
-        self.update_prediction_stats(prediction_error);
-        
-        // 在线学习
-        if self.config.enable_online_learning && history.len() >= self.config.min_training_samples {
-            self.update_model(&feature_vector, actual_time_ns as f64);
+
+        Prediction {
+            block_id,
+            predicted_compilation_time: avg_time,
+            confidence,
+            recommended_optimization: recommended_level,
+            predicted_code_size: avg_size,
+            method: PredictionMethod::Heuristic,
         }
     }
-    
-    /// 更新预测统计
-    fn update_prediction_stats(&self, prediction_error: Option<f64>) {
-        if let Some(error) = prediction_error {
-            let mut stats = self.prediction_stats.lock().unwrap();
-            stats.total_predictions += 1;
-            
-            if error < 0.2 { // 20%误差内认为准确
-                stats.accurate_predictions += 1;
-            }
-            
-            // 更新误差统计
-            let count = stats.total_predictions as f64;
-            stats.avg_error = (stats.avg_error * (count - 1.0) + error) / count;
-            stats.max_error = stats.max_error.max(error);
-            stats.min_error = if stats.min_error == 0.0 {
-                error
-            } else {
-                stats.min_error.min(error)
-            };
+
+    fn ml_predict(&self, block_id: u64, samples: &[&CompilationRecord], execution_count: u64) -> Prediction {
+        let avg_time = self.calculate_average_time(samples);
+        let avg_size = self.calculate_average_size(samples);
+
+        let trend = self.calculate_trend(samples);
+        let predicted_time = self.apply_trend(avg_time, trend);
+
+        let confidence = self.calculate_confidence(samples).min(0.95);
+
+        let recommended_level = self.predict_optimization_level(samples, execution_count);
+
+        Prediction {
+            block_id,
+            predicted_compilation_time: predicted_time,
+            confidence,
+            recommended_optimization: recommended_level,
+            predicted_code_size: avg_size,
+            method: PredictionMethod::LinearRegression,
         }
     }
-    
-    /// 更新模型
-    fn update_model(&self, features: &[f64], target: f64) {
-        let mut model = self.linear_model.lock().unwrap();
-        model.train(features, target);
+
+    fn calculate_average_time(&self, samples: &[&CompilationRecord]) -> Duration {
+        let total: Duration = samples.iter().map(|r| r.compilation_time).sum();
+        total / samples.len() as u32
     }
-    
-    /// 获取预测统计
-    pub fn prediction_stats(&self) -> PredictionStats {
-        self.prediction_stats.lock().unwrap().clone()
+
+    fn calculate_average_size(&self, samples: &[&CompilationRecord]) -> usize {
+        samples.iter().map(|r| r.code_size).sum::<usize>() / samples.len()
     }
-    
-    /// 获取模型准确度
-    pub fn model_accuracy(&self) -> f64 {
-        let history = self.compilation_history.lock().unwrap();
-        if history.len() < self.config.min_training_samples {
+
+    fn calculate_confidence(&self, samples: &[&CompilationRecord]) -> f64 {
+        if samples.is_empty() {
             return 0.0;
         }
-        
-        let model = self.linear_model.lock().unwrap();
-        model.accuracy(&history)
+
+        let avg_time = self.calculate_average_time(samples).as_nanos() as f64;
+        let variance = samples.iter()
+            .map(|r| {
+                let diff = r.compilation_time.as_nanos() as f64 - avg_time;
+                diff * diff
+            })
+            .sum::<f64>() / samples.len() as f64;
+
+        let std_dev = variance.sqrt();
+        if avg_time == 0.0 {
+            return 1.0;
+        }
+
+        (1.0 - (std_dev / avg_time)).clamp(0.0, 1.0)
     }
-    
-    /// 重置预测器
-    pub fn reset(&self) {
-        let feature_count = 10;
-        *self.linear_model.lock().unwrap() = LinearRegressionModel::new(feature_count);
-        self.compilation_history.lock().unwrap().clear();
-        *self.prediction_stats.lock().unwrap() = PredictionStats::default();
+
+    fn calculate_trend(&self, samples: &[&CompilationRecord]) -> f64 {
+        if samples.len() < 2 {
+            return 0.0;
+        }
+
+        let n = samples.len() as f64;
+        let sum_x = (0..samples.len()).map(|i| i as f64).sum::<f64>();
+        let sum_y = samples.iter().map(|r| r.compilation_time.as_nanos() as f64).sum::<f64>();
+        let sum_xy = samples.iter().enumerate()
+            .map(|(i, r)| i as f64 * r.compilation_time.as_nanos() as f64)
+            .sum::<f64>();
+        let sum_x2 = (0..samples.len()).map(|i| (i as f64) * (i as f64)).sum::<f64>();
+
+        let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
+        slope / (samples.len() as f64)
+    }
+
+    fn apply_trend(&self, base_time: Duration, trend: f64) -> Duration {
+        let nanos = (base_time.as_nanos() as f64 + trend) as u64;
+        Duration::from_nanos(nanos)
+    }
+
+    fn predict_optimization_level(&self, samples: &[&CompilationRecord], execution_count: u64) -> u8 {
+        let avg_level = samples.iter().map(|r| r.optimization_level as u64).sum::<u64>() / samples.len() as u64;
+        
+        if execution_count > 1000 {
+            avg_level.min(3) as u8
+        } else if execution_count > 100 {
+            (avg_level + 1).min(2) as u8
+        } else {
+            avg_level.min(1) as u8
+        }
+    }
+
+    fn update_predictions(&mut self) {
+        self.predictions.clear();
+    }
+
+    pub fn get_prediction(&self, block_id: u64) -> Option<&Prediction> {
+        self.predictions.get(&block_id)
+    }
+
+    pub fn calculate_accuracy(&self) -> PredictionAccuracy {
+        let accurate_predictions: Vec<&CompilationRecord> = self.history
+            .iter()
+            .filter(|r| r.predicted)
+            .collect();
+
+        if accurate_predictions.is_empty() {
+            return PredictionAccuracy {
+                mean_absolute_error: Duration::ZERO,
+                mean_squared_error: 0.0,
+                accuracy_percentage: 0.0,
+                sample_count: 0,
+            };
+        }
+
+        let mut total_error = 0u64;
+        let mut total_squared_error = 0.0;
+        let mut accurate_count = 0;
+
+        for record in &accurate_predictions {
+            if let Some(prediction) = self.predictions.get(&record.block_id) {
+                let error = prediction.predicted_compilation_time.as_nanos() as i64 - record.compilation_time.as_nanos() as i64;
+                total_error += error.unsigned_abs();
+                total_squared_error += (error as f64) * (error as f64);
+
+                let relative_error = (error.unsigned_abs() as f64 / record.compilation_time.as_nanos().max(1) as f64);
+                if relative_error < 0.2 {
+                    accurate_count += 1;
+                }
+            }
+        }
+
+        let mean_absolute_error = Duration::from_nanos(total_error / accurate_predictions.len() as u64);
+        let mean_squared_error = total_squared_error / accurate_predictions.len() as f64;
+        let accuracy_percentage = (accurate_count as f64 / accurate_predictions.len() as f64) * 100.0;
+
+        PredictionAccuracy {
+            mean_absolute_error,
+            mean_squared_error,
+            accuracy_percentage,
+            sample_count: accurate_predictions.len(),
+        }
+    }
+
+    pub fn should_compile(&mut self, block: &IRBlock, execution_count: u64) -> bool {
+        if let Some(prediction) = self.predict_compilation_time(block, execution_count) {
+            prediction.confidence >= self.config.confidence_threshold
+                && prediction.predicted_compilation_time < Duration::from_millis(100)
+        } else {
+            execution_count >= 10
+        }
+    }
+
+    pub fn get_stats(&self) -> &OptimizationStats {
+        &self.stats
+    }
+
+    pub fn reset_stats(&mut self) {
+        self.stats = OptimizationStats::default();
+    }
+}
+
+pub struct DefaultCompilationPredictor {
+    inner: CompilationPredictor,
+}
+
+impl DefaultCompilationPredictor {
+    pub fn new() -> Self {
+        let config = CompilationPredictorConfig::default();
+        Self {
+            inner: CompilationPredictor::new(config),
+        }
+    }
+
+    pub fn record_compilation(&mut self, block_id: u64, compilation_time: Duration, code_size: usize, optimization_level: u8, execution_count: u64) {
+        self.inner.record_compilation(block_id, compilation_time, code_size, optimization_level, execution_count);
+    }
+
+    pub fn predict(&mut self, block: &IRBlock, execution_count: u64) -> Option<Prediction> {
+        self.inner.predict_compilation_time(block, execution_count)
+    }
+
+    pub fn should_compile(&mut self, block: &IRBlock, execution_count: u64) -> bool {
+        self.inner.should_compile(block, execution_count)
+    }
+
+    pub fn get_accuracy(&self) -> PredictionAccuracy {
+        self.inner.calculate_accuracy()
+    }
+}
+
+impl Default for DefaultCompilationPredictor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compilation_predictor_creation() {
+        let config = CompilationPredictorConfig::default();
+        let predictor = CompilationPredictor::new(config);
+        assert_eq!(predictor.history.len(), 0);
+    }
+
+    #[test]
+    fn test_record_compilation() {
+        let config = CompilationPredictorConfig::default();
+        let mut predictor = CompilationPredictor::new(config);
+        
+        predictor.record_compilation(1, Duration::from_millis(10), 100, 0, 5);
+        assert_eq!(predictor.history.len(), 1);
+    }
+
+    #[test]
+    fn test_prediction_confidence() {
+        let config = CompilationPredictorConfig::default();
+        let mut predictor = CompilationPredictor::new(config);
+        
+        for i in 0..15 {
+            predictor.record_compilation(1, Duration::from_millis(10 + i), 100, 0, 5);
+        }
+        
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        };
+        
+        if let Some(prediction) = predictor.predict_compilation_time(&block, 5) {
+            assert!(prediction.confidence > 0.0);
+        }
+    }
+
+    #[test]
+    fn test_should_compile() {
+        let config = CompilationPredictorConfig::default();
+        let mut predictor = CompilationPredictor::new(config);
+        
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        };
+        
+        assert!(predictor.should_compile(&block, 15));
     }
 }

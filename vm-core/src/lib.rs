@@ -44,6 +44,7 @@ pub mod gdb;
 pub mod error;
 pub mod mmu_traits;
 pub mod domain;
+pub mod domain_type_safety;
 pub mod syscall;
 pub mod domain_event_bus;
 pub mod migration;
@@ -60,11 +61,12 @@ pub use syscall::SyscallResult;
 pub use mmu_traits::{MMU, AddressTranslator, MemoryAccess, MmioManager, MmuAsAny};
 mod regs;
 
-// Re-export ExecutionError, VmError and CoreError
+// Re-export ExecutionError, VmError, CoreError and MemoryError
 pub use error::{ExecutionError, VmError as CoreVmError, VmError, CoreError, MemoryError, DeviceError, PlatformError};
 
 // Re-export domain types
 pub use domain::{TlbManager, TlbEntry, TlbStats, PageTableWalker, ExecutionManager};
+pub use domain_type_safety::{GuestAddrExt, GuestPhysAddrExt, PageSize};
 
 // ============================================================================
 // 基础类型定义
@@ -496,4 +498,57 @@ pub struct ExecResult {
     pub stats: ExecStats,
     /// 下一条指令的程序计数器
     pub next_pc: GuestAddr,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_guest_addr_wrapping_add() {
+        let addr1 = GuestAddr(0xFFFF_FFFF_FFFF_FFFF);
+        let addr2 = addr1.wrapping_add(1);
+        assert_eq!(addr2, GuestAddr(0x0000_0000_0000_0000));
+    }
+
+    #[test]
+    fn test_guest_addr_wrapping_sub() {
+        let addr1 = GuestAddr(0x0000_0000_0000_0000);
+        let result = addr1.wrapping_sub(GuestAddr(1));
+        assert_eq!(result, 0xFFFF_FFFF_FFFF_FFFF);
+    }
+
+    #[test]
+    fn test_guest_addr_equality() {
+        let addr1 = GuestAddr(0x1000);
+        let addr2 = GuestAddr(0x1000);
+        let addr3 = GuestAddr(0x2000);
+
+        assert_eq!(addr1, addr2);
+        assert_ne!(addr1, addr3);
+    }
+
+    #[test]
+    fn test_guest_addr_ord() {
+        let addr1 = GuestAddr(0x1000);
+        let addr2 = GuestAddr(0x2000);
+        let addr3 = GuestAddr(0x1000);
+
+        assert!(addr1 < addr2);
+        assert!(addr2 > addr1);
+        assert!(addr1 <= addr3);
+    }
+
+    #[test]
+    fn test_access_type_variants() {
+        let read = AccessType::Read;
+        let write = AccessType::Write;
+        let execute = AccessType::Execute;
+        let atomic = AccessType::Atomic;
+
+        assert_eq!(read, AccessType::Read);
+        assert_eq!(write, AccessType::Write);
+        assert_eq!(execute, AccessType::Execute);
+        assert_eq!(atomic, AccessType::Atomic);
+    }
 }

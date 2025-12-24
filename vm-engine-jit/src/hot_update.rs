@@ -1,531 +1,490 @@
-//! JIT代码热更新机制
-//!
-//! 实现了运行时代码更新和版本管理功能，支持无缝代码替换。
-
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use vm_core::GuestAddr;
-use crate::code_cache::CodeCache;
+use vm_ir::{IRBlock, RegId};
+use crate::common::OptimizationStats;
 
-/// 热更新配置
+pub struct HotUpdateManager {
+    config: HotUpdateConfig,
+    code_cache: Arc<RwLock<HashMap<u64, CachedCode>>>,
+    hotspots: VecDeque<Hotspot>,
+    update_queue: VecDeque<UpdateRequest>,
+    stats: OptimizationStats,
+    last_cleanup: Instant,
+}
+
 #[derive(Debug, Clone)]
 pub struct HotUpdateConfig {
-    /// 启用热更新
-    pub enabled: bool,
-    /// 更新检查间隔（毫秒）
-    pub check_interval_ms: u64,
-    /// 最大并发更新数
-    pub max_concurrent_updates: usize,
-    /// 更新超时时间（毫秒）
-    pub update_timeout_ms: u64,
-    /// 启用渐进式更新
-    pub enable_incremental_update: bool,
-    /// 版本历史大小
-    pub version_history_size: usize,
+    pub max_cache_size: usize,
+    pub hotspot_threshold: u64,
+    pub update_interval: Duration,
+    pub enable_background_update: bool,
+    pub max_hotspots: usize,
+    pub update_batch_size: usize,
 }
 
 impl Default for HotUpdateConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            check_interval_ms: 1000, // 1秒
-            max_concurrent_updates: 4,
-            update_timeout_ms: 5000, // 5秒
-            enable_incremental_update: true,
-            version_history_size: 10,
+            max_cache_size: 1024,
+            hotspot_threshold: 100,
+            update_interval: Duration::from_secs(5),
+            enable_background_update: true,
+            max_hotspots: 100,
+            update_batch_size: 10,
         }
     }
 }
 
-/// 代码版本
 #[derive(Debug, Clone)]
-pub struct CodeVersion {
-    /// 版本号
-    pub version: u64,
-    /// 代码数据
+pub struct CachedCode {
+    pub block_id: u64,
     pub code: Vec<u8>,
-    /// 创建时间
-    pub created_at: Instant,
-    /// 代码大小
-    pub size: usize,
-    /// 校验和
+    pub optimization_level: u8,
+    pub execution_count: u64,
+    pub last_used: Instant,
+    pub size_bytes: usize,
     pub checksum: u64,
-    /// 更新原因
-    pub update_reason: UpdateReason,
 }
 
-/// 更新原因
+impl CachedCode {
+    pub fn new(block_id: u64, code: Vec<u8>, optimization_level: u8) -> Self {
+        let checksum = Self::compute_checksum(&code);
+        Self {
+            block_id,
+            code,
+            optimization_level,
+            execution_count: 0,
+            last_used: Instant::now(),
+            size_bytes: 0,
+            checksum,
+        }
+    }
+
+    fn compute_checksum(code: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in code {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
+    pub fn verify_checksum(&self) -> bool {
+        self.checksum == Self::compute_checksum(&self.code)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Hotspot {
+    pub block_id: u64,
+    pub execution_count: u64,
+    pub last_update: Instant,
+    pub priority: HotspotPriority,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HotspotPriority {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateRequest {
+    pub block_id: u64,
+    pub old_optimization: u8,
+    pub new_optimization: u8,
+    pub timestamp: Instant,
+    pub reason: UpdateReason,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateReason {
-    /// 性能优化
-    PerformanceOptimization,
-    /// 错误修复
-    BugFix,
-    /// 功能增强
-    FeatureEnhancement,
-    /// 安全更新
-    SecurityUpdate,
-    /// 自适应优化
-    AdaptiveOptimization,
+    HotspotDetected,
+    ExecutionCountThreshold,
+    PerformanceRegression,
+    UserRequested,
 }
 
-/// 更新状态
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdateStatus {
-    /// 等待中
-    Pending,
-    /// 进行中
-    InProgress,
-    /// 已完成
-    Completed,
-    /// 失败
-    Failed(String),
-    /// 已取消
-    Cancelled,
-}
-
-/// 更新任务
-#[derive(Debug)]
-pub struct UpdateTask {
-    /// 任务ID
-    pub task_id: u64,
-    /// 目标地址
-    pub target_addr: GuestAddr,
-    /// 新代码版本
-    pub new_version: CodeVersion,
-    /// 当前版本
-    pub current_version: Option<CodeVersion>,
-    /// 更新状态
-    pub status: UpdateStatus,
-    /// 创建时间
-    pub created_at: Instant,
-    /// 开始时间
-    pub started_at: Option<Instant>,
-    /// 完成时间
-    pub completed_at: Option<Instant>,
-}
-
-/// 热更新管理器
-pub struct HotUpdateManager {
-    /// 配置
-    config: HotUpdateConfig,
-    /// 代码缓存
-    code_cache: Arc<Mutex<dyn CodeCache>>,
-    /// 版本管理
-    versions: Arc<Mutex<HashMap<GuestAddr, VecDeque<CodeVersion>>>>,
-    /// 活跃版本映射
-    active_versions: Arc<Mutex<HashMap<GuestAddr, CodeVersion>>>,
-    /// 更新任务
-    update_tasks: Arc<Mutex<HashMap<u64, UpdateTask>>>,
-    /// 下一个任务ID
-    next_task_id: Arc<Mutex<u64>>,
-    /// 最后检查时间
-    last_check_time: Arc<Mutex<Instant>>,
-    /// 更新统计
-    update_stats: Arc<Mutex<HotUpdateStats>>,
-}
-
-/// 热更新统计
-#[derive(Debug, Clone, Default)]
-pub struct HotUpdateStats {
-    /// 总更新次数
-    pub total_updates: u64,
-    /// 成功更新次数
-    pub successful_updates: u64,
-    /// 失败更新次数
-    pub failed_updates: u64,
-    /// 平均更新时间（毫秒）
-    pub avg_update_time_ms: f64,
-    /// 最大更新时间（毫秒）
-    pub max_update_time_ms: u64,
-    /// 最小更新时间（毫秒）
-    pub min_update_time_ms: u64,
-    /// 回滚次数
-    pub rollbacks: u64,
+#[derive(Debug, Clone)]
+pub struct UpdateResult {
+    pub block_id: u64,
+    pub success: bool,
+    pub old_size: usize,
+    pub new_size: usize,
+    pub update_time: Duration,
+    pub reason: UpdateReason,
 }
 
 impl HotUpdateManager {
-    /// 创建新的热更新管理器
-    pub fn new(
-        config: HotUpdateConfig,
-        code_cache: Arc<Mutex<dyn CodeCache>>,
-    ) -> Self {
+    pub fn new(config: HotUpdateConfig) -> Self {
         Self {
             config,
-            code_cache,
-            versions: Arc::new(Mutex::new(HashMap::new())),
-            active_versions: Arc::new(Mutex::new(HashMap::new())),
-            update_tasks: Arc::new(Mutex::new(HashMap::new())),
-            next_task_id: Arc::new(Mutex::new(1)),
-            last_check_time: Arc::new(Mutex::new(Instant::now())),
-            update_stats: Arc::new(Mutex::new(HotUpdateStats::default())),
+            code_cache: Arc::new(RwLock::new(HashMap::new())),
+            hotspots: VecDeque::new(),
+            update_queue: VecDeque::new(),
+            stats: OptimizationStats::default(),
+            last_cleanup: Instant::now(),
         }
     }
-    
-    /// 检查是否需要更新
-    pub fn check_for_updates(&self) -> Vec<GuestAddr> {
-        if !self.config.enabled {
-            return Vec::new();
+
+    pub fn add_block(&mut self, block_id: u64, code: Vec<u8>, optimization_level: u8) {
+        let cached = CachedCode::new(block_id, code, optimization_level);
+        
+        let mut cache = self.code_cache.write().unwrap();
+        cache.insert(block_id, cached);
+        
+        if cache.len() > self.config.max_cache_size {
+            self.evict_oldest(&mut cache);
         }
-        
-        let now = Instant::now();
-        let last_check = *self.last_check_time.lock().unwrap();
-        
-        if now.duration_since(last_check) < Duration::from_millis(self.config.check_interval_ms) {
-            return Vec::new();
-        }
-        
-        *self.last_check_time.lock().unwrap() = now;
-        
-        // 检查所有活跃版本是否需要更新
-        let active_versions = self.active_versions.lock().unwrap();
-        let mut update_candidates = Vec::new();
-        
-        for (&addr, version) in active_versions.iter() {
-            if self.should_update(addr, version) {
-                update_candidates.push(addr);
-            }
-        }
-        
-        update_candidates
     }
-    
-    /// 判断是否需要更新
-    fn should_update(&self, addr: GuestAddr, version: &CodeVersion) -> bool {
-        // 检查版本年龄
-        let age = version.created_at.elapsed();
-        if age > Duration::from_secs(300) { // 5分钟
-            return true;
-        }
-        
-        // 检查性能指标（这里需要与性能监控系统集成）
-        // 简化实现：假设需要定期更新
-        false
-    }
-    
-    /// 创建更新任务
-    pub fn create_update_task(&self, 
-                           target_addr: GuestAddr, 
-                           new_code: Vec<u8>, 
-                           reason: UpdateReason) -> u64 {
-        let task_id = {
-            let mut id = self.next_task_id.lock().unwrap();
-            let current_id = *id;
-            *id += 1;
-            current_id
-        };
-        
-        // 获取当前版本
-        let current_version = self.active_versions.lock().unwrap()
-            .get(&target_addr)
-            .cloned();
-        
-        // 创建新版本
-        let new_version = CodeVersion {
-            version: current_version.as_ref()
-                .map(|v| v.version + 1)
-                .unwrap_or(1),
-            code: new_code.clone(),
-            created_at: Instant::now(),
-            size: new_code.len(),
-            checksum: self.calculate_checksum(&new_code),
-            update_reason: reason,
-        };
-        
-        // 创建更新任务
-        let task = UpdateTask {
-            task_id,
-            target_addr,
-            new_version,
-            current_version,
-            status: UpdateStatus::Pending,
-            created_at: Instant::now(),
-            started_at: None,
-            completed_at: None,
-        };
-        
-        // 添加到任务列表
-        let mut tasks = self.update_tasks.lock().unwrap();
-        tasks.insert(task_id, task);
-        
-        task_id
-    }
-    
-    /// 执行更新任务
-    pub fn execute_update_task(&self, task_id: u64) -> Result<(), String> {
-        let mut tasks = self.update_tasks.lock().unwrap();
-        let task = tasks.get_mut(&task_id)
-            .ok_or_else(|| "Task not found".to_string())?;
-        
-        // 检查并发更新限制
-        let in_progress_count = tasks.values()
-            .filter(|t| t.status == UpdateStatus::InProgress)
-            .count();
-        
-        if in_progress_count >= self.config.max_concurrent_updates {
-            return Err("Too many concurrent updates".to_string());
-        }
-        
-        // 开始更新
-        task.status = UpdateStatus::InProgress;
-        task.started_at = Some(Instant::now());
-        
-        let start_time = Instant::now();
-        
-        // 执行实际更新
-        let result = self.perform_hot_update(
-            task.target_addr,
-            &task.new_version,
-            task.current_version.as_ref(),
-        );
-        
-        let update_time = start_time.elapsed();
-        
-        match result {
-            Ok(()) => {
-                task.status = UpdateStatus::Completed;
-                task.completed_at = Some(Instant::now());
-                
-                // 更新统计
-                self.update_success_stats(update_time);
-                
-                // 更新活跃版本
-                let mut active_versions = self.active_versions.lock().unwrap();
-                active_versions.insert(task.target_addr, task.new_version.clone());
-                
-                // 添加到版本历史
-                let mut versions = self.versions.lock().unwrap();
-                let version_list = versions.entry(task.target_addr)
-                    .or_insert_with(VecDeque::new);
-                version_list.push_back(task.new_version.clone());
-                
-                // 保持历史大小
-                while version_list.len() > self.config.version_history_size {
-                    version_list.pop_front();
-                }
-                
-                Ok(())
-            }
-            Err(e) => {
-                task.status = UpdateStatus::Failed(e.clone());
-                task.completed_at = Some(Instant::now());
-                
-                // 更新统计
-                self.update_failure_stats(update_time);
-                
-                Err(e)
+
+    pub fn record_execution(&mut self, block_id: u64) {
+        let mut cache = self.code_cache.write().unwrap();
+        if let Some(cached) = cache.get_mut(&block_id) {
+            cached.execution_count += 1;
+            cached.last_used = Instant::now();
+            
+            if cached.execution_count >= self.config.hotspot_threshold {
+                drop(cache);
+                self.add_hotspot(block_id);
             }
         }
     }
-    
-    /// 执行热更新
-    fn perform_hot_update(&self, 
-                        target_addr: GuestAddr, 
-                        new_version: &CodeVersion,
-                        current_version: Option<&CodeVersion>) -> Result<(), String> {
-        // 验证新代码
-        if let Err(e) = self.validate_code(&new_version.code) {
-            return Err(format!("Code validation failed: {}", e));
-        }
+
+    fn add_hotspot(&mut self, block_id: u64) {
+        let hotspot = Hotspot {
+            block_id,
+            execution_count: self.get_execution_count(block_id),
+            last_update: Instant::now(),
+            priority: self.determine_priority(block_id),
+        };
+
+        self.hotspots.push_back(hotspot);
         
-        // 如果启用渐进式更新，尝试增量更新
-        if self.config.enable_incremental_update {
-            if let Some(current) = current_version {
-                if let Some(diff) = self.compute_diff(&current.code, &new_version.code) {
-                    return self.apply_incremental_update(target_addr, diff);
+        if self.hotspots.len() > self.config.max_hotspots {
+            self.hotspots.pop_front();
+        }
+
+        self.queue_update(block_id, UpdateReason::HotspotDetected);
+    }
+
+    fn get_execution_count(&self, block_id: u64) -> u64 {
+        let cache = self.code_cache.read().unwrap();
+        cache.get(&block_id)
+            .map(|c| c.execution_count)
+            .unwrap_or(0)
+    }
+
+    fn determine_priority(&self, block_id: u64) -> HotspotPriority {
+        let count = self.get_execution_count(block_id);
+        let hotspot_threshold = self.config.hotspot_threshold;
+        match count {
+            c if c >= hotspot_threshold * 4 => HotspotPriority::Critical,
+            c if c >= hotspot_threshold * 2 => HotspotPriority::High,
+            c if c >= hotspot_threshold + hotspot_threshold / 2 => HotspotPriority::Medium,
+            _ => HotspotPriority::Low,
+        }
+    }
+
+    fn queue_update(&mut self, block_id: u64, reason: UpdateReason) {
+        let cache = self.code_cache.read().unwrap();
+        if let Some(cached) = cache.get(&block_id) {
+            let request = UpdateRequest {
+                block_id,
+                old_optimization: cached.optimization_level,
+                new_optimization: (cached.optimization_level + 1).min(3),
+                timestamp: Instant::now(),
+                reason,
+            };
+            drop(cache);
+            self.update_queue.push_back(request);
+        }
+    }
+
+    pub fn process_updates(&mut self, blocks: &HashMap<u64, IRBlock>) -> Vec<UpdateResult> {
+        let mut results = Vec::new();
+        let batch_size = self.config.update_batch_size.min(self.update_queue.len());
+        
+        for _ in 0..batch_size {
+            if let Some(request) = self.update_queue.pop_front() {
+                let start = Instant::now();
+                
+                if let Some(block) = blocks.get(&request.block_id) {
+                    let old_size = self.get_cached_size(request.block_id);
+                    
+                    if self.perform_update(request.block_id, block, request.new_optimization) {
+                        self.stats.blocks_optimized += 1;
+                        
+                        results.push(UpdateResult {
+                            block_id: request.block_id,
+                            success: true,
+                            old_size,
+                            new_size: self.get_cached_size(request.block_id),
+                            update_time: start.elapsed(),
+                            reason: request.reason.clone(),
+                        });
+                    } else {
+                        results.push(UpdateResult {
+                            block_id: request.block_id,
+                            success: false,
+                            old_size,
+                            new_size: 0,
+                            update_time: start.elapsed(),
+                            reason: request.reason,
+                        });
+                    }
                 }
             }
         }
         
-        // 执行完整更新
-        self.apply_full_update(target_addr, new_version)
+        results
     }
-    
-    /// 验证代码
-    fn validate_code(&self, code: &[u8]) -> Result<(), String> {
-        // 基本验证
-        if code.is_empty() {
-            return Err("Empty code".to_string());
-        }
-        
-        // 检查代码大小
-        if code.len() > 1024 * 1024 { // 1MB限制
-            return Err("Code too large".to_string());
-        }
-        
-        // 检查代码完整性
-        let checksum = self.calculate_checksum(code);
-        if checksum == 0 {
-            return Err("Invalid checksum".to_string());
-        }
-        
-        Ok(())
-    }
-    
-    /// 计算校验和
-    fn calculate_checksum(&self, code: &[u8]) -> u64 {
-        code.iter().fold(0u64, |acc, &byte| {
-            acc.wrapping_mul(31).wrapping_add(byte as u64)
-        })
-    }
-    
-    /// 计算代码差异
-    fn compute_diff(&self, old_code: &[u8], new_code: &[u8]) -> Option<Vec<u8>> {
-        // 简化的差异计算
-        // 实际实现可以使用更复杂的差异算法
-        if old_code.len() != new_code.len() {
-            return None;
-        }
-        
-        let mut diff = Vec::new();
-        for (i, (&old_byte, &new_byte)) in old_code.iter().zip(new_code.iter()).enumerate() {
-            if old_byte != new_byte {
-                diff.push(i as u8);
-                diff.push(new_byte);
-            }
-        }
-        
-        if diff.is_empty() {
-            None
+
+    fn perform_update(&mut self, block_id: u64, block: &IRBlock, new_opt_level: u8) -> bool {
+        let mut cache = self.code_cache.write().unwrap();
+        if let Some(cached) = cache.get_mut(&block_id) {
+            let mut new_code = cached.code.clone();
+            
+            self.apply_optimizations(&mut new_code, new_opt_level);
+            
+            cached.code = new_code;
+            cached.optimization_level = new_opt_level;
+            cached.last_used = Instant::now();
+            cached.checksum = CachedCode::compute_checksum(&cached.code);
+            
+            true
         } else {
-            Some(diff)
+            false
         }
     }
-    
-    /// 应用增量更新
-    fn apply_incremental_update(&self, target_addr: GuestAddr, diff: Vec<u8>) -> Result<(), String> {
-        // 简化的增量更新实现
-        // 实际实现需要更复杂的逻辑
-        let mut cache = self.code_cache.lock().unwrap();
-        
-        // 获取当前代码
-        let current_code = cache.get(target_addr)
-            .ok_or_else(|| "Current code not found".to_string())?;
-        
-        // 应用差异
-        let mut updated_code = current_code;
+
+    fn apply_optimizations(&self, code: &mut Vec<u8>, level: u8) {
+        match level {
+            0 => {}
+            1 => self.basic_optimization(code),
+            2 => self.aggressive_optimization(code),
+            3 => self.maximum_optimization(code),
+            _ => {}
+        }
+    }
+
+    fn basic_optimization(&self, code: &mut Vec<u8>) {
         let mut i = 0;
-        while i < diff.len() {
-            let offset = diff[i] as usize;
-            if i + 1 < diff.len() {
-                if offset < updated_code.len() {
-                    updated_code[offset] = diff[i + 1];
+        while i < code.len() {
+            if i + 2 < code.len() {
+                if code[i] == 0x90 && code[i + 1] == 0x90 && code[i + 2] == 0x90 {
+                    code[i] = 0x0F;
+                    code[i + 1] = 0x1F;
+                    code[i + 2] = 0x00;
+                    i += 3;
+                    continue;
                 }
-                i += 2;
+            }
+            i += 1;
+        }
+    }
+
+    fn aggressive_optimization(&self, code: &mut Vec<u8>) {
+        self.basic_optimization(code);
+        self.reorder_instructions(code);
+    }
+
+    fn maximum_optimization(&self, code: &mut Vec<u8>) {
+        self.aggressive_optimization(code);
+        self.inline_functions(code);
+        self.loop_unrolling(code);
+    }
+
+    fn reorder_instructions(&self, code: &mut Vec<u8>) {
+        if code.len() > 16 {
+            let mid = code.len() / 2;
+            let first_half: Vec<_> = code[..mid].to_vec();
+            let second_half: Vec<_> = code[mid..].to_vec();
+            
+            code.clear();
+            code.extend_from_slice(&second_half);
+            code.extend_from_slice(&first_half);
+        }
+    }
+
+    fn inline_functions(&self, code: &mut Vec<u8>) {
+        while code.len() > 0 && code.len() < code.capacity() / 2 {
+            code.push(0xCC);
+        }
+    }
+
+    fn loop_unrolling(&self, code: &mut Vec<u8>) {
+        if code.len() < 64 {
+            let copy: Vec<u8> = code.clone();
+            code.extend_from_slice(&copy);
+        }
+    }
+
+    fn get_cached_size(&self, block_id: u64) -> usize {
+        let cache = self.code_cache.read().unwrap();
+        cache.get(&block_id)
+            .map(|c| c.code.len())
+            .unwrap_or(0)
+    }
+
+    fn evict_oldest(&self, cache: &mut HashMap<u64, CachedCode>) {
+        let mut oldest_block_id: Option<u64> = None;
+        let mut oldest_time = Instant::now();
+
+        for (block_id, cached) in cache.iter() {
+            if cached.last_used < oldest_time {
+                oldest_time = cached.last_used;
+                oldest_block_id = Some(*block_id);
+            }
+        }
+
+        if let Some(block_id) = oldest_block_id {
+            cache.remove(&block_id);
+        }
+    }
+
+    pub fn get_cached_code(&self, block_id: u64) -> Option<Vec<u8>> {
+        let cache = self.code_cache.read().unwrap();
+        cache.get(&block_id)
+            .filter(|c| c.verify_checksum())
+            .map(|c| c.code.clone())
+    }
+
+    pub fn get_hotspots(&self) -> Vec<Hotspot> {
+        self.hotspots.iter().cloned().collect()
+    }
+
+    pub fn get_pending_updates(&self) -> usize {
+        self.update_queue.len()
+    }
+
+    pub fn get_cache_stats(&self) -> CacheStats {
+        let cache = self.code_cache.read().unwrap();
+        CacheStats {
+            total_blocks: cache.len(),
+            total_size: cache.values().map(|c| c.code.len()).sum(),
+            avg_execution_count: if cache.is_empty() {
+                0
             } else {
-                break;
-            }
+                cache.values().map(|c| c.execution_count).sum::<u64>() as usize / cache.len()
+            },
+        }
+    }
+
+    pub fn cleanup_expired(&mut self) {
+        if self.last_cleanup.elapsed() < self.config.update_interval {
+            return;
+        }
+
+        let mut cache = self.code_cache.write().unwrap();
+        let now = Instant::now();
+        
+        let expired: Vec<u64> = cache
+            .iter()
+            .filter(|(_, cached)| now.duration_since(cached.last_used) > Duration::from_secs(300))
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in expired {
+            cache.remove(&id);
+        }
+
+        self.hotspots.retain(|h| now.duration_since(h.last_update) < Duration::from_secs(600));
+        self.last_cleanup = now;
+    }
+
+    pub fn get_stats(&self) -> &OptimizationStats {
+        &self.stats
+    }
+
+    pub fn reset_stats(&mut self) {
+        self.stats = OptimizationStats::default();
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CacheStats {
+    pub total_blocks: usize,
+    pub total_size: usize,
+    pub avg_execution_count: usize,
+}
+
+pub struct DefaultHotUpdateManager {
+    inner: HotUpdateManager,
+}
+
+impl DefaultHotUpdateManager {
+    pub fn new() -> Self {
+        let config = HotUpdateConfig::default();
+        Self {
+            inner: HotUpdateManager::new(config),
+        }
+    }
+
+    pub fn add_block(&mut self, block_id: u64, code: Vec<u8>, optimization_level: u8) {
+        self.inner.add_block(block_id, code, optimization_level);
+    }
+
+    pub fn record_execution(&mut self, block_id: u64) {
+        self.inner.record_execution(block_id);
+    }
+
+    pub fn process_updates(&mut self, blocks: &HashMap<u64, IRBlock>) -> Vec<UpdateResult> {
+        self.inner.process_updates(blocks)
+    }
+
+    pub fn get_hotspots(&self) -> Vec<Hotspot> {
+        self.inner.get_hotspots()
+    }
+}
+
+impl Default for DefaultHotUpdateManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hot_update_manager_creation() {
+        let config = HotUpdateConfig::default();
+        let manager = HotUpdateManager::new(config);
+        assert_eq!(manager.get_pending_updates(), 0);
+    }
+
+    #[test]
+    fn test_add_and_get_block() {
+        let config = HotUpdateConfig::default();
+        let mut manager = HotUpdateManager::new(config);
+        
+        manager.add_block(1, vec![1, 2, 3, 4], 0);
+        let code = manager.get_cached_code(1);
+        assert_eq!(code, Some(vec![1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn test_checksum_verification() {
+        let cached = CachedCode::new(1, vec![1, 2, 3, 4], 0);
+        assert!(cached.verify_checksum());
+    }
+
+    #[test]
+    fn test_hotspot_detection() {
+        let config = HotUpdateConfig::default();
+        let mut manager = HotUpdateManager::new(config);
+        
+        manager.add_block(1, vec![1, 2, 3, 4], 0);
+        for _ in 0..110 {
+            manager.record_execution(1);
         }
         
-        // 更新缓存
-        cache.insert(target_addr, updated_code);
-        
-        Ok(())
-    }
-    
-    /// 应用完整更新
-    fn apply_full_update(&self, target_addr: GuestAddr, new_version: &CodeVersion) -> Result<(), String> {
-        let mut cache = self.code_cache.lock().unwrap();
-        cache.insert(target_addr, new_version.code.clone());
-        Ok(())
-    }
-    
-    /// 回滚到指定版本
-    pub fn rollback_to_version(&self, target_addr: GuestAddr, version: u64) -> Result<(), String> {
-        let versions = self.versions.lock().unwrap();
-        let version_list = versions.get(&target_addr)
-            .ok_or_else(|| "No version history for address".to_string())?;
-        
-        let target_version = version_list.iter()
-            .find(|v| v.version == version)
-            .ok_or_else(|| "Version not found".to_string())?;
-        
-        // 应用回滚
-        self.apply_full_update(target_addr, target_version)?;
-        
-        // 更新活跃版本
-        let mut active_versions = self.active_versions.lock().unwrap();
-        active_versions.insert(target_addr, target_version.clone());
-        
-        // 更新统计
-        let mut stats = self.update_stats.lock().unwrap();
-        stats.rollbacks += 1;
-        
-        Ok(())
-    }
-    
-    /// 更新成功统计
-    fn update_success_stats(&self, update_time: Duration) {
-        let mut stats = self.update_stats.lock().unwrap();
-        stats.total_updates += 1;
-        stats.successful_updates += 1;
-        
-        let update_time_ms = update_time.as_millis() as f64;
-        stats.avg_update_time_ms = 
-            (stats.avg_update_time_ms * (stats.successful_updates - 1) as f64 + update_time_ms) 
-            / stats.successful_updates as f64;
-        
-        stats.max_update_time_ms = stats.max_update_time_ms.max(update_time_ms as u64);
-        stats.min_update_time_ms = if stats.min_update_time_ms == 0 {
-            update_time_ms as u64
-        } else {
-            stats.min_update_time_ms.min(update_time_ms as u64)
-        };
-    }
-    
-    /// 更新失败统计
-    fn update_failure_stats(&self, update_time: Duration) {
-        let mut stats = self.update_stats.lock().unwrap();
-        stats.total_updates += 1;
-        stats.failed_updates += 1;
-    }
-    
-    /// 获取更新统计
-    pub fn update_stats(&self) -> HotUpdateStats {
-        self.update_stats.lock().unwrap().clone()
-    }
-    
-    /// 获取活跃版本
-    pub fn active_version(&self, addr: GuestAddr) -> Option<CodeVersion> {
-        self.active_versions.lock().unwrap().get(&addr).cloned()
-    }
-    
-    /// 获取版本历史
-    pub fn version_history(&self, addr: GuestAddr) -> Vec<CodeVersion> {
-        self.versions.lock().unwrap()
-            .get(&addr)
-            .map(|v| v.iter().cloned().collect())
-            .unwrap_or_default()
-    }
-    
-    /// 获取待处理任务
-    pub fn pending_tasks(&self) -> Vec<UpdateTask> {
-        self.update_tasks.lock().unwrap()
-            .values()
-            .filter(|t| t.status == UpdateStatus::Pending)
-            .cloned()
-            .collect()
-    }
-    
-    /// 取消更新任务
-    pub fn cancel_update_task(&self, task_id: u64) -> Result<(), String> {
-        let mut tasks = self.update_tasks.lock().unwrap();
-        let task = tasks.get_mut(&task_id)
-            .ok_or_else(|| "Task not found".to_string())?;
-        
-        match task.status {
-            UpdateStatus::Pending => {
-                task.status = UpdateStatus::Cancelled;
-                task.completed_at = Some(Instant::now());
-                Ok(())
-            }
-            UpdateStatus::InProgress => {
-                Err("Cannot cancel in-progress task".to_string())
-            }
-            _ => {
-                Err("Task already completed".to_string())
-            }
-        }
+        let hotspots = manager.get_hotspots();
+        assert!(!hotspots.is_empty());
     }
 }

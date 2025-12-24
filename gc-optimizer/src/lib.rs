@@ -4,15 +4,20 @@
 //! - Lock-free write barriers using atomic operations
 //! - Parallel marking with work stealing
 //! - Adaptive quota management
+//! - Incremental garbage collection
+//! - Generational garbage collection
 //! - Statistics and monitoring
 
 use parking_lot::RwLock;
+
+pub mod incremental;
+pub mod generational;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 /// Result type for GC operations
-pub type GcResult = Result<(), GcError>;
+pub type GcResult<T> = Result<T, GcError>;
 
 /// GC error types
 #[derive(Debug, Clone)]
@@ -326,7 +331,7 @@ impl OptimizedGc {
     }
 
     /// Perform minor collection
-    pub fn collect_minor(&self, bytes_collected: u64) -> GcResult {
+    pub fn collect_minor(&self, bytes_collected: u64) -> GcResult<()> {
         let start = Instant::now();
 
         // Mark phase
@@ -357,7 +362,7 @@ impl OptimizedGc {
     }
 
     /// Perform major collection
-    pub fn collect_major(&self, bytes_collected: u64) -> GcResult {
+    pub fn collect_major(&self, bytes_collected: u64) -> GcResult<()> {
         let start = Instant::now();
 
         // Full marking
