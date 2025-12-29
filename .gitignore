@@ -16,6 +16,20 @@ Cargo.lock
 # Logs
 *.log
 
+# Temporary analysis and report files
+CLIPPY_COMPARISON.txt
+FEATURE_*.txt
+OPTIMIZATION_*.txt
+OPTIMIZATION_*.md
+CROSS_ARCH_*.txt
+TASK_*.txt
+warning_locations.txt
+VM_SERVICE_FIX_FILES.txt
+
+# Temporary fix scripts
+fix_*.py
+fix_*.sh
+
 # Temporary files
 *.tmp
 *.bak
