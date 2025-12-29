@@ -710,7 +710,7 @@ impl JITPerformanceAnalyzer {
 
     /// 收集性能数据
     pub fn collect_performance_data(&self, jit_engine: &JITEngine) -> Result<(), String> {
-        let mut current_data = self.current_data.lock().map_err(|e| e.to_string())?;
+        let mut current_data = self.current_data.lock())?;
         
         // 更新时间戳
         current_data.timestamp = std::time::SystemTime::now();
@@ -740,8 +740,8 @@ impl JITPerformanceAnalyzer {
 
     /// 保存当前数据点到历史
     pub fn save_data_point(&self) -> Result<(), String> {
-        let current_data = self.current_data.lock().map_err(|e| e.to_string())?.clone();
-        let mut history = self.performance_history.lock().map_err(|e| e.to_string())?;
+        let current_data = self.current_data.lock())?.clone();
+        let mut history = self.performance_history.lock())?;
         
         // 添加到历史
         history.push_back(current_data);
@@ -756,7 +756,7 @@ impl JITPerformanceAnalyzer {
 
     /// 生成性能报告
     pub fn generate_report(&self) -> Result<PerformanceReport, String> {
-        let history_guard = self.performance_history.lock().map_err(|e| e.to_string())?;
+        let history_guard = self.performance_history.lock())?;
         let history: Vec<PerformanceDataPoint> = history_guard.iter().cloned().collect();
         drop(history_guard);
         

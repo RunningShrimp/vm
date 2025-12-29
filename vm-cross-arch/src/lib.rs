@@ -119,6 +119,8 @@ mod adaptive_optimizer;
 mod block_cache;
 mod cache_optimizer;
 mod encoder;
+pub mod enhanced_block_cache;
+pub mod fast_path;
 mod instruction_parallelism;
 mod instruction_patterns;
 mod ir_optimizer;
@@ -185,6 +187,10 @@ pub use cross_arch_runtime::{
     JitIntegrationConfig,
 };
 pub use encoder::{ArchEncoder, Arm64Encoder, PowerPCEncoder, Riscv64Encoder, X86_64Encoder};
+pub use fast_path::{
+    CachedTargetInsn, FastPathStats, FastPathTranslator, SourceInsnKey,
+    TranslatorWithFastPath,
+};
 pub use instruction_parallelism::{
     DependencyEdge, DependencyType, InstructionNode, InstructionParallelizer, ParallelGroup,
     ParallelismStats, ResourceRequirements,

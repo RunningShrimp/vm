@@ -1,14 +1,25 @@
+//! 异步中断处理系统
+//!
+//! 提供异步中断队列、优先级管理和异步中断处理器
+//!
+//! 此模块需要 `async` feature 支持。
+
+#[cfg(feature = "async")]
 use parking_lot::RwLock;
+#[cfg(feature = "async")]
 use std::cmp::Ordering;
+#[cfg(feature = "async")]
 use std::collections::BinaryHeap;
-/// 异步中断处理系统
-///
-/// 提供异步中断队列、优先级管理和异步中断处理器
+#[cfg(feature = "async")]
 use std::sync::Arc;
+
+// Tokio async primitives (only available with async feature)
+#[cfg(feature = "async")]
 use tokio::sync::mpsc;
 
 /// 中断优先级
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(feature = "async")]
 pub enum InterruptPriority {
     /// 低优先级 (例如定时器)
     Low = 1,
@@ -20,12 +31,14 @@ pub enum InterruptPriority {
     Critical = 4,
 }
 
+#[cfg(feature = "async")]
 impl PartialOrd for InterruptPriority {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
+#[cfg(feature = "async")]
 impl Ord for InterruptPriority {
     fn cmp(&self, other: &Self) -> Ordering {
         (*self as i32).cmp(&(*other as i32))
@@ -34,6 +47,7 @@ impl Ord for InterruptPriority {
 
 /// 中断类型
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "async")]
 pub enum InterruptType {
     /// 系统调用
     Syscall(u32),
@@ -53,6 +67,7 @@ pub enum InterruptType {
 
 /// 中断请求
 #[derive(Clone, Debug)]
+#[cfg(feature = "async")]
 pub struct Interrupt {
     /// 中断类型
     pub intr_type: InterruptType,
@@ -64,6 +79,7 @@ pub struct Interrupt {
     pub context: Option<Vec<u8>>,
 }
 
+#[cfg(feature = "async")]
 impl Interrupt {
     /// 创建新中断
     pub fn new(intr_type: InterruptType, priority: InterruptPriority) -> Self {
@@ -80,20 +96,24 @@ impl Interrupt {
 }
 
 /// 实现排序特性（用于优先级队列）
+#[cfg(feature = "async")]
 impl PartialEq for Interrupt {
     fn eq(&self, other: &Self) -> bool {
         self.timestamp_ns == other.timestamp_ns
     }
 }
 
+#[cfg(feature = "async")]
 impl Eq for Interrupt {}
 
+#[cfg(feature = "async")]
 impl PartialOrd for Interrupt {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
+#[cfg(feature = "async")]
 impl Ord for Interrupt {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap_or(Ordering::Equal)
@@ -102,6 +122,7 @@ impl Ord for Interrupt {
 
 /// 中断处理器结果
 #[derive(Clone, Debug)]
+#[cfg(feature = "async")]
 pub enum InterruptHandlerResult {
     /// 中断已处理
     Handled,
@@ -112,6 +133,7 @@ pub enum InterruptHandlerResult {
 }
 
 /// 异步中断处理器
+#[cfg(feature = "async")]
 pub type AsyncInterruptHandler = Box<
     dyn Fn(
             Interrupt,
@@ -122,6 +144,7 @@ pub type AsyncInterruptHandler = Box<
 >;
 
 /// 异步中断队列
+#[cfg(feature = "async")]
 pub struct AsyncInterruptQueue {
     /// 中断优先级队列
     queue: Arc<parking_lot::Mutex<BinaryHeap<Interrupt>>>,
@@ -135,6 +158,7 @@ pub struct AsyncInterruptQueue {
 
 /// 中断队列统计
 #[derive(Clone, Debug, Default)]
+#[cfg(feature = "async")]
 pub struct InterruptStats {
     /// 处理的中断总数
     pub total_handled: u64,
@@ -151,6 +175,7 @@ type InterruptHandler = Box<dyn Fn(Interrupt) + Send + Sync>;
 /// 中断处理器列表类型
 type InterruptHandlerList = Arc<RwLock<Vec<(InterruptType, InterruptHandler)>>>;
 
+#[cfg(feature = "async")]
 impl AsyncInterruptQueue {
     /// 创建新的异步中断队列
     pub fn new() -> Self {
@@ -274,6 +299,7 @@ impl AsyncInterruptQueue {
     }
 }
 
+#[cfg(feature = "async")]
 impl Default for AsyncInterruptQueue {
     fn default() -> Self {
         Self::new()
@@ -284,6 +310,7 @@ impl Default for AsyncInterruptQueue {
 mod tests {
     use super::*;
 
+#[cfg(feature = "async")]
     #[test]
     fn test_interrupt_priority() {
         assert!(InterruptPriority::Critical > InterruptPriority::High);
@@ -291,6 +318,7 @@ mod tests {
         assert!(InterruptPriority::Normal > InterruptPriority::Low);
     }
 
+#[cfg(feature = "async")]
     #[test]
     fn test_interrupt_creation() {
         let intr = Interrupt::new(InterruptType::Timer, InterruptPriority::Normal);

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use vm_core::{GuestAddr, VmError};
 use vm_ir::IRBlock;
 
@@ -103,57 +104,32 @@ impl TieredJITCompiler {
     /// Helper method to lock tiered_cache
     fn lock_tiered_cache(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, crate::jit::tiered_cache::TieredCodeCache>, VmError> {
-        self.tiered_cache.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Concurrency {
-                message: "Lock poisoned for tiered_cache".to_string(),
-                operation: "lock".to_string(),
-            })
-        })
+    ) -> Result<parking_lot::MutexGuard<'_, crate::jit::tiered_cache::TieredCodeCache>, VmError> {
+        Ok(self.tiered_cache.lock())
     }
 
     /// Helper method to lock compilation_states
     fn lock_compilation_states(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<GuestAddr, CompilationState>>, VmError> {
-        self.compilation_states.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Concurrency {
-                message: "Lock poisoned for compilation_states".to_string(),
-                operation: "lock".to_string(),
-            })
-        })
+    ) -> Result<parking_lot::MutexGuard<'_, HashMap<GuestAddr, CompilationState>>, VmError> {
+        Ok(self.compilation_states.lock())
     }
 
     /// Helper method to lock execution_counters
     fn lock_execution_counters(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<GuestAddr, ExecutionInfo>>, VmError> {
-        self.execution_counters.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Concurrency {
-                message: "Lock poisoned for execution_counters".to_string(),
-                operation: "lock".to_string(),
-            })
-        })
+    ) -> Result<parking_lot::MutexGuard<'_, HashMap<GuestAddr, ExecutionInfo>>, VmError> {
+        Ok(self.execution_counters.lock())
     }
 
     /// Helper method to lock interpreter
-    fn lock_interpreter(&self) -> Result<std::sync::MutexGuard<'_, Interpreter>, VmError> {
-        self.interpreter.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Concurrency {
-                message: "Lock poisoned for interpreter".to_string(),
-                operation: "lock".to_string(),
-            })
-        })
+    fn lock_interpreter(&self) -> Result<parking_lot::MutexGuard<'_, Interpreter>, VmError> {
+        Ok(self.interpreter.lock())
     }
 
     /// Helper method to lock hotspot_detector
-    fn lock_hotspot_detector(&self) -> Result<std::sync::MutexGuard<'_, HotspotDetector>, VmError> {
-        self.hotspot_detector.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Concurrency {
-                message: "Lock poisoned for hotspot_detector".to_string(),
-                operation: "lock".to_string(),
-            })
-        })
+    fn lock_hotspot_detector(&self) -> Result<parking_lot::MutexGuard<'_, HotspotDetector>, VmError> {
+        Ok(self.hotspot_detector.lock())
     }
 
     /// 执行代码块，自动选择执行层级
@@ -234,12 +210,7 @@ impl TieredJITCompiler {
 
     /// 编译到基础JIT（Tier 2）
     fn compile_baseline(&mut self, block: &IRBlock) -> Result<TieredCompilationResult, VmError> {
-        let mut compiler = self.baseline_jit.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Concurrency {
-                message: "Lock poisoned for baseline_jit".to_string(),
-                operation: "lock".to_string(),
-            })
-        })?;
+        let mut compiler = self.baseline_jit.lock();
         let compiled = compiler.compile(block)?;
 
         // 更新编译状态
@@ -271,12 +242,7 @@ impl TieredJITCompiler {
 
     /// 编译到优化JIT（Tier 3）
     fn compile_optimized(&mut self, block: &IRBlock) -> Result<TieredCompilationResult, VmError> {
-        let mut compiler = self.optimized_jit.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Concurrency {
-                message: "Lock poisoned for optimized_jit".to_string(),
-                operation: "lock".to_string(),
-            })
-        })?;
+        let mut compiler = self.optimized_jit.lock();
         let compiled = compiler.compile(block)?;
 
         // 更新编译状态

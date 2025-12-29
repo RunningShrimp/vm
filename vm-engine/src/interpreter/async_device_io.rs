@@ -9,9 +9,11 @@ use parking_lot::Mutex;
 #[cfg(feature = "async")]
 use std::sync::Arc;
 #[cfg(feature = "async")]
-use tokio::sync::mpsc;
-#[cfg(feature = "async")]
 use vm_core::{GuestAddr, MMU, VmError};
+
+// Tokio async primitives (only available with async feature)
+#[cfg(feature = "async")]
+use tokio::sync::mpsc;
 
 /// 异步设备I/O管理器
 ///

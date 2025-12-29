@@ -3,7 +3,7 @@
 //! 实现智能的TLB刷新策略，减少不必要的刷新操作
 
 use crate::GuestAddr;
-use crate::tlb::per_cpu_tlb::PerCpuTlbManager;
+use crate::tlb::core::per_cpu::PerCpuTlbManager;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -1921,7 +1921,7 @@ impl TlbFlushManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tlb::per_cpu_tlb::PerCpuTlbManager;
+    use crate::tlb::core::per_cpu::PerCpuTlbManager;
 
     #[test]
     fn test_flush_request_creation() {

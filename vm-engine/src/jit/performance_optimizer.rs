@@ -89,14 +89,14 @@ impl PerformanceOptimizer {
     }
 
     /// 辅助方法：获取统计数据的锁
-    fn acquire_stats(&self) -> Result<std::sync::MutexGuard<PerformanceOptimizationStats>, VmError> {
+    fn acquire_stats(&self) -> Result<parking_lot::MutexGuard<PerformanceOptimizationStats>, VmError> {
         self.stats
             .lock()
             .map_err(|e| VmError::InternalError(format!("Failed to acquire stats lock: {}", e)))
     }
 
     /// 辅助方法：获取性能历史的锁
-    fn acquire_performance_history(&self) -> Result<std::sync::MutexGuard<Vec<f64>>, VmError> {
+    fn acquire_performance_history(&self) -> Result<parking_lot::MutexGuard<Vec<f64>>, VmError> {
         self.performance_history
             .lock()
             .map_err(|e| VmError::InternalError(format!("Failed to acquire performance history lock: {}", e)))

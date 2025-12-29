@@ -113,9 +113,10 @@ pub mod jit_execution {
 
         pub fn update_snapshot(&self, step: usize) {
             if step.is_multiple_of(1000)
-                && let Ok(mut snapshot) = self.adaptive_snapshot.lock() {
-                    *snapshot = Some(AdaptiveThresholdStats::default());
-                }
+                && let Ok(mut snapshot) = self.adaptive_snapshot.lock()
+            {
+                *snapshot = Some(AdaptiveThresholdStats::default());
+            }
         }
     }
 
@@ -227,10 +228,9 @@ pub mod async_execution {
                         tdebug!(step=?step, pc=?pc, "service:run_async_tick");
                     }
 
-                    if hybrid
-                        && let Some(jit_state) = &ctx.perf_state.jit {
-                            jit_state.update_snapshot(step);
-                        }
+                    if hybrid && let Some(jit_state) = &ctx.perf_state.jit {
+                        jit_state.update_snapshot(step);
+                    }
 
                     pc = res.next_pc;
                 }
@@ -300,7 +300,10 @@ pub mod async_execution {
                     };
 
                     if params.debug && step % 1000 == 0 {
-                        debug!("[CPU {} Async Step {}] PC={:#x}", params.cpu_id, step, thread_pc);
+                        debug!(
+                            "[CPU {} Async Step {}] PC={:#x}",
+                            params.cpu_id, step, thread_pc
+                        );
                         tdebug!(cpu=?params.cpu_id, step=?step, pc=?thread_pc, "service:run_async_tick_cpu");
                     }
                     thread_pc = res.next_pc;
@@ -697,9 +700,10 @@ fn run_multi_vcpu_sync(
 ) -> VmResult<()> {
     // 尝试使用协程调度器
     if let Some(coroutine_state) = &ctx.perf_state.coroutine
-        && coroutine_state.has_scheduler() {
-            return run_with_coroutine_scheduler(ctx, pc, base_mmu, debug, vcpu_count, max_steps);
-        }
+        && coroutine_state.has_scheduler()
+    {
+        return run_with_coroutine_scheduler(ctx, pc, base_mmu, debug, vcpu_count, max_steps);
+    }
 
     // 回退到tokio::spawn
     let rt_result = tokio::runtime::Handle::try_current();
@@ -873,10 +877,7 @@ fn run_with_new_runtime(
 }
 
 /// 单个vCPU的异步执行任务
-async fn execute_vcpu_task(
-    mut local_mmu: vm_mem::SoftMmu,
-    params: VcpuExecuteParams,
-) {
+async fn execute_vcpu_task(mut local_mmu: vm_mem::SoftMmu, params: VcpuExecuteParams) {
     let mut interp = Interpreter::new();
     interp.set_reg(0, 0);
     let mut decoder = decoder_factory::create_decoder(params.guest_arch);

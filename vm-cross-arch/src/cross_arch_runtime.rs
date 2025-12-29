@@ -59,12 +59,14 @@ pub mod gc_integration {
     impl GcState {
         pub fn new(config: GcConfig) -> Result<Self, VmError> {
             let runtime = if config.enable_gc {
-                let gc_config = vm_boot::gc_runtime::GcConfig {
-                    num_workers: num_cpus::get(),
-                    target_pause_us: (config.trigger_threshold * 1_000_000.0) as u64,
-                    barrier_type: vm_optimizers::gc::WriteBarrierType::Atomic,
-                };
-                Some(Arc::new(vm_boot::gc_runtime::GcRuntime::new(gc_config)))
+                let num_workers = num_cpus::get();
+                let target_pause_us = (config.trigger_threshold * 1_000_000.0) as u64;
+                let barrier_type = vm_optimizers::gc::WriteBarrierType::Atomic;
+                Some(Arc::new(vm_boot::gc_runtime::GcRuntime::new(
+                    num_workers,
+                    target_pause_us,
+                    barrier_type,
+                )))
             } else {
                 None
             };
@@ -74,23 +76,16 @@ pub mod gc_integration {
 
         pub fn check_and_run(&self) -> Result<(), VmError> {
             if let Some(ref gc_runtime) = self.runtime {
-                let stats = gc_runtime.get_stats();
-                let trigger_threshold = (self.config.trigger_threshold * 1_000_000.0) as u64;
-
-                if stats.minor_collections + stats.major_collections > trigger_threshold / 1000 {
-                    let bytes_collected = stats.alloc_stats.bytes_used / 2;
-                    if let Err(e) = gc_runtime.collect_minor(bytes_collected) {
-                        tracing::warn!("GC minor collection failed: {:?}", e);
-                    } else {
-                        tracing::debug!("GC minor collection completed");
-                    }
+                // Use the incremental GC step instead of manual collection
+                if gc_runtime.check_and_run_gc_step() {
+                    tracing::debug!("GC step completed");
                 }
             }
             Ok(())
         }
 
         pub fn get_stats(&self) -> Option<GcStats> {
-            self.runtime.as_ref().map(|gc| gc.get_stats())
+            self.runtime.as_ref().map(|gc| gc.get_gc_stats())
         }
 
         pub fn _is_enabled(&self) -> bool {

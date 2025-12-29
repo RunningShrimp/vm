@@ -16,12 +16,17 @@ pub use vm_optimizers::gc::{
     OptimizedGc, ParallelMarker, WriteBarrierType,
 };
 
+/// Re-export incremental GC
+pub use vm_optimizers::gc_incremental::{IncrementalGc, IncrementalPhase, IncrementalProgress};
+
 /// GC runtime manager
 ///
 /// Integrates GC optimization with VM lifecycle management
 pub struct GcRuntime {
     /// Optimized GC collector
     pub gc: Arc<OptimizedGc>,
+    /// Incremental GC collector
+    pub incremental_gc: Arc<IncrementalGc>,
     /// Runtime statistics
     pub stats: Arc<RwLock<GcRuntimeStats>>,
     /// GC enabled flag
@@ -45,8 +50,12 @@ pub struct GcRuntimeStats {
 
 impl GcRuntime {
     pub fn new(num_workers: usize, target_pause_us: u64, barrier_type: WriteBarrierType) -> Self {
+        let gc = Arc::new(OptimizedGc::new(num_workers, target_pause_us, barrier_type));
+        let incremental_gc = Arc::new(IncrementalGc::new(gc.clone()));
+
         Self {
-            gc: Arc::new(OptimizedGc::new(num_workers, target_pause_us, barrier_type)),
+            gc,
+            incremental_gc,
             stats: Arc::new(RwLock::new(GcRuntimeStats::default())),
             enabled: Arc::new(AtomicBool::new(true)),
         }
@@ -65,19 +74,20 @@ impl GcRuntime {
             return false;
         }
 
-        let stats = self.gc.get_stats();
-        let total_allocs = stats.alloc_stats.total_allocs;
-        let bytes_used = stats.alloc_stats.bytes_used;
-
-        let trigger_threshold = 10000u64;
-
-        if total_allocs >= trigger_threshold && self.gc.collect_minor(bytes_used).is_ok() {
-            let mut runtime_stats = self.stats.write();
-            runtime_stats.total_collections += 1;
-            runtime_stats.last_collection_time = Some(Instant::now());
-            return true;
+        // Use incremental GC with small time budget (1ms)
+        match self.incremental_gc.collect_with_budget(1000) {
+            Ok(progress) => {
+                if progress.complete {
+                    let mut runtime_stats = self.stats.write();
+                    runtime_stats.total_collections += 1;
+                    runtime_stats.last_collection_time = Some(Instant::now());
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(_) => false,
         }
-        false
     }
 
     pub fn update_cache_stats(

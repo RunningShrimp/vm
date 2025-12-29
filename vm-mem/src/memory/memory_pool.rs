@@ -2,7 +2,7 @@
 //!
 //! 为频繁分配/释放的对象提供高效的内存池，减少分配开销和内存碎片
 
-use crate::tlb::tlb_concurrent::ConcurrentTlbEntry;
+use crate::tlb::core::concurrent::ConcurrentTlbEntry;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;

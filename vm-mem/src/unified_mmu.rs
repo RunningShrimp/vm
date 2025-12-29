@@ -3,8 +3,8 @@
 //! 整合多级TLB、并发TLB和页表缓存，实现高性能内存管理
 
 use crate::memory::page_table_walker::{Sv39PageTableWalker, Sv48PageTableWalker};
-use crate::tlb::tlb_concurrent::{ConcurrentTlbConfig, ConcurrentTlbManagerAdapter};
-use crate::tlb::unified_tlb::{MultiLevelTlbAdapter, MultiLevelTlbConfig};
+use crate::tlb::core::concurrent::{ConcurrentTlbConfig, ConcurrentTlbManagerAdapter};
+use crate::tlb::core::unified::{MultiLevelTlbAdapter, MultiLevelTlbConfig};
 use crate::{PAGE_SHIFT, PAGE_SIZE, PagingMode, PhysicalMemory, pte_flags};
 use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};

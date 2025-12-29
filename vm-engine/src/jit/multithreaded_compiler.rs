@@ -61,7 +61,7 @@ impl CompilationQueue {
     }
 
     /// 安全地获取队列锁
-    fn lock_queue(&self) -> JITResult<std::sync::MutexGuard<VecDeque<CompilationTask>>> {
+    fn lock_queue(&self) -> JITResult<parking_lot::MutexGuard<VecDeque<CompilationTask>>> {
         self.queue.lock().map_err(|e| {
             JITErrorBuilder::concurrency(format!("Failed to acquire queue lock: {}", e))
         })
@@ -303,7 +303,7 @@ impl MultithreadedJITCompiler {
     }
 
     /// 安全地获取统计信息锁
-    fn lock_stats(&self) -> JITResult<std::sync::MutexGuard<CompilationStats>> {
+    fn lock_stats(&self) -> JITResult<parking_lot::MutexGuard<CompilationStats>> {
         self.stats.lock().map_err(|e| {
             JITErrorBuilder::concurrency(format!("Failed to acquire stats lock: {}", e))
         })

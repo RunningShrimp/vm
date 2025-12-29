@@ -76,7 +76,7 @@ thiserror = "2.0.17"
 anyhow = "1.0"
 
 # Async runtime
-tokio = { version = "1.43", features = ["sync", "rt-multi-thread", "macros", "time", "io-util"] }
+tokio = { version = "1.48", features = ["sync", "rt-multi-thread", "macros", "time", "io-util"] }
 tokio-uring = { version = "0.5" }
 
 # Serialization

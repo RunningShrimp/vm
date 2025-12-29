@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use vm_core::foundation::{
-    ConfigError, CoreError, DeviceError, ErrorContext, ErrorContextExt,
-    JitError, MemoryError, VmError, VmResult, error_utils as utils,
+    ConfigError, CoreError, DeviceError, ErrorContext, ErrorContextExt, JitError, MemoryError,
+    VmError, VmResult, error_utils as utils,
 };
 
 /// JIT引擎错误类型别名

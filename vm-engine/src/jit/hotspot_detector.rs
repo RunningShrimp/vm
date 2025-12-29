@@ -131,7 +131,7 @@ impl HotspotDetector {
     }
 
     /// Helper: Acquire execution_stats lock
-    fn lock_execution_stats(&self) -> Result<std::sync::MutexGuard<HashMap<GuestAddr, ExecutionStats>>, VmError> {
+    fn lock_execution_stats(&self) -> Result<parking_lot::MutexGuard<HashMap<GuestAddr, ExecutionStats>>, VmError> {
         self.execution_stats.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire execution_stats lock".to_string(),
             function_addr: None,
@@ -139,7 +139,7 @@ impl HotspotDetector {
     }
 
     /// Helper: Acquire window_stats lock
-    fn lock_window_stats(&self) -> Result<std::sync::MutexGuard<BTreeMap<Instant, HashMap<GuestAddr, u64>>>, VmError> {
+    fn lock_window_stats(&self) -> Result<parking_lot::MutexGuard<BTreeMap<Instant, HashMap<GuestAddr, u64>>>, VmError> {
         self.window_stats.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire window_stats lock".to_string(),
             function_addr: None,
@@ -147,7 +147,7 @@ impl HotspotDetector {
     }
 
     /// Helper: Acquire current_hot_threshold lock
-    fn lock_hot_threshold(&self) -> Result<std::sync::MutexGuard<u64>, VmError> {
+    fn lock_hot_threshold(&self) -> Result<parking_lot::MutexGuard<u64>, VmError> {
         self.current_hot_threshold.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire hot_threshold lock".to_string(),
             function_addr: None,
@@ -155,7 +155,7 @@ impl HotspotDetector {
     }
 
     /// Helper: Acquire current_cold_threshold lock
-    fn lock_cold_threshold(&self) -> Result<std::sync::MutexGuard<u64>, VmError> {
+    fn lock_cold_threshold(&self) -> Result<parking_lot::MutexGuard<u64>, VmError> {
         self.current_cold_threshold.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire cold_threshold lock".to_string(),
             function_addr: None,
@@ -163,7 +163,7 @@ impl HotspotDetector {
     }
 
     /// Helper: Acquire detection_history lock
-    fn lock_detection_history(&self) -> Result<std::sync::MutexGuard<Vec<HotspotDetectionResult>>, VmError> {
+    fn lock_detection_history(&self) -> Result<parking_lot::MutexGuard<Vec<HotspotDetectionResult>>, VmError> {
         self.detection_history.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire detection_history lock".to_string(),
             function_addr: None,
@@ -171,7 +171,7 @@ impl HotspotDetector {
     }
 
     /// Helper: Acquire last_cleanup lock
-    fn lock_last_cleanup(&self) -> Result<std::sync::MutexGuard<Instant>, VmError> {
+    fn lock_last_cleanup(&self) -> Result<parking_lot::MutexGuard<Instant>, VmError> {
         self.last_cleanup.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire last_cleanup lock".to_string(),
             function_addr: None,

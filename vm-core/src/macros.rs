@@ -289,6 +289,10 @@ mod tests {
         // 这个测试主要是验证宏能够正确展开
         // 实际的算术操作测试在各个架构的测试中
 
+        // 定义MockArch枚举（占位符）
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum MockArch {}
+
         struct MockRegisterFile {
             registers: [u64; 16],
         }
@@ -303,19 +307,17 @@ mod tests {
             }
         }
 
-        // 使用宏实现
-        impl_arithmetic_ops!(MockArch, MockRegisterFile, {
+        // 直接实现算术操作（不使用宏，因为MockRegisterFile不是MockArch的变体）
+        impl MockRegisterFile {
             fn add(&mut self, dst: usize, src1: usize, src2: usize) {
                 let val1 = self.read(src1);
                 let val2 = self.read(src2);
                 self.write(dst, val1.wrapping_add(val2));
             }
-        });
+        }
 
         // 验证实现
-        let mut regs = MockRegisterFile {
-            registers: [0; 16],
-        };
+        let mut regs = MockRegisterFile { registers: [0; 16] };
         regs.registers[1] = 10;
         regs.registers[2] = 20;
 

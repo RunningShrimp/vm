@@ -243,7 +243,7 @@ impl VcpuNumaManager {
     /// This allocates memory on the specified NUMA node for optimal locality
     /// with vCPUs pinned to that node.
     pub fn allocate_numa_memory(&mut self, numa_node: u32, size: u64) -> Result<*mut u8, String> {
-        let mut allocator = self
+        let allocator = self
             .memory_allocator
             .write()
             .map_err(|e| format!("Failed to acquire memory allocator lock: {}", e))?;

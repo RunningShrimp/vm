@@ -9,6 +9,7 @@ vm-mem = { path = "../vm-mem" }
 vm-device = { path = "../vm-device" }
 vm-accel = { path = "../vm-accel" }
 vm-optimizers = { path = "../vm-optimizers" }
+vm-runtime = { path = "../vm-runtime" }
 log = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }

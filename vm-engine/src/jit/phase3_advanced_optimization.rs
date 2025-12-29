@@ -909,18 +909,18 @@ impl DynamicRecompilationManager {
     }
 
     /// Helper method to safely lock recompilation candidates
-    fn lock_candidates(&self) -> Result<std::sync::MutexGuard<HashMap<GuestAddr, RecompilationCandidate>>, String> {
-        self.recompilation_candidates.lock().map_err(|e| format!("Failed to lock recompilation candidates: {}", e))
+    fn lock_candidates(&self) -> Result<parking_lot::MutexGuard<HashMap<GuestAddr, RecompilationCandidate>>, String> {
+        self.recompilation_candidates.lock())
     }
 
     /// Helper method to safely lock code generator
-    fn lock_code_generator(&self) -> Result<std::sync::MutexGuard<AdaptiveCodeGenerator>, String> {
-        self.code_generator.lock().map_err(|e| format!("Failed to lock code generator: {}", e))
+    fn lock_code_generator(&self) -> Result<parking_lot::MutexGuard<AdaptiveCodeGenerator>, String> {
+        self.code_generator.lock())
     }
 
     /// Helper method to safely lock recompilation history
-    fn lock_history(&self) -> Result<std::sync::MutexGuard<Vec<RecompilationRecord>>, String> {
-        self.recompilation_history.lock().map_err(|e| format!("Failed to lock recompilation history: {}", e))
+    fn lock_history(&self) -> Result<parking_lot::MutexGuard<Vec<RecompilationRecord>>, String> {
+        self.recompilation_history.lock())
     }
 
     /// 分析重编译候选
@@ -1117,13 +1117,13 @@ impl HotUpdateManager {
     }
 
     /// Helper method to safely lock hot update candidates
-    fn lock_candidates(&self) -> Result<std::sync::MutexGuard<HashMap<GuestAddr, HotUpdateCandidate>>, String> {
-        self.hot_update_candidates.lock().map_err(|e| format!("Failed to lock hot update candidates: {}", e))
+    fn lock_candidates(&self) -> Result<parking_lot::MutexGuard<HashMap<GuestAddr, HotUpdateCandidate>>, String> {
+        self.hot_update_candidates.lock())
     }
 
     /// Helper method to safely lock hot update history
-    fn lock_history(&self) -> Result<std::sync::MutexGuard<Vec<HotUpdateRecord>>, String> {
-        self.hot_update_history.lock().map_err(|e| format!("Failed to lock hot update history: {}", e))
+    fn lock_history(&self) -> Result<parking_lot::MutexGuard<Vec<HotUpdateRecord>>, String> {
+        self.hot_update_history.lock())
     }
 
     /// 分析热更新候选
@@ -1537,18 +1537,18 @@ impl PerformanceMonitor {
     }
 
     /// Helper method to safely lock performance collector
-    fn lock_collector(&self) -> Result<std::sync::MutexGuard<PerformanceDataCollector>, String> {
-        self.performance_collector.lock().map_err(|e| format!("Failed to lock performance collector: {}", e))
+    fn lock_collector(&self) -> Result<parking_lot::MutexGuard<PerformanceDataCollector>, String> {
+        self.performance_collector.lock())
     }
 
     /// Helper method to safely lock feedback analyzer
-    fn lock_analyzer(&self) -> Result<std::sync::MutexGuard<FeedbackAnalyzer>, String> {
-        self.feedback_analyzer.lock().map_err(|e| format!("Failed to lock feedback analyzer: {}", e))
+    fn lock_analyzer(&self) -> Result<parking_lot::MutexGuard<FeedbackAnalyzer>, String> {
+        self.feedback_analyzer.lock())
     }
 
     /// Helper method to safely lock report generator
-    fn lock_generator(&self) -> Result<std::sync::MutexGuard<PerformanceReportGenerator>, String> {
-        self.report_generator.lock().map_err(|e| format!("Failed to lock report generator: {}", e))
+    fn lock_generator(&self) -> Result<parking_lot::MutexGuard<PerformanceReportGenerator>, String> {
+        self.report_generator.lock())
     }
 
     /// 记录性能数据

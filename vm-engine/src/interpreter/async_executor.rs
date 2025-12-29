@@ -1,18 +1,30 @@
-/// 异步执行引擎扩展
-///
-/// 为Interpreter添加异步/await支持，支持真正的并发执行
-/// 使用tokio runtime进行异步调度
+//! 异步执行引擎扩展
+//!
+//! 为Interpreter添加异步/await支持，支持真正的并发执行
+//! 使用tokio runtime进行异步调度
+//!
+//! 此模块需要 `async` feature 支持。
+
+#[cfg(feature = "async")]
 use crate::interpreter::Interpreter;
+#[cfg(feature = "async")]
 use parking_lot::Mutex;
+#[cfg(feature = "async")]
 use std::sync::Arc;
+#[cfg(feature = "async")]
 use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, MMU, VmError};
+#[cfg(feature = "async")]
 use vm_ir::IRBlock;
+
+#[cfg(feature = "async")]
+use vm_ir::Terminator;
 
 #[cfg(test)]
 use vm_ir::Terminator;
 
 /// 异步执行统计信息
 #[derive(Clone, Debug, Default)]
+#[cfg(feature = "async")]
 pub struct AsyncExecStats {
     /// 异步执行操作数
     pub async_ops: u64,
@@ -25,6 +37,7 @@ pub struct AsyncExecStats {
 }
 
 /// 异步执行上下文
+#[cfg(feature = "async")]
 pub struct AsyncExecutionContext {
     /// 执行的IR块
     pub block: Arc<IRBlock>,
@@ -38,6 +51,7 @@ pub struct AsyncExecutionContext {
     pub yield_interval: u64,
 }
 
+#[cfg(feature = "async")]
 impl AsyncExecutionContext {
     /// 创建新的异步执行上下文
     pub fn new(block: IRBlock, max_steps: u64, yield_interval: u64) -> Self {
@@ -110,6 +124,7 @@ pub trait AsyncExecutor: Send {
 }
 
 /// 为Interpreter实现异步执行
+#[cfg(feature = "async")]
 impl AsyncExecutor for Interpreter {
     async fn execute_block_async(
         &mut self,
@@ -226,6 +241,7 @@ impl AsyncExecutor for Interpreter {
 }
 
 /// 多vCPU异步执行器
+#[cfg(feature = "async")]
 pub struct AsyncMultiVcpuExecutor {
     /// 虚拟CPU列表
     vcpus: Vec<Arc<Mutex<Interpreter>>>,
@@ -235,6 +251,7 @@ pub struct AsyncMultiVcpuExecutor {
 
 /// 多vCPU统计信息
 #[derive(Clone, Debug, Default)]
+#[cfg(feature = "async")]
 pub struct MultiVcpuStats {
     /// 总执行操作数
     pub total_ops: u64,
@@ -248,6 +265,7 @@ pub struct MultiVcpuStats {
     pub avg_exec_time_us: u64,
 }
 
+#[cfg(feature = "async")]
 impl AsyncMultiVcpuExecutor {
     /// 创建新的多vCPU异步执行器
     pub fn new(vcpu_count: usize) -> Self {
@@ -362,20 +380,24 @@ impl AsyncMultiVcpuExecutor {
 }
 
 /// Mock MMU for testing
+#[cfg(feature = "async")]
 pub struct MockMMU;
 
+#[cfg(feature = "async")]
 impl Default for MockMMU {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "async")]
 impl MockMMU {
     pub fn new() -> Self {
         Self
     }
 }
 
+#[cfg(feature = "async")]
 impl vm_core::AddressTranslator for MockMMU {
     fn translate(
         &mut self,
@@ -390,6 +412,7 @@ impl vm_core::AddressTranslator for MockMMU {
     }
 }
 
+#[cfg(feature = "async")]
 impl vm_core::MemoryAccess for MockMMU {
     fn read(&self, _pa: vm_core::GuestAddr, _size: u8) -> Result<u64, VmError> {
         Ok(0)
@@ -416,6 +439,7 @@ impl vm_core::MemoryAccess for MockMMU {
     }
 }
 
+#[cfg(feature = "async")]
 impl vm_core::MmioManager for MockMMU {
     fn map_mmio(
         &self,
@@ -427,6 +451,7 @@ impl vm_core::MmioManager for MockMMU {
     }
 }
 
+#[cfg(feature = "async")]
 impl vm_core::MmuAsAny for MockMMU {
     fn as_any(&self) -> &dyn std::any::Any {
         self

@@ -100,7 +100,7 @@ impl PerformanceBenchmarker {
     }
 
     /// 获取JIT引擎的锁
-    fn lock_jit_engine(&self) -> Result<std::sync::MutexGuard<JITEngine>, VmError> {
+    fn lock_jit_engine(&self) -> Result<parking_lot::MutexGuard<JITEngine>, VmError> {
         self.jit_engine.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire JIT engine lock".to_string(),
             function_addr: None,
@@ -108,7 +108,7 @@ impl PerformanceBenchmarker {
     }
 
     /// 获取结果历史的锁
-    fn lock_results_history(&self) -> Result<std::sync::MutexGuard<Vec<BenchmarkResult>>, VmError> {
+    fn lock_results_history(&self) -> Result<parking_lot::MutexGuard<Vec<BenchmarkResult>>, VmError> {
         self.results_history.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
             message: "Failed to acquire results history lock".to_string(),
             function_addr: None,
@@ -706,8 +706,8 @@ impl PerformanceRegressionDetector {
     }
 
     /// 获取结果历史的锁
-    fn lock_results_history(&self) -> Result<std::sync::MutexGuard<Vec<BenchmarkResult>>, String> {
-        self.results_history.lock().map_err(|_| "Failed to acquire results history lock".to_string())
+    fn lock_results_history(&self) -> Result<parking_lot::MutexGuard<Vec<BenchmarkResult>>, String> {
+        self.results_history.lock())
     }
 
     /// 检测性能回归

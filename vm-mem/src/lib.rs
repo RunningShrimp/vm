@@ -46,7 +46,7 @@ pub use tlb::{
 pub use tlb::SingleLevelTlb;
 // 显式导入 TlbStats 避免冲突
 pub use domain_services::AddressTranslationDomainService;
-pub use tlb::unified_tlb::TlbStats;
+pub use tlb::BasicTlbStats as TlbStats;
 pub use unified_mmu::{MmuOptimizationStrategy, UnifiedMmu, UnifiedMmuConfig, UnifiedMmuStats};
 
 // Re-export common types from vm_core for test convenience

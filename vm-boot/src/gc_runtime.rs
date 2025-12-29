@@ -1,112 +1,87 @@
-use parking_lot::RwLock;
+//! GC Runtime for VM Boot
+//!
+//! Re-exports GC functionality from vm-runtime and vm-optimizers.
+//! This module provides boot-time GC configuration and initialization.
+
 use std::sync::Arc;
-use vm_optimizers::gc::{GcResult, GcStats, OptimizedGc, WriteBarrierType};
 
-/// GC Runtime - 集成gc-optimizer到VM运行时
-///
-/// 提供垃圾收集的运行时接口，与VM执行引擎集成
-pub struct GcRuntime {
-    /// 优化GC实例
-    gc: Arc<OptimizedGc>,
-    /// GC配置
-    config: GcConfig,
-}
+/// Re-export GC types from vm-optimizers
+pub use vm_optimizers::gc::{
+    AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcStats, LockFreeWriteBarrier,
+    OptimizedGc, ParallelMarker, WriteBarrierType,
+};
 
-/// GC配置
+/// Re-export incremental GC
+pub use vm_optimizers::gc_incremental::{IncrementalGc, IncrementalPhase, IncrementalProgress};
+
+/// Re-export GcRuntime from vm-runtime
+pub use vm_runtime::gc::{GcRuntime, GcRuntimeStats};
+
+/// Type alias for backwards compatibility
+pub type GcConfig = BootGcConfig;
+
+/// Boot-time GC configuration
 #[derive(Debug, Clone)]
-pub struct GcConfig {
-    /// 工作线程数
+pub struct BootGcConfig {
+    /// Number of GC worker threads
     pub num_workers: usize,
-    /// 目标暂停时间（微秒）
+    /// Target pause time in microseconds
     pub target_pause_us: u64,
-    /// 写屏障类型
+    /// Write barrier type
     pub barrier_type: WriteBarrierType,
+    /// Enable incremental GC
+    pub enable_incremental: bool,
 }
 
-impl Default for GcConfig {
+impl Default for BootGcConfig {
     fn default() -> Self {
         Self {
             num_workers: num_cpus::get(),
-            target_pause_us: 10_000, // 10ms目标
+            target_pause_us: 10_000, // 10ms target
             barrier_type: WriteBarrierType::Atomic,
+            enable_incremental: true,
         }
     }
 }
 
-impl GcRuntime {
-    /// 创建新的GC运行时
-    pub fn new(config: GcConfig) -> Self {
-        let gc = Arc::new(OptimizedGc::new(
-            config.num_workers,
-            config.target_pause_us,
-            config.barrier_type,
-        ));
-
-        Self { gc, config }
+impl BootGcConfig {
+    /// Create configuration optimized for production
+    pub fn for_production() -> Self {
+        Self {
+            num_workers: num_cpus::get(),
+            target_pause_us: 10_000,
+            barrier_type: WriteBarrierType::Atomic,
+            enable_incremental: true,
+        }
     }
 
-    /// 使用默认配置创建
-    pub fn with_default() -> Self {
-        Self::new(GcConfig::default())
+    /// Create configuration optimized for development
+    pub fn for_development() -> Self {
+        Self {
+            num_workers: 2,
+            target_pause_us: 50_000, // More lenient for development
+            barrier_type: WriteBarrierType::Atomic,
+            enable_incremental: true,
+        }
     }
 
-    /// 记录对象修改（写屏障）
-    ///
-    /// # Arguments
-    /// * `addr` - 被修改对象的地址
-    pub fn record_write(&self, addr: u64) {
-        self.gc.record_write(addr);
+    /// Create configuration optimized for testing
+    pub fn for_testing() -> Self {
+        Self {
+            num_workers: 1,
+            target_pause_us: 100_000, // Very lenient for testing
+            barrier_type: WriteBarrierType::Atomic,
+            enable_incremental: false, // Disable for simpler testing
+        }
     }
 
-    /// 执行次要GC（Minor GC）
-    ///
-    /// 用于回收新生代对象
-    ///
-    /// # Arguments
-    /// * `bytes_collected` - 收集的字节数
-    ///
-    /// # Returns
-    /// GC统计信息
-    pub fn collect_minor(&self, bytes_collected: u64) -> GcResult<()> {
-        self.gc.collect_minor(bytes_collected)
-    }
-
-    /// 执行主要GC（Major GC）
-    ///
-    /// 用于完整堆回收
-    ///
-    /// # Arguments
-    /// * `bytes_collected` - 收集的字节数
-    ///
-    /// # Returns
-    /// GC统计信息
-    pub fn collect_major(&self, bytes_collected: u64) -> GcResult<()> {
-        self.gc.collect_major(bytes_collected)
-    }
-
-    /// 获取GC统计信息
-    ///
-    /// # Returns
-    /// 当前GC统计信息
-    pub fn get_stats(&self) -> GcStats {
-        self.gc.get_stats()
-    }
-
-    /// 获取写屏障开销
-    ///
-    /// # Returns
-    /// 写屏障开销（微秒）
-    pub fn get_barrier_overhead_us(&self) -> u64 {
-        self.gc.get_barrier_overhead_us()
-    }
-
-    /// 获取GC配置
-    pub fn config(&self) -> &GcConfig {
-        &self.config
+    /// Create GcRuntime from this configuration
+    pub fn create_runtime(&self) -> GcRuntime {
+        GcRuntime::new(self.num_workers, self.target_pause_us, self.barrier_type)
     }
 }
 
-/// GC集成状态
+/// GC集成状态 (backwards compatibility stub)
 #[derive(Debug, Clone, Default)]
 pub struct GcIntegrationState {
     /// 是否已启用
@@ -119,50 +94,43 @@ pub struct GcIntegrationState {
     pub last_gc_timestamp: Option<u64>,
 }
 
-/// GC集成管理器
+/// GC集成管理器 (backwards compatibility stub)
 ///
-/// 管理GC与VM执行引擎的集成状态
+/// Note: This is a simplified stub for backwards compatibility.
+/// The actual integration is now handled by vm-runtime::gc::GcRuntime.
 pub struct GcIntegrationManager {
-    /// GC运行时
     gc_runtime: Arc<GcRuntime>,
-    /// 集成状态
-    state: Arc<RwLock<GcIntegrationState>>,
+    state: Arc<parking_lot::RwLock<GcIntegrationState>>,
 }
 
 impl GcIntegrationManager {
-    /// 创建新的GC集成管理器
     pub fn new(gc_runtime: Arc<GcRuntime>) -> Self {
         Self {
             gc_runtime,
-            state: Arc::new(RwLock::new(GcIntegrationState {
+            state: Arc::new(parking_lot::RwLock::new(GcIntegrationState {
                 enabled: true,
                 ..Default::default()
             })),
         }
     }
 
-    /// 是否启用GC
     pub fn is_enabled(&self) -> bool {
         self.state.read().enabled
     }
 
-    /// 启用GC
     pub fn enable(&self) {
         self.state.write().enabled = true;
     }
 
-    /// 禁用GC
     pub fn disable(&self) {
         self.state.write().enabled = false;
     }
 
-    /// 记录分配
     pub fn record_allocation(&self) {
         let mut state = self.state.write();
         state.total_allocations += 1;
     }
 
-    /// 记录GC收集
     pub fn record_collection(&self) {
         let mut state = self.state.write();
         state.total_collections += 1;
@@ -174,12 +142,10 @@ impl GcIntegrationManager {
         );
     }
 
-    /// 获取集成状态
     pub fn get_state(&self) -> GcIntegrationState {
         self.state.read().clone()
     }
 
-    /// 获取GC运行时
     pub fn gc_runtime(&self) -> &Arc<GcRuntime> {
         &self.gc_runtime
     }
@@ -190,53 +156,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_gc_runtime_creation() {
-        let gc_runtime = GcRuntime::with_default();
-        let stats = gc_runtime.get_stats();
-
-        assert_eq!(stats.minor_collections, 0);
-        assert_eq!(stats.major_collections, 0);
+    fn test_boot_gc_config_default() {
+        let config = BootGcConfig::default();
+        assert!(config.num_workers > 0);
+        assert!(config.enable_incremental);
     }
 
     #[test]
-    fn test_gc_runtime_minor_collection() {
-        let gc_runtime = GcRuntime::with_default();
-
-        let result = gc_runtime.collect_minor(1024);
-        assert!(result.is_ok());
-
-        let stats = gc_runtime.get_stats();
-        assert_eq!(stats.minor_collections, 1);
+    fn test_boot_gc_config_production() {
+        let config = BootGcConfig::for_production();
+        assert!(config.num_workers > 0);
+        assert!(config.enable_incremental);
+        assert_eq!(config.target_pause_us, 10_000);
     }
 
     #[test]
-    fn test_gc_runtime_major_collection() {
-        let gc_runtime = GcRuntime::with_default();
-
-        let result = gc_runtime.collect_major(4096);
-        assert!(result.is_ok());
-
-        let stats = gc_runtime.get_stats();
-        assert_eq!(stats.major_collections, 1);
+    fn test_boot_gc_config_development() {
+        let config = BootGcConfig::for_development();
+        assert_eq!(config.num_workers, 2);
+        assert!(config.enable_incremental);
+        assert_eq!(config.target_pause_us, 50_000);
     }
 
     #[test]
-    fn test_gc_write_barrier() {
-        let gc_runtime = GcRuntime::with_default();
+    fn test_boot_gc_config_testing() {
+        let config = BootGcConfig::for_testing();
+        assert_eq!(config.num_workers, 1);
+        assert!(!config.enable_incremental);
+    }
 
-        for i in 0..100 {
-            gc_runtime.record_write(i * 16);
-        }
-
-        let overhead = gc_runtime.get_barrier_overhead_us();
-        assert!(overhead > 0);
-        assert!(overhead < 100);
+    #[test]
+    fn test_create_runtime_from_config() {
+        let config = BootGcConfig::for_testing();
+        let runtime = config.create_runtime();
+        assert!(runtime.is_enabled());
     }
 
     #[test]
     fn test_gc_integration_manager() {
-        let gc_runtime = Arc::new(GcRuntime::with_default());
-        let manager = GcIntegrationManager::new(gc_runtime);
+        let config = BootGcConfig::for_testing();
+        let runtime = Arc::new(config.create_runtime());
+        let manager = GcIntegrationManager::new(runtime);
 
         assert!(manager.is_enabled());
 
@@ -245,12 +205,20 @@ mod tests {
 
         manager.enable();
         assert!(manager.is_enabled());
+
+        manager.record_allocation();
+        manager.record_allocation();
+
+        let state = manager.get_state();
+        assert_eq!(state.total_allocations, 2);
+        assert!(state.enabled);
     }
 
     #[test]
     fn test_gc_integration_state() {
-        let gc_runtime = Arc::new(GcRuntime::with_default());
-        let manager = GcIntegrationManager::new(gc_runtime);
+        let config = BootGcConfig::for_testing();
+        let runtime = Arc::new(config.create_runtime());
+        let manager = GcIntegrationManager::new(runtime);
 
         manager.record_allocation();
         manager.record_allocation();

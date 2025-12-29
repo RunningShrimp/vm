@@ -26,7 +26,10 @@ mod kvm_tests {
                 println!("KVM initialized successfully");
             }
             Err(e) => {
-                println!("KVM initialization failed (expected in some environments): {:?}", e);
+                println!(
+                    "KVM initialization failed (expected in some environments): {:?}",
+                    e
+                );
                 // This is acceptable if KVM is not available
             }
         }
@@ -71,7 +74,11 @@ mod kvm_tests {
             for vcpu_id in 0..4 {
                 let result = kvm.create_vcpu(vcpu_id);
                 if result.is_err() {
-                    println!("Failed to create vCPU {}: {:?}", vcpu_id, result.unwrap_err());
+                    println!(
+                        "Failed to create vCPU {}: {:?}",
+                        vcpu_id,
+                        result.unwrap_err()
+                    );
                 }
             }
             println!("Attempted to create multiple vCPUs");
@@ -217,7 +224,10 @@ mod kvm_tests {
             // Check if we can read device info
             match std::fs::metadata(kvm_path) {
                 Ok(metadata) => {
-                    println!("KVM device found, permissions: {:?}", metadata.permissions());
+                    println!(
+                        "KVM device found, permissions: {:?}",
+                        metadata.permissions()
+                    );
                 }
                 Err(e) => {
                     println!("Cannot access KVM device: {}", e);
@@ -229,8 +239,7 @@ mod kvm_tests {
     }
 }
 
-#[cfg(not(target_os = "linux")]
-)]
+#[cfg(not(target_os = "linux"))]
 mod kvm_tests {
     /// Test that KVM is not available on non-Linux systems
     #[test]

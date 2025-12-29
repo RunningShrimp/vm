@@ -857,7 +857,11 @@ impl OptimizedRegisterAllocator {
     }
 
     /// 检查指令是否使用指定寄存器
-    fn uses_register(&self, instruction: &crate::jit::compiler::CompiledIROp, reg_id: RegId) -> bool {
+    fn uses_register(
+        &self,
+        instruction: &crate::jit::compiler::CompiledIROp,
+        reg_id: RegId,
+    ) -> bool {
         match &instruction.op {
             IROp::Add { dst, src1, src2 }
             | IROp::Sub { dst, src1, src2 }
@@ -1039,7 +1043,10 @@ impl OptimizedRegisterAllocator {
     }
 
     /// 将分配结果应用到单个指令
-    fn apply_allocation_to_instruction(&self, instruction: &mut crate::jit::compiler::CompiledIROp) {
+    fn apply_allocation_to_instruction(
+        &self,
+        instruction: &mut crate::jit::compiler::CompiledIROp,
+    ) {
         match &mut instruction.op {
             IROp::Add { dst, src1, src2 }
             | IROp::Sub { dst, src1, src2 }

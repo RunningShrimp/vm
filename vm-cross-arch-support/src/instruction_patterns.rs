@@ -165,8 +165,14 @@ pub enum OperandType {
     Complex(String), // For complex operands that don't fit other categories
 }
 
+impl Default for OperandType {
+    fn default() -> Self {
+        Self::Register(RegId(0))
+    }
+}
+
 /// Memory operand representation
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct MemoryOperand {
     pub base: Option<RegId>,
     pub index: Option<RegId>,
@@ -707,6 +713,9 @@ impl PatternMatcher for DefaultPatternMatcher {
 
         // Look for patterns with the same category and compatible operands
         if let Some(pattern_ids) = self.category_index.get(&pattern.category) {
+            // Pre-allocate with estimated capacity
+            equivalents.reserve(pattern_ids.len());
+
             for id in pattern_ids {
                 if let Some(candidates) = self.patterns.get(id) {
                     for candidate in candidates {
@@ -727,6 +736,15 @@ impl PatternMatcher for DefaultPatternMatcher {
         let mut patterns = Vec::new();
 
         if let Some(pattern_ids) = self.category_index.get(&category) {
+            // Estimate total capacity
+            let estimated_size: usize = pattern_ids
+                .iter()
+                .filter_map(|id| self.patterns.get(id))
+                .map(|candidates| candidates.len())
+                .sum();
+
+            patterns.reserve(estimated_size);
+
             for id in pattern_ids {
                 if let Some(candidates) = self.patterns.get(id) {
                     patterns.extend(candidates.clone());

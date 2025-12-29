@@ -512,7 +512,7 @@ pub use vcpu_numa_manager::{NumaTopology, VcpuNumaManager};
 pub use smmu::{SmmuDeviceAttachment, SmmuDeviceInfo, SmmuManager};
 
 #[cfg(target_os = "linux")]
-pub use kvm_enhanced::EnhancedKvmAccelerator;
+pub use kvm_numa::NUMAKvmAccelerator;
 
 pub struct NoAccel;
 impl Accel for NoAccel {
@@ -587,7 +587,7 @@ mod hvf;
 #[cfg(target_os = "linux")]
 mod kvm;
 #[cfg(target_os = "linux")]
-mod kvm_enhanced;
+mod kvm_numa;
 #[cfg(target_os = "windows")]
 mod whpx;
 

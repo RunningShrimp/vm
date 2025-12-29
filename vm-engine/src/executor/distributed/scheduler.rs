@@ -4,8 +4,9 @@
 
 use crate::executor::distributed::architecture::DistributedArchitectureConfig;
 use crate::executor::distributed::protocol::{TaskId, TaskInfo, TaskStatus, TaskType};
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Task Scheduler
 pub struct TaskScheduler {
@@ -28,14 +29,13 @@ impl TaskScheduler {
         let tasks = self.tasks.clone();
         let config = self.config.clone();
 
+        #[cfg(feature = "async")]
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(config.fault_tolerance.health_check_interval).await;
 
                 // Check for timed out tasks
-                let mut tasks = tasks
-                    .lock()
-                    .expect("Task scheduler mutex should not be poisoned");
+                let mut tasks = tasks.lock();
 
                 for (_task_id, task_info) in tasks.iter_mut() {
                     if task_info.status == TaskStatus::Running
@@ -55,10 +55,7 @@ impl TaskScheduler {
 
     /// Get task status
     pub async fn get_task_status(&self, task_id: &TaskId) -> Result<TaskStatus, anyhow::Error> {
-        let tasks = self
-            .tasks
-            .lock()
-            .expect("Task scheduler mutex should not be poisoned");
+        let tasks = self.tasks.lock();
 
         tasks
             .get(task_id)
@@ -68,10 +65,7 @@ impl TaskScheduler {
 
     /// Get detailed task information
     pub async fn get_task_info(&self, task_id: &TaskId) -> Result<TaskInfo, anyhow::Error> {
-        let tasks = self
-            .tasks
-            .lock()
-            .expect("Task scheduler mutex should not be poisoned");
+        let tasks = self.tasks.lock();
 
         tasks
             .get(task_id)
@@ -86,10 +80,7 @@ impl TaskScheduler {
         status: TaskStatus,
         progress: u8,
     ) -> Result<(), anyhow::Error> {
-        let mut tasks = self
-            .tasks
-            .lock()
-            .expect("Task scheduler mutex should not be poisoned");
+        let mut tasks = self.tasks.lock();
 
         if let Some(task) = tasks.get_mut(task_id) {
             task.status = status;
@@ -107,19 +98,15 @@ impl TaskScheduler {
         task_id: TaskId,
         task_type: TaskType,
     ) -> Result<(), anyhow::Error> {
-        let mut tasks = self
-            .tasks
-            .lock()
-            .expect("Task scheduler mutex should not be poisoned");
+        let mut tasks = self.tasks.lock();
 
         if tasks.contains_key(&task_id) {
             return Err(anyhow::anyhow!("Task already exists"));
         }
 
         let now = std::time::Instant::now();
-        // Create the task info without cloning (we own it now)
         let task_info = TaskInfo {
-            task_id: task_id.clone(), // Create a clone before moving
+            task_id: task_id.clone(),
             task_type,
             status: TaskStatus::Pending,
             progress: 0,
@@ -127,18 +114,14 @@ impl TaskScheduler {
             submission_time: now,
             update_time: now,
         };
-        // Now insert the clone we created
-        tasks.insert(task_id.clone(), task_info);
+        tasks.insert(task_id, task_info);
 
         Ok(())
     }
 
     /// Assign a task to a VM
     pub async fn assign_task(&self, task_id: &TaskId, vm_id: String) -> Result<(), anyhow::Error> {
-        let mut tasks = self
-            .tasks
-            .lock()
-            .expect("Task scheduler mutex should not be poisoned");
+        let mut tasks = self.tasks.lock();
 
         if let Some(task) = tasks.get_mut(task_id) {
             task.vm_id = Some(vm_id);

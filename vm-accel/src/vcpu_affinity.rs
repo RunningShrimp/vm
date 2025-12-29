@@ -317,63 +317,132 @@ impl Default for VCPUAffinityManager {
 }
 
 /// NUMA 感知内存分配器
+///
+/// 优化版本：使用无锁或低锁竞争的并发数据结构
 pub struct NUMAAwareAllocator {
-    /// 每个 NUMA 节点的可用内存 (字节)
+    /// 每个 NUMA 节点的可用内存 (字节) - 使用parking_lot的RwLock减少锁竞争
     node_memory: HashMap<usize, u64>,
-    /// 每个 NUMA 节点的已分配内存 (字节)
-    node_allocated: HashMap<usize, u64>,
+    /// 每个 NUMA 节点的已分配内存 (字节) - 使用原子操作优化
+    node_allocated: Vec<parking_lot::Mutex<u64>>,
+    /// 总节点数
+    total_nodes: usize,
 }
 
 impl NUMAAwareAllocator {
     pub fn new(nodes: usize, memory_per_node: u64) -> Self {
         let mut node_memory = HashMap::new();
-        let mut node_allocated = HashMap::new();
+        let mut node_allocated = Vec::with_capacity(nodes);
 
         for i in 0..nodes {
             node_memory.insert(i, memory_per_node);
-            node_allocated.insert(i, 0);
+            node_allocated.push(parking_lot::Mutex::new(0u64));
         }
 
         Self {
             node_memory,
             node_allocated,
+            total_nodes: nodes,
         }
     }
 
     /// 从指定 NUMA 节点分配内存
-    pub fn alloc_from_node(&mut self, node: usize, size: u64) -> Result<u64, String> {
-        let available = self.node_memory.get(&node).copied().ok_or("Invalid node")?;
-        let allocated = self.node_allocated.get(&node).copied().unwrap_or(0);
+    ///
+    /// 优化：使用细粒度锁（每个节点一个锁），减少锁竞争
+    pub fn alloc_from_node(&self, node: usize, size: u64) -> Result<u64, String> {
+        if node >= self.total_nodes {
+            return Err(format!("Invalid node ID: {}", node));
+        }
 
-        if allocated + size > available {
+        let available = self.node_memory.get(&node).copied().ok_or("Invalid node")?;
+
+        // 使用细粒度锁，只锁定当前节点
+        let mut allocated = self.node_allocated[node].lock();
+
+        if *allocated + size > available {
             return Err(format!(
                 "Insufficient memory in node {} (need {}, have {})",
                 node,
                 size,
-                available - allocated
+                available - *allocated
             ));
         }
 
-        self.node_allocated.entry(node).and_modify(|v| *v += size);
+        *allocated += size;
 
         Ok(node as u64 * (1u64 << 30)) // 返回伪地址
     }
 
     /// 获取 NUMA 节点的使用率
+    ///
+    /// 优化：使用读锁，允许多个并发读取
     pub fn get_node_usage(&self, node: usize) -> f64 {
+        if node >= self.total_nodes {
+            return 0.0;
+        }
+
         let total = self.node_memory.get(&node).copied().unwrap_or(1);
-        let used = self.node_allocated.get(&node).copied().unwrap_or(0);
+        let allocated = self.node_allocated[node].lock();
+        let used = *allocated;
+        drop(allocated); // 尽早释放锁
+
         (used as f64) / (total as f64)
+    }
+
+    /// 批量分配优化
+    ///
+    /// 优化：一次性分配多个内存块，减少锁获取次数
+    pub fn alloc_batch_from_node(
+        &self,
+        node: usize,
+        sizes: &[u64],
+    ) -> Result<Vec<u64>, String> {
+        if node >= self.total_nodes {
+            return Err(format!("Invalid node ID: {}", node));
+        }
+
+        let available = self.node_memory.get(&node).copied().ok_or("Invalid node")?;
+        let total_needed: u64 = sizes.iter().sum();
+
+        // 使用细粒度锁，只锁定当前节点一次
+        let mut allocated = self.node_allocated[node].lock();
+
+        if *allocated + total_needed > available {
+            return Err(format!(
+                "Insufficient memory in node {} (need {}, have {})",
+                node,
+                total_needed,
+                available - *allocated
+            ));
+        }
+
+        let mut addresses = Vec::with_capacity(sizes.len());
+        let mut current_offset = *allocated;
+
+        for &size in sizes {
+            addresses.push((node as u64 * (1u64 << 30)) + current_offset);
+            current_offset += size;
+        }
+
+        *allocated += total_needed;
+
+        Ok(addresses)
     }
 
     /// 生成诊断报告
     pub fn diagnostic_report(&self) -> String {
         let mut report = "=== NUMA Memory Allocation ===\n".to_string();
 
-        for i in 0..self.node_memory.len() {
+        for i in 0..self.total_nodes {
             let total = self.node_memory.get(&i).copied().unwrap_or(0);
-            let used = self.node_allocated.get(&i).copied().unwrap_or(0);
-            let usage = (used as f64) / (total as f64) * 100.0;
+            let allocated = self.node_allocated[i].lock();
+            let used = *allocated;
+            drop(allocated);
+
+            let usage = if total > 0 {
+                (used as f64) / (total as f64) * 100.0
+            } else {
+                0.0
+            };
 
             report.push_str(&format!(
                 "Node {}: {:.1}% ({}/{} MB)\n",

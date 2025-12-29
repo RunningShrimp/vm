@@ -4,14 +4,21 @@ version = "0.1.0"
 edition = "2024"
 description = "Unified optimization framework for VM - GC, memory, PGO, and ML-guided compilation"
 
+[features]
+async = ["tokio"]
+default = []
+
 [dependencies]
 parking_lot = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 cfg-if = "1.0"
+futures = "0.3"
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "time"], optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
 rayon = "1.8"
 rand = { workspace = true }
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }

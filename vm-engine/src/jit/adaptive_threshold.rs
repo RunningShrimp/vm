@@ -159,7 +159,7 @@ impl AdaptiveThresholdManager {
     }
 
     /// Helper function to safely acquire a mutex lock
-    fn lock_mutex<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<T>, VmError> {
+    fn lock_mutex<T>(mutex: &Mutex<T>) -> Result<parking_lot::MutexGuard<T>, VmError> {
         mutex.lock().map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError {
             message: format!("Mutex lock poisoned: {}", e),
             function_addr: None,

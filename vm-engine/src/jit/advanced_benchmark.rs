@@ -316,13 +316,13 @@ impl AdvancedPerformanceBenchmarker {
     }
 
     /// Helper method to acquire results lock with error handling
-    fn lock_results(&self) -> Result<std::sync::MutexGuard<HashMap<String, BenchmarkResult>>, String> {
-        self.results.lock().map_err(|e| format!("Failed to acquire results lock: {}", e))
+    fn lock_results(&self) -> Result<parking_lot::MutexGuard<HashMap<String, BenchmarkResult>>, String> {
+        self.results.lock())
     }
 
     /// Helper method to acquire global stats lock with error handling
-    fn lock_global_stats(&self) -> Result<std::sync::MutexGuard<GlobalBenchmarkStats>, String> {
-        self.global_stats.lock().map_err(|e| format!("Failed to acquire global stats lock: {}", e))
+    fn lock_global_stats(&self) -> Result<parking_lot::MutexGuard<GlobalBenchmarkStats>, String> {
+        self.global_stats.lock())
     }
     
     /// 运行基准测试

@@ -37,7 +37,7 @@ impl fmt::Display for Architecture {
 }
 
 /// Register ID wrapper
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct RegId(pub u16);
 
 impl fmt::Display for RegId {
@@ -64,17 +64,19 @@ pub enum EncodingError {
 }
 
 /// Endianness for different architectures
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Endianness {
+    #[default]
     Little,
     Big,
 }
 
 /// Immediate encoding formats
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ImmediateFormat {
+    #[default]
+    Unsigned12, // 12-bit unsigned (most common)
     Unsigned5,  // 5-bit unsigned
-    Unsigned12, // 12-bit unsigned
     Unsigned16, // 16-bit unsigned
     Unsigned20, // 20-bit unsigned
     Unsigned32, // 32-bit unsigned
@@ -90,8 +92,9 @@ pub enum ImmediateFormat {
 }
 
 /// Register field positions in instruction words
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RegisterField {
+    #[default]
     Rd,         // Destination register
     Rs1,        // Source register 1
     Rs2,        // Source register 2
@@ -108,7 +111,7 @@ pub enum RegisterField {
 }
 
 /// Memory operand representation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MemoryOperand {
     pub base_reg: RegId,
     pub offset: i64,
@@ -225,14 +228,14 @@ pub trait InstructionBuilder {
 }
 
 /// Instruction flags that can be set during encoding
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InstructionFlag {
+    #[default]
+    UpdateFlags,
     /// Set condition codes
     SetConditionCodes,
     /// Don't set condition codes
     NoSetConditionCodes,
-    /// Update flags register
-    UpdateFlags,
     /// Don't update flags register
     NoUpdateFlags,
     /// 64-bit operation
@@ -258,6 +261,7 @@ pub mod utils {
     use super::*;
 
     /// Check if an immediate value fits in the specified format
+    #[inline]
     pub fn immediate_fits(imm: i64, format: ImmediateFormat) -> bool {
         let (min, max) = match format {
             ImmediateFormat::Unsigned5 => (0, 0x1F),
@@ -279,18 +283,21 @@ pub mod utils {
     }
 
     /// Extract bits from a value
+    #[inline]
     pub fn extract_bits(value: u64, start: u8, count: u8) -> u64 {
         let mask = (1u64 << count) - 1;
         (value >> start) & mask
     }
 
     /// Insert bits into a value
+    #[inline]
     pub fn insert_bits(value: u64, bits: u64, start: u8, count: u8) -> u64 {
         let mask = ((1u64 << count) - 1) << start;
         (value & !mask) | ((bits << start) & mask)
     }
 
     /// Sign-extend a value
+    #[inline]
     pub fn sign_extend(value: u64, bits: u8) -> u64 {
         if bits == 0 || bits >= 64 {
             return value;
@@ -304,6 +311,7 @@ pub mod utils {
     }
 
     /// Convert endianness of a byte slice
+    #[inline]
     pub fn convert_endianness(bytes: &mut [u8], from: Endianness, to: Endianness) {
         if from == to {
             return;
@@ -312,11 +320,13 @@ pub mod utils {
     }
 
     /// Align a value to the specified alignment
+    #[inline]
     pub fn align_up(value: u64, alignment: u64) -> u64 {
         (value + alignment - 1) & !(alignment - 1)
     }
 
     /// Check if a value is aligned to the specified alignment
+    #[inline]
     pub fn is_aligned(value: u64, alignment: u64) -> bool {
         value.is_multiple_of(alignment)
     }

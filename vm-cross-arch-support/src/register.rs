@@ -49,6 +49,12 @@ pub enum RegisterType {
     Special,
 }
 
+impl Default for RegisterType {
+    fn default() -> Self {
+        Self::Integer { width: 64 }
+    }
+}
+
 /// Register information
 #[derive(Debug, Clone)]
 pub struct RegisterInfo {
@@ -192,17 +198,34 @@ impl RegisterSet {
     }
 
     pub fn get_registers_by_class(&self, class: RegisterClass) -> Vec<&RegisterInfo> {
+        // Collect with better performance by estimating capacity
+        let capacity = match class {
+            RegisterClass::GeneralPurpose => self.general_purpose.len(),
+            RegisterClass::FloatingPoint => self.floating_point.len(),
+            RegisterClass::Vector => self.vector.len(),
+            RegisterClass::Special => self.special.len(),
+            RegisterClass::Control => self.control.len(),
+            RegisterClass::Status => self.status.len(),
+            RegisterClass::System => self.system.len(),
+            RegisterClass::Predicate => self.predicate.len(),
+            RegisterClass::Application => self.application.len(),
+        };
+
+        let mut result = Vec::with_capacity(capacity);
+
         match class {
-            RegisterClass::GeneralPurpose => self.general_purpose.iter().collect(),
-            RegisterClass::FloatingPoint => self.floating_point.iter().collect(),
-            RegisterClass::Vector => self.vector.iter().collect(),
-            RegisterClass::Special => self.special.values().collect(),
-            RegisterClass::Control => self.control.iter().collect(),
-            RegisterClass::Status => self.status.iter().collect(),
-            RegisterClass::System => self.system.iter().collect(),
-            RegisterClass::Predicate => self.predicate.iter().collect(),
-            RegisterClass::Application => self.application.iter().collect(),
+            RegisterClass::GeneralPurpose => result.extend(self.general_purpose.iter()),
+            RegisterClass::FloatingPoint => result.extend(self.floating_point.iter()),
+            RegisterClass::Vector => result.extend(self.vector.iter()),
+            RegisterClass::Special => result.extend(self.special.values()),
+            RegisterClass::Control => result.extend(self.control.iter()),
+            RegisterClass::Status => result.extend(self.status.iter()),
+            RegisterClass::System => result.extend(self.system.iter()),
+            RegisterClass::Predicate => result.extend(self.predicate.iter()),
+            RegisterClass::Application => result.extend(self.application.iter()),
         }
+
+        result
     }
 
     pub fn get_available_registers(&self, class: RegisterClass) -> Vec<&RegisterInfo> {
@@ -233,10 +256,10 @@ impl RegisterSet {
 }
 
 /// Register mapping strategies
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MappingStrategy {
-    /// Direct 1:1 mapping between registers
-    Direct,
+    #[default]
+    Direct, // Direct 1:1 mapping between registers (most common)
     /// Windowed mapping (e.g., RISC-V register windows)
     Windowed { window_size: u8, window_count: u8 },
     /// Stack-based mapping (e.g., x86 stack-based floating-point)

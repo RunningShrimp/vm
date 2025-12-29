@@ -1,9 +1,15 @@
-//! TLB预热功能说明文档
+//! TLB预热机制 (Prefetch)
 //!
-//! 本文档说明如何使用MultiLevelTlb的预热功能
+//! 本模块包含TLB预热的文档和配置说明：
+//! - 使用示例和最佳实践
+//! - 配置说明
 
-use super::{MultiLevelTlb, MultiLevelTlbConfig};
-use vm_core::GuestAddr;
+use crate::tlb::core::unified::{MultiLevelTlb, MultiLevelTlbConfig};
+use vm_core::AccessType;
+
+// ============================================================================
+// 预热功能使用指南
+// ============================================================================
 
 /// TLB预热功能使用指南
 pub struct TlbPrefetchGuide;
@@ -22,7 +28,6 @@ impl TlbPrefetchGuide {
             adaptive_replacement: true,
             concurrent_optimization: false, // 关闭并发以简化测试
             enable_stats: true,
-            enable_prefetch: true,         // 启用TLB预热
         }
     }
 
@@ -34,43 +39,12 @@ impl TlbPrefetchGuide {
     /// - 应用启动时预热代码段
     /// - 服务启动时预热配置数据
     /// - 工作负载切换时预热新数据
-    ///
-    /// # 代码示例
-    /// ```ignore
-    /// // 创建TLB（启用预热）
-    /// let config = TlbPrefetchGuide::create_prefetch_config();
-    /// let mut tlb = MultiLevelTlb::new(config);
-    ///
-    /// // 准备预热地址
-    /// let warm_addresses = vec![
-    ///     GuestAddr(0x1000),  // 代码段起始
-    ///     GuestAddr(0x2000),  // 数据段起始
-    ///     GuestAddr(0x3000),  // 堆段起始
-    /// ];
-    ///
-    /// // 添加到预取队列
-    /// tlb.prefetch_addresses(warm_addresses);
-    ///
-    /// // 执行预热
-    /// tlb.prefetch();
-    /// // 输出：TLB预热完成：预热3个条目，耗时XXX
-    /// ```
     pub fn example_basic_prefetch() {
         let config = Self::create_prefetch_config();
-        let mut tlb = MultiLevelTlb::new(config);
+        let _tlb = MultiLevelTlb::new(config);
 
-        // 准备预热地址
-        let warm_addresses = vec![
-            GuestAddr(0x1000),  // 代码段起始（4KB）
-            GuestAddr(0x2000),  // 数据段起始（8KB）
-            GuestAddr(0x3000),  // 堆段起始（12KB）
-        ];
-
-        // 添加到预取队列
-        tlb.prefetch_addresses(warm_addresses);
-
-        // 执行预热
-        tlb.prefetch();
+        // 预热功能待实现
+        println!("基本预热功能待实现");
     }
 
     /// 示例2：批量预热使用
@@ -80,40 +54,12 @@ impl TlbPrefetchGuide {
     /// # 使用场景
     /// - 系统启动时预热常用库代码
     /// - 大规模数据处理前预热数据缓冲区
-    ///
-    /// # 代码示例
-    /// ```ignore
-    /// // 创建TLB
-    /// let config = TlbPrefetchGuide::create_prefetch_config();
-    /// let mut tlb = MultiLevelTlb::new(config);
-    ///
-    /// // 批量添加地址
-    /// let addresses: Vec<GuestAddr> = (0..100)
-    ///     .map(|i| GuestAddr(0x1000 + (i as u64) * 4096))
-    ///     .collect();
-    ///
-    /// tlb.prefetch_addresses(addresses);
-    ///
-    /// // 执行预热
-    /// tlb.prefetch();
-    /// // 输出：TLB预热完成：预热16个条目，耗时XXX
-    /// ```
     pub fn example_batch_prefetch() {
         let config = Self::create_prefetch_config();
-        let mut tlb = MultiLevelTlb::new(config);
+        let _tlb = MultiLevelTlb::new(config);
 
-        // 批量添加地址（模拟代码段、数据段的多个页面）
-        let addresses: Vec<GuestAddr> = (0..100)
-            .map(|i| GuestAddr(0x1000 + (i as u64) * 4096))
-            .collect();
-
-        println!("准备预热{}个地址", addresses.len());
-
-        // 添加到预取队列
-        tlb.prefetch_addresses(addresses);
-
-        // 执行预热
-        tlb.prefetch();
+        // 预热功能待实现
+        println!("批量预热功能待实现");
     }
 
     /// 示例3：预热效果验证
@@ -134,26 +80,17 @@ impl TlbPrefetchGuide {
         let config = Self::create_prefetch_config();
         let mut tlb = MultiLevelTlb::new(config);
 
-        // 预热常用地址
-        let warm_addresses = vec![
-            GuestAddr(0x1000),
-            GuestAddr(0x2000),
-            GuestAddr(0x3000),
-        ];
-
-        tlb.prefetch_addresses(warm_addresses);
-        tlb.prefetch();
-
-        // 访问预热过的地址（应该命中L1）
-        let _ = tlb.lookup(GuestAddr(0x1000), 0, crate::AccessType::Read);
-
-        // 访问未预热的地址（应该缺失或进入L2/L3）
-        let _ = tlb.lookup(GuestAddr(0x4000), 0, crate::AccessType::Read);
+        // 使用translate方法访问地址
+        let vpn = 0x1000 >> 12;
+        let _ = tlb.translate(vpn, 0, AccessType::Read);
+        let vpn2 = 0x4000 >> 12;
+        let _ = tlb.translate(vpn2, 0, AccessType::Read);
 
         // 获取统计信息
         let stats = tlb.get_stats();
-        println!("预热命中次数：{}", 
-                 stats.prefetch_hits.load(std::sync::atomic::Ordering::Relaxed));
+        println!("预热功能待实现，当前统计：");
+        println!("总查找次数：{:?}",
+                 stats.total_lookups.load(std::sync::atomic::Ordering::Relaxed));
     }
 
     /// 预热策略建议
@@ -212,3 +149,93 @@ impl TlbPrefetchGuide {
     }
 }
 
+// ============================================================================
+// 预热使用示例（简化版）
+// ============================================================================
+
+/// TLB预热使用示例
+pub struct TlbPrefetchExample {
+    tlb: MultiLevelTlb,
+}
+
+impl Default for TlbPrefetchExample {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TlbPrefetchExample {
+    /// 创建新的示例实例
+    pub fn new() -> Self {
+        // 创建配置
+        let config = MultiLevelTlbConfig {
+            l1_capacity: 64,
+            l2_capacity: 256,
+            l3_capacity: 1024,
+            prefetch_window: 16,          // 预热16个条目
+            prefetch_threshold: 0.8,
+            adaptive_replacement: true,
+            concurrent_optimization: false,
+            enable_stats: true,
+        };
+
+        Self {
+            tlb: MultiLevelTlb::new(config),
+        }
+    }
+
+    /// 示例：基本配置
+    pub fn example_config(&self) {
+        println!("=== TLB预热配置示例 ===");
+        println!("L1容量：{}", self.tlb.l1_tlb.capacity);
+        println!("L2容量：{}", self.tlb.l2_tlb.capacity);
+        println!("L3容量：{}", self.tlb.l3_tlb.capacity);
+    }
+
+    /// 主示例函数
+    pub fn run_all_examples(&mut self) {
+        println!("========================================");
+        println!("  TLB预热机制使用示例");
+        println!("========================================");
+        println!();
+
+        self.example_config();
+        println!();
+
+        println!("========================================");
+        println!("  示例运行完成");
+        println!("========================================");
+    }
+}
+
+// ============================================================================
+// 简单的测试
+// ============================================================================
+
+#[cfg(test)]
+mod prefetch_tests {
+    use super::*;
+
+    /// 测试配置创建
+    #[test]
+    fn test_config_creation() {
+        let config = TlbPrefetchGuide::create_prefetch_config();
+        assert_eq!(config.l1_capacity, 64);
+        assert_eq!(config.prefetch_window, 16);
+    }
+
+    /// 测试TLB创建
+    #[test]
+    fn test_tlb_creation() {
+        let config = TlbPrefetchGuide::create_prefetch_config();
+        let tlb = MultiLevelTlb::new(config);
+        assert_eq!(tlb.l1_tlb.capacity, 64);
+    }
+
+    /// 测试示例创建
+    #[test]
+    fn test_example_creation() {
+        let example = TlbPrefetchExample::new();
+        example.example_config();
+    }
+}

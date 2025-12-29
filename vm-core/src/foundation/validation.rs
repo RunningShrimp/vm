@@ -3,9 +3,9 @@
 //! This module provides reusable validation components to reduce code duplication
 //! and improve consistency across the VM project.
 
+use crate::foundation::error::ConfigError;
 use crate::foundation::error::{Architecture, GuestAddr, RegId};
 use crate::foundation::error::{ErrorContext, VmError, VmResult};
-use crate::foundation::error::ConfigError;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -664,11 +664,7 @@ pub mod utils {
     ) -> VmError {
         let field_name = field.into();
         VmError::Configuration {
-            source: ConfigError::ValidationFailed(format!(
-                "{}: {}",
-                field_name,
-                message.into()
-            )),
+            source: ConfigError::ValidationFailed(format!("{}: {}", field_name, message.into())),
             message: format!("Validation failed in {}", context.operation),
         }
     }

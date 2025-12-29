@@ -387,9 +387,9 @@ impl TranslationOptimizer {
     /// 获取缓存的锁
     ///
     /// # 返回值
-    /// - `Result<std::sync::MutexGuard<'_, TranslationCache>, String>`: 缓存锁或错误
-    fn lock_cache(&self) -> Result<std::sync::MutexGuard<'_, TranslationCache>, String> {
-        self.cache.lock().map_err(|e| format!("Failed to acquire cache lock: {}", e))
+    /// - `Result<parking_lot::MutexGuard<'_, TranslationCache>, String>`: 缓存锁或错误
+    fn lock_cache(&self) -> Result<parking_lot::MutexGuard<'_, TranslationCache>, String> {
+        self.cache.lock())
     }
 
     /// 设置优化选项
@@ -2126,9 +2126,9 @@ impl TranslationCache {
     /// 获取统计信息的锁
     ///
     /// # 返回值
-    /// - `Result<std::sync::MutexGuard<'_, TranslationCacheStats>, String>`: 统计锁或错误
-    fn lock_stats(&self) -> Result<std::sync::MutexGuard<'_, TranslationCacheStats>, String> {
-        self.stats.lock().map_err(|e| format!("Failed to acquire stats lock: {}", e))
+    /// - `Result<parking_lot::MutexGuard<'_, TranslationCacheStats>, String>`: 统计锁或错误
+    fn lock_stats(&self) -> Result<parking_lot::MutexGuard<'_, TranslationCacheStats>, String> {
+        self.stats.lock())
     }
 
     /// 查找缓存

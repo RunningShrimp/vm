@@ -4,6 +4,7 @@
 
 use crate::interpreter::Interpreter;
 use crate::interpreter::async_executor::{AsyncExecStats, AsyncExecutor};
+use parking_lot::Mutex;
 use std::sync::Arc;
 use vm_core::ExecutionEngine;
 use vm_core::{ExecResult, MMU};
@@ -17,9 +18,9 @@ use vm_ir::{IRBuilder, IROp, Terminator};
 /// 提供统一的异步执行接口，支持配置化的异步执行策略
 pub struct AsyncExecutorWrapper {
     /// 内部解释器
-    interpreter: Arc<tokio::sync::Mutex<Interpreter>>,
+    interpreter: Arc<Mutex<Interpreter>>,
     /// 统计信息
-    stats: Arc<tokio::sync::Mutex<AsyncExecStats>>,
+    stats: Arc<Mutex<AsyncExecStats>>,
     /// Yield 间隔
     yield_interval: u64,
 }
@@ -28,8 +29,8 @@ impl AsyncExecutorWrapper {
     /// 创建新的异步执行引擎包装器
     pub fn new(yield_interval: u64) -> Self {
         Self {
-            interpreter: Arc::new(tokio::sync::Mutex::new(Interpreter::new())),
-            stats: Arc::new(tokio::sync::Mutex::new(AsyncExecStats::default())),
+            interpreter: Arc::new(Mutex::new(Interpreter::new())),
+            stats: Arc::new(Mutex::new(AsyncExecStats::default())),
             yield_interval,
         }
     }
@@ -40,7 +41,7 @@ impl AsyncExecutorWrapper {
         mmu: &mut dyn MMU,
         block: &IRBlock,
     ) -> Result<ExecResult, String> {
-        let mut interp = self.interpreter.lock().await;
+        let mut interp = self.interpreter.lock();
         interp.execute_block_async(mmu, block).await
     }
 
@@ -51,7 +52,7 @@ impl AsyncExecutorWrapper {
         block: &IRBlock,
         max_steps: u64,
     ) -> Result<ExecResult, String> {
-        let mut interp = self.interpreter.lock().await;
+        let mut interp = self.interpreter.lock();
         interp
             .run_steps_async(mmu, block, max_steps, self.yield_interval)
             .await
@@ -59,40 +60,34 @@ impl AsyncExecutorWrapper {
 
     /// 获取统计信息
     pub fn stats(&self) -> AsyncExecStats {
-        tokio::task::block_in_place(|| self.stats.blocking_lock().clone())
+        self.stats.lock().clone()
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        tokio::task::block_in_place(|| {
-            *self.stats.blocking_lock() = AsyncExecStats::default();
-        });
+        *self.stats.lock() = AsyncExecStats::default();
     }
 
     /// 设置寄存器
     pub fn set_reg(&self, idx: usize, val: u64) {
-        tokio::task::block_in_place(|| {
-            self.interpreter.blocking_lock().set_reg(idx as u32, val);
-        });
+        self.interpreter.lock().set_reg(idx as u32, val);
     }
 
     /// 获取寄存器值
     pub fn get_reg(&self, idx: usize) -> u64 {
-        tokio::task::block_in_place(|| self.interpreter.blocking_lock().get_reg(idx as u32))
+        self.interpreter.lock().get_reg(idx as u32)
     }
 
     /// 设置 PC
     pub fn set_pc(&self, pc: u64) {
-        tokio::task::block_in_place(|| {
-            self.interpreter
-                .blocking_lock()
-                .set_pc(vm_core::GuestAddr(pc));
-        });
+        self.interpreter
+            .lock()
+            .set_pc(vm_core::GuestAddr(pc));
     }
 
     /// 获取 PC
     pub fn get_pc(&self) -> u64 {
-        tokio::task::block_in_place(|| self.interpreter.blocking_lock().get_pc().0)
+        self.interpreter.lock().get_pc().0
     }
 }
 

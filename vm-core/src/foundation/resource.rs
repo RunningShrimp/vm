@@ -3,8 +3,8 @@
 //! This module provides reusable self.resource management components to reduce
 //! code duplication and improve self.resource safety across the VM project.
 
-use crate::foundation::error::{VmError, VmResult};
 use crate::foundation::error::ConfigError;
+use crate::foundation::error::{VmError, VmResult};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -576,20 +576,14 @@ pub mod utils {
     pub fn validate_config(config: &ResourceConfig) -> VmResult<()> {
         if config.name.is_empty() {
             return Err(VmError::Configuration {
-                source: ConfigError::InvalidValue(
-                    "name".to_string(),
-                    "empty".to_string(),
-                ),
+                source: ConfigError::InvalidValue("name".to_string(), "empty".to_string()),
                 message: "Resource name cannot be empty".to_string(),
             });
         }
 
         if config.timeout_ms == Some(0) {
             return Err(VmError::Configuration {
-                source: ConfigError::InvalidValue(
-                    "timeout_ms".to_string(),
-                    "zero".to_string(),
-                ),
+                source: ConfigError::InvalidValue("timeout_ms".to_string(), "zero".to_string()),
                 message: "Timeout cannot be zero".to_string(),
             });
         }

@@ -151,7 +151,7 @@ cfg_if::cfg_if! {
                 let mask = ((1u64 << lane_bits) - 1) << shift;
                 let av = (a & mask) >> shift;
                 let bv = (b & mask) >> shift;
-                let clamped = if av < bv { 0 } else { av - bv };
+                let clamped = av.saturating_sub(bv);
                 result |= clamped << shift;
             }
             result
@@ -159,50 +159,42 @@ cfg_if::cfg_if! {
 
         fn vec256_add_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
             let mut result = [0u64; 4];
-            for i in 0..4 {
-                result[i] = vec_add_sat_s(src_a[i], src_b[i], element_size);
+            for (i, result_item) in result.iter_mut().enumerate() {
+                *result_item = vec_add_sat_s(src_a[i], src_b[i], element_size);
             }
             result
         }
 
         fn vec256_add_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
             let mut result = [0u64; 4];
-            for i in 0..4 {
-                result[i] = vec_add_sat_u(src_a[i], src_b[i], element_size);
+            for (i, result_item) in result.iter_mut().enumerate() {
+                *result_item = vec_add_sat_u(src_a[i], src_b[i], element_size);
             }
             result
         }
 
         fn vec256_sub_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
             let mut result = [0u64; 4];
-            for i in 0..4 {
-                result[i] = vec_sub_sat_s(src_a[i], src_b[i], element_size);
+            for (i, result_item) in result.iter_mut().enumerate() {
+                *result_item = vec_sub_sat_s(src_a[i], src_b[i], element_size);
             }
             result
         }
 
         fn vec256_sub_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
             let mut result = [0u64; 4];
-            for i in 0..4 {
-                result[i] = vec_sub_sat_u(src_a[i], src_b[i], element_size);
+            for (i, result_item) in result.iter_mut().enumerate() {
+                *result_item = vec_sub_sat_u(src_a[i], src_b[i], element_size);
             }
             result
         }
 
         fn vec256_mul_sat_s(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
-            let mut result = [0u64; 4];
-            for i in 0..4 {
-                result[i] = 0; // 简化实现
-            }
-            result
+            [0u64; 4]
         }
 
         fn vec256_mul_sat_u(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
-            let mut result = [0u64; 4];
-            for i in 0..4 {
-                result[i] = 0; // 简化实现
-            }
-            result
+            [0u64; 4]
         }
     }
 }

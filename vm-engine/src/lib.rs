@@ -7,9 +7,13 @@
 //!
 //! ## 模块结构
 //!
-//! - [`jit`]: Just-In-Time 编译引擎，提供高性能的代码生成和执行
-//! - [`interpreter`]: 解释器引擎，提供直接的指令解释执行
-//! - [`executor`]: 执行器抽象和通用执行框架
+//! - [`jit`][]: Just-In-Time 编译引擎，提供高性能的代码生成和执行
+//! - [`interpreter`][]: 解释器引擎，提供直接的指令解释执行
+//! - [`executor`][]: 执行器抽象和通用执行框架
+//!
+//! [`jit`]: jit
+//! [`interpreter`]: interpreter
+//! [`executor`]: executor
 //!
 //! ## 使用示例
 //!
@@ -26,9 +30,9 @@
 //! interpreter.execute(&mut vm_state)?;
 //! ```
 
-pub mod jit;
-pub mod interpreter;
 pub mod executor;
+pub mod interpreter;
+pub mod jit;
 
 // Common engine types
 pub type EngineResult<T> = Result<T, EngineError>;

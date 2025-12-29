@@ -6,7 +6,8 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, atomic::AtomicBool};
+use std::sync::{Arc, atomic::AtomicBool};
+use parking_lot::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use vm_core::{ExecResult, ExecStats, ExecStatus, GuestAddr, MMU, VmError};
@@ -211,12 +212,6 @@ type ParallelCompilationResult = (
 type PriorityTaskQueue =
     Arc<Mutex<std::collections::BinaryHeap<(std::cmp::Reverse<u32>, CompilationTask)>>>;
 
-/// 任务队列守卫类型别名，用于简化复杂的返回类型
-type TaskQueueGuard<'a> = std::sync::MutexGuard<
-    'a,
-    std::collections::BinaryHeap<(std::cmp::Reverse<u32>, CompilationTask)>,
->;
-
 /// JIT引擎核心
 pub struct JITEngine {
     /// JIT配置
@@ -263,28 +258,6 @@ impl Drop for JITEngine {
 }
 
 impl JITEngine {
-    /// Helper method to safely acquire next_task_id lock
-    fn acquire_next_task_id(&self) -> Result<std::sync::MutexGuard<'_, u64>, VmError> {
-        self.next_task_id
-            .lock()
-            .map_err(|e| VmError::Io(e.to_string()))
-    }
-
-    /// Helper method to safely acquire pending_tasks lock
-    fn acquire_pending_tasks(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<u64, CompilationTask>>, VmError> {
-        self.pending_tasks
-            .lock()
-            .map_err(|e| VmError::Io(e.to_string()))
-    }
-
-    /// Helper method to safely acquire task_queue lock in compilation worker
-    #[allow(dead_code)]
-    fn acquire_task_queue(task_queue: &PriorityTaskQueue) -> Result<TaskQueueGuard<'_>, VmError> {
-        task_queue.lock().map_err(|e| VmError::Io(e.to_string()))
-    }
-
     /// 创建新的JIT引擎实例
     pub fn new(config: JITConfig) -> Self {
         // 使用分层缓存
@@ -398,16 +371,9 @@ impl JITEngine {
         let queue_clone = Arc::clone(&task_queue);
         let scheduler_handle = thread::spawn(move || {
             while let Ok(task) = task_channel_receiver.recv() {
-                match queue_clone.lock() {
-                    Ok(mut queue) => {
-                        // 使用Reverse包装优先级，使BinaryHeap成为最小堆
-                        queue.push((Reverse(task.priority), task));
-                    }
-                    Err(_) => {
-                        log::error!("Failed to acquire task queue lock in scheduler");
-                        break;
-                    }
-                }
+                let mut queue = queue_clone.lock();
+                // 使用Reverse包装优先级，使BinaryHeap成为最小堆
+                queue.push((Reverse(task.priority), task));
             }
         });
 
@@ -462,14 +428,7 @@ impl JITEngine {
 
             // 从优先级队列中获取任务
             let task = {
-                let mut queue = match task_queue.lock() {
-                    Ok(q) => q,
-                    Err(_) => {
-                        log::error!("Failed to acquire task queue lock in worker");
-                        thread::sleep(Duration::from_millis(10));
-                        continue;
-                    }
-                };
+                let mut queue = task_queue.lock();
 
                 // 实现任务老化：将等待时间过长的低优先级任务提升优先级
                 let now = Instant::now();
@@ -602,12 +561,7 @@ impl JITEngine {
 
         // 生成任务ID
         let task_id = {
-            let mut id = self.acquire_next_task_id().map_err(|e| {
-                VmError::Execution(vm_core::ExecutionError::JitError {
-                    message: format!("Failed to acquire task ID: {}", e),
-                    function_addr: Some(block.start_pc),
-                })
-            })?;
+            let mut id = self.next_task_id.lock();
             *id += 1;
             *id
         };
@@ -625,22 +579,19 @@ impl JITEngine {
 
         // 添加到待处理任务列表
         {
-            let mut pending = self.acquire_pending_tasks().map_err(|e| {
-                VmError::Execution(vm_core::ExecutionError::JitError {
-                    message: format!("Failed to acquire pending tasks: {}", e),
-                    function_addr: Some(block.start_pc),
-                })
-            })?;
+            let mut pending = self.pending_tasks.lock();
             pending.insert(task_id, task);
         }
 
         // 发送编译任务
         if sender.send(task_clone).is_err() {
             // 发送失败，回退到顺序编译
-            if let Ok(mut pending) = self.pending_tasks.lock() {
+            {
+                let mut pending = self.pending_tasks.lock();
                 pending.remove(&task_id);
             }
-            return self.compile_sequential(block);
+            let block_clone = block.clone();
+            return self.compile_sequential(&block_clone);
         }
 
         // 等待编译结果
@@ -652,22 +603,21 @@ impl JITEngine {
                         if result.task_id == task_id {
                             // 找到匹配的结果
                             {
-                                if let Ok(mut pending) = self.pending_tasks.lock() {
-                                    pending.remove(&task_id);
-                                }
+                                let mut pending = self.pending_tasks.lock();
+                                pending.remove(&task_id);
                             }
 
                             // 更新统计信息
-                            if let Ok(mut stats) = self.compilation_stats.lock() {
+                            {
+                                let mut stats = self.compilation_stats.lock();
                                 stats.compilation_time_ns +=
                                     result.compilation_time.as_nanos() as u64;
                                 stats.original_insn_count += block.ops.len();
                             }
 
                             // 缓存编译结果
-                            if let Ok(ref mut result) = result.result
-                                && let Ok(mut cache) = self.code_cache.lock()
-                            {
+                            if let Ok(ref mut result) = result.result {
+                                let mut cache = self.code_cache.lock();
                                 cache.insert(block.start_pc, result.code.clone());
                             }
 
@@ -684,21 +634,21 @@ impl JITEngine {
                     Err(mpsc::TryRecvError::Disconnected) => {
                         // 通道断开，回退到顺序编译
                         {
-                            if let Ok(mut pending) = self.pending_tasks.lock() {
-                                pending.remove(&task_id);
-                            }
+                            let mut pending = self.pending_tasks.lock();
+                            pending.remove(&task_id);
                         }
-                        return self.compile_sequential(block);
+                        let block_clone = block.clone();
+                        return self.compile_sequential(&block_clone);
                     }
                 }
             } else {
                 // 没有结果接收器，回退到顺序编译
                 {
-                    if let Ok(mut pending) = self.pending_tasks.lock() {
-                        pending.remove(&task_id);
-                    }
+                    let mut pending = self.pending_tasks.lock();
+                    pending.remove(&task_id);
                 }
-                return self.compile_sequential(block);
+                let block_clone = block.clone();
+                return self.compile_sequential(&block_clone);
             }
         }
     }
@@ -714,7 +664,8 @@ impl JITEngine {
             let optimization_time = optimization_start.elapsed().as_nanos() as u64;
 
             // 更新优化时间统计
-            if let Ok(mut stats) = self.compilation_stats.lock() {
+            {
+                let mut stats = self.compilation_stats.lock();
                 stats.optimization_time_ns += optimization_time;
             }
 
@@ -732,7 +683,8 @@ impl JITEngine {
             let simd_time = simd_start.elapsed().as_nanos() as u64;
 
             // 更新SIMD优化时间统计
-            if let Ok(mut stats) = self.compilation_stats.lock() {
+            {
+                let mut stats = self.compilation_stats.lock();
                 stats.optimization_time_ns += simd_time;
             }
         }
@@ -748,7 +700,8 @@ impl JITEngine {
             let advanced_time = advanced_start.elapsed().as_nanos() as u64;
 
             // 更新高级优化时间统计
-            if let Ok(mut stats) = self.compilation_stats.lock() {
+            {
+                let mut stats = self.compilation_stats.lock();
                 stats.optimization_time_ns += advanced_time;
             }
         }
@@ -760,7 +713,8 @@ impl JITEngine {
         let allocation_time = allocation_start.elapsed().as_nanos() as u64;
 
         // 更新寄存器分配时间统计
-        if let Ok(mut stats) = self.compilation_stats.lock() {
+        {
+            let mut stats = self.compilation_stats.lock();
             stats.register_allocation_time_ns += allocation_time;
         }
 
@@ -776,7 +730,8 @@ impl JITEngine {
             let scheduling_time = scheduling_start.elapsed().as_nanos() as u64;
 
             // 更新指令调度时间统计
-            if let Ok(mut stats) = self.compilation_stats.lock() {
+            {
+                let mut stats = self.compilation_stats.lock();
                 stats.instruction_scheduling_time_ns += scheduling_time;
             }
 
@@ -789,13 +744,15 @@ impl JITEngine {
         let codegen_time = codegen_start.elapsed().as_nanos() as u64;
 
         // 更新代码生成时间统计
-        if let Ok(mut stats) = self.compilation_stats.lock() {
+        {
+            let mut stats = self.compilation_stats.lock();
             stats.code_generation_time_ns += codegen_time;
         }
 
         // 5. 更新总体统计
         let total_time = start_time.elapsed().as_nanos() as u64;
-        if let Ok(mut stats) = self.compilation_stats.lock() {
+        {
+            let mut stats = self.compilation_stats.lock();
             stats.compilation_time_ns += total_time;
             stats.original_insn_count += block.ops.len();
             stats.optimized_insn_count += optimized_block.ops.len();
@@ -803,7 +760,8 @@ impl JITEngine {
         }
 
         // 6. 缓存编译结果
-        if let Ok(mut cache) = self.code_cache.lock() {
+        {
+            let mut cache = self.code_cache.lock();
             cache.insert(block.start_pc, compilation_result.code.clone());
         }
 
@@ -811,14 +769,12 @@ impl JITEngine {
     }
 
     /// 执行编译后的代码
+    #[allow(clippy::map_clone)]
     pub fn execute(&mut self, mmu: &mut dyn MMU, pc: GuestAddr) -> ExecResult {
         // 检查代码缓存
         let compiled_code = {
-            if let Ok(cache) = self.code_cache.lock() {
-                cache.get(pc)
-            } else {
-                None
-            }
+            let cache = self.code_cache.lock();
+            cache.get(pc).map(|code| code.clone())
         };
 
         match compiled_code {
@@ -856,7 +812,8 @@ impl JITEngine {
                             match self.compile(&ir_block) {
                                 Ok(compilation_result) => {
                                     // 缓存编译结果
-                                    if let Ok(mut cache) = self.code_cache.lock() {
+                                    {
+                                        let mut cache = self.code_cache.lock();
                                         cache.insert(pc, compilation_result.code.clone());
                                     }
                                     // 执行新编译的代码
@@ -988,29 +945,22 @@ impl JITEngine {
 
     /// 更新热点计数
     pub fn update_hotspot_counter(&self, pc: GuestAddr) {
-        if let Ok(mut counter) = self.hotspot_counter.lock() {
-            let count = counter.entry(pc).or_insert(0);
-            *count += 1;
-        }
+        let mut counter = self.hotspot_counter.lock();
+        let count = counter.entry(pc).or_insert(0);
+        *count += 1;
     }
 
     /// 检查是否是热点代码
     pub fn is_hotspot(&self, pc: GuestAddr) -> bool {
-        if let Ok(counter) = self.hotspot_counter.lock() {
-            counter
-                .get(&pc)
-                .is_some_and(|&count| count >= self.config.hotspot_threshold)
-        } else {
-            false
-        }
+        let counter = self.hotspot_counter.lock();
+        counter
+            .get(&pc)
+            .is_some_and(|&count| count >= self.config.hotspot_threshold)
     }
 
     /// 获取编译统计信息
     pub fn get_compilation_stats(&self) -> JITCompilationStats {
-        self.compilation_stats
-            .lock()
-            .map(|stats| stats.clone())
-            .unwrap_or_default()
+        self.compilation_stats.lock().clone()
     }
 
     // /// 获取硬件加速统计信息
@@ -1030,18 +980,14 @@ impl JITEngine {
 
     /// 清空代码缓存
     pub fn clear_cache(&self) {
-        if let Ok(mut cache) = self.code_cache.lock() {
-            cache.clear();
-        }
+        let mut cache = self.code_cache.lock();
+        cache.clear();
     }
 
     /// 获取代码缓存统计信息
     pub fn get_cache_stats(&self) -> crate::jit::code_cache::CacheStats {
-        if let Ok(cache) = self.code_cache.lock() {
-            cache.stats()
-        } else {
-            crate::jit::code_cache::CacheStats::default()
-        }
+        let cache = self.code_cache.lock();
+        cache.stats()
     }
 
     /// 获取IR块

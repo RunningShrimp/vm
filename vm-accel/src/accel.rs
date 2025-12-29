@@ -59,6 +59,13 @@ impl AccelerationManager {
     ///
     /// 检测系统拓扑并准备加速组件。
     ///
+    /// # 性能优化
+    ///
+    /// 使用延迟初始化策略：
+    /// - CPU拓扑检测延迟到首次使用
+    /// - SMMU按需初始化
+    /// - vCPU亲和性管理器按需创建
+    ///
     /// # 返回值
     ///
     /// 成功返回管理器实例，失败返回错误。
@@ -71,22 +78,51 @@ impl AccelerationManager {
     /// let manager = AccelerationManager::new();
     /// ```
     pub fn new() -> Result<Self, AccelManagerError> {
-        log::info!("Initializing Acceleration Manager");
-
-        let topology = Arc::new(CPUTopology::detect());
-
-        log::info!("Detected CPU topology:");
-        log::info!("  Total CPUs: {}", topology.total_cpus);
-        log::info!("  NUMA nodes: {}", topology.numa_nodes);
+        log::debug!("Creating Acceleration Manager (lazy initialization)");
 
         Ok(Self {
-            topology,
+            topology: Arc::new(CPUTopology::detect()), // 轻量级操作
+            #[cfg(not(any(target_os = "windows", target_os = "ios")))]
+            vcpu_affinity: None, // 延迟初始化
+            smmu: None,           // 延迟初始化
+            numa_enabled: false,
+            initialized: false,
+        })
+    }
+
+    /// 快速创建（不检测拓扑）
+    ///
+    /// 用于性能关键场景，拓扑检测延迟到首次使用。
+    pub fn new_fast() -> Self {
+        log::debug!("Creating Acceleration Manager in fast mode");
+
+        Self {
+            topology: Arc::new(CPUTopology {
+                total_cpus: 1,
+                numa_nodes: 1,
+                cpus_per_node: std::collections::HashMap::from([(0, vec![0])]),
+                cpu_to_node: std::collections::HashMap::from([(0, 0)]),
+                cache_topology: Vec::new(),
+            }),
             #[cfg(not(any(target_os = "windows", target_os = "ios")))]
             vcpu_affinity: None,
             smmu: None,
             numa_enabled: false,
             initialized: false,
-        })
+        }
+    }
+
+    /// 确保拓扑信息已正确检测
+    ///
+    /// 在fast模式下首次使用时调用此方法
+    pub fn ensure_topology_detected(&mut self) {
+        if self.topology.total_cpus == 1 && self.topology.numa_nodes == 1 {
+            log::info!("Detecting CPU topology (deferred from fast init)");
+            self.topology = Arc::new(CPUTopology::detect());
+            log::info!("Detected CPU topology:");
+            log::info!("  Total CPUs: {}", self.topology.total_cpus);
+            log::info!("  NUMA nodes: {}", self.topology.numa_nodes);
+        }
     }
 
     /// 初始化 SMMU

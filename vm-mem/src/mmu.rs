@@ -191,6 +191,16 @@ impl PageTableFlags {
         }
         entry
     }
+
+    /// 转换为位表示
+    pub fn bits(&self) -> u64 {
+        self.to_x86_64_entry(0)
+    }
+
+    /// 从位表示创建
+    pub fn from_bits_truncate(bits: u64) -> Self {
+        Self::from_x86_64_entry(bits)
+    }
 }
 
 /// 页表项

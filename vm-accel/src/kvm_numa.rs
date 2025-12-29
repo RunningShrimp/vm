@@ -1,4 +1,4 @@
-//! 增强的 KVM 加速器
+//! NUMA 感知的 KVM 加速器
 //!
 //! 集成 NUMA 优化和 vCPU 亲和性管理的 KVM 加速器实现。
 //!
@@ -12,9 +12,9 @@
 //! ## 使用示例
 //!
 //! ```ignore
-//! use vm_accel::kvm_enhanced::EnhancedKvmAccelerator;
+//! use vm_accel::kvm_numa::NUMAKvmAccelerator;
 //!
-//! let mut kvm = EnhancedKvmAccelerator::new()?;
+//! let mut kvm = NUMAKvmAccelerator::new()?;
 //! kvm.init()?;
 //!
 //! // 创建 vCPU 时自动应用 NUMA 和亲和性优化
@@ -29,7 +29,7 @@ use super::{
 };
 use std::sync::{Arc, Mutex};
 
-/// 增强的 KVM 加速器
+/// NUMA 感知的 KVM 加速器
 ///
 /// 在标准 KVM 加速器基础上添加：
 /// - NUMA 感知内存分配
@@ -37,8 +37,8 @@ use std::sync::{Arc, Mutex};
 /// - 跨节点访问统计和优化
 ///
 /// # 标识
-/// 增强的 KVM 加速器类
-pub struct EnhancedKvmAccelerator {
+/// NUMA 优化的 KVM 加速器类
+pub struct NUMAKvmAccelerator {
     /// 基础 KVM 加速器
     kvm: AccelKvm,
     /// NUMA 优化器（可选）
@@ -53,7 +53,7 @@ pub struct EnhancedKvmAccelerator {
     affinity_enabled: bool,
 }
 
-impl EnhancedKvmAccelerator {
+impl NUMAKvmAccelerator {
     /// 创建新的增强 KVM 加速器
     ///
     /// # 参数
@@ -68,13 +68,13 @@ impl EnhancedKvmAccelerator {
     /// # 示例
     ///
     /// ```
-    /// use vm_accel::kvm_enhanced::EnhancedKvmAccelerator;
+    /// use vm_accel::kvm_enhanced::NUMAKvmAccelerator;
     ///
     /// // 启用所有优化
-    /// let kvm = EnhancedKvmAccelerator::new(true, true)?;
+    /// let kvm = NUMAKvmAccelerator::new(true, true)?;
     ///
     /// // 仅启用 NUMA 优化
-    /// let kvm = EnhancedKvmAccelerator::new(true, false)?;
+    /// let kvm = NUMAKvmAccelerator::new(true, false)?;
     /// ```
     pub fn new(enable_numa: bool, enable_affinity: bool) -> Result<Self, AccelError> {
         log::info!(
@@ -284,7 +284,7 @@ impl EnhancedKvmAccelerator {
     }
 }
 
-impl Default for EnhancedKvmAccelerator {
+impl Default for NUMAKvmAccelerator {
     fn default() -> Self {
         Self::new(false, false).unwrap_or_else(|_| {
             // 如果创建失败，返回禁用所有优化的实例
@@ -301,7 +301,7 @@ impl Default for EnhancedKvmAccelerator {
 }
 
 // 实现 Accel trait 以保持与标准接口兼容
-impl Accel for EnhancedKvmAccelerator {
+impl Accel for NUMAKvmAccelerator {
     fn init(&mut self) -> Result<(), AccelError> {
         // 初始化基础 KVM
         self.kvm.init()?;
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_kvm_creation() {
-        let kvm = EnhancedKvmAccelerator::new(false, false);
+        let kvm = NUMAKvmAccelerator::new(false, false);
         assert!(kvm.is_ok());
         let kvm = kvm.expect("Should create KVM");
         assert!(!kvm.is_numa_enabled());
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_kvm_with_numa() {
-        let kvm = EnhancedKvmAccelerator::new(true, false);
+        let kvm = NUMAKvmAccelerator::new(true, false);
         assert!(kvm.is_ok());
         let kvm = kvm.expect("Should create KVM with NUMA");
         assert!(kvm.is_numa_enabled());
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_kvm_with_affinity() {
-        let kvm = EnhancedKvmAccelerator::new(false, true);
+        let kvm = NUMAKvmAccelerator::new(false, true);
         assert!(kvm.is_ok());
         let kvm = kvm.expect("Should create KVM with affinity");
         assert!(!kvm.is_numa_enabled());
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_kvm_all_features() {
-        let kvm = EnhancedKvmAccelerator::new(true, true);
+        let kvm = NUMAKvmAccelerator::new(true, true);
         assert!(kvm.is_ok());
         let kvm = kvm.expect("Should create KVM with all features");
         assert!(kvm.is_numa_enabled());

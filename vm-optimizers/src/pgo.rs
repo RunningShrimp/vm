@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 /// 块执行Profile信息
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BlockProfile {
     /// 块ID
     pub block_id: u64,
@@ -234,6 +234,16 @@ impl ProfileCollector {
             samples_collected: self.samples_collected.load(Ordering::Relaxed),
             total_exec_time_us: self.total_exec_time_us.load(Ordering::Relaxed),
         }
+    }
+
+    /// 获取块Profile的只读访问
+    pub fn get_block_profiles(&self) -> parking_lot::RwLockReadGuard<'_, HashMap<u64, BlockProfile>> {
+        self.block_profiles.read()
+    }
+
+    /// 获取调用Profile的只读访问
+    pub fn get_call_profiles(&self) -> parking_lot::RwLockReadGuard<'_, HashMap<(u64, u64), CallProfile>> {
+        self.call_profiles.read()
     }
 
     /// 清空Profile数据

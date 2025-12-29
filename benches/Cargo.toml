@@ -14,6 +14,10 @@ parking_lot = { workspace = true }
 vm-core = { path = "../vm-core" }
 vm-device = { path = "../vm-device", features = [] }
 vm-mem = { path = "../vm-mem" }
+vm-cross-arch = { path = "../vm-cross-arch" }
+vm-engine = { path = "../vm-engine" }
+vm-ir = { path = "../vm-ir" }
+fastrand = "2.1"
 
 [[bench]]
 name = "async_performance_benchmark"
@@ -33,4 +37,19 @@ harness = false
 [[bench]]
 name = "async_execution_engine_benchmark"
 path = "async_execution_engine_benchmark.rs"
+harness = false
+
+[[bench]]
+name = "fast_path_bench"
+path = "fast_path_bench.rs"
+harness = false
+
+[[bench]]
+name = "block_cache_bench"
+path = "block_cache_bench.rs"
+harness = false
+
+[[bench]]
+name = "pgo_jit_bench"
+path = "pgo_jit_bench.rs"
 harness = false

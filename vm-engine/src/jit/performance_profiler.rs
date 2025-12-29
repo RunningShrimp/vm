@@ -162,14 +162,14 @@ impl JITPerformanceProfiler {
     }
 
     /// 辅助方法：获取is_profiling锁
-    fn lock_is_profiling(&self) -> Result<std::sync::MutexGuard<'_, bool>, String> {
+    fn lock_is_profiling(&self) -> Result<parking_lot::MutexGuard<'_, bool>, String> {
         self.is_profiling
             .lock()
             .map_err(|e| format!("获取is_profiling锁失败: {}", e))
     }
 
     /// 辅助方法：获取performance_data锁
-    fn lock_performance_data(&self) -> Result<std::sync::MutexGuard<'_, VecDeque<PerformanceDataPoint>>, String> {
+    fn lock_performance_data(&self) -> Result<parking_lot::MutexGuard<'_, VecDeque<PerformanceDataPoint>>, String> {
         self.performance_data
             .lock()
             .map_err(|e| format!("获取performance_data锁失败: {}", e))

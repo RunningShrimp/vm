@@ -3,9 +3,9 @@
 //! This module provides mechanisms for VMs to discover each other and the coordinator.
 
 use crate::executor::distributed::protocol::{VmCapabilities, VmId};
+use parking_lot::Mutex;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// VM information
 #[derive(Debug, Clone)]
@@ -51,6 +51,7 @@ impl VmDiscovery {
             config.discovery_port
         );
 
+        #[cfg(feature = "async")]
         tokio::spawn(async move {
             let mut buf = [0; 1024];
 
@@ -85,7 +86,7 @@ impl VmDiscovery {
                                 memory_usage: 0,
                             };
 
-                            let mut vm_list_lock = vm_list.lock().await;
+                            let mut vm_list_lock = vm_list.lock();
                             vm_list_lock.retain(|v| v.vm_addr != vm_info.vm_addr);
                             vm_list_lock.push(vm_info);
                         }
@@ -107,7 +108,7 @@ impl VmDiscovery {
 
     /// Get the list of active VMs
     pub async fn get_active_vms(&self) -> Vec<VmInfo> {
-        let mut vm_list = self.vm_list.lock().await;
+        let mut vm_list = self.vm_list.lock();
 
         // Remove inactive VMs (last seen > 30 seconds)
         vm_list.retain(|vm| vm.last_seen.elapsed() < std::time::Duration::from_secs(30));
@@ -117,7 +118,7 @@ impl VmDiscovery {
 
     /// Add a VM to the discovery list
     pub async fn add_vm(&self, vm_info: VmInfo) {
-        let mut vm_list = self.vm_list.lock().await;
+        let mut vm_list = self.vm_list.lock();
 
         // Remove existing entry if present
         vm_list.retain(|v| v.vm_id != vm_info.vm_id);

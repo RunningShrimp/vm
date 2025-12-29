@@ -154,7 +154,7 @@ impl NUMAOptimizer {
             }
         };
 
-        let mut allocator = self
+        let allocator = self
             .memory_allocator
             .write()
             .map_err(|e| format!("Failed to acquire memory allocator lock (poisoned): {}", e))?;

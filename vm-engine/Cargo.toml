@@ -18,6 +18,7 @@ thiserror = { workspace = true }
 vm-core = { path = "../vm-core", features = ["foundation"] }
 vm-mem = { path = "../vm-mem" }
 vm-ir = { path = "../vm-ir" }
+vm-optimizers = { path = "../vm-optimizers" }
 
 # Optional external dependencies
 vm-accel = { path = "../vm-accel", optional = true }
@@ -59,3 +60,24 @@ all-engines = ["jit", "interpreter", "executor"]
 
 [dev-dependencies]
 criterion = { workspace = true }
+rand = "0.8"
+
+[[bench]]
+name = "jit_compilation_bench"
+harness = false
+
+[[bench]]
+name = "tlb_lookup_bench"
+harness = false
+
+[[bench]]
+name = "cross_arch_translation_bench"
+harness = false
+
+[[bench]]
+name = "pgo_performance_bench"
+harness = false
+
+[[bench]]
+name = "async_batch_bench"
+harness = false

@@ -7,6 +7,7 @@ use crate::executor::distributed::architecture::DistributedArchitectureConfig;
 use crate::executor::distributed::discovery::{VmDiscovery, VmInfo};
 use crate::executor::distributed::protocol::{TaskId, TaskInfo, TaskStatus, TaskType, VmMessage};
 use crate::executor::distributed::scheduler::TaskScheduler;
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// VM Coordinator
@@ -14,7 +15,7 @@ pub struct VmCoordinator {
     config: DistributedArchitectureConfig,
     discovery: VmDiscovery,
     scheduler: TaskScheduler,
-    next_vm_index: Arc<std::sync::Mutex<usize>>,
+    next_vm_index: Arc<Mutex<usize>>,
 }
 
 impl VmCoordinator {
@@ -27,7 +28,7 @@ impl VmCoordinator {
             config,
             discovery,
             scheduler,
-            next_vm_index: Arc::new(std::sync::Mutex::new(0)),
+            next_vm_index: Arc::new(Mutex::new(0)),
         })
     }
 

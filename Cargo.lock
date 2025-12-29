@@ -7100,10 +7100,14 @@ name = "vm-benches"
 version = "0.1.0"
 dependencies = [
  "criterion 0.5.1",
+ "fastrand",
  "parking_lot",
  "tokio",
  "vm-core",
+ "vm-cross-arch",
  "vm-device",
+ "vm-engine",
+ "vm-ir",
  "vm-mem",
 ]
 
@@ -7122,6 +7126,7 @@ dependencies = [
  "vm-device",
  "vm-mem",
  "vm-optimizers",
+ "vm-runtime",
 ]
 
 [[package]]
@@ -7299,6 +7304,7 @@ dependencies = [
  "nix",
  "num_cpus",
  "parking_lot",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -7309,6 +7315,7 @@ dependencies = [
  "vm-core",
  "vm-ir",
  "vm-mem",
+ "vm-optimizers",
  "vm-simd",
  "windows-sys 0.61.2",
 ]
@@ -7401,12 +7408,14 @@ version = "0.1.0"
 dependencies = [
  "cfg-if",
  "criterion 0.5.1",
+ "futures",
  "log",
  "parking_lot",
  "rand 0.8.5",
  "rayon",
  "serde",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]

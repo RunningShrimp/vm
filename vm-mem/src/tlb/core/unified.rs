@@ -71,7 +71,7 @@ pub trait UnifiedTlb: Send + Sync {
 }
 
 /// TLB查找结果
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TlbEntryResult {
     /// 物理地址
     pub gpa: GuestPhysAddr,
@@ -95,7 +95,7 @@ impl Default for TlbEntryResult {
 }
 
 /// TLB统计信息
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct TlbStats {
     /// 查找次数
     pub lookups: u64,
@@ -196,11 +196,9 @@ impl UnifiedTlb for BasicTlb {
             Ok(guard) => guard,
             Err(_) => return None,
         };
-        let result = entries.get(&gva).cloned();
-        drop(entries);
 
         // 检查访问权限是否匹配
-        let result = if let Some(mut entry) = result {
+        let result = if let Some(entry) = entries.get(&gva) {
             let entry_access_type = access_type_from_flags(entry.flags);
 
             // 验证访问权限
@@ -217,14 +215,18 @@ impl UnifiedTlb for BasicTlb {
             };
 
             if access_allowed {
-                entry.hit = true;
-                Some(entry)
+                // 使用结构体更新语法，利用Copy trait避免克隆
+                Some(TlbEntryResult {
+                    hit: true,
+                    ..*entry
+                })
             } else {
                 None
             }
         } else {
             None
         };
+        drop(entries);
 
         // 更新统计
         if let Ok(mut stats) = self.lock_stats_mut() {
@@ -316,13 +318,7 @@ impl UnifiedTlb for BasicTlb {
 
     fn get_stats(&self) -> TlbStats {
         match self.lock_stats() {
-            Ok(stats) => TlbStats {
-                lookups: stats.lookups,
-                hits: stats.hits,
-                misses: stats.misses,
-                invalidations: stats.invalidations,
-                prefetches: stats.prefetches,
-            },
+            Ok(stats) => *stats, // 直接复制，避免逐字段复制
             Err(_) => TlbStats::default(),
         }
     }
@@ -853,7 +849,6 @@ pub mod multilevel_tlb_impl {
         TwoQueue,
     }
 
-    use crate::tlb::TlbManager;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -1245,7 +1240,7 @@ pub mod multilevel_tlb_impl {
         }
     }
 
-    impl TlbManager for MultiLevelTlb {
+    impl vm_core::TlbManager for MultiLevelTlb {
         fn lookup(
             &mut self,
             addr: GuestAddr,
@@ -1336,25 +1331,29 @@ pub mod multilevel_tlb_impl {
             asid: u16,
             access: AccessType,
         ) -> Option<vm_core::TlbEntry> {
-            let entry = crate::tlb::TlbManager::lookup(&mut self.inner, addr, asid, access)?;
+            // 将GuestAddr转换为VPN
+            let vpn = addr.0 >> 12;
+            let result = self.inner.translate(vpn, asid, access)?;
             Some(vm_core::TlbEntry {
-                guest_addr: entry.guest_addr,
-                phys_addr: entry.phys_addr,
-                flags: entry.flags,
-                asid: entry.asid,
+                guest_addr: addr,
+                phys_addr: vm_core::GuestPhysAddr(result.0),
+                flags: result.1,
+                asid,
             })
         }
 
         fn update(&mut self, entry: vm_core::TlbEntry) {
-            crate::tlb::TlbManager::update(&mut self.inner, entry);
+            let vpn = entry.guest_addr.0 >> 12;
+            let ppn = entry.phys_addr.0 >> 12;
+            self.inner.insert(vpn, ppn, entry.flags, entry.asid);
         }
 
         fn flush(&mut self) {
-            crate::tlb::TlbManager::flush(&mut self.inner);
+            self.inner.flush_all();
         }
 
         fn flush_asid(&mut self, asid: u16) {
-            crate::tlb::TlbManager::flush_asid(&mut self.inner, asid);
+            self.inner.flush_asid(asid);
         }
     }
 }

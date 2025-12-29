@@ -64,11 +64,11 @@ pub use mmu_traits::{AddressTranslator, MMU, MemoryAccess, MmioManager, MmuAsAny
 mod regs;
 
 // Re-export ExecutionError, VmError, CoreError and MemoryError
+pub use error::IntoVmError;
 pub use error::{
     CoreError, DeviceError, ExecutionError, MemoryError, PlatformError, VmError as CoreVmError,
     VmError,
 };
-pub use error::IntoVmError;
 
 // Re-export config types
 pub use config::{Config, ConfigBuilder, ConfigDiff, ConfigError, ConfigVecExt};

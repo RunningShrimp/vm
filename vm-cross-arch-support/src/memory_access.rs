@@ -31,8 +31,9 @@ pub enum MemoryError {
 }
 
 /// Memory access types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AccessType {
+    #[default]
     Read,
     Write,
     ReadWrite,
@@ -43,19 +44,22 @@ pub enum AccessType {
 }
 
 /// Memory access width
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AccessWidth {
-    Byte,
-    HalfWord,
-    Word,
-    DoubleWord,
-    QuadWord,
+    #[default]
+    Word,       // 4 bytes (most common)
+    Byte,       // 1 byte
+    HalfWord,   // 2 bytes
+    DoubleWord, // 8 bytes
+    QuadWord,   // 16 bytes
     Vector(u8), // Vector with specified lane count
 }
 
 /// Memory alignment requirements
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Alignment {
+    #[default]
+    Natural, // Natural alignment for the access width (recommended)
     Unaligned,
     Aligned1,
     Aligned2,
@@ -64,12 +68,11 @@ pub enum Alignment {
     Aligned16,
     Aligned32,
     Aligned64,
-    Natural, // Natural alignment for the access width
     Strict,  // Strict alignment (must be naturally aligned)
 }
 
 /// Memory access flags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MemoryFlags {
     pub is_volatile: bool,
     pub is_atomic: bool,
@@ -79,21 +82,6 @@ pub struct MemoryFlags {
     pub is_cacheable: bool,
     pub is_privileged: bool,
     pub is_endian_aware: bool,
-}
-
-impl Default for MemoryFlags {
-    fn default() -> Self {
-        Self {
-            is_volatile: false,
-            is_atomic: false,
-            is_acquire: false,
-            is_release: false,
-            is_locked: false,
-            is_cacheable: true,
-            is_privileged: false,
-            is_endian_aware: false,
-        }
-    }
 }
 
 /// Memory access pattern description
@@ -180,8 +168,9 @@ pub struct OptimizedPattern {
 }
 
 /// Types of memory access optimizations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OptimizationType {
+    #[default]
     NoOptimization,
     AlignedAccess,
     CombinedAccess,
@@ -217,8 +206,9 @@ pub struct AlignmentIssue {
 }
 
 /// Issue severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IssueSeverity {
+    #[default]
     Warning,
     Error,
     Critical,
@@ -233,19 +223,21 @@ pub struct Fix {
 }
 
 /// Types of fixes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FixType {
+    #[default]
+    UseUnalignedAccess, // Least invasive
     AlignAddress,
     AdjustOffset,
     ChangeAccessWidth,
     InsertPadding,
-    UseUnalignedAccess,
     RestructureAccess,
 }
 
 /// Cost estimate for applying a fix
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FixCost {
+    #[default]
     None,
     Low,
     Medium,
@@ -398,17 +390,19 @@ pub struct EndiannessConverter {
 }
 
 /// Endianness types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Endianness {
+    #[default]
     Little,
     Big,
 }
 
 /// Conversion strategies for endianness
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConversionStrategy {
+    #[default]
+    Optimized,   // Optimized for common patterns (recommended)
     Direct,      // Direct byte swapping
-    Optimized,   // Optimized for common patterns
     Lazy,        // Convert on demand
     Precomputed, // Precompute conversion tables
 }

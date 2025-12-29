@@ -284,19 +284,19 @@ impl PerformanceReportGenerator {
     }
 
     /// Helper method to safely acquire performance history lock
-    fn lock_performance_history(&self) -> Result<std::sync::MutexGuard<VecDeque<PerformanceSnapshot>>, String> {
+    fn lock_performance_history(&self) -> Result<parking_lot::MutexGuard<VecDeque<PerformanceSnapshot>>, String> {
         self.performance_history.lock()
             .map_err(|e| format!("Failed to acquire performance history lock: {}", e))
     }
 
     /// Helper method to safely acquire optimization records lock
-    fn lock_optimization_records(&self) -> Result<std::sync::MutexGuard<Vec<OptimizationRecord>>, String> {
+    fn lock_optimization_records(&self) -> Result<parking_lot::MutexGuard<Vec<OptimizationRecord>>, String> {
         self.optimization_records.lock()
             .map_err(|e| format!("Failed to acquire optimization records lock: {}", e))
     }
 
     /// Helper method to safely acquire report stats lock
-    fn lock_report_stats(&self) -> Result<std::sync::MutexGuard<ReportStatistics>, String> {
+    fn lock_report_stats(&self) -> Result<parking_lot::MutexGuard<ReportStatistics>, String> {
         self.report_stats.lock()
             .map_err(|e| format!("Failed to acquire report stats lock: {}", e))
     }

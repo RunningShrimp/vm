@@ -3,7 +3,7 @@
 //! 实现Per-CPU TLB之间的同步，确保一致性
 
 use crate::GuestAddr;
-use crate::tlb::per_cpu_tlb::PerCpuTlbManager;
+use crate::tlb::core::per_cpu::PerCpuTlbManager;
 
 /// Type alias for dedup window key to reduce type complexity
 type DedupKey = (GuestAddr, u16, SyncEventType);
@@ -691,7 +691,7 @@ impl TlbSynchronizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tlb::per_cpu_tlb::PerCpuTlbManager;
+    use crate::tlb::core::per_cpu::PerCpuTlbManager;
 
     #[test]
     fn test_sync_event_creation() {

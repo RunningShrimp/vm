@@ -19,6 +19,9 @@ cfg_if::cfg_if! {
     }
 }
 
+#[cfg(feature = "async")]
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -43,13 +46,18 @@ impl PerformanceMonitor {
 
     pub fn record_metric(&mut self, key: String, value: f64) {
         self.metrics.insert(key.clone(), value);
-        let entry = self.time_series.entry(key).or_insert_with(Vec::new);
+        let entry = self.time_series.entry(key).or_default();
         entry.push((std::time::Instant::now(), value));
     }
 
-    pub fn record_metric_with_timestamp(&mut self, key: String, value: f64, _timestamp: std::time::Instant) {
+    pub fn record_metric_with_timestamp(
+        &mut self,
+        key: String,
+        value: f64,
+        _timestamp: std::time::Instant,
+    ) {
         self.metrics.insert(key.clone(), value);
-        let entry = self.time_series.entry(key).or_insert_with(Vec::new);
+        let entry = self.time_series.entry(key).or_default();
         entry.push((_timestamp, value));
     }
 
@@ -76,6 +84,12 @@ impl PerformanceMonitor {
             max,
             current: values.last().map(|v| v.1).unwrap_or(0.0),
         })
+    }
+}
+
+impl Default for PerformanceMonitor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -234,8 +248,10 @@ pub struct PerformanceAnalysis {
 /// 自适应优化器
 pub struct AdaptiveOptimizer {
     /// 配置
+    #[allow(dead_code)]
     config: AdaptiveOptimizerConfig,
     /// 性能监控器
+    #[allow(dead_code)]
     performance_monitor: Arc<PerformanceMonitor>,
     /// 硬件特性
     hardware_profile: HardwareProfile,
@@ -244,6 +260,7 @@ pub struct AdaptiveOptimizer {
     /// 当前优化状态
     optimization_state: OptimizationState,
     /// 最后优化时间
+    #[allow(dead_code)]
     last_optimization_time: Instant,
     /// 优化尝试计数
     optimization_attempts: usize,
@@ -349,6 +366,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 分析当前性能
+    #[allow(dead_code)]
     fn analyze_performance(&self) -> PerformanceAnalysis {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -410,6 +428,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别工作负载模式
+    #[allow(dead_code)]
     fn identify_workload_pattern(&self, metrics: &HashMap<String, f64>) -> WorkloadPattern {
         let cpu_usage = metrics.get("cpu_usage").copied().unwrap_or(0.0);
         let memory_usage = metrics.get("memory_usage").copied().unwrap_or(0.0);
@@ -428,6 +447,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别性能瓶颈
+    #[allow(dead_code)]
     fn identify_bottlenecks(&self, metrics: &HashMap<String, f64>) -> Vec<String> {
         let mut bottlenecks = Vec::new();
 
@@ -459,6 +479,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别优化机会
+    #[allow(dead_code)]
     fn identify_optimization_opportunities(
         &self,
         metrics: &HashMap<String, f64>,
@@ -504,6 +525,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 生成优化建议
+    #[allow(dead_code)]
     fn generate_recommendations(
         &self,
         analysis: &PerformanceAnalysis,
@@ -582,6 +604,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 判断是否应该应用建议
+    #[allow(dead_code)]
     fn should_apply_recommendation(&self, recommendation: &OptimizationRecommendation) -> bool {
         // 检查置信度和优先级
         if recommendation.confidence < 0.6 || matches!(recommendation.priority, Priority::Low) {
@@ -604,6 +627,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 应用优化建议
+    #[allow(dead_code)]
     async fn apply_recommendation(&mut self, recommendation: OptimizationRecommendation) {
         println!(
             "Applying optimization recommendation: {}",
@@ -645,6 +669,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 清理过期建议
+    #[allow(dead_code)]
     fn cleanup_expired_recommendations(&mut self) {
         // 简单的清理策略：保留最近的建议
         if self.active_recommendations.len() > 10 {
@@ -667,10 +692,14 @@ impl AdaptiveOptimizer {
         HardwareProfile {
             cpu_cores: {
                 #[cfg(all(feature = "async", target_os = "linux"))]
-                { num_cpus::get() }
+                {
+                    num_cpus::get()
+                }
 
                 #[cfg(not(all(feature = "async", target_os = "linux")))]
-                { 4 } // 默认 4 核心
+                {
+                    4
+                } // 默认 4 核心
             },
             cpu_frequency_mhz: 3000, // 默认值
             l1_cache_kb: 32,
@@ -798,12 +827,11 @@ impl Default for PerformanceHistorySummary {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use vm_monitor::MonitorConfig;
 
-    #[tokio::test]
-    async fn test_adaptive_optimizer_creation() {
+    #[test]
+    fn test_adaptive_optimizer_creation() {
         let config = AdaptiveOptimizerConfig::default();
-        let performance_monitor = Arc::new(PerformanceMonitor::new(MonitorConfig::default()));
+        let performance_monitor = Arc::new(PerformanceMonitor::new());
         let optimizer = AdaptiveOptimizer::new(config, performance_monitor);
 
         assert_eq!(optimizer.optimization_attempts, 0);
@@ -813,7 +841,7 @@ mod tests {
     #[test]
     fn test_workload_pattern_identification() {
         let config = AdaptiveOptimizerConfig::default();
-        let performance_monitor = Arc::new(PerformanceMonitor::new(MonitorConfig::default()));
+        let performance_monitor = Arc::new(PerformanceMonitor::new());
         let optimizer = AdaptiveOptimizer::new(config, performance_monitor);
 
         // CPU密集型
@@ -833,7 +861,7 @@ mod tests {
     #[test]
     fn test_bottleneck_identification() {
         let config = AdaptiveOptimizerConfig::default();
-        let performance_monitor = Arc::new(PerformanceMonitor::new(MonitorConfig::default()));
+        let performance_monitor = Arc::new(PerformanceMonitor::new());
         let optimizer = AdaptiveOptimizer::new(config, performance_monitor);
 
         let mut metrics = HashMap::new();

@@ -264,21 +264,21 @@ impl DynamicOptimizationManager {
     }
 
     /// Helper: 获取性能历史锁
-    fn lock_performance_history(&self) -> Result<std::sync::MutexGuard<'_, PerformanceHistory>, VmError> {
+    fn lock_performance_history(&self) -> Result<parking_lot::MutexGuard<'_, PerformanceHistory>, VmError> {
         self.performance_history
             .lock()
             .map_err(|_| VmError::LockPoisoned("PerformanceHistory mutex poisoned".into()))
     }
 
     /// Helper: 获取阈值管理器锁
-    fn lock_threshold_manager(&self) -> Result<std::sync::MutexGuard<'_, AdaptiveThresholdManager>, VmError> {
+    fn lock_threshold_manager(&self) -> Result<parking_lot::MutexGuard<'_, AdaptiveThresholdManager>, VmError> {
         self.threshold_manager
             .lock()
             .map_err(|_| VmError::LockPoisoned("AdaptiveThresholdManager mutex poisoned".into()))
     }
 
     /// Helper: 获取建议锁
-    fn lock_suggestions(&self) -> Result<std::sync::MutexGuard<'_, Vec<OptimizationSuggestion>>, VmError> {
+    fn lock_suggestions(&self) -> Result<parking_lot::MutexGuard<'_, Vec<OptimizationSuggestion>>, VmError> {
         self.suggestions
             .lock()
             .map_err(|_| VmError::LockPoisoned("Suggestions mutex poisoned".into()))

@@ -22,7 +22,9 @@
 
 pub mod adaptive;
 pub mod gc;
+pub mod gc_incremental;
 pub mod memory;
+pub mod memory_perf_test;
 pub mod ml;
 pub mod pgo;
 

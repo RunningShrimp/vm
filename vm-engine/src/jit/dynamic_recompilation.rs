@@ -208,7 +208,7 @@ impl DynamicRecompilationManager {
     }
 
     /// Helper method to safely acquire JIT engine lock
-    fn lock_jit_engine(engine: &Arc<Mutex<JITEngine>>) -> Result<std::sync::MutexGuard<JITEngine>, VmError> {
+    fn lock_jit_engine(engine: &Arc<Mutex<JITEngine>>) -> Result<parking_lot::MutexGuard<JITEngine>, VmError> {
         engine.lock().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
             message: format!("Failed to acquire JIT engine lock: {}", e),
             current: "Lock poisoned".to_string(),
@@ -217,7 +217,7 @@ impl DynamicRecompilationManager {
     }
 
     /// Helper method to safely acquire strategy manager lock
-    fn lock_strategy_manager(manager: &Arc<Mutex<AdaptiveOptimizationStrategyManager>>) -> Result<std::sync::MutexGuard<AdaptiveOptimizationStrategyManager>, VmError> {
+    fn lock_strategy_manager(manager: &Arc<Mutex<AdaptiveOptimizationStrategyManager>>) -> Result<parking_lot::MutexGuard<AdaptiveOptimizationStrategyManager>, VmError> {
         manager.lock().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
             message: format!("Failed to acquire strategy manager lock: {}", e),
             current: "Lock poisoned".to_string(),

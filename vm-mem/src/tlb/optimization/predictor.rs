@@ -75,10 +75,20 @@ impl MarkovPredictor {
     }
 
     /// 使用默认配置创建预测器
+    #[deprecated(note = "Use Default trait instead")]
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         Self::new(2, 0.1)
     }
+}
 
+impl Default for MarkovPredictor {
+    fn default() -> Self {
+        Self::new(2, 0.1)
+    }
+}
+
+impl MarkovPredictor {
     /// 基于当前状态预测下一个访问地址
     ///
     /// # 参数
@@ -389,12 +399,23 @@ mod tests {
     fn test_update_accuracy() {
         let mut predictor = MarkovPredictor::new(2, 0.1);
 
-        // 更新并记录准确性
+        // 先调用predict来增加total_predictions
+        let _predictions = predictor.predict(0x1000, 3);
+        assert_eq!(predictor.total_predictions, 1);
+
+        // 更新并记录准确性 - update只更新correct_predictions，不增加total_predictions
         predictor.update(PatternType::Sequential, true);
-        assert_eq!(predictor.get_accuracy(), 1.0);
+        // 现在total_predictions = 1, correct_predictions = 1
+        assert!((predictor.get_accuracy() - 1.0).abs() < 0.01);
+
+        // 再次predict以增加total_predictions
+        let _predictions = predictor.predict(0x1000, 3);
+        // 现在total_predictions = 2
 
         predictor.update(PatternType::Random, false);
-        assert!(predictor.get_accuracy() < 1.0 && predictor.get_accuracy() > 0.0);
+        // correct_predictions仍然是1，因为predicted=false
+        // total_predictions = 2, correct_predictions = 1
+        assert!((predictor.get_accuracy() - 0.5).abs() < 0.01);
     }
 
     #[test]
@@ -448,12 +469,16 @@ mod tests {
     fn test_clear() {
         let mut predictor = MarkovPredictor::new(2, 0.1);
 
+        // 使用predict方法来增加total_predictions
+        let predictions = predictor.predict(0x1000, 3);
+        // predict会增加total_predictions
+        assert!(predictor.total_predictions > 0);
+
         // 记录一些转移
         predictor.update(PatternType::Sequential, false);
         predictor.update(PatternType::Loop, true);
 
         assert!(predictor.transition_matrix.len() > 0);
-        assert!(predictor.total_predictions > 0);
 
         // 清空
         predictor.clear();

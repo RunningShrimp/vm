@@ -603,6 +603,7 @@ mod tests {
         assert_eq!(config.prefetch_window_size, 20);
     }
 
+    #[cfg(feature = "vm-accel")]
     #[test]
     fn test_hardware_acceleration_config() {
         let config = HardwareAccelerationConfig::new()
@@ -634,6 +635,7 @@ mod tests {
         assert_eq!(config1.log_level, LogLevel::Error); // 合并新值
     }
 
+    #[cfg(feature = "vm-accel")]
     #[test]
     fn test_config_manager() {
         let mut manager = ConfigManager::new(BaseConfig::new());

@@ -163,7 +163,7 @@ fn bench_predictive_flush(c: &mut Criterion) {
     // 无预测性刷新基准
     group.bench_function("without_predictive", |b| {
         b.iter(|| {
-            for &addr in &test_addresses.iter().step_by(10) {
+            for &addr in test_addresses.iter().step_by(10) {
                 let request = FlushRequest::new(
                     FlushScope::SinglePage,
                     black_box(addr),
@@ -180,7 +180,7 @@ fn bench_predictive_flush(c: &mut Criterion) {
     // 有预测性刷新基准
     group.bench_function("with_predictive", |b| {
         b.iter(|| {
-            for &addr in &test_addresses.iter().step_by(10) {
+            for &addr in test_addresses.iter().step_by(10) {
                 let request = FlushRequest::new(
                     FlushScope::SinglePage,
                     black_box(addr),
@@ -322,7 +322,7 @@ fn bench_adaptive_flush(c: &mut Criterion) {
     // 无自适应刷新基准
     group.bench_function("without_adaptive", |b| {
         b.iter(|| {
-            for &addr in &test_addresses.iter().step_by(10) {
+            for &addr in test_addresses.iter().step_by(10) {
                 let request = FlushRequest::new(
                     FlushScope::SinglePage,
                     black_box(addr),
@@ -339,7 +339,7 @@ fn bench_adaptive_flush(c: &mut Criterion) {
     // 有自适应刷新基准
     group.bench_function("with_adaptive", |b| {
         b.iter(|| {
-            for &addr in &test_addresses.iter().step_by(10) {
+            for &addr in test_addresses.iter().step_by(10) {
                 let request = FlushRequest::new(
                     FlushScope::SinglePage,
                     black_box(addr),

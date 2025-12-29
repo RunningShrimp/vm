@@ -666,10 +666,10 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> CacheAwareHashM
         let result = self.inner.remove(key);
 
         // 从热点键集合中移除
-        if result.is_some() {
-            if let Ok(mut hot_keys) = self.lock_hot_keys() {
-                hot_keys.remove(key);
-            }
+        if result.is_some()
+            && let Ok(mut hot_keys) = self.lock_hot_keys()
+        {
+            hot_keys.remove(key);
         }
 
         result
@@ -703,12 +703,11 @@ impl<K: Clone + Eq + Hash + Send + Sync, V: Clone + Send + Sync> CacheAwareHashM
         let access_count = self.access_count.load(Ordering::Relaxed);
 
         // 简化的热点检测逻辑
-        if access_count % 100 == 0 {
-            if let Ok(mut hot_keys) = self.lock_hot_keys() {
-                if hot_keys.len() < self.cache_size {
-                    hot_keys.insert(key.clone());
-                }
-            }
+        if access_count.is_multiple_of(100)
+            && let Ok(mut hot_keys) = self.lock_hot_keys()
+            && hot_keys.len() < self.cache_size
+        {
+            hot_keys.insert(key.clone());
         }
     }
 }

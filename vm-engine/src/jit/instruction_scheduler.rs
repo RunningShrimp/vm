@@ -1218,7 +1218,10 @@ impl OptimizedInstructionScheduler {
     }
 
     /// 计算指令优先级
-    fn calculate_instruction_priority(&self, instruction: &crate::jit::compiler::CompiledIROp) -> i32 {
+    fn calculate_instruction_priority(
+        &self,
+        instruction: &crate::jit::compiler::CompiledIROp,
+    ) -> i32 {
         match &instruction.op {
             IROp::Load { .. } | IROp::MovImm { .. } => 10,
             IROp::Store { .. } => 5,

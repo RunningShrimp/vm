@@ -111,7 +111,9 @@ pub mod tiered_compiler;
 pub mod adaptive_optimizer;
 pub mod compilation_predictor;
 pub mod hot_update;
+pub mod hot_path_optimizer;
 pub mod memory_layout_optimizer;
+pub mod pgo_integration;
 pub mod simd_optimizer;
 pub use code_cache::{OptimizedCacheConfig, OptimizedCacheStats, OptimizedCodeCache};
 pub use debugger::{
@@ -129,9 +131,18 @@ pub use register_allocator::{
     AllocationStrategy, AllocatorConfig, OptimizedAllocationStats, OptimizedRegisterAllocator,
 };
 pub use simd_optimizer::DefaultSIMDOptimizer;
+pub use hot_path_optimizer::{
+    HotPathOptimizer, HotPathOptimizerConfig, OptimizationStats,
+    LoopUnrollingPass, FunctionInliningPass, MemoryAccessOptimizer,
+};
 pub mod common;
+pub mod branch_target_cache;
 pub mod debugger;
 pub mod hot_reload;
+
+// 示例模块（仅用于文档和测试）
+#[cfg(test)]
+mod hot_path_optimizer_example;
 
 /// JIT代码指针
 ///

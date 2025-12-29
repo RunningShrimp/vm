@@ -246,15 +246,8 @@ impl<T: Config> ConfigVecExt<T> for Vec<T> {
         let errors: Vec<_> = self
             .iter()
             .enumerate()
-            .filter_map(|(i, config)| {
-                config
-                    .validate()
-                    .err()
-                    .map(|e| (i, e))
-            })
-            .map(|(i, e)| {
-                ConfigError::Validation(format!("Config at index {} failed: {}", i, e))
-            })
+            .filter_map(|(i, config)| config.validate().err().map(|e| (i, e)))
+            .map(|(i, e)| ConfigError::Validation(format!("Config at index {} failed: {}", i, e)))
             .collect();
 
         if errors.is_empty() {
@@ -283,6 +276,12 @@ impl<T: Config> ConfigVecExt<T> for Vec<T> {
 pub struct ConfigBuilder<C: Config> {
     base: C,
     overrides: Vec<C>,
+}
+
+impl<C: Config + Default> Default for ConfigBuilder<C> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<C: Config> ConfigBuilder<C> {
@@ -346,6 +345,7 @@ impl<C: Config> ConfigBuilder<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct TestConfig {
