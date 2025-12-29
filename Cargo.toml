@@ -44,8 +44,7 @@ members = [
     "vm-osal",
 
     # Testing and benchmarking
-    "vm-cross-arch-integration-tests",
-    "vm-perf-regression-detector",
+#     "vm-perf-regression-detector",  # TODO: depends on removed vm-cross-arch, needs refactor
     
     # Additional packages
     "vm-codegen",
@@ -62,7 +61,7 @@ members = [
     "perf-bench",
     "tiered-compiler",
     "parallel-jit",
-    "benches",
+#     "benches",  # TODO: depends on removed vm-cross-arch, needs refactor
 ]
 resolver = "2"
 
