@@ -6,7 +6,7 @@
 mod loom_tests {
     use loom::sync::Arc;
     use loom::thread;
-    use vm_engine_jit::unified_gc::{LockFreeMarkStack, ShardedWriteBarrier, UnifiedGcConfig, UnifiedGC};
+    use vm_engine::jit::unified_gc::{LockFreeMarkStack, ShardedWriteBarrier, UnifiedGcConfig, UnifiedGC};
 
     /// 测试无锁标记栈的并发安全性
     #[test]
@@ -125,7 +125,7 @@ mod loom_tests {
 mod std_tests {
     use std::sync::Arc;
     use std::thread;
-    use vm_engine_jit::unified_gc::{LockFreeMarkStack, ShardedWriteBarrier};
+    use vm_engine::jit::unified_gc::{LockFreeMarkStack, ShardedWriteBarrier};
 
     /// 测试无锁标记栈的并发安全性（标准库版本）
     #[test]
@@ -194,8 +194,8 @@ mod std_tests {
         use std::collections::HashSet;
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::RwLock;
-        use vm_engine_jit::gc_marker::GcMarker;
-        use vm_engine_jit::unified_gc::{GCPhase, UnifiedGcStats};
+        use vm_engine::jit::gc_marker::GcMarker;
+        use vm_engine::jit::unified_gc::{GCPhase, UnifiedGcStats};
 
         let mark_stack = Arc::new(LockFreeMarkStack::new(10000));
         let marked_set = Arc::new(RwLock::new(HashSet::new()));
@@ -273,8 +273,8 @@ mod std_tests {
     fn test_concurrent_sweeping_correctness() {
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::Mutex;
-        use vm_engine_jit::gc_sweeper::GcSweeper;
-        use vm_engine_jit::unified_gc::{GCPhase, UnifiedGcStats};
+        use vm_engine::jit::gc_sweeper::GcSweeper;
+        use vm_engine::jit::unified_gc::{GCPhase, UnifiedGcStats};
 
         let sweep_list = Arc::new(Mutex::new(Vec::new()));
         let phase = Arc::new(AtomicU64::new(GCPhase::Sweeping as u64));
@@ -336,9 +336,9 @@ mod std_tests {
         use std::collections::HashSet;
         use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
         use std::sync::{Mutex, RwLock};
-        use vm_engine_jit::gc_marker::GcMarker;
-        use vm_engine_jit::gc_sweeper::GcSweeper;
-        use vm_engine_jit::unified_gc::{GCPhase, UnifiedGcStats};
+        use vm_engine::jit::gc_marker::GcMarker;
+        use vm_engine::jit::gc_sweeper::GcSweeper;
+        use vm_engine::jit::unified_gc::{GCPhase, UnifiedGcStats};
 
         let mark_stack = Arc::new(LockFreeMarkStack::new(10000));
         let marked_set = Arc::new(RwLock::new(HashSet::new()));
@@ -435,8 +435,8 @@ mod std_tests {
         use std::collections::HashSet;
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::RwLock;
-        use vm_engine_jit::gc_marker::GcMarker;
-        use vm_engine_jit::unified_gc::{GCPhase, UnifiedGcStats};
+        use vm_engine::jit::gc_marker::GcMarker;
+        use vm_engine::jit::unified_gc::{GCPhase, UnifiedGcStats};
 
         let mark_stack = Arc::new(LockFreeMarkStack::new(10000));
         let marked_set = Arc::new(RwLock::new(HashSet::new()));
@@ -548,8 +548,8 @@ mod std_tests {
     fn test_parallel_sweeping_performance_and_correctness() {
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::Mutex;
-        use vm_engine_jit::gc_sweeper::GcSweeper;
-        use vm_engine_jit::unified_gc::{GCPhase, UnifiedGcStats};
+        use vm_engine::jit::gc_sweeper::GcSweeper;
+        use vm_engine::jit::unified_gc::{GCPhase, UnifiedGcStats};
 
         let total_objects = 10000;
 

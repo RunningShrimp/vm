@@ -9,7 +9,7 @@ use std::path::Path;
 use vm_core::{GuestAddr, VmError};
 
 #[cfg(feature = "jit")]
-use vm_engine_jit::aot::{AotBuilder, CodegenMode, CompilationOptions};
+use vm_engine::jit::aot::{AotBuilder, CodegenMode, CompilationOptions};
 
 use vm_ir::IRBlock;
 use vm_ir::lift::ISA;

@@ -4,7 +4,7 @@
 
 use vm_core::{GuestArch, GuestAddr, MMU};
 use vm_cross_arch::{CrossArchRuntime, CrossArchRuntimeConfig, CrossArchConfig, GuestArch as CrossGuestArch, HostArch};
-use vm_engine_jit::{Jit, UnifiedGC, UnifiedGcConfig};
+use vm_engine::jit::{Jit, UnifiedGC, UnifiedGcConfig};
 use vm_ir::{IRBlock, IROp, Terminator, IRBuilder};
 use vm_mem::SoftMmu;
 use std::sync::Arc;
@@ -79,7 +79,7 @@ fn test_gc_memory_integration() {
     
     // 启动GC周期
     let cycle_start = gc.start_gc(&roots);
-    assert_eq!(gc.phase(), vm_engine_jit::GCPhase::Marking);
+    assert_eq!(gc.phase(), vm_engine::jit::GCPhase::Marking);
     
     // 执行增量标记
     let mut mark_complete = false;
@@ -93,7 +93,7 @@ fn test_gc_memory_integration() {
     
     if mark_complete {
         gc.terminate_marking();
-        assert_eq!(gc.phase(), vm_engine_jit::GCPhase::Sweeping);
+        assert_eq!(gc.phase(), vm_engine::jit::GCPhase::Sweeping);
         
         // 执行增量清扫
         let mut sweep_complete = false;
@@ -107,7 +107,7 @@ fn test_gc_memory_integration() {
         
         if sweep_complete {
             gc.finish_gc(cycle_start);
-            assert_eq!(gc.phase(), vm_engine_jit::GCPhase::Idle);
+            assert_eq!(gc.phase(), vm_engine::jit::GCPhase::Idle);
         }
     }
     
@@ -220,8 +220,8 @@ fn test_aot_load_execute_integration() {
     // 注意：AOT功能可能需要特定的文件或配置
     // 这里仅测试AOT加载器的基本功能
     
-    use vm_engine_jit::aot_loader::AotLoader;
-    use vm_engine_jit::aot_format::AotImage;
+    use vm_engine::jit::aot_loader::AotLoader;
+    use vm_engine::jit::aot_format::AotImage;
     
     // 创建一个简单的AOT镜像用于测试
     let image = AotImage {

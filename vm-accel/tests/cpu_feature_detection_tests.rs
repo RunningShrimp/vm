@@ -19,8 +19,12 @@ fn test_cpu_features_detect() {
     println!("  ARM EL2: {}", features.arm_el2);
 
     // At least one feature should be detected
-    let has_any_feature = features.avx2 || features.avx512 || features.neon
-        || features.vmx || features.svm || features.arm_el2;
+    let has_any_feature = features.avx2
+        || features.avx512
+        || features.neon
+        || features.vmx
+        || features.svm
+        || features.arm_el2;
     println!("Has any feature: {}", has_any_feature);
 }
 
@@ -51,7 +55,10 @@ fn test_cpu_info_detection() {
     println!("  Core count: {}", cpu_info.core_count);
 
     assert!(cpu_info.core_count > 0, "Should have at least one core");
-    assert!(!cpu_info.model_name.is_empty(), "Model name should not be empty");
+    assert!(
+        !cpu_info.model_name.is_empty(),
+        "Model name should not be empty"
+    );
 }
 
 /// Test CPU vendor detection
@@ -283,7 +290,10 @@ fn test_cpu_info_caching() {
     let info2 = CpuInfo::get();
 
     // Should return the same instance (same address)
-    assert_eq!(info1 as *const CpuInfo as usize, info2 as *const CpuInfo as usize);
+    assert_eq!(
+        info1 as *const CpuInfo as usize,
+        info2 as *const CpuInfo as usize
+    );
     println!("CPU info is correctly cached as singleton");
 
     // Values should be identical

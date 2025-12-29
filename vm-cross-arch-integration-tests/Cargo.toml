@@ -9,7 +9,7 @@ description = "Cross-architecture integration tests for the VM project"
 [dependencies]
 vm-cross-arch = { path = "../vm-cross-arch", features = ["all"] }
 vm-core = { path = "../vm-core" }
-vm-engine-jit = { path = "../vm-engine-jit" }
+vm-engine = { path = "../vm-engine", features = ["jit"] }
 vm-mem = { path = "../vm-mem" }
 vm-ir = { path = "../vm-ir" }
 

@@ -20,7 +20,7 @@ fn smoke_mmio_notify_block_device() {
 #[test]
 fn test_riscv64_simple_execution() {
     use vm_core::{Decoder, ExecMode, ExecutionEngine, GuestArch, VirtualMachine, VmConfig};
-    use vm_engine_interpreter::Interpreter;
+    use vm_engine::interpreter::Interpreter;
     use vm_frontend_riscv64::RiscvDecoder;
     use vm_ir::IRBlock;
 

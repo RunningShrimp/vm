@@ -1,7 +1,7 @@
 //! 端到端集成测试
 
 use vm_core::{AccessType, ExecMode, GuestAddr, MemorySize, VmConfig, VcpuCount, VmId};
-use vm_engine_jit::{BaseConfig, JITCompilationConfig, JITEngine, JITExecutionStats, TieredCompilerConfig};
+use vm_engine::jit::{BaseConfig, JITCompilationConfig, JITEngine, JITExecutionStats, TieredCompilerConfig};
 use vm_mem::SoftwareMmu;
 use vm_runtime::{CoroutineScheduler, GcConfig, GcTriggerPolicy, GcRuntime, SandboxConfig, SandboxedVm};
 
@@ -202,13 +202,13 @@ fn test_jit_compilation_basic() {
 
     let mut engine = JITEngine::new(config);
 
-    let ir_block = vm_engine_jit::core::IRBlock {
+    let ir_block = vm_engine::jit::core::IRBlock {
         instructions: vec![
-            vm_engine_jit::core::IRInstruction::Const {
+            vm_engine::jit::core::IRInstruction::Const {
                 dest: 0,
                 value: 42,
             },
-            vm_engine_jit::core::IRInstruction::Return { value: 0 },
+            vm_engine::jit::core::IRInstruction::Return { value: 0 },
         ],
     };
 

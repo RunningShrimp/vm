@@ -36,12 +36,14 @@ use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 // 模块定义
+pub mod config;
 pub mod device_emulation;
 pub mod domain;
 pub mod domain_event_bus;
 pub mod domain_type_safety;
 pub mod error;
 pub mod gdb;
+pub mod macros;
 pub mod migration;
 pub mod mmu_traits;
 pub mod snapshot;
@@ -49,6 +51,10 @@ pub mod syscall;
 pub mod template;
 pub mod value_objects;
 pub mod vm_state;
+
+// Merged modules (from vm-common and vm-foundation)
+pub mod common;
+pub mod foundation;
 
 // 重新导出系统调用相关类型
 pub use syscall::SyscallResult;
@@ -62,6 +68,10 @@ pub use error::{
     CoreError, DeviceError, ExecutionError, MemoryError, PlatformError, VmError as CoreVmError,
     VmError,
 };
+pub use error::IntoVmError;
+
+// Re-export config types
+pub use config::{Config, ConfigBuilder, ConfigDiff, ConfigError, ConfigVecExt};
 
 // Re-export domain types
 pub use domain::{ExecutionManager, PageTableWalker, TlbEntry, TlbManager, TlbStats};

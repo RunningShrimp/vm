@@ -4,7 +4,7 @@
 //! including in-memory, file-based, and PostgreSQL-backed stores.
 
 use crate::{VmError, VmResult};
-use crate::domain_events::DomainEventEnum;
+use crate::jit::domain_events::DomainEventEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

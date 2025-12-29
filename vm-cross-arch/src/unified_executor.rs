@@ -15,7 +15,7 @@ use vm_mem::SoftMmu;
 
 // AOT加载器类型别名（避免直接依赖vm-engine-jit的内部模块）
 #[cfg(feature = "jit")]
-type AotLoader = vm_engine_jit::aot::AotLoader;
+type AotLoader = vm_engine::jit::aot::AotLoader;
 
 /// JIT/AOT代码函数指针类型
 /// 参数：执行上下文指针
@@ -49,7 +49,7 @@ pub struct ExecutableCode {
 impl Clone for ExecutableCode {
     fn clone(&self) -> Self {
         unsafe {
-            let mut exec_mem = vm_engine_jit::executable_memory::ExecutableMemory::new(self.size)
+            let mut exec_mem = vm_engine::jit::executable_memory::ExecutableMemory::new(self.size)
                 .expect("Failed to clone executable memory");
             let slice = exec_mem.as_mut_slice();
             std::ptr::copy_nonoverlapping(self.ptr, slice.as_mut_ptr(), self.size);
@@ -78,7 +78,7 @@ impl ExecutableCode {
     /// 从字节码创建可执行代码
     pub unsafe fn from_bytes(code: &[u8]) -> Result<Self, ()> {
         let mut exec_mem =
-            vm_engine_jit::executable_memory::ExecutableMemory::new(code.len()).ok_or(())?;
+            vm_engine::jit::executable_memory::ExecutableMemory::new(code.len()).ok_or(())?;
         let slice = exec_mem.as_mut_slice();
         slice.copy_from_slice(code);
 
@@ -164,8 +164,8 @@ pub struct ExecutionStats {
 
 impl UnifiedExecutor {
     /// 创建新的统一执行器
-    pub fn new(config: CrossArchRuntimeConfig, memory_size: usize) -> Result<Self, VmError> {
-        let runtime = CrossArchRuntime::new(config.clone(), memory_size)?;
+    pub fn new(config: CrossArchRuntimeConfig, _memory_size: usize) -> Result<Self, VmError> {
+        let runtime = CrossArchRuntime::new(config)?;
 
         Ok(Self {
             runtime,
@@ -237,8 +237,12 @@ impl UnifiedExecutor {
         tracing::debug!("Executing AOT code");
 
         unsafe {
+            let mmu_mut = self
+                .runtime
+                .mmu_mut()
+                .expect("MMU not available for AOT execution");
             let mut context = NativeExecutionContext {
-                mmu_ptr: self.runtime.mmu_mut() as *mut SoftMmu as *mut u8,
+                mmu_ptr: mmu_mut as *mut SoftMmu as *mut u8,
                 registers_ptr: std::ptr::null_mut(),
                 next_pc: 0,
                 exec_status: 0,
@@ -268,8 +272,9 @@ impl UnifiedExecutor {
         tracing::debug!("Executing JIT code");
 
         unsafe {
+            let mmu_mut = self.runtime.mmu_mut().expect("MMU not available");
             let mut context = NativeExecutionContext {
-                mmu_ptr: self.runtime.mmu_mut() as *mut SoftMmu as *mut u8,
+                mmu_ptr: mmu_mut as *mut SoftMmu as *mut u8,
                 registers_ptr: std::ptr::null_mut(),
                 next_pc: 0,
                 exec_status: 0,
@@ -369,12 +374,12 @@ impl UnifiedExecutor {
 
     /// 获取MMU（可变引用）
     pub fn mmu_mut(&mut self) -> &mut SoftMmu {
-        self.runtime.mmu_mut()
+        self.runtime.mmu_mut().expect("MMU not available")
     }
 
     /// 获取执行引擎（用于访问寄存器等）
     pub fn engine_mut(&mut self) -> &mut dyn ExecutionEngine<IRBlock> {
-        self.runtime.engine_mut()
+        self.runtime.engine_mut().expect("Engine not available")
     }
 
     /// 获取执行统计

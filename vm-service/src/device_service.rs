@@ -3,8 +3,6 @@
 //! 实现统一的设备控制服务，处理所有设备的业务逻辑。
 //! 符合DDD贫血模型原则，将设备控制逻辑从设备结构移至服务层。
 
-#![cfg(feature = "devices")]
-
 use parking_lot::Mutex;
 use std::sync::{Arc, Mutex as StdMutex};
 use vm_core::{GuestAddr, MMU, VmConfig, VmError, VmResult};

@@ -296,7 +296,8 @@ impl UnifiedGpuManager {
                     log::info!("Initialized mdev GPU");
                 }
                 GpuBackend::Wgpu(wgpu) => {
-                    GpuBackendTrait::init(wgpu).map_err(|e| GpuMgrError::Backend(e.to_string()))?;
+                    GpuBackendTrait::init(wgpu)
+                        .map_err(|e| GpuMgrError::Backend(e.to_string()))?;
                     log::info!("Initialized WGPU backend");
                 }
             }

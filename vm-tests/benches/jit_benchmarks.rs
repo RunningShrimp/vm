@@ -6,7 +6,7 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 use std::time::Duration;
 
 use vm_core::{Block, ExecutionEngine};
-use vm_engine_jit::JitEngine;
+use vm_engine::jit::JitEngine;
 
 fn jit_compilation_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("jit_compilation");
@@ -115,7 +115,7 @@ fn jit_vs_interpreter_benchmark(c: &mut Criterion) {
     // 解释器基准测试（如果可用）
     #[cfg(feature = "interpreter")]
     {
-        use vm_engine_interpreter::InterpreterEngine;
+        use vm_engine::interpreter::InterpreterEngine;
 
         group.bench_function("interpreter_fibonacci", |b| {
             let mut interpreter = InterpreterEngine::new();

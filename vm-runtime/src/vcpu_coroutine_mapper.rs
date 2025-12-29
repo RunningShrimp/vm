@@ -6,7 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use crate::coroutine_scheduler::{Coroutine, CoroutineId, Scheduler, VCPUState};
+use crate::jit::coroutine_scheduler::{Coroutine, CoroutineId, Scheduler, VCPUState};
 
 /// vCPU协程映射器
 pub struct VcpuCoroutineMapper {

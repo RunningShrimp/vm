@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use vm_core::GuestAddr;
-use vm_engine_jit::Jit;
+use vm_engine::jit::Jit;
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 fn create_test_ir_block(addr: GuestAddr) -> IRBlock {

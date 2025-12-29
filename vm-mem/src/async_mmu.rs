@@ -377,7 +377,10 @@ pub mod async_impl {
         }
 
         /// 异步写入内存到文件
-        pub async fn write_memory_to_file<P: AsRef<Path>>(path: P, data: &[u8]) -> Result<(), VmError> {
+        pub async fn write_memory_to_file<P: AsRef<Path>>(
+            path: P,
+            data: &[u8],
+        ) -> Result<(), VmError> {
             use tokio::io::AsyncWriteExt;
             let file_result: std::io::Result<tokio::fs::File> = tokio::fs::File::create(path).await;
             let mut file: tokio::fs::File = file_result.map_err(|_e| {

@@ -3,7 +3,7 @@
 //! 支持 smoltcp (NAT) 和 TAP/TUN (桥接) 两种后端
 
 use thiserror::Error;
-use vm_core::{MmioDevice, PlatformError, VmError, VmResult};
+use vm_core::{PlatformError, VmError};
 
 /// 网络后端类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,6 @@ impl Default for VirtioNetConfig {
 #[cfg(feature = "smoltcp")]
 mod smoltcp_backend {
     use super::*;
-    use crate::mmu_util::MmuUtil;
     use crate::virtio::Queue;
     use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
 
@@ -66,7 +65,12 @@ mod smoltcp_backend {
             self.tx_buffer.push(data.to_vec());
             log::debug!(
                 "smoltcp: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} sent {} bytes",
-                self.mac[0], self.mac[1], self.mac[2], self.mac[3], self.mac[4], self.mac[5],
+                self.mac[0],
+                self.mac[1],
+                self.mac[2],
+                self.mac[3],
+                self.mac[4],
+                self.mac[5],
                 data.len()
             );
             Ok(())
@@ -75,7 +79,8 @@ mod smoltcp_backend {
         pub fn recv(&mut self) -> Result<Vec<u8>, VmError> {
             self.rx_buffer.pop().ok_or_else(|| {
                 VmError::Platform(PlatformError::IoError(
-                    std::io::Error::new(std::io::ErrorKind::WouldBlock, "No data available").to_string(),
+                    std::io::Error::new(std::io::ErrorKind::WouldBlock, "No data available")
+                        .to_string(),
                 ))
             })
         }
@@ -132,14 +137,19 @@ mod smoltcp_backend {
                 0x0C => 0x554D4551, // Vendor ID
                 0x10 => 0x00000021, // Features
                 0x14 => 0x00000001,
-                0x34 => self.queues.get(self.queue_sel as usize)
-                    .map(|q| q.size as u64).unwrap_or(0),
+                0x34 => self
+                    .queues
+                    .get(self.queue_sel as usize)
+                    .map(|q| q.size as u64)
+                    .unwrap_or(0),
                 0x44 => 1, // QueueReady
                 0x60 => self.interrupt_status as u64,
                 0x70 => self.status as u64,
                 0x100 => u32::from_le_bytes([
-                    self.config.mac[0], self.config.mac[1],
-                    self.config.mac[2], self.config.mac[3],
+                    self.config.mac[0],
+                    self.config.mac[1],
+                    self.config.mac[2],
+                    self.config.mac[3],
                 ]) as u64,
                 0x104 => u16::from_le_bytes([self.config.mac[4], self.config.mac[5]]) as u64,
                 0x106 => self.config.status as u64,
@@ -191,8 +201,12 @@ mod smoltcp_backend {
     }
 
     impl crate::virtio::VirtioDevice for VirtioNet {
-        fn device_id(&self) -> u32 { 1 }
-        fn num_queues(&self) -> usize { self.queues.len() }
+        fn device_id(&self) -> u32 {
+            1
+        }
+        fn num_queues(&self) -> usize {
+            self.queues.len()
+        }
         fn get_queue(&mut self, index: usize) -> &mut crate::virtio::Queue {
             unsafe { std::mem::transmute(&mut self.queues[index]) }
         }
@@ -208,8 +222,8 @@ mod tap_backend {
     use super::*;
     use crate::mmu_util::MmuUtil;
     use crate::virtio::Queue;
-    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
     use std::ffi::CString;
+    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
 
     pub struct TapBackend {
         name: String,
@@ -245,20 +259,27 @@ mod tap_backend {
             ifr.ifr_name[..len].copy_from_slice(&name_bytes[..len]);
 
             const TUNSETIFF: u64 = 0x400454ca;
-            let ret = unsafe { libc::ioctl(fd, TUNSETIFF as _, &ifr as *const _ as *const libc::c_void) };
+            let ret =
+                unsafe { libc::ioctl(fd, TUNSETIFF as _, &ifr as *const _ as *const libc::c_void) };
 
             if ret < 0 {
-                unsafe { libc::close(fd); }
+                unsafe {
+                    libc::close(fd);
+                }
                 return Err(VmError::Platform(PlatformError::IoError(
                     std::io::Error::new(std::io::ErrorKind::Other, "Failed to configure TAP"),
                 )));
             }
 
-            Ok(Self { name: name.to_string(), fd })
+            Ok(Self {
+                name: name.to_string(),
+                fd,
+            })
         }
 
         pub fn send(&mut self, data: &[u8]) -> Result<(), VmError> {
-            let ret = unsafe { libc::write(self.fd, data.as_ptr() as *const libc::c_void, data.len()) };
+            let ret =
+                unsafe { libc::write(self.fd, data.as_ptr() as *const libc::c_void, data.len()) };
             if ret < 0 {
                 Err(VmError::Platform(PlatformError::IoError(
                     std::io::Error::last_os_error(),
@@ -272,7 +293,11 @@ mod tap_backend {
         pub fn recv(&mut self) -> Result<Vec<u8>, VmError> {
             let mut buffer = vec![0u8; 2048];
             let ret = unsafe {
-                libc::read(self.fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
+                libc::read(
+                    self.fd,
+                    buffer.as_mut_ptr() as *mut libc::c_void,
+                    buffer.len(),
+                )
             };
 
             if ret < 0 {
@@ -283,7 +308,10 @@ mod tap_backend {
                     )));
                 }
                 return Err(VmError::Platform(PlatformError::IoError(
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("TAP read error: {}", errno)),
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("TAP read error: {}", errno),
+                    ),
                 )));
             }
 
@@ -295,7 +323,9 @@ mod tap_backend {
 
     impl Drop for TapBackend {
         fn drop(&mut self) {
-            unsafe { libc::close(self.fd); }
+            unsafe {
+                libc::close(self.fd);
+            }
         }
     }
 
@@ -346,14 +376,19 @@ mod tap_backend {
                 0x0C => 0x554D4551, // Vendor ID
                 0x10 => 0x00000021, // Features
                 0x14 => 0x00000001,
-                0x34 => self.queues.get(self.queue_sel as usize)
-                    .map(|q| q.size as u64).unwrap_or(0),
+                0x34 => self
+                    .queues
+                    .get(self.queue_sel as usize)
+                    .map(|q| q.size as u64)
+                    .unwrap_or(0),
                 0x44 => 1, // QueueReady
                 0x60 => self.interrupt_status as u64,
                 0x70 => self.status as u64,
                 0x100 => u32::from_le_bytes([
-                    self.config.mac[0], self.config.mac[1],
-                    self.config.mac[2], self.config.mac[3],
+                    self.config.mac[0],
+                    self.config.mac[1],
+                    self.config.mac[2],
+                    self.config.mac[3],
                 ]) as u64,
                 0x104 => u16::from_le_bytes([self.config.mac[4], self.config.mac[5]]) as u64,
                 0x106 => self.config.status as u64,
@@ -405,8 +440,12 @@ mod tap_backend {
     }
 
     impl crate::virtio::VirtioDevice for VirtioNet {
-        fn device_id(&self) -> u32 { 1 }
-        fn num_queues(&self) -> usize { self.queues.len() }
+        fn device_id(&self) -> u32 {
+            1
+        }
+        fn num_queues(&self) -> usize {
+            self.queues.len()
+        }
         fn get_queue(&mut self, index: usize) -> &mut crate::virtio::Queue {
             unsafe { std::mem::transmute(&mut self.queues[index]) }
         }
@@ -448,7 +487,8 @@ mod combined_backend {
         pub fn recv(&mut self) -> Result<Vec<u8>, VmError> {
             self.rx_buffer.pop().ok_or_else(|| {
                 VmError::Platform(PlatformError::IoError(
-                    std::io::Error::new(std::io::ErrorKind::WouldBlock, "No data available").to_string(),
+                    std::io::Error::new(std::io::ErrorKind::WouldBlock, "No data available")
+                        .to_string(),
                 ))
             })
         }
@@ -488,22 +528,31 @@ mod combined_backend {
             ifr.ifr_name[..len].copy_from_slice(&name_bytes[..len]);
 
             const TUNSETIFF: u64 = 0x400454ca;
-            let ret = unsafe { libc::ioctl(fd, TUNSETIFF as _, &ifr as *const _ as *const libc::c_void) };
+            let ret =
+                unsafe { libc::ioctl(fd, TUNSETIFF as _, &ifr as *const _ as *const libc::c_void) };
 
             if ret < 0 {
-                unsafe { libc::close(fd); }
+                unsafe {
+                    libc::close(fd);
+                }
                 return Err(VmError::Platform(PlatformError::IoError(
                     std::io::Error::new(std::io::ErrorKind::Other, "Failed to configure TAP"),
                 )));
             }
 
-            Ok(Self { name: name.to_string(), fd })
+            Ok(Self {
+                name: name.to_string(),
+                fd,
+            })
         }
 
         pub fn send(&mut self, data: &[u8]) -> Result<(), VmError> {
-            let ret = unsafe { libc::write(self.fd, data.as_ptr() as *const libc::c_void, data.len()) };
+            let ret =
+                unsafe { libc::write(self.fd, data.as_ptr() as *const libc::c_void, data.len()) };
             if ret < 0 {
-                Err(VmError::Platform(PlatformError::IoError(std::io::Error::last_os_error())))
+                Err(VmError::Platform(PlatformError::IoError(
+                    std::io::Error::last_os_error(),
+                )))
             } else {
                 Ok(())
             }
@@ -512,7 +561,11 @@ mod combined_backend {
         pub fn recv(&mut self) -> Result<Vec<u8>, VmError> {
             let mut buffer = vec![0u8; 2048];
             let ret = unsafe {
-                libc::read(self.fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
+                libc::read(
+                    self.fd,
+                    buffer.as_mut_ptr() as *mut libc::c_void,
+                    buffer.len(),
+                )
             };
 
             if ret < 0 {
@@ -534,7 +587,9 @@ mod combined_backend {
 
     impl Drop for TapBackend {
         fn drop(&mut self) {
-            unsafe { libc::close(self.fd); }
+            unsafe {
+                libc::close(self.fd);
+            }
         }
     }
 
@@ -596,14 +651,19 @@ mod combined_backend {
                 0x0C => 0x554D4551, // Vendor ID
                 0x10 => 0x00000021, // Features
                 0x14 => 0x00000001,
-                0x34 => self.queues.get(self.queue_sel as usize)
-                    .map(|q| q.size as u64).unwrap_or(0),
+                0x34 => self
+                    .queues
+                    .get(self.queue_sel as usize)
+                    .map(|q| q.size as u64)
+                    .unwrap_or(0),
                 0x44 => 1, // QueueReady
                 0x60 => self.interrupt_status as u64,
                 0x70 => self.status as u64,
                 0x100 => u32::from_le_bytes([
-                    self.config.mac[0], self.config.mac[1],
-                    self.config.mac[2], self.config.mac[3],
+                    self.config.mac[0],
+                    self.config.mac[1],
+                    self.config.mac[2],
+                    self.config.mac[3],
                 ]) as u64,
                 0x104 => u16::from_le_bytes([self.config.mac[4], self.config.mac[5]]) as u64,
                 0x106 => self.config.status as u64,
@@ -655,8 +715,12 @@ mod combined_backend {
     }
 
     impl crate::virtio::VirtioDevice for VirtioNet {
-        fn device_id(&self) -> u32 { 1 }
-        fn num_queues(&self) -> usize { self.queues.len() }
+        fn device_id(&self) -> u32 {
+            1
+        }
+        fn num_queues(&self) -> usize {
+            self.queues.len()
+        }
         fn get_queue(&mut self, index: usize) -> &mut crate::virtio::Queue {
             unsafe { std::mem::transmute(&mut self.queues[index]) }
         }
@@ -707,19 +771,13 @@ impl From<NetLegacyError> for VmError {
             NetLegacyError::BackendNotInitialized(msg) => {
                 VmError::Platform(PlatformError::InitializationFailed(msg))
             }
-            NetLegacyError::NotAvailable => {
-                VmError::Platform(PlatformError::HardwareUnavailable(
-                    "No network backend available".to_string(),
-                ))
-            }
-            NetLegacyError::Io(e) => {
-                VmError::Platform(PlatformError::IoError(e.to_string()))
-            }
-            NetLegacyError::Tap(msg) => {
-                VmError::Platform(PlatformError::IoError(
-                    std::io::Error::other(msg).to_string(),
-                ))
-            }
+            NetLegacyError::NotAvailable => VmError::Platform(PlatformError::HardwareUnavailable(
+                "No network backend available".to_string(),
+            )),
+            NetLegacyError::Io(e) => VmError::Platform(PlatformError::IoError(e.to_string())),
+            NetLegacyError::Tap(msg) => VmError::Platform(PlatformError::IoError(
+                std::io::Error::other(msg).to_string(),
+            )),
         }
     }
 }

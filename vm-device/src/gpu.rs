@@ -2,7 +2,7 @@ use vm_core::{MmioDevice, VmError, PlatformError};
 use wgpu::{Instance, Surface, Adapter, Device, Queue};
 use winit::window::Window;
 use std::sync::Arc;
-use crate::virgl::VirtioGpuVirgl;
+use crate::jit::virgl::VirtioGpuVirgl;
 
 pub struct GpuDevice {
     instance: Instance,

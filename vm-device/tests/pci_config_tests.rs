@@ -298,7 +298,11 @@ mod simple_block_device_tests {
         // Queue multiple requests
         for i in 0..5 {
             let req = BlockIORequest {
-                request_type: if i % 2 == 0 { BlockIOType::Read } else { BlockIOType::Write },
+                request_type: if i % 2 == 0 {
+                    BlockIOType::Read
+                } else {
+                    BlockIOType::Write
+                },
                 block_offset: i as u64,
                 block_count: 1,
                 data: vec![0u8; 4096],

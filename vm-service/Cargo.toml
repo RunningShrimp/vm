@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 vm-core = { path = "../vm-core", features = ["std"] }
 vm-ir = { path = "../vm-ir" }
-vm-engine-interpreter = { path = "../vm-engine-interpreter" }
+vm-engine = { path = "../vm-engine", features = ["interpreter", "jit"], optional = true }
 vm-mem = { path = "../vm-mem" }
 vm-device = { path = "../vm-device", optional = true }
 vm-frontend = { path = "../vm-frontend", optional = true }
@@ -19,10 +19,9 @@ thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 tracing = "0.1"
 parking_lot = { workspace = true }
-bincode = { version = "2.0", features = ["serde"] }
+bincode = { workspace = true }
 
 # Optional dependencies for JIT and device support
-vm-engine-jit = { path = "../vm-engine-jit", optional = true }
 vm-accel = { path = "../vm-accel", optional = true }
 vm-smmu = { path = "../vm-smmu", optional = true }
 
@@ -31,7 +30,7 @@ default = ["std", "devices", "performance"]
 std = []
 
 # Performance features (merged: jit, async, frontend)
-performance = ["std", "vm-core/async", "vm-mem/async", "vm-engine-jit", "vm-frontend"]
+performance = ["std", "vm-core/async", "vm-mem/async", "vm-engine/jit", "vm-frontend/all"]
 
 # Device support (CLINT, PLIC, virtio devices)
 devices = ["vm-device"]

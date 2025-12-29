@@ -3,7 +3,7 @@
 //! 使用聚合根和事件总线实现事件驱动的虚拟机服务。
 
 
-use crate::vm_service::VirtualMachineService;
+use crate::jit::vm_service::VirtualMachineService;
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
 use vm_core::vm_state::VirtualMachineState;

@@ -151,7 +151,11 @@ fn test_numa_valid_node_counts() {
         if result.is_ok() {
             println!("Enabled NUMA with {} nodes", nodes);
         } else {
-            println!("Could not enable NUMA with {} nodes: {:?}", nodes, result.unwrap_err());
+            println!(
+                "Could not enable NUMA with {} nodes: {:?}",
+                nodes,
+                result.unwrap_err()
+            );
         }
     }
 }
@@ -162,7 +166,10 @@ fn test_numa_state_management() {
     let mut manager = AccelerationManager::new().expect("Should create manager");
 
     // Initially disabled
-    assert!(!manager.is_numa_enabled(), "NUMA should be disabled initially");
+    assert!(
+        !manager.is_numa_enabled(),
+        "NUMA should be disabled initially"
+    );
 
     // Enable
     manager.enable_numa(1).expect("Should enable NUMA");
@@ -210,7 +217,7 @@ fn test_numa_optimization_multi_node() {
 
     let cpu_info = CpuInfo::get();
     let node_count = match cpu_info.vendor {
-        CpuVendor::Apple => 2,  // Apple Silicon typically has 2 NUMA nodes
+        CpuVendor::Apple => 2, // Apple Silicon typically has 2 NUMA nodes
         CpuVendor::Intel | CpuVendor::AMD => {
             // x86 might have multiple nodes
             std::cmp::min(cpu_info.core_count / 4, 2)
@@ -223,7 +230,10 @@ fn test_numa_optimization_multi_node() {
         if result.is_ok() {
             println!("Enabled NUMA optimization with {} nodes", node_count);
         } else {
-            println!("Could not enable multi-node NUMA: {:?}", result.unwrap_err());
+            println!(
+                "Could not enable multi-node NUMA: {:?}",
+                result.unwrap_err()
+            );
         }
     } else {
         println!("System has single NUMA node");

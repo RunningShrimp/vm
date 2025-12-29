@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::error::{CoreError, VmError};
+use crate::jit::error::{CoreError, VmError};
 
 /// 将锁错误转换为 VmError
 fn lock_error<T>(operation: &str) -> Result<T, VmError> {

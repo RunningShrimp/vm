@@ -17,7 +17,7 @@ path = "src/bin/stress_test_runner.rs"
 [dependencies]
 vm-cross-arch = { path = "../vm-cross-arch" }
 vm-core = { path = "../vm-core" }
-vm-engine-jit = { path = "../vm-engine-jit" }
+vm-engine = { path = "../vm-engine", features = ["jit"] }
 vm-mem = { path = "../vm-mem" }
 vm-ir = { path = "../vm-ir" }
 clap = { version = "4.0", features = ["derive"] }

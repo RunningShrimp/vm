@@ -502,7 +502,8 @@ pub mod event;
 #[cfg(feature = "smmu")]
 pub mod smmu;
 
-pub use accel::{AccelManagerError, AccelerationManager};
+#[cfg(feature = "smmu")]
+pub use crate::accel::{AccelManagerError, AccelerationManager};
 pub use accel_fallback::{AccelFallbackManager, ExecResult};
 pub use numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer};
 pub use vcpu_numa_manager::{NumaTopology, VcpuNumaManager};

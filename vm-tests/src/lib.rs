@@ -8,11 +8,11 @@ pub mod test_utils;
 mod tests {
     use vm_core::{AccessType, Decoder, ExecutionEngine, MMU, MmioDevice};
     use vm_device::virtio;
-    use vm_engine_interpreter::Interpreter;
-    use vm_engine_interpreter::Interpreter;
-    use vm_engine_interpreter::run_chain;
-    use vm_engine_jit::Jit;
-    use vm_engine_jit::Jit;
+    use vm_engine::interpreter::Interpreter;
+    use vm_engine::interpreter::Interpreter;
+    use vm_engine::interpreter::run_chain;
+    use vm_engine::jit::Jit;
+    use vm_engine::jit::Jit;
     use vm_frontend_arm64::api as arm64_api;
     use vm_frontend_riscv64::{RiscvDecoder, encode_beq, encode_jal};
     use vm_frontend_x86_64::api as x86_api;
@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn interrupt_mask_window_persistent_retry_chain() {
         use vm_core::{Decoder, ExecStatus, Fault, GuestAddr, MMU};
-        use vm_engine_interpreter::{ExecInterruptAction, run_chain};
+        use vm_engine::interpreter::{ExecInterruptAction, run_chain};
         use vm_ir::IRBlock;
         use vm_ir::Terminator;
         let mut engine = Interpreter::new();
@@ -969,7 +969,7 @@ mod tests {
     fn run_chain_interrupt_ext_actions() {
         use vm_core::ExecStatus;
         use vm_core::{Decoder, Fault, GuestAddr, MMU};
-        use vm_engine_interpreter::{ExecInterruptAction, run_chain};
+        use vm_engine::interpreter::{ExecInterruptAction, run_chain};
         use vm_ir::IRBlock;
         use vm_ir::Terminator;
         let mut engine = Interpreter::new();
@@ -1187,7 +1187,7 @@ mod tests {
         warm.set_term(vm_ir::Terminator::Jmp { target: 0x6FFF });
         let warm_blk = warm.build();
         jit.set_pc(warm_blk.start_pc);
-        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+        for _ in 0..(vm_engine::jit::HOT_THRESHOLD + 10) {
             let _ = jit.run(&mut mmu, &warm_blk);
         }
 
@@ -1437,7 +1437,7 @@ mod tests {
         if let Ok(blk1) = dec.decode(&mmu, 0x200) {
             let _ = interp.run(&mut mmu, &blk1);
             jit.set_pc(blk1.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+            for _ in 0..(vm_engine::jit::HOT_THRESHOLD + 10) {
                 let _ = jit.run(&mut mmu, &blk1);
             }
         } else {
@@ -1449,7 +1449,7 @@ mod tests {
         if let Ok(blk2) = dec.decode(&mmu, 0x200 + (2 + 8) as u64) {
             let _ = interp.run(&mut mmu, &blk2);
             jit.set_pc(blk2.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+            for _ in 0..(vm_engine::jit::HOT_THRESHOLD + 10) {
                 let _ = jit.run(&mut mmu, &blk2);
             }
         } else {
@@ -1463,7 +1463,7 @@ mod tests {
             let ri = interp.run(&mut mmu, &blk3);
             let _ = ri; // interpreter may set pc via terminator
             jit.set_pc(blk3.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+            for _ in 0..(vm_engine::jit::HOT_THRESHOLD + 10) {
                 let _ = jit.run(&mut mmu, &blk3);
             }
             // After JZ taken, expect PC to jump forward
@@ -1520,7 +1520,7 @@ mod tests {
             }
             let _ = interp.run(&mut mmu, &blk);
             jit.set_pc(blk.start_pc);
-            for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 10) {
+            for _ in 0..(vm_engine::jit::HOT_THRESHOLD + 10) {
                 let _ = jit.run(&mut mmu, &blk);
             }
         } else {
@@ -1580,7 +1580,7 @@ mod tests {
         // JIT run
         let mut jit = Jit::new();
         jit.set_pc(block.start_pc);
-        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 50) {
+        for _ in 0..(vm_engine::jit::HOT_THRESHOLD + 50) {
             let _ = jit.run(&mut mmu, &block);
         }
         assert_eq!(jit.get_reg(2), 99);
@@ -1636,7 +1636,7 @@ mod tests {
 
         let mut jit = Jit::new();
         jit.set_pc(block.start_pc);
-        for _ in 0..(vm_engine_jit::HOT_THRESHOLD + 50) {
+        for _ in 0..(vm_engine::jit::HOT_THRESHOLD + 50) {
             let _ = jit.run(&mut mmu, &block);
         }
         assert_eq!(jit.get_reg(2), 10);
@@ -2894,7 +2894,7 @@ mod tests {
     #[test]
     fn interrupt_windows_overlap_mixed_strategies_precise_assert() {
         use vm_core::{Decoder, ExecStatus, Fault, GuestAddr, MMU};
-        use vm_engine_interpreter::{ExecInterruptAction, run_chain};
+        use vm_engine::interpreter::{ExecInterruptAction, run_chain};
         use vm_ir::IRBlock;
         use vm_ir::Terminator;
         let mut engine = Interpreter::new();

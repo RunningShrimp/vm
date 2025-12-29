@@ -15,7 +15,7 @@ use super::unified_debugger::{
     UnifiedDebugger, UnifiedDebuggerConfig
 };
 use super::enhanced_breakpoints::{BreakpointType, BreakpointCondition};
-use crate::debugger::call_stack_tracker::VariableValue;
+use crate::jit::debugger::call_stack_tracker::VariableValue;
 
 /// Enhanced GDB server configuration
 #[derive(Debug, Clone)]

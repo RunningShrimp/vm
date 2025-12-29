@@ -14,8 +14,8 @@ use vm_core::{GuestArch, ExecMode, VmConfig, MMU, GuestAddr};
 use vm_mem::SoftMmu;
 use vm_ir::IRBlock;
 use vm_frontend_x86_64::X86_64Decoder;
-use vm_engine_interpreter::Interpreter;
-use vm_engine_jit::Jit;
+use vm_engine::interpreter::Interpreter;
+use vm_engine::jit::Jit;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== 在ARM64上运行AMD64代码示例 ===");

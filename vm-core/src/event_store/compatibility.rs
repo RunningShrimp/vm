@@ -10,9 +10,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
-use crate::event_store::{EventStore, StoredEvent as LegacyStoredEvent, VmResult};
-use crate::domain_events::DomainEventEnum;
-use crate::error::{VmError, CoreError};
+use crate::jit::event_store::{EventStore, StoredEvent as LegacyStoredEvent, VmResult};
+use crate::jit::domain_events::DomainEventEnum;
+use crate::jit::error::{VmError, CoreError};
 use super::{PostgresEventStore, FileEventStore};
 
 /// Enhanced stored event with additional metadata
@@ -314,8 +314,8 @@ impl EventStore for FileEventStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event_store::InMemoryEventStore;
-    use crate::domain_events::{DomainEventEnum, VmLifecycleEvent};
+    use crate::jit::event_store::InMemoryEventStore;
+    use crate::jit::domain_events::{DomainEventEnum, VmLifecycleEvent};
 
     #[test]
     fn test_enhanced_to_legacy_conversion() {

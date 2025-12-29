@@ -4,8 +4,8 @@
 
 #![cfg(feature = "std")]
 
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
+use crate::jit::domain_event_bus::DomainEventBus;
+use crate::jit::domain_events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
 use crate::{VmLifecycleState, VmConfig, VmError, VmResult, VmState};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -201,7 +201,7 @@ impl AggregateRoot for VirtualMachineAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_events::{DomainEventEnum, VmLifecycleEvent};
+    use crate::jit::domain_events::{DomainEventEnum, VmLifecycleEvent};
     use crate::{GuestArch, VmConfig};
 
     #[test]

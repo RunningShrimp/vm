@@ -149,12 +149,7 @@ impl SmmuContext {
     /// # Returns
     ///
     /// Returns translated physical address on success, error on failure.
-    pub fn translate_dma(
-        &self,
-        bdf: &str,
-        guest_addr: GuestAddr,
-        size: u64,
-    ) -> VmResult<u64> {
+    pub fn translate_dma(&self, bdf: &str, guest_addr: GuestAddr, size: u64) -> VmResult<u64> {
         log::trace!(
             "Translating DMA addr for device {}: GPA 0x{:x}, size {}",
             bdf,

@@ -6,8 +6,8 @@
 //! - Batch operations for performance
 //! - Error handling (circular references, chain too long)
 
+use vm_core::{CoreError, GuestAddr, MMU, VmError};
 use vm_device::virtio::*;
-use vm_core::{GuestAddr, MMU, VmError, CoreError};
 
 /// Mock MMU with configurable queue memory layout
 struct QueueMmu {

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-vm-core = { path = "../vm-core" }
-vm-foundation = { path = "../vm-foundation" }
+vm-core = { path = "../vm-core", features = ["foundation"] }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }

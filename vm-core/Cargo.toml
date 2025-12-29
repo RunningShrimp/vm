@@ -11,23 +11,29 @@ parking_lot = { workspace = true }
 
 serde = { workspace = true }
 uuid = { workspace = true }
-serde_json = { workspace = true, optional = true }
+serde_json = { workspace = true }
+toml = "0.8"
 chrono = { workspace = true, optional = true }
 miniz_oxide = { workspace = true }
 
 bincode = { workspace = true }
 
-# Optional dependencies for enhanced features
-sqlx = { workspace = true, optional = true }
+# Dependencies from merged vm-common
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
-# Local dependencies
-vm-common = { path = "../vm-common" }
+# Dependencies from merged vm-foundation
+regex = "1.0"
+backtrace = "0.3"
 
 [features]
 default = ["std"]
-std = ["serde_json"]
+std = []
 async = ["tokio", "futures", "async-trait"]
 debug = ["std"]
+# Merged features from vm-common and vm-foundation
+common = []
+foundation = []
 
 [dependencies.tokio]
 workspace = true

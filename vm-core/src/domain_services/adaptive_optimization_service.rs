@@ -35,7 +35,7 @@
 //! ### Basic Hotspot Detection
 //!
 //! ```rust
-//! use crate::domain_services::adaptive_optimization_service::{
+//! use crate::jit::domain_services::adaptive_optimization_service::{
 //!     AdaptiveOptimizationDomainService, HotspotConfig
 //! };
 //!
@@ -137,8 +137,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 use crate::{VmError, VmResult};
 
 /// Hotspot information for adaptive optimization

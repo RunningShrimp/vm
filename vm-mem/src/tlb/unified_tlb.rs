@@ -32,7 +32,6 @@ use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
 
 // Import TlbManager trait for impl blocks
 use crate::memory::memory_pool::{MemoryPool, StackPool};
-use crate::tlb::TlbManager;
 
 /// Error type for TLB operations
 pub type TlbResult<T> = Result<T, MemoryError>;
@@ -342,7 +341,7 @@ impl UnifiedTlb for BasicTlb {
 #[cfg(feature = "optimizations")]
 mod optimized_tlb_impl {
     use super::*;
-    use crate::{MultiLevelTlb, MultiLevelTlbConfig, ConcurrentTlbManager, ConcurrentTlbConfig};
+    use crate::{ConcurrentTlbConfig, ConcurrentTlbManager, MultiLevelTlb, MultiLevelTlbConfig};
 
     /// 优化TLB实现（多级TLB）
     pub struct OptimizedTlb {
@@ -353,9 +352,7 @@ mod optimized_tlb_impl {
         /// 创建优化TLB
         pub fn new() -> Self {
             Self {
-                inner: std::sync::Mutex::new(MultiLevelTlb::new(
-                    MultiLevelTlbConfig::default(),
-                )),
+                inner: std::sync::Mutex::new(MultiLevelTlb::new(MultiLevelTlbConfig::default())),
             }
         }
 
@@ -536,7 +533,7 @@ mod optimized_tlb_impl {
 
 // Re-export optimized implementations
 #[cfg(feature = "optimizations")]
-pub use optimized_tlb_impl::{OptimizedTlb, ConcurrentTlb};
+pub use optimized_tlb_impl::{ConcurrentTlb, OptimizedTlb};
 
 // ============================================================================
 // Module: TLB Factory
@@ -546,7 +543,6 @@ pub use optimized_tlb_impl::{OptimizedTlb, ConcurrentTlb};
 // ============================================================================
 #[cfg(feature = "optimizations")]
 mod tlb_factory_optimized {
-    use super::*;
 
     pub struct TlbFactory;
 
@@ -659,7 +655,7 @@ mod tests_optimized {
 // Only available when the "optimizations" feature is enabled.
 // ============================================================================
 #[cfg(feature = "optimizations")]
-mod multilevel_tlb_impl {
+pub mod multilevel_tlb_impl {
     use crate::PAGE_SHIFT;
     // 补充需要的额外导入（HashMap 和 Arc 已在文件顶部导入）
     use std::collections::VecDeque;
@@ -857,9 +853,9 @@ mod multilevel_tlb_impl {
         TwoQueue,
     }
 
-    use std::sync::Arc;
     use crate::tlb::TlbManager;
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     /// 单级TLB实现
     pub struct SingleLevelTlb {
@@ -1366,10 +1362,6 @@ mod multilevel_tlb_impl {
 // Re-export multi-level TLB types
 #[cfg(feature = "optimizations")]
 pub use multilevel_tlb_impl::{
-    MultiLevelTlb,
-    MultiLevelTlbConfig,
-    MultiLevelTlbAdapter,
-    AtomicTlbStats,
-    OptimizedTlbEntry,
-    AdaptiveReplacementPolicy,
+    AdaptiveReplacementPolicy, AtomicTlbStats, MultiLevelTlb, MultiLevelTlbAdapter,
+    MultiLevelTlbConfig, OptimizedTlbEntry,
 };

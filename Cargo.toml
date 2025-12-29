@@ -2,8 +2,6 @@
 members = [
     # Core
     "vm-core",
-    "vm-foundation",
-    "vm-common",
 
     # Cross-architecture
 #     "vm-cross-arch",
@@ -18,15 +16,11 @@ members = [
     "vm-device",
     "vm-accel",
 
-    # Execution engines
-    "vm-engine-jit",
-    "vm-engine-interpreter",
+    # Execution engines (unified)
+    "vm-engine",
 
     # Optimizers
     "vm-optimizers",
-
-    # Executors
-    "vm-executors",
 
     # Runtime
     "vm-runtime",
@@ -57,7 +51,6 @@ members = [
     "vm-codegen",
     "vm-cli",
     "vm-monitor",
-    "vm-adaptive",
     "vm-debug",
     "vm-desktop",
     
@@ -79,11 +72,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace.dependencies]
 # Error handling
-thiserror = "2.0.18"
+thiserror = "2.0.17"
 anyhow = "1.0"
 
 # Async runtime
-tokio = { version = "1.48", features = ["sync", "rt-multi-thread", "macros", "time", "io-util"] }
+tokio = { version = "1.43", features = ["sync", "rt-multi-thread", "macros", "time", "io-util"] }
 tokio-uring = { version = "0.5" }
 
 # Serialization
@@ -104,7 +97,7 @@ futures = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 
 # UUID
-uuid = { version = "1.19", features = ["v4", "serde"] }
+uuid = { version = "1.13", features = ["v4", "serde"] }
 
 # Random
 rand = "0.8"
@@ -120,7 +113,7 @@ raw-cpuid = { version = "11" }
 libc = "0.2"
 
 # GPU/Graphics
-wgpu = "27"
+wgpu = "24"
 winit = "0.30"
 pollster = "0.4"
 
@@ -131,7 +124,7 @@ smoltcp = { version = "0.12" }
 miniz_oxide = "0.7"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "json", "uuid"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "json", "uuid"] }
 
 # Platform-specific
 kvm-ioctls = { version = "0.24" }
@@ -143,9 +136,20 @@ windows = { version = "0.62", features = ["Win32_System_Hypervisor"] }
 tokio-test = "0.4"
 criterion = "0.5"
 
+[workspace.lints.rust]
+warnings = "deny"
+future_incompatible = "warn"
+nonstandard_style = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+cargo = "warn"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["VM Development Team"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/example/vm"

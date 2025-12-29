@@ -202,7 +202,7 @@ impl OptimizationPipelineBusinessRule for PipelineContinuationRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_services::optimization_pipeline_service::{
+    use crate::jit::domain_services::optimization_pipeline_service::{
         OptimizationPipelineConfig, OptimizationStage, PerformanceRequirements, OptimizationPriority
     };
     

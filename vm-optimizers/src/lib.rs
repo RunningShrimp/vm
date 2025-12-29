@@ -5,6 +5,7 @@
 //! - Memory allocation optimization
 //! - Profile-guided optimization (PGO)
 //! - ML-guided compilation optimization
+//! - Adaptive compilation optimization
 //!
 //! # Modules
 //!
@@ -16,7 +17,10 @@
 //!   hot path detection, and AOT optimization hints
 //! - [`ml`]: ML-guided compilation with tier prediction,
 //!   feature extraction, and A/B testing framework
+//! - [`adaptive`]: Adaptive compilation with performance monitoring,
+//!   strategy adjustment, and runtime decision making
 
+pub mod adaptive;
 pub mod gc;
 pub mod memory;
 pub mod ml;

@@ -10,7 +10,7 @@
 /// 运行: cargo bench --bench gc_performance_benchmark
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
-use vm_engine_jit::{UnifiedGC, UnifiedGcConfig, gc_sweeper::GcSweeper};
+use vm_engine::jit::{UnifiedGC, UnifiedGcConfig, gc_sweeper::GcSweeper};
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicU64;
@@ -389,7 +389,7 @@ fn parallel_sweep_comparison(c: &mut Criterion) {
         let sweep_list: Vec<u64> = (0..size).map(|i| i as u64 * 1024).collect();
         let sweep_list_arc = Arc::new(Mutex::new(sweep_list.clone()));
         let phase = Arc::new(AtomicU64::new(4)); // Sweeping phase
-        let stats = Arc::new(vm_engine_jit::UnifiedGcStats::default());
+        let stats = Arc::new(vm_engine::jit::UnifiedGcStats::default());
         
         let sweeper = GcSweeper::new(
             sweep_list_arc.clone(),

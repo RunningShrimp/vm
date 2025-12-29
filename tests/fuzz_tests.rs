@@ -5,7 +5,7 @@
 use vm_core::{MMU, GuestAddr, AccessType, Fault};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 use vm_mem::SoftMmu;
-use vm_engine_interpreter::Interpreter;
+use vm_engine::interpreter::Interpreter;
 use vm_tests::test_utils::{MockMMU, IRBlockBuilder};
 
 /// 模糊测试：随机IR块执行

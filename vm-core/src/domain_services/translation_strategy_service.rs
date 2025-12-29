@@ -8,8 +8,8 @@
 
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
-use crate::domain_services::rules::translation_rules::TranslationBusinessRule;
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
+use crate::jit::domain_services::rules::translation_rules::TranslationBusinessRule;
 use crate::{VmError, VmResult};
 
 /// Translation strategy domain service

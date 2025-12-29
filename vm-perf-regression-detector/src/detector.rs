@@ -449,7 +449,7 @@ impl RegressionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DetectionAlgorithm, MetricThreshold};
+    use vm_engine::jit::config::{DetectionAlgorithm, MetricThreshold};
     use std::collections::HashMap;
 
     #[test]

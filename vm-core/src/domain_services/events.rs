@@ -8,8 +8,8 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::collections::VecDeque;
 use std::time::SystemTime;
-use crate::domain_events::{DomainEventEnum as BaseDomainEventEnum, DomainEvent};
-use crate::error::{VmError, CoreError};
+use crate::jit::domain_events::{DomainEventEnum as BaseDomainEventEnum, DomainEvent};
+use crate::jit::error::{VmError, CoreError};
 
 /// Translation events for cross-architecture translation
 #[derive(Debug, Clone)]
@@ -748,7 +748,7 @@ impl DomainEventHandler for CollectingEventHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_events::{VmLifecycleEvent, DomainEventEnum as BaseDomainEventEnum};
+    use crate::jit::domain_events::{VmLifecycleEvent, DomainEventEnum as BaseDomainEventEnum};
     
     #[test]
     fn test_in_memory_event_bus() {

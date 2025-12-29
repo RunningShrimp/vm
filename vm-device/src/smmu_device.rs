@@ -25,7 +25,6 @@
 //! device_manager.assign_device("0000:01:00.0", 0x1000, 0x10000)?;
 //! ```
 
-#![cfg(feature = "smmu")]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use vm_accel::SmmuManager;

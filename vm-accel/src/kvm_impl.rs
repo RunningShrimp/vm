@@ -215,7 +215,7 @@ mod kvm_aarch64 {
 /// KVM 通用功能实现
 #[cfg(feature = "kvm")]
 mod kvm_common {
-    pub use kvm_bindings::{kvm_irq_level, kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
+    pub use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_irq_level, kvm_userspace_memory_region};
     pub use kvm_ioctls::{Kvm, VmFd};
 
     use super::*;
@@ -296,7 +296,7 @@ mod kvm_stub {
 // ============================================================================
 
 #[cfg(feature = "kvm")]
-use kvm_common::{kvm_irq_level, kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
+use kvm_common::{KVM_MEM_LOG_DIRTY_PAGES, kvm_irq_level, kvm_userspace_memory_region};
 
 #[cfg(feature = "kvm")]
 use kvm_ioctls::{Kvm, VcpuExit, VmFd};
@@ -440,7 +440,8 @@ impl AccelKvm {
             // Get vCPU thread ID (simplified - actual implementation would need proper thread handling)
             let tid = libc::gettid();
 
-            let ret = libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &cpu_set);
+            let ret =
+                libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &cpu_set);
 
             if ret != 0 {
                 return Err(VmError::Platform(PlatformError::AccessDenied(format!(
@@ -1526,4 +1527,65 @@ mod tests {
         let (_, nodes) = accel.numa_config();
         assert_eq!(nodes, 8);
     }
+}
+
+// ============================================================================
+// 辅助宏 - 减少条件编译重复
+// ============================================================================
+
+/// 宏：统一架构特定的 vCPU 操作委托
+///
+/// 这个宏消除了在每个方法中重复编写条件编译的需要。
+/// 它自动为不同架构生成适当的 match 分支。
+#[cfg(feature = "kvm")]
+#[macro_export]
+macro_rules! kvm_vcpu_delegate {
+    // 无参数方法调用
+    ($self:ident, $method:ident) => {
+        match $self {
+            #[cfg(target_arch = "x86_64")]
+            Self::X86_64(v) => v.$method(),
+            #[cfg(target_arch = "aarch64")]
+            Self::Aarch64(v) => v.$method(),
+        }
+    };
+
+    // 单参数方法调用
+    ($self:ident, $method:ident, $arg:expr) => {
+        match $self {
+            #[cfg(target_arch = "x86_64")]
+            Self::X86_64(v) => v.$method($arg),
+            #[cfg(target_arch = "aarch64")]
+            Self::Aarch64(v) => v.$method($arg),
+        }
+    };
+
+    // 多参数方法调用
+    ($self:ident, $method:ident, $($args:expr),+) => {
+        match $self {
+            #[cfg(target_arch = "x86_64")]
+            Self::X86_64(v) => v.$method($($args),+),
+            #[cfg(target_arch = "aarch64")]
+            Self::Aarch64(v) => v.$method($($args),+),
+        }
+    };
+}
+
+/// 宏：为 KvmVcpuUnified 自动实现方法
+///
+/// 使用此宏可以自动生成标准的委托方法，避免手动编写。
+#[cfg(feature = "kvm")]
+#[macro_export]
+macro_rules! impl_kvm_vcpu_methods {
+    () => {
+        /// 获取 vCPU 寄存器状态
+        pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
+            kvm_vcpu_delegate!(self, get_regs)
+        }
+
+        /// 设置 vCPU 寄存器状态
+        pub fn set_regs(&mut self, regs: &GuestRegs) -> Result<(), AccelError> {
+            kvm_vcpu_delegate!(self, set_regs, regs)
+        }
+    };
 }

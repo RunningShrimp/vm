@@ -56,8 +56,10 @@ fn test_fallback_manager_execution() {
 
     match result {
         Ok(exec_result) => {
-            println!("Executed {} cycles, executed: {}",
-                exec_result.cycles, exec_result.executed);
+            println!(
+                "Executed {} cycles, executed: {}",
+                exec_result.cycles, exec_result.executed
+            );
         }
         Err(e) => {
             println!("Execution failed: {:?}", e);
@@ -75,7 +77,11 @@ fn test_fallback_manager_instruction_counts() {
 
     for count in counts {
         let result = manager.execute(&mut mmu, 0x1000, count);
-        println!("Execution with {} instructions: {:?}", count, result.is_ok());
+        println!(
+            "Execution with {} instructions: {:?}",
+            count,
+            result.is_ok()
+        );
     }
 }
 

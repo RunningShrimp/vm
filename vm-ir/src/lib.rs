@@ -43,7 +43,7 @@ pub use riscv_instruction_data::{
 };
 // Re-export GuestAddr and Architecture from vm-core/vm-error for public use
 pub use vm_core::GuestAddr;
-pub use vm_foundation::Architecture;
+pub use vm_core::foundation::Architecture;
 
 pub type RegId = u32;
 
@@ -1071,6 +1071,9 @@ impl RegisterFile {
 
 /// IRInstruction - Alias for IROp for cross-arch translation compatibility
 pub type IRInstruction = IROp;
+
+/// Block - Alias for IRBlock for backward compatibility
+pub type Block = IRBlock;
 
 /// Operand types for IR instructions
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

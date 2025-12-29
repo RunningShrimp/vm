@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use bincode;
 
-use crate::event_store::{EventStore, StoredEvent, VmResult};
-use crate::error::{VmError, CoreError};
+use crate::jit::event_store::{EventStore, StoredEvent, VmResult};
+use crate::jit::error::{VmError, CoreError};
 
 #[cfg(feature = "enhanced-event-sourcing")]
 {
@@ -824,7 +824,7 @@ impl Default for FileEventStoreBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event_store::StoredEvent;
+    use crate::jit::event_store::StoredEvent;
     use tempfile::TempDir;
 
     #[tokio::test]

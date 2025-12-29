@@ -5,10 +5,10 @@
 use std::sync::Arc;
 use tokio;
 use vm_core::{ExecMode, GuestArch, VmConfig, VmError};
-use vm_engine_interpreter::Interpreter;
-use vm_engine_interpreter::async_executor_integration::AsyncExecutorWrapper;
-use vm_engine_jit::Jit;
-use vm_engine_jit::aot_integration::init_aot_loader;
+use vm_engine::interpreter::Interpreter;
+use vm_engine::interpreter::async_executor_integration::AsyncExecutorWrapper;
+use vm_engine::jit::Jit;
+use vm_engine::jit::aot_integration::init_aot_loader;
 use vm_frontend_riscv64::RiscvDecoder;
 use vm_ir::MemFlags;
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};

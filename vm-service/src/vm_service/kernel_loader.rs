@@ -22,7 +22,7 @@ pub fn load_kernel(
 }
 
 /// 异步加载内核镜像到内存
-#[cfg(feature = "async")]
+#[cfg(feature = "performance")]
 pub async fn load_kernel_async(
     mmu: Arc<tokio::sync::Mutex<Box<dyn MMU + Send>>>,
     data: &[u8],
@@ -36,7 +36,7 @@ pub async fn load_kernel_async(
 }
 
 /// 同步包装器：在runtime中执行异步加载
-#[cfg(feature = "async")]
+#[cfg(feature = "performance")]
 pub fn load_kernel_async_sync(
     mmu: Arc<tokio::sync::Mutex<Box<dyn MMU + Send>>>,
     data: &[u8],
@@ -64,23 +64,25 @@ pub fn load_kernel_file(path: &str, _load_addr: GuestAddr) -> VmResult<Vec<u8>> 
 }
 
 /// 异步从文件加载内核
-#[cfg(feature = "async")]
+#[cfg(feature = "performance")]
 pub async fn load_kernel_file_async(
     mmu: Arc<tokio::sync::Mutex<Box<dyn MMU + Send>>>,
     path: &str,
     load_addr: GuestAddr,
 ) -> VmResult<()> {
-    use vm_mem::async_mmu::async_file_io;
-
     // 使用异步文件I/O读取文件
-    let data = async_file_io::read_file_to_memory(path).await?;
+    let data = tokio::fs::read(path).await.map_err(|e| {
+        VmError::Memory(MemoryError::MmuLockFailed {
+            message: format!("Failed to read file: {}", e),
+        })
+    })?;
 
     // 使用异步MMU写入内存
     load_kernel_async(mmu, &data, load_addr).await
 }
 
 /// 同步包装器：在runtime中执行异步文件加载
-#[cfg(feature = "async")]
+#[cfg(feature = "performance")]
 pub fn load_kernel_file_async_sync(
     mmu: Arc<tokio::sync::Mutex<Box<dyn MMU + Send>>>,
     path: &str,
@@ -90,7 +92,7 @@ pub fn load_kernel_file_async_sync(
 }
 
 /// Helper function to block on async operations, using Handle when available
-#[cfg(feature = "async")]
+#[cfg(feature = "performance")]
 fn block_on_async_helper<F, R>(f: F) -> VmResult<R>
 where
     F: std::future::Future<Output = VmResult<R>>,

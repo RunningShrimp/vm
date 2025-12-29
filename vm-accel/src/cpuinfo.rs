@@ -266,10 +266,10 @@ impl CpuInfo {
                 .arg("-n")
                 .arg("machdep.cpu.brand_string")
                 .output();
-            if let Ok(output) = output {
-                if let Ok(brand) = String::from_utf8(output.stdout) {
-                    model_name = brand.trim().to_string();
-                }
+            if let Ok(output) = output
+                && let Ok(brand) = String::from_utf8(output.stdout)
+            {
+                model_name = brand.trim().to_string();
             }
 
             // Apple Silicon 特性

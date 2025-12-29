@@ -183,9 +183,9 @@ mod hvf_tests {
             let host_addr = host_mem.as_ptr() as u64;
 
             // Test different protection flags
-            let flags_read_only = 0x1;  // Read-only
+            let flags_read_only = 0x1; // Read-only
             let flags_read_write = 0x3; // Read-write
-            let flags_exec = 0x4;       // Executable
+            let flags_exec = 0x4; // Executable
 
             for (name, flags) in [
                 ("read-only", flags_read_only),

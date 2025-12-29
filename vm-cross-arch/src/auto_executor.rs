@@ -8,7 +8,7 @@ use std::fmt;
 use vm_core::{ExecMode, ExecutionEngine, GuestAddr, GuestArch, MMU, VmError};
 
 #[cfg(feature = "interpreter")]
-use vm_engine_interpreter::Interpreter;
+use vm_engine::interpreter::Interpreter;
 
 use vm_ir::IRBlock;
 

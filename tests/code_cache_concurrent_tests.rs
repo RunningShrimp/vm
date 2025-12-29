@@ -7,9 +7,9 @@ mod loom_tests {
     use loom::sync::Arc;
     use loom::thread;
     use vm_core::GuestAddr;
-    use vm_engine_jit::unified_cache::{CacheConfig, UnifiedCodeCache};
-    use vm_engine_jit::ewma_hotspot::EwmaHotspotConfig;
-    use vm_engine_jit::CodePtr;
+    use vm_engine::jit::unified_cache::{CacheConfig, UnifiedCodeCache};
+    use vm_engine::jit::ewma_hotspot::EwmaHotspotConfig;
+    use vm_engine::jit::CodePtr;
 
     /// 测试代码缓存并发查找的安全性
     #[test]
@@ -187,9 +187,9 @@ mod std_tests {
     use std::sync::Arc;
     use std::thread;
     use vm_core::GuestAddr;
-    use vm_engine_jit::unified_cache::{CacheConfig, UnifiedCodeCache};
-    use vm_engine_jit::ewma_hotspot::EwmaHotspotConfig;
-    use vm_engine_jit::CodePtr;
+    use vm_engine::jit::unified_cache::{CacheConfig, UnifiedCodeCache};
+    use vm_engine::jit::ewma_hotspot::EwmaHotspotConfig;
+    use vm_engine::jit::CodePtr;
 
     /// 测试代码缓存并发查找的安全性（标准库版本）
     #[test]

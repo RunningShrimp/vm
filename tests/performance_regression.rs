@@ -188,7 +188,7 @@ fn test_execution_performance() {
 /// 测试JIT编译性能
 #[test]
 fn test_jit_compile_performance() {
-    use vm_engine_jit::Jit;
+    use vm_engine::jit::Jit;
     use vm_ir::{IRBlock, IROp, Terminator};
     use vm_mem::SoftMmu;
     
@@ -243,7 +243,7 @@ fn test_jit_compile_performance() {
 /// 测试GC性能
 #[test]
 fn test_gc_performance() {
-    use vm_engine_jit::{UnifiedGC, UnifiedGcConfig};
+    use vm_engine::jit::{UnifiedGC, UnifiedGcConfig};
     
     let thresholds = PerformanceThresholds::default();
     let mut baseline = PerformanceBaseline::new("gc".to_string(), thresholds.clone());
@@ -315,7 +315,7 @@ fn test_gc_performance() {
 /// 测试寄存器分配器性能
 #[test]
 fn test_register_allocator_performance() {
-    use vm_engine_jit::register_allocator::{LinearScanAllocator, GraphColoringAllocator, RegisterAllocatorTrait};
+    use vm_engine::jit::register_allocator::{LinearScanAllocator, GraphColoringAllocator, RegisterAllocatorTrait};
     use vm_ir::{IROp, IRBuilder, Terminator};
     
     let thresholds = PerformanceThresholds::default();
@@ -363,7 +363,7 @@ fn test_register_allocator_performance() {
 /// 测试IR工具性能
 #[test]
 fn test_ir_utils_performance() {
-    use vm_engine_jit::ir_utils::IrAnalyzer;
+    use vm_engine::jit::ir_utils::IrAnalyzer;
     use vm_ir::IROp;
     
     // 创建大量IR操作
@@ -403,9 +403,9 @@ fn test_ir_utils_performance() {
 /// 测试GC模块性能
 #[test]
 fn test_gc_module_performance() {
-    use vm_engine_jit::gc_marker::GcMarker;
-    use vm_engine_jit::gc_sweeper::GcSweeper;
-    use vm_engine_jit::unified_gc::{LockFreeMarkStack, UnifiedGcStats, GCPhase};
+    use vm_engine::jit::gc_marker::GcMarker;
+    use vm_engine::jit::gc_sweeper::GcSweeper;
+    use vm_engine::jit::unified_gc::{LockFreeMarkStack, UnifiedGcStats, GCPhase};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, RwLock};
     use std::collections::HashSet;

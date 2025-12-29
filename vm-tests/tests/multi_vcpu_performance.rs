@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use vm_core::{ExecResult, ExecutionEngine, MMU};
-use vm_engine_interpreter::Interpreter;
+use vm_engine::interpreter::Interpreter;
 use vm_ir::{IRBuilder, IROp, MemFlags};
 use vm_mem::SoftMmu;
 

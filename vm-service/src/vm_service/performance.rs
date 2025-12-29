@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use vm_core::{GuestAddr, GuestArch};
-use vm_engine_jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr};
+use vm_engine::jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr};
 
-use crate::execution::{ExecutionContext, IrqPolicy, TrapHandler};
+use super::execution::{ExecutionContext, IrqPolicy, TrapHandler};
 
 /// Performance statistics (consolidates JIT stats and async metrics)
 #[derive(Clone, Debug)]
@@ -87,7 +87,11 @@ impl PerformanceContext {
                 cold_threshold: cfg.cold_threshold,
                 hot_threshold: cfg.hot_threshold,
                 enable_adaptive: cfg.enable_adaptive,
-                code_pool_size: self.code_pool.as_ref().map(|p| p.lock().ok().map(|g| g.len()).unwrap_or(0)).unwrap_or(0),
+                code_pool_size: self
+                    .code_pool
+                    .as_ref()
+                    .map(|p| p.lock().ok().map(|g| g.len()).unwrap_or(0))
+                    .unwrap_or(0),
             }),
             _ => None,
         }
@@ -102,7 +106,6 @@ impl PerformanceContext {
             cold_threshold: config.cold_threshold,
             hot_threshold: config.hot_threshold,
             enable_adaptive: config.enable_adaptive,
-            ..Default::default()
         });
 
         // Update code pool
@@ -133,8 +136,8 @@ impl PerformanceContext {
         // Add JIT state if performance features are enabled
         #[cfg(feature = "performance")]
         {
-            use crate::execution::jit_execution::JitExecutionState;
-            ctx.jit_state = Some(JitExecutionState {
+            use super::execution::jit_execution::JitExecutionState;
+            ctx.perf_state.jit = Some(JitExecutionState {
                 code_pool: self.code_pool.clone(),
                 adaptive_snapshot: Arc::clone(&self.adaptive_snapshot),
                 adaptive_config: self.adaptive_config.clone(),
@@ -163,8 +166,8 @@ impl PerformanceContext {
         // Add JIT state if performance features are enabled
         #[cfg(feature = "performance")]
         {
-            use crate::execution::jit_execution::JitExecutionState;
-            ctx.jit_state = Some(JitExecutionState {
+            use super::execution::jit_execution::JitExecutionState;
+            ctx.perf_state.jit = Some(JitExecutionState {
                 code_pool: self.code_pool.clone(),
                 adaptive_snapshot: Arc::clone(&self.adaptive_snapshot),
                 adaptive_config: self.adaptive_config.clone(),
@@ -174,9 +177,9 @@ impl PerformanceContext {
         // Add coroutine scheduler if provided
         #[cfg(feature = "performance")]
         {
-            use crate::execution::async_execution::CoroutineExecutionState;
+            use super::execution::async_execution::CoroutineExecutionState;
             if let Some(scheduler) = coroutine_scheduler {
-                ctx.coroutine_state = Some(CoroutineExecutionState::with_scheduler(scheduler));
+                ctx.perf_state.coroutine = Some(CoroutineExecutionState::with_scheduler(scheduler));
             }
         }
 
@@ -235,4 +238,3 @@ impl Default for PerformanceContext {
         Self::new()
     }
 }
-

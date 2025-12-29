@@ -42,7 +42,7 @@
 //! ### Basic Register Allocation
 //!
 //! ```rust
-//! use crate::domain_services::register_allocation_service::{
+//! use crate::jit::domain_services::register_allocation_service::{
 //!     RegisterAllocationDomainService, RegisterAllocationStrategy,
 //!     Variable, Instruction
 //! };
@@ -196,9 +196,9 @@
 
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::error::VmError;
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::jit::error::VmError;
 use crate::VmResult;
 use crate::GuestArch;
 

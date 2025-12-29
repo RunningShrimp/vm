@@ -29,5 +29,8 @@ pub use tlb_sync::*;
 // 使用显式导入避免 TlbStats 冲突
 pub use unified_tlb::{
     AdaptiveReplacementPolicy, AtomicTlbStats, MultiLevelTlb, MultiLevelTlbConfig,
-    OptimizedTlbEntry, SingleLevelTlb, TlbFactory, TlbResult, UnifiedTlb,
+    OptimizedTlbEntry, TlbFactory, TlbResult, UnifiedTlb,
 };
+
+#[cfg(feature = "optimizations")]
+pub use unified_tlb::multilevel_tlb_impl::SingleLevelTlb;

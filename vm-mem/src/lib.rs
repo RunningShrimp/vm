@@ -39,8 +39,11 @@ pub use optimization::{asm_opt::*, lockless_optimizations::*};
 pub use tlb::{
     AdaptiveReplacementPolicy, AtomicTlbStats, ConcurrentTlbConfig, ConcurrentTlbManager,
     ConcurrentTlbManagerAdapter, MultiLevelTlb, MultiLevelTlbConfig, OptimizedTlbEntry, ShardedTlb,
-    SingleLevelTlb, StandardTlbManager, TlbFactory, TlbResult, UnifiedTlb,
+    StandardTlbManager, TlbFactory, TlbResult, UnifiedTlb,
 };
+
+#[cfg(feature = "optimizations")]
+pub use tlb::SingleLevelTlb;
 // 显式导入 TlbStats 避免冲突
 pub use domain_services::AddressTranslationDomainService;
 pub use tlb::unified_tlb::TlbStats;
@@ -51,9 +54,11 @@ pub use vm_core::{GuestAddr, GuestPhysAddr};
 
 pub mod mmu;
 #[cfg(feature = "async")]
-pub use async_mmu::async_file_io;
+pub use async_mmu::async_impl::async_file_io;
 #[cfg(feature = "async")]
-pub use async_mmu::{AsyncMMU, AsyncMmuWrapper, AsyncTlbLookup, TlbCache};
+pub use async_mmu::{
+    TlbCache, async_impl::AsyncMMU, async_impl::AsyncMmuWrapper, async_impl::AsyncTlbLookup,
+};
 
 /// Host 虚拟地址
 pub type HostAddr = u64;

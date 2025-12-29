@@ -367,7 +367,7 @@ impl SqlitePerformanceStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collector::PerformanceCollector;
+    use vm_engine::jit::collector::PerformanceCollector;
     use tempfile::tempdir;
     use vm_core::GuestArch;
 

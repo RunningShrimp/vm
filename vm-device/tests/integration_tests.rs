@@ -3,10 +3,10 @@
 //! This module provides end-to-end integration tests for the vm-device crate,
 //! testing realistic scenarios involving multiple components working together.
 
+use vm_core::{CoreError, GuestAddr, MMU, VmError};
 use vm_device::block::*;
 use vm_device::block_service::*;
 use vm_device::simple_devices::*;
-use vm_core::{GuestAddr, MMU, VmError, CoreError};
 
 /// Comprehensive mock MMU for integration testing
 struct IntegrationMmu {
@@ -170,8 +170,8 @@ mod block_device_integration_tests {
 
         // Write read request to MMU (type=0, sector=0)
         let req_bytes = [
-            0u8, 0u8, 0u8, 0u8,   // type = 0 (read)
-            0u8, 0u8, 0u8, 0u8,   // reserved
+            0u8, 0u8, 0u8, 0u8, // type = 0 (read)
+            0u8, 0u8, 0u8, 0u8, // reserved
             0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // sector = 0
         ];
         mmu.memory[0x1000..0x1010].copy_from_slice(&req_bytes);
@@ -243,8 +243,8 @@ mod virtio_queue_integration_tests {
         // Setup descriptor at 0x1000
         let desc_bytes = [
             0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
-            0u8, 0x02, 0u8, 0u8,   // len = 512
-            0u8, 0u8, 0u8, 0u8,    // flags = 0, next = 0
+            0u8, 0x02, 0u8, 0u8, // len = 512
+            0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
         ];
         mmu.desc_table.copy_from_slice(&desc_bytes);
 
@@ -276,8 +276,8 @@ mod virtio_queue_integration_tests {
         // Setup descriptor pointing to data
         let desc_bytes = [
             0u8, 0u8, 0x40, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
-            4u8, 0u8, 0u8, 0u8,   // len = 4
-            0u8, 0u8, 0u8, 0u8,   // flags = 0, next = 0
+            4u8, 0u8, 0u8, 0u8, // len = 4
+            0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
         ];
         mmu.desc_table.copy_from_slice(&desc_bytes);
 
@@ -397,7 +397,11 @@ mod block_device_integration_tests {
         // Queue multiple I/O requests
         for i in 0..10 {
             let req = BlockIORequest {
-                request_type: if i % 2 == 0 { BlockIOType::Read } else { BlockIOType::Write },
+                request_type: if i % 2 == 0 {
+                    BlockIOType::Read
+                } else {
+                    BlockIOType::Write
+                },
                 block_offset: i as u64,
                 block_count: 1,
                 data: vec![0u8; 4096],
@@ -524,7 +528,7 @@ mod error_recovery_tests {
         let mut mmio = VirtioBlockMmio::new();
 
         // Test writing to all valid registers
-        mmio_write(&mut mmio, 0x00, 0, 4);  // selected_queue
+        mmio_write(&mut mmio, 0x00, 0, 4); // selected_queue
         mmio_write(&mut mmio, 0x04, 128, 4); // queue_size
         mmio_write(&mut mmio, 0x20, 0xFF, 4); // device_status
 
@@ -552,8 +556,8 @@ mod performance_tests {
             let offset = i as usize * 16;
             mmu.desc_table[offset..offset + 16].copy_from_slice(&[
                 0u8, 0u8, 0x40, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
-                0u8, 0x02, 0u8, 0u8,   // len = 512
-                0u8, 0u8, 0u8, 0u8,    // flags = 0, next = 0
+                0u8, 0x02, 0u8, 0u8, // len = 512
+                0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
             ]);
         }
 

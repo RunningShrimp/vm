@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, ExecutionEvent};
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, ExecutionEvent};
 use crate::{GuestAddr, VmError, VmResult};
 
 /// Execution context state

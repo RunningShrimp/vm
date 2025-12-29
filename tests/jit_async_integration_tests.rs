@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use vm_core::GuestAddr;
-use vm_engine_jit::{Jit, AsyncCompileResult, CodePtr};
+use vm_engine::jit::{Jit, AsyncCompileResult, CodePtr};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 /// 创建测试用的IR块
@@ -186,11 +186,11 @@ async fn test_async_compile_duplicate_prevention() {
 #[tokio::test]
 async fn test_async_cache_integration() {
     // 测试异步缓存与异步编译的集成
-    use vm_engine_jit::unified_cache::UnifiedCodeCache;
-    use vm_engine_jit::ewma_hotspot::EwmaHotspotConfig;
+    use vm_engine::jit::unified_cache::UnifiedCodeCache;
+    use vm_engine::jit::ewma_hotspot::EwmaHotspotConfig;
     
     let cache = Arc::new(UnifiedCodeCache::new(
-        vm_engine_jit::unified_cache::CacheConfig::default(),
+        vm_engine::jit::unified_cache::CacheConfig::default(),
         EwmaHotspotConfig::default(),
     ));
     
@@ -214,7 +214,7 @@ async fn test_async_cache_integration() {
 #[tokio::test]
 async fn test_async_compile_with_gc() {
     // 测试异步编译与GC的集成
-    use vm_engine_jit::unified_gc::{UnifiedGC, UnifiedGcConfig};
+    use vm_engine::jit::unified_gc::{UnifiedGC, UnifiedGcConfig};
     
     let gc = Arc::new(UnifiedGC::new(UnifiedGcConfig::default()));
     let mut engine = Jit::new();

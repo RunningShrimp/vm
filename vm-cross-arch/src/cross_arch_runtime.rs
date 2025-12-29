@@ -5,6 +5,10 @@
 
 use super::CrossArchConfig;
 use crate::Architecture;
+
+#[cfg(feature = "jit")]
+use crate::{CrossArchAotCompiler, CrossArchAotConfig, CrossArchAotStats};
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -89,7 +93,7 @@ pub mod gc_integration {
             self.runtime.as_ref().map(|gc| gc.get_stats())
         }
 
-        pub fn is_enabled(&self) -> bool {
+        pub fn _is_enabled(&self) -> bool {
             self.runtime.is_some()
         }
     }
@@ -146,8 +150,8 @@ pub mod jit_integration {
 
     /// JIT集成状态
     pub struct JitState {
-        compiler: Option<vm_engine_jit::Jit>,
-        aot_compiler: Option<super::CrossArchAotCompiler>,
+        compiler: Option<vm_engine::jit::Jit>,
+        aot_compiler: Option<CrossArchAotCompiler>,
         cache: Arc<Mutex<HashMap<GuestAddr, Vec<u8>>>>,
         jit_config: JitConfig,
         aot_config: AotConfig,
@@ -160,7 +164,7 @@ pub mod jit_integration {
             cross_arch_config: &CrossArchConfig,
         ) -> Result<Self, VmError> {
             let compiler = if jit_config.enable_jit {
-                Some(vm_engine_jit::Jit::new())
+                Some(vm_engine::jit::Jit::new())
             } else {
                 None
             };
@@ -178,23 +182,25 @@ pub mod jit_integration {
                     }
                 };
 
-                let aot_cfg = super::CrossArchAotConfig {
+                let aot_cfg = CrossArchAotConfig {
                     source_arch,
                     target_arch: cross_arch_config.host_arch.to_architecture().ok_or_else(
-                        || VmError::Platform(vm_core::PlatformError::UnsupportedArch {
-                            arch: cross_arch_config.host_arch.name().to_string(),
-                            supported: vec![
-                                "x86_64".to_string(),
-                                "arm64".to_string(),
-                                "riscv64".to_string(),
-                            ],
-                        }),
+                        || {
+                            VmError::Platform(vm_core::PlatformError::UnsupportedArch {
+                                arch: cross_arch_config.host_arch.name().to_string(),
+                                supported: vec![
+                                    "x86_64".to_string(),
+                                    "arm64".to_string(),
+                                    "riscv64".to_string(),
+                                ],
+                            })
+                        },
                     )?,
                     optimization_level: 2,
                     enable_cross_arch_optimization: true,
-                    codegen_mode: vm_engine_jit::aot::CodegenMode::LLVM,
+                    codegen_mode: vm_engine::jit::aot::CodegenMode::LLVM,
                 };
-                Some(super::CrossArchAotCompiler::new(aot_cfg)?)
+                Some(CrossArchAotCompiler::new(aot_cfg)?)
             } else {
                 None
             };
@@ -307,25 +313,26 @@ pub mod jit_integration {
                     })
                 })?;
 
-                hotspots.into_iter().filter(|pc| !cache.contains_key(pc)).collect()
+                hotspots
+                    .into_iter()
+                    .filter(|pc| !cache.contains_key(pc))
+                    .collect()
             };
 
             for pc in hotspots_to_compile {
                 match get_ir_block(pc) {
-                    Ok(Some(ir_block)) => {
-                        match self.compile_ir_block(&ir_block) {
-                            Ok(_) => {
-                                tracing::debug!(pc = pc.0, "JIT compiled hotspot");
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    pc = pc.0,
-                                    error = ?e,
-                                    "Failed to compile IR block for JIT"
-                                );
-                            }
+                    Ok(Some(ir_block)) => match self.compile_ir_block(&ir_block) {
+                        Ok(_) => {
+                            tracing::debug!(pc = pc.0, "JIT compiled hotspot");
                         }
-                    }
+                        Err(e) => {
+                            tracing::warn!(
+                                pc = pc.0,
+                                error = ?e,
+                                "Failed to compile IR block for JIT"
+                            );
+                        }
+                    },
                     Ok(None) => {
                         tracing::debug!(
                             pc = pc.0,
@@ -343,16 +350,18 @@ pub mod jit_integration {
 
         pub fn save_aot_image(&mut self, image_path: &str) -> Result<(), VmError> {
             if let Some(compiler) = self.aot_compiler.take() {
-                let config = super::CrossArchAotConfig {
+                let config = CrossArchAotConfig {
                     source_arch: compiler.config().source_arch,
                     target_arch: compiler.config().target_arch,
                     optimization_level: compiler.config().optimization_level,
-                    enable_cross_arch_optimization: compiler.config().enable_cross_arch_optimization,
+                    enable_cross_arch_optimization: compiler
+                        .config()
+                        .enable_cross_arch_optimization,
                     codegen_mode: compiler.config().codegen_mode,
                 };
 
                 compiler.save_to_file(image_path)?;
-                self.aot_compiler = Some(super::CrossArchAotCompiler::new(config)?);
+                self.aot_compiler = Some(CrossArchAotCompiler::new(config)?);
 
                 tracing::info!("AOT image saved to: {}", image_path);
                 Ok(())
@@ -368,9 +377,9 @@ pub mod jit_integration {
         pub fn load_aot_image(
             &mut self,
             image_path: &str,
-            hotspot_threshold: u32,
+            _hotspot_threshold: u32,
         ) -> Result<(), VmError> {
-            use vm_engine_jit::aot::AotImage;
+            use vm_engine::jit::aot::AotImage;
 
             tracing::info!("Loading AOT image from: {}", image_path);
 
@@ -388,14 +397,14 @@ pub mod jit_integration {
                 })
             })?;
 
-            if image.header.magic != vm_engine_jit::aot::AOT_MAGIC {
+            if image.header.magic != vm_engine::jit::aot::AOT_MAGIC {
                 return Err(VmError::Core(vm_core::CoreError::Internal {
                     message: "Invalid AOT magic number".to_string(),
                     module: "CrossArchRuntime".to_string(),
                 }));
             }
 
-            if image.header.version != vm_engine_jit::aot::AOT_VERSION {
+            if image.header.version != vm_engine::jit::aot::AOT_VERSION {
                 return Err(VmError::Core(vm_core::CoreError::Internal {
                     message: format!("Unsupported AOT version: {}", image.header.version),
                     module: "CrossArchRuntime".to_string(),
@@ -437,7 +446,7 @@ pub mod jit_integration {
             Ok(())
         }
 
-        pub fn get_aot_stats(&self) -> Option<&super::CrossArchAotStats> {
+        pub fn get_aot_stats(&self) -> Option<&CrossArchAotStats> {
             self.aot_compiler.as_ref().map(|compiler| compiler.stats())
         }
 
@@ -445,7 +454,7 @@ pub mod jit_integration {
             &self.cache
         }
 
-        pub fn jit_config(&self) -> &JitConfig {
+        pub fn _jit_config(&self) -> &JitConfig {
             &self.jit_config
         }
 
@@ -503,7 +512,7 @@ pub mod memory_integration {
             Ok(Self { mmu })
         }
 
-        pub fn mmu(&self) -> &vm_mem::SoftMmu {
+        pub fn _mmu(&self) -> &vm_mem::SoftMmu {
             &self.mmu
         }
 
@@ -634,7 +643,10 @@ impl CrossArchRuntime {
 
     pub fn new(config: CrossArchRuntimeConfig) -> Result<Self, VmError> {
         #[cfg(feature = "jit")]
-        let hotspot_threshold = config.jit.hotspot_threshold.max(config.aot.hotspot_threshold);
+        let hotspot_threshold = config
+            .jit
+            .hotspot_threshold
+            .max(config.aot.hotspot_threshold);
 
         #[cfg(not(feature = "jit"))]
         let hotspot_threshold = 100;
@@ -687,11 +699,10 @@ impl CrossArchRuntime {
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "jit", feature = "memory"))] {
                 // Check AOT code
-                if self.jit.is_aot_enabled() && self.jit.aot_config().priority {
-                    if self.jit.has_jit_code(pc) {
+                if self.jit.is_aot_enabled() && self.jit.aot_config().priority
+                    && self.jit.has_jit_code(pc) {
                         tracing::debug!(pc = pc.0, "Found AOT code, using AOT execution");
                     }
-                }
 
                 // Check JIT cache
                 if self.jit.is_jit_enabled() {
@@ -724,9 +735,50 @@ impl CrossArchRuntime {
                 };
 
                 if !hotspots.is_empty() {
-                    self.jit.check_and_compile_hotspots(hotspots, &mut |pc| self.get_ir_block_for_pc(pc))?;
-                    self.jit.check_and_jit_compile_hotspots(hotspots, &mut |pc| self.get_ir_block_for_pc(pc))?;
+                    // Clone hotspots for the second call since they're moved in the first
+                    let hotspots_clone = hotspots.clone();
+                    // Pre-fetch IR blocks to avoid closure capture issues
+                    struct HotspotBlock {
+                        pc: GuestAddr,
+                        block: Option<IRBlock>,
+                    }
+                    let hotspot_blocks: Vec<HotspotBlock> = hotspots.iter()
+                        .map(|&pc| HotspotBlock {
+                            pc,
+                            block: self.get_ir_block_for_pc(pc).ok().flatten(),
+                        })
+                        .collect();
+
+                    self.jit.check_and_compile_hotspots(
+                        hotspots,
+                        &mut |pc| {
+                            hotspot_blocks.iter()
+                                .find(|b| b.pc == pc)
+                                .and_then(|b| b.block.clone())
+                                .map(Some)
+                                .ok_or_else(|| VmError::Core(vm_core::CoreError::Internal {
+                                    message: format!("IR block not found for PC: {:#x}", pc.0),
+                                    module: "cross_arch_runtime".to_string(),
+                                }))
+                        }
+                    )?;
+
+                    self.jit.check_and_jit_compile_hotspots(
+                        hotspots_clone,
+                        &mut |pc| {
+                            hotspot_blocks.iter()
+                                .find(|b| b.pc == pc)
+                                .and_then(|b| b.block.clone())
+                                .map(Some)
+                                .ok_or_else(|| VmError::Core(vm_core::CoreError::Internal {
+                                    message: format!("IR block not found for PC: {:#x}", pc.0),
+                                    module: "cross_arch_runtime".to_string(),
+                                }))
+                        }
+                    )?;
                 }
+
+                Ok(result)
             } else if #[cfg(all(feature = "jit", not(feature = "memory")))] {
                 // JIT without memory feature
                 let result = self.executor.execute_block(pc)?;
@@ -857,7 +909,7 @@ impl CrossArchRuntime {
         }
     }
 
-    pub fn get_aot_stats(&self) -> Option<&super::CrossArchAotStats> {
+    pub fn get_aot_stats(&self) -> Option<&CrossArchAotStats> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "jit")] {
                 self.jit.get_aot_stats()

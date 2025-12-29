@@ -100,7 +100,7 @@ fn test_aot_jit_hybrid_execution() {
 fn test_gc_stress() {
     println!("=== 测试GC压力 ===");
     
-    use vm_engine_jit::{UnifiedGC, UnifiedGcConfig};
+    use vm_engine::jit::{UnifiedGC, UnifiedGcConfig};
     
     let config = UnifiedGcConfig {
         heap_size_limit: 10 * 1024 * 1024, // 10MB
@@ -204,8 +204,8 @@ fn test_cross_arch_aot() {
 fn test_hybrid_executor_fallback() {
     println!("=== 测试混合执行器回退机制 ===");
     
-    use vm_engine_jit::HybridExecutor;
-    use vm_engine_jit::Jit;
+    use vm_engine::jit::HybridExecutor;
+    use vm_engine::jit::Jit;
     
     // 创建混合执行器（无AOT加载器）
     let executor = HybridExecutor::new(None);
@@ -227,7 +227,7 @@ fn test_hybrid_executor_fallback() {
     );
     
     // 应该回退到JIT或解释器
-    assert!(matches!(source, vm_engine_jit::CodeSource::JitCompiled | vm_engine_jit::CodeSource::Interpreted));
+    assert!(matches!(source, vm_engine::jit::CodeSource::JitCompiled | vm_engine::jit::CodeSource::Interpreted));
     assert!(matches!(result.status, vm_core::ExecStatus::Ok | vm_core::ExecStatus::Continue));
     
     println!("  ✓ 混合执行器回退机制测试通过");

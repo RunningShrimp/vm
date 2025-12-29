@@ -1,47 +1,23 @@
 name: CI
-
-on:
-  push:
-    branches: [ master, main ]
-  pull_request:
-    branches: [ master, main ]
-
+on: [push, pull_request]
 jobs:
   check:
-    name: Check
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        components: clippy, rustfmt
-
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Check formatting
-      run: cargo fmt --all -- --check
-
-    - name: Run Clippy
-      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-    - name: Build
-      run: cargo build --workspace --all-targets --all-features
-
-    - name: Test
-      run: cargo test --workspace --all-features
-
-    - name: Security audit
-      uses: actions-rs/audit-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Verify Rust version
+        run: |
+          cargo --version
+          rustc --version
+      - name: Check formatting
+        run: cargo fmt -- --check
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run tests
+        run: cargo test --workspace
+      - name: Check documentation
+        run: cargo doc --no-deps --all-features

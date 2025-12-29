@@ -5,11 +5,11 @@
 
 use std::sync::{Arc, Mutex};
 use crate::{VmConfig, VmError, VmResult, GuestAddr, ExecResult, ExecStatus, VcpuState};
-use crate::debugger::{
+use crate::jit::debugger::{
     UnifiedDebugger, UnifiedDebuggerConfig, DebuggerState, DebuggerEvent,
     BreakpointType, BreakpointCondition, MemoryAccessType
 };
-use crate::mmu_traits::MMU;
+use crate::jit::mmu_traits::MMU;
 use crate::ExecutionEngine;
 
 /// Debugger integration configuration

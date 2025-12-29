@@ -8,7 +8,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, TlbEvent};
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, TlbEvent};
 use crate::{AccessType, TlbEntry, VmError, VmResult};
 
 /// TLB level (ITLB, DTLB, L2 TLB, etc.)

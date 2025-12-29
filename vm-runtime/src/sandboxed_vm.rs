@@ -6,12 +6,12 @@ use std::sync::Arc;
 use parking_lot::{Mutex, RwLock};
 
 use vm_core::{ExecResult, VmError, MMU};
-use vm_engine_jit::Jit;
+use vm_engine::jit::Jit;
 use security_sandbox::{
     SecuritySandbox, ResourceQuota, SeccompPolicy, AccessControlList,
     AuditLogger, ResourceMonitor
 };
-use crate::coroutine_scheduler::Scheduler;
+use crate::jit::coroutine_scheduler::Scheduler;
 
 /// VM沙箱配置
 pub struct SandboxConfig {
@@ -172,7 +172,7 @@ impl Default for ResourceStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_engine_jit::Jit;
+    use vm_engine::jit::Jit;
     use vm_mmu::SimpleMMU;
 
     #[test]

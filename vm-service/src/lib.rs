@@ -20,7 +20,7 @@ use tracing::info as tinfo;
 
 use vm_core::vm_state::VirtualMachineState;
 use vm_core::{VmConfig, VmError};
-use vm_engine_interpreter::Interpreter;
+use vm_engine::interpreter::Interpreter;
 use vm_ir::IRBlock;
 use vm_mem::SoftMmu;
 
@@ -31,10 +31,10 @@ pub struct VmService {
     /// 虚拟机状态实例（保留用于向后兼容）
     pub vm_state: Arc<Mutex<VirtualMachineState<IRBlock>>>,
     /// 虚拟机服务（包含所有业务逻辑）
-    vm_service: VirtualMachineService<IRBlock>,
+    vm_service: CoreVmService<IRBlock>,
     /// 设备服务（处理所有设备相关业务逻辑）- 需要 devices feature
     #[cfg(feature = "devices")]
-    device_service: DeviceService,
+    _device_service: DeviceService,
     /// 解释器（保留用于向后兼容，将来通过 vm.vcpus 管理）
     interpreter: Interpreter,
 }
@@ -51,11 +51,10 @@ impl VmService {
         // JIT support has been removed
         let _share_pool = false;
 
-        // Create MMU
-        let mmu = SoftMmu::new(config.memory_size, false);
+        // Create MMU - use Arc<SoftMmu> to share with device service
+        let mmu = Arc::new(SoftMmu::new(config.memory_size, false));
         let vm_state: VirtualMachineState<IRBlock> =
-            VirtualMachineState::new(config.clone(), Box::new(mmu));
-        let mmu_arc = vm_state.mmu.clone();
+            VirtualMachineState::new(config.clone(), Box::new((*mmu).clone()));
 
         // Initialize Decoder and Interpreter
         // Currently hardcoded for RISC-V 64
@@ -66,11 +65,11 @@ impl VmService {
         // 创建 VirtualMachineState 和 VirtualMachineService
         // 直接使用已创建的 vm_state 来初始化 vm_service
         let vm_state_arc = Arc::new(Mutex::new(vm_state.clone()));
-        let vm_service = VirtualMachineService::new(vm_state);
+        let vm_service = CoreVmService::new(vm_state);
 
         // 初始化设备服务（仅当 devices feature 启用时）
         #[cfg(feature = "devices")]
-        let device_service = Self::init_device_service(gpu_backend, &config, mmu_arc).await?;
+        let device_service = Self::init_device_service(gpu_backend, &config, mmu).await?;
 
         // JIT support has been removed
 
@@ -78,7 +77,7 @@ impl VmService {
             vm_state: vm_state_arc,
             vm_service,
             #[cfg(feature = "devices")]
-            device_service,
+            _device_service: device_service,
             interpreter,
         };
 
@@ -93,7 +92,10 @@ impl VmService {
     ) -> Result<DeviceService, VmError> {
         let mut ds = DeviceService::new();
         ds.init_gpu(gpu_backend)?;
-        ds.initialize_devices(config, mmu_arc.clone()).await?;
+        // Convert Arc<SoftMmu> to Arc<Mutex<Box<dyn MMU>>>
+        let mmu_mutex: Arc<std::sync::Mutex<Box<dyn vm_core::MMU>>> =
+            Arc::new(std::sync::Mutex::new(Box::new((*mmu_arc).clone())));
+        ds.initialize_devices(config, mmu_mutex).await?;
         ds.map_devices().await?;
         ds.start_polling()?;
         Ok(ds)

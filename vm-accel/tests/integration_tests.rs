@@ -2,11 +2,11 @@
 //!
 //! End-to-end integration tests for vm-accel components
 
+use std::sync::Arc;
 use vm_accel::accel::AccelerationManager;
 use vm_accel::numa_optimizer::{MemoryAllocationStrategy, NUMAOptimizer};
 use vm_accel::vcpu_affinity::{CPUTopology, VCPUAffinityManager};
 use vm_accel::{Accel, AccelKind, CpuInfo};
-use std::sync::Arc;
 
 /// Test full stack integration
 #[test]
@@ -40,8 +40,10 @@ fn test_numa_affinity_integration() {
     println!("=== NUMA-Affinity Integration Test ===");
 
     let topology = Arc::new(CPUTopology::detect());
-    println!("Topology: {} CPUs, {} NUMA nodes",
-        topology.total_cpus, topology.numa_nodes);
+    println!(
+        "Topology: {} CPUs, {} NUMA nodes",
+        topology.total_cpus, topology.numa_nodes
+    );
 
     let affinity_manager = Arc::new(VCPUAffinityManager::new_with_topology(topology.clone()));
 
@@ -49,7 +51,10 @@ fn test_numa_affinity_integration() {
     let memory_per_node = 1024 * 1024 * 1024; // 1GB
     let optimizer = NUMAOptimizer::new(topology.clone(), affinity_manager, memory_per_node);
 
-    println!("NUMA optimizer created with {} nodes", optimizer.topology().numa_nodes);
+    println!(
+        "NUMA optimizer created with {} nodes",
+        optimizer.topology().numa_nodes
+    );
 
     // Allocate some memory
     let result = optimizer.allocate_memory(4096, Some(0));
@@ -157,11 +162,8 @@ fn test_memory_allocation_strategies_integration() {
     ];
 
     for strategy in strategies {
-        let mut optimizer = NUMAOptimizer::new(
-            topology.clone(),
-            affinity_manager.clone(),
-            memory_per_node,
-        );
+        let mut optimizer =
+            NUMAOptimizer::new(topology.clone(), affinity_manager.clone(), memory_per_node);
         optimizer.set_allocation_strategy(strategy);
 
         println!("Strategy: {:?}", strategy);
@@ -199,8 +201,10 @@ fn test_numa_aware_allocation_integration() {
 
         match result {
             Ok((addr, allocated_node)) => {
-                println!("Allocated {} bytes on node {} at {:#x}",
-                    size, allocated_node, addr);
+                println!(
+                    "Allocated {} bytes on node {} at {:#x}",
+                    size, allocated_node, addr
+                );
             }
             Err(e) => {
                 println!("Allocation on node {} failed: {}", node_id, e);
@@ -219,7 +223,10 @@ fn test_vcpu_affinity_integration() {
     let topology = CPUTopology::detect();
     let affinity_manager = VCPUAffinityManager::new_with_topology(Arc::new(topology.clone()));
 
-    println!("Topology: {} CPUs, {} NUMA nodes", topology.total_cpus, topology.numa_nodes);
+    println!(
+        "Topology: {} CPUs, {} NUMA nodes",
+        topology.total_cpus, topology.numa_nodes
+    );
 
     // Show CPU distribution
     for node_id in 0..topology.numa_nodes {
@@ -284,7 +291,10 @@ fn test_performance_monitoring_integration() {
         println!("Node {}:", stat.node_id);
         println!("  CPU usage: {:.1}%", stat.cpu_usage * 100.0);
         println!("  Memory usage: {:.1}%", stat.memory_usage * 100.0);
-        println!("  Local access rate: {:.1}%", stat.local_access_rate() * 100.0);
+        println!(
+            "  Local access rate: {:.1}%",
+            stat.local_access_rate() * 100.0
+        );
     }
 
     println!("=== Performance Monitoring Integration Complete ===\n");
@@ -329,7 +339,11 @@ fn test_simd_integration() {
 fn test_cross_platform_compatibility_integration() {
     println!("=== Cross-Platform Compatibility Test ===");
 
-    println!("Platform: {}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    println!(
+        "Platform: {}-{}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
 
     // Test CPU info detection
     let cpu_info = CpuInfo::get();
@@ -341,7 +355,10 @@ fn test_cross_platform_compatibility_integration() {
 
     // Test topology detection
     let topology = CPUTopology::detect();
-    println!("CPUs: {}, NUMA nodes: {}", topology.total_cpus, topology.numa_nodes);
+    println!(
+        "CPUs: {}, NUMA nodes: {}",
+        topology.total_cpus, topology.numa_nodes
+    );
 
     // Test feature detection
     let features = vm_accel::detect();

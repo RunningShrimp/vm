@@ -77,7 +77,7 @@
 //! All domain services publish domain events to notify other parts of the system:
 //!
 //! ```rust
-//! use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+//! use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
 //!
 //! // Services publish events when important state changes occur
 //! service.publish_optimization_event(OptimizationEvent::HotspotsDetected {
@@ -99,7 +99,7 @@
 //! ### Creating a Domain Service
 //!
 //! ```rust
-//! use crate::domain_services::MyDomainService;
+//! use crate::jit::domain_services::MyDomainService;
 //! use std::sync::Arc;
 //!
 //! let service = MyDomainService::new(config);
@@ -109,7 +109,7 @@
 //! ### Using Business Rules
 //!
 //! ```rust
-//! use crate::domain_services::rules::MyBusinessRule;
+//! use crate::jit::domain_services::rules::MyBusinessRule;
 //!
 //! let mut service = MyDomainService::new(config);
 //! service.add_business_rule(Box::new(MyBusinessRule::new()));
@@ -129,7 +129,7 @@
 //! Domain services work with aggregate roots to coordinate business logic:
 //!
 //! ```rust
-//! use crate::aggregate_root::VirtualMachineAggregate;
+//! use crate::jit::aggregate_root::VirtualMachineAggregate;
 //!
 //! let mut aggregate = VirtualMachineAggregate::new(...);
 //! service.execute_optimization(&config, &mut aggregate)?;

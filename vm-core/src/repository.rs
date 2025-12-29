@@ -3,9 +3,9 @@
 //! 提供状态管理的仓储接口，符合DDD仓储模式。
 //! 支持聚合根、事件溯源和快照管理。
 
-use crate::aggregate_root::VirtualMachineAggregate;
-use crate::domain_events::{DomainEventEnum, EventVersionMigrator};
-use crate::snapshot::Snapshot;
+use crate::jit::aggregate_root::VirtualMachineAggregate;
+use crate::jit::domain_events::{DomainEventEnum, EventVersionMigrator};
+use crate::jit::snapshot::Snapshot;
 use crate::{VmConfig, VmError, VmId, VmResult, VmState};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -519,7 +519,7 @@ impl InMemoryAggregateRepository {
     /// 遍历事件列表，查找VmCreated或VmCreatedV2事件以获取初始配置，
     /// 然后应用后续的配置变更事件（如果有）
     fn extract_config_from_events(events: &[DomainEventEnum]) -> VmConfig {
-        use crate::domain_events::VmLifecycleEvent;
+        use crate::jit::domain_events::VmLifecycleEvent;
 
         // 查找VmCreated事件获取初始配置
         for event in events.iter() {
@@ -917,7 +917,7 @@ mod tests {
         assert_eq!(repo.get_latest_version(&vm_id).expect("Failed to get latest version"), None);
 
         // 保存事件
-        use crate::domain_events::{DomainEventEnum, VmLifecycleEvent};
+        use crate::jit::domain_events::{DomainEventEnum, VmLifecycleEvent};
 
         let event = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: vm_id.as_str().to_string(),

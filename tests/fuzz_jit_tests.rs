@@ -2,7 +2,7 @@
 //!
 //! 针对JIT编译器的模糊测试，测试各种IR块和编译场景
 
-use vm_engine_jit::Jit;
+use vm_engine::jit::Jit;
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 use vm_mem::SoftMmu;
 use rand::Rng;

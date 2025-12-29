@@ -4,8 +4,8 @@
 
 #![cfg(feature = "smmu")]
 
-use crate::vcpu_affinity::{CPUTopology, VCPUAffinityManager};
 use crate::smmu::SmmuManager;
+use crate::vcpu_affinity::{CPUTopology, VCPUAffinityManager};
 use std::sync::Arc;
 
 use vm_core::VmError;
@@ -130,15 +130,6 @@ impl AccelerationManager {
 
         log::info!("SMMU initialized successfully");
         Ok(())
-    }
-
-    /// 初始化 SMMU - 存根实现 (非 SMMU 构建)
-    pub fn init_smmu(&mut self) -> Result<(), AccelManagerError> {
-        log::warn!("SMMU support not enabled in this build");
-        Err(VmError::Core(CoreError::NotSupported {
-            feature: "SMMU".to_string(),
-            module: "vm-accel".to_string(),
-        }))
     }
 
     /// 启用 NUMA 优化
@@ -339,11 +330,6 @@ impl AccelerationManager {
             .as_ref()
             .map(|s| s.is_initialized())
             .unwrap_or(false)
-    }
-
-    /// 检查 SMMU 是否已初始化 - 存根实现
-    pub fn is_smmu_initialized(&self) -> bool {
-        false
     }
 
     /// 获取 SMMU 管理器引用 (如果已初始化)

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use vm_cross_arch::{UnifiedExecutor, CrossArchTranslator};
 use vm_core::{GuestArch, MMU};
-use vm_engine_jit::core::{JITEngine, JITConfig};
+use vm_engine::jit::core::{JITEngine, JITConfig};
 use vm_mem::{SoftMmu, MemoryManager};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
 

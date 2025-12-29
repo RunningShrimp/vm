@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
-vm-engine-interpreter = { path = "../vm-engine-interpreter" }
+vm-engine = { path = "../vm-engine", features = ["interpreter"] }
 vm-mem = { path = "../vm-mem" }
 vm-frontend = { path = "../vm-frontend", features = ["all"] }
 vm-device = { path = "../vm-device" }

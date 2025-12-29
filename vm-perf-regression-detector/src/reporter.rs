@@ -521,8 +521,8 @@ impl RegressionReporter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ReportConfig, ReportFormat};
-    use crate::detector::{RegressionResult, RegressionSeverity};
+    use vm_engine::jit::config::{ReportConfig, ReportFormat};
+    use vm_engine::jit::detector::{RegressionResult, RegressionSeverity};
 
     #[test]
     fn test_text_report() -> Result<()> {

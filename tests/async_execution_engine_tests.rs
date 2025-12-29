@@ -4,10 +4,10 @@
 
 #[cfg(test)]
 mod async_execution_engine_tests {
-    use vm_engine_interpreter::async_executor::{
+    use vm_engine::interpreter::async_executor::{
         AsyncExecutor, AsyncMultiVcpuExecutor, AsyncExecutionContext, MockMMU,
     };
-    use vm_engine_interpreter::async_interrupt_handler::{
+    use vm_engine::interpreter::async_interrupt_handler::{
         AsyncInterruptQueue, Interrupt, InterruptType, InterruptPriority,
     };
     use vm_ir::IRBlock;

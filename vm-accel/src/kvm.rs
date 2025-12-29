@@ -39,13 +39,13 @@ pub mod kvm_backend {
 
     impl KvmVcpu {
         pub fn new(vm: &VmFd, id: u32) -> Result<Self, AccelError> {
-            let vcpu = vm
-                .create_vcpu(id as u64)
-                .map_err(|e| AccelError::CreateVcpuFailed(format!("KVM create_vcpu failed: {}", e)))?;
+            let vcpu = vm.create_vcpu(id as u64).map_err(|e| {
+                AccelError::CreateVcpuFailed(format!("KVM create_vcpu failed: {}", e))
+            })?;
 
-            let run_mmap_size = vm
-                .get_vcpu_mmap_size()
-                .map_err(|e| AccelError::CreateVcpuFailed(format!("Failed to get mmap size: {}", e)))?;
+            let run_mmap_size = vm.get_vcpu_mmap_size().map_err(|e| {
+                AccelError::CreateVcpuFailed(format!("Failed to get mmap size: {}", e))
+            })?;
 
             Ok(Self {
                 fd: vcpu,
@@ -237,9 +237,7 @@ pub mod kvm_backend {
 
     impl AccelKvm {
         pub fn new() -> Self {
-            Self {
-                vcpus: Vec::new(),
-            }
+            Self { vcpus: Vec::new() }
         }
 
         /// 检查 KVM 是否可用（始终返回 false）

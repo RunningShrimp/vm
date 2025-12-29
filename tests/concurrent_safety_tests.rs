@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 // 导入优化的实现
 use vm_core::parallel_execution::{ShardedMmuCache, OptimizedMultiVcpuExecutor};
 use vm_device::zero_copy_io::{LockFreeBufferPool, ShardedMappingCache};
-use vm_engine_jit::unified_gc::{LockFreeMarkStack, ShardedWriteBarrier};
+use vm_engine::jit::unified_gc::{LockFreeMarkStack, ShardedWriteBarrier};
 
 /// 测试ShardedMmuCache的并发安全性
 #[test]

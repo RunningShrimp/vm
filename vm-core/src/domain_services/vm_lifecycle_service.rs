@@ -7,11 +7,11 @@
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum};
-use crate::domain_events::{VmLifecycleEvent, DomainEventEnum as BaseDomainEventEnum};
-use crate::domain_services::rules::{LifecycleBusinessRule, VmStateTransitionRule, VmResourceAvailabilityRule};
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum};
+use crate::jit::domain_events::{VmLifecycleEvent, DomainEventEnum as BaseDomainEventEnum};
+use crate::jit::domain_services::rules::{LifecycleBusinessRule, VmStateTransitionRule, VmResourceAvailabilityRule};
 use crate::{VmError, VmResult, VmState};
-use crate::aggregate_root::{VirtualMachineAggregate, AggregateRoot};
+use crate::jit::aggregate_root::{VirtualMachineAggregate, AggregateRoot};
 
 /// VM Lifecycle Domain Service
 ///

@@ -1,4 +1,13 @@
 [toolchain]
+# 使用 Rust Nightly 工具链以支持 Edition 2024
 channel = "nightly"
-components = ["rustfmt", "clippy"]
-profile = "minimal"
+
+# 必需组件
+components = ["rustfmt", "clippy", "rust-src"]
+
+# 可选：锁定特定日期以避免意外破坏
+# 取消注释并设置特定日期以提高稳定性
+# date = "2024-12-29"
+
+# 可选：指定目标平台
+# targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "riscv64gc-unknown-linux-gnu"]

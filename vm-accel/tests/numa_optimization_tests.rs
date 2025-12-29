@@ -2,11 +2,9 @@
 //!
 //! Comprehensive tests for NUMA-aware memory allocation and optimization
 
-use vm_accel::numa_optimizer::{
-    MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer,
-};
-use vm_accel::vcpu_affinity::{CPUTopology, NUMAAwareAllocator, VCPUAffinityManager};
 use std::sync::{Arc, RwLock};
+use vm_accel::numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer};
+use vm_accel::vcpu_affinity::{CPUTopology, NUMAAwareAllocator, VCPUAffinityManager};
 
 /// Test NUMA topology detection
 #[test]
@@ -18,7 +16,10 @@ fn test_numa_topology_detection() {
     println!("  NUMA nodes: {}", topology.numa_nodes);
 
     assert!(topology.total_cpus > 0, "Should have at least one CPU");
-    assert!(topology.numa_nodes > 0, "Should have at least one NUMA node");
+    assert!(
+        topology.numa_nodes > 0,
+        "Should have at least one NUMA node"
+    );
 
     // Print CPU distribution
     for node_id in 0..topology.numa_nodes {
@@ -128,7 +129,10 @@ fn test_numa_memory_allocation_local_first() {
 
     match result {
         Ok((addr, node_id)) => {
-            println!("Allocated {} bytes on node {} at address {:#x}", size, node_id, addr);
+            println!(
+                "Allocated {} bytes on node {} at address {:#x}",
+                size, node_id, addr
+            );
             assert_eq!(node_id, 0, "Should allocate on preferred node");
         }
         Err(e) => {
@@ -216,13 +220,19 @@ fn test_numa_statistics_update() {
     let stats = optimizer.get_all_stats();
     println!("Got statistics for {} nodes", stats.len());
 
-    assert!(!stats.is_empty(), "Should have statistics for at least one node");
+    assert!(
+        !stats.is_empty(),
+        "Should have statistics for at least one node"
+    );
 
     for stat in stats {
         println!("Node {} stats:", stat.node_id);
         println!("  CPU usage: {:.1}%", stat.cpu_usage * 100.0);
         println!("  Memory usage: {:.1}%", stat.memory_usage * 100.0);
-        println!("  Local access rate: {:.1}%", stat.local_access_rate() * 100.0);
+        println!(
+            "  Local access rate: {:.1}%",
+            stat.local_access_rate() * 100.0
+        );
     }
 }
 
@@ -247,7 +257,10 @@ fn test_numa_memory_bandwidth_tracking() {
     let mut stats = NUMANodeStats::new(0);
 
     stats.memory_bandwidth_usage = 0.75;
-    println!("Memory bandwidth usage: {:.1}%", stats.memory_bandwidth_usage * 100.0);
+    println!(
+        "Memory bandwidth usage: {:.1}%",
+        stats.memory_bandwidth_usage * 100.0
+    );
 
     assert!(stats.memory_bandwidth_usage >= 0.0);
     assert!(stats.memory_bandwidth_usage <= 1.0);
@@ -358,10 +371,15 @@ fn test_numa_cache_topology() {
 
     println!("Cache topology:");
     for cache in &topology.cache_topology {
-        println!("  Level {}: {} KB, shared by CPUs {:?}",
-            cache.level, cache.size_kb, cache.shared_by);
+        println!(
+            "  Level {}: {} KB, shared by CPUs {:?}",
+            cache.level, cache.size_kb, cache.shared_by
+        );
     }
 
     // Should have at least L3 cache info
-    assert!(!topology.cache_topology.is_empty(), "Should have cache topology");
+    assert!(
+        !topology.cache_topology.is_empty(),
+        "Should have cache topology"
+    );
 }

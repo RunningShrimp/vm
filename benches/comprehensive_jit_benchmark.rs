@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vm_core::{GuestAddr, VmError, MMU, AccessType};
-use vm_engine_jit::core::{JITEngine, JITConfig};
+use vm_engine::jit::core::{JITEngine, JITConfig};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, MemFlags};
 
 /// 创建基础测试IR块

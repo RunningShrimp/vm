@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, PageTableEvent};
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, PageTableEvent};
 use crate::{AccessType, GuestPhysAddr, GuestAddr, VmError, VmResult};
 
 /// Page table level

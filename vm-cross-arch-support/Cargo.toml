@@ -5,7 +5,7 @@ edition = "2024"
 description = "Consolidated cross-architecture support utilities for VM translation"
 
 [dependencies]
-vm-foundation = { path = "../vm-foundation" }
+vm-core = { path = "../vm-core", features = ["foundation"] }
 vm-ir = { path = "../vm-ir" }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -42,7 +42,7 @@
 //! ### Creating a Pipeline Configuration
 //!
 //! ```rust
-//! use crate::domain_services::optimization_pipeline_service::{
+//! use crate::jit::domain_services::optimization_pipeline_service::{
 //!     OptimizationPipelineService, OptimizationPipelineConfig,
 //!     PerformanceRequirements, OptimizationPriority
 //! };
@@ -175,10 +175,10 @@
 //! - **`TranslationAggregate`**: Cross-architecture translation
 //! - **`CodeBlockAggregate`**: Code block optimization
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
 use crate::{VmError, VmResult};
 use crate::{CoreError};
-use crate::aggregate_root::VirtualMachineAggregate;
+use crate::jit::aggregate_root::VirtualMachineAggregate;
 use std::sync::Arc;
 use std::collections::HashMap;
 
@@ -864,7 +864,7 @@ impl OptimizationPipelineBusinessRule for PipelineContinuationRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_services::events::MockDomainEventBus;
+    use crate::jit::domain_services::events::MockDomainEventBus;
     
     #[test]
     fn test_create_pipeline_config() {

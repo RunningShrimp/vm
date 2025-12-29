@@ -55,7 +55,7 @@
 //! ### Basic Translation
 //!
 //! ```rust
-//! use crate::domain_services::cross_architecture_translation_service::{
+//! use crate::jit::domain_services::cross_architecture_translation_service::{
 //!     CrossArchitectureTranslationDomainService, TranslationConfig,
 //!     TranslationStrategy
 //! };
@@ -94,7 +94,7 @@
 //! ### Custom Business Rules
 //!
 //! ```rust
-//! use crate::domain_services::rules::translation_rules::{
+//! use crate::jit::domain_services::rules::translation_rules::{
 //!     TranslationBusinessRule, CustomTranslationRule
 //! };
 //!
@@ -185,11 +185,11 @@
 //! - **`TranslationCacheAggregate`**: Translation result caching
 
 use std::sync::Arc;
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
-use crate::domain_services::rules::translation_rules::{
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
+use crate::jit::domain_services::rules::translation_rules::{
     TranslationBusinessRule, ArchitectureCompatibilityRule, PerformanceThresholdRule, ResourceAvailabilityRule
 };
-use crate::error::VmError;
+use crate::jit::error::VmError;
 use crate::VmResult;
 use crate::GuestArch;
 

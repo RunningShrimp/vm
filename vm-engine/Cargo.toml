@@ -1,0 +1,61 @@
+[package]
+name = "vm-engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+bincode = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true, optional = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# VM Core dependencies
+vm-core = { path = "../vm-core", features = ["foundation"] }
+vm-mem = { path = "../vm-mem" }
+vm-ir = { path = "../vm-ir" }
+
+# Optional external dependencies
+vm-accel = { path = "../vm-accel", optional = true }
+vm-simd = { path = "../vm-simd", optional = true }
+
+# Build dependencies
+cfg-if = "1.0"
+
+# System dependencies
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+nix = { version = "0.29", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+num_cpus = { version = "1.16", optional = true }
+tokio-uring = { workspace = true, optional = true }
+
+# Async dependencies
+tokio = { workspace = true, optional = true, features = ["sync", "rt-multi-thread", "time", "macros"] }
+futures = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Memory"] }
+
+[features]
+default = ["std"]
+std = ["serde_json", "vm-core/std"]
+async = ["tokio", "futures", "async-trait", "vm-core/async"]
+debug = ["std"]
+
+# JIT-specific features
+jit = []
+interpreter = []
+executor = []
+
+# Combined features
+all-engines = ["jit", "interpreter", "executor"]
+
+[dev-dependencies]
+criterion = { workspace = true }

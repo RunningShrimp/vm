@@ -1,7 +1,7 @@
 use vm_core::{MMU, GuestAddr};
 use vm_mem::SoftMMU;
 use vm_frontend_riscv64::{RiscvDecoder, api::*};
-use vm_engine_interpreter::{Interpreter, run_chain};
+use vm_engine::interpreter::{Interpreter, run_chain};
 
 fn main() {
     println!("Initializing VM...");

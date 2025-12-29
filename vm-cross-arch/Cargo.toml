@@ -17,8 +17,7 @@ vm-ir = { path = "../vm-ir" }
 vm-cross-arch-support = { path = "../vm-cross-arch-support" }
 
 # Optional execution engines (feature-gated)
-vm-engine-interpreter = { path = "../vm-engine-interpreter", optional = true }
-vm-engine-jit = { path = "../vm-engine-jit", optional = true }
+vm-engine = { path = "../vm-engine", features = ["interpreter", "jit"], optional = true }
 
 # Optional memory support (feature-gated)
 vm-mem = { path = "../vm-mem", optional = true }
@@ -44,8 +43,8 @@ cfg-if = "1.0"
 default = []
 
 # Execution engine features
-interpreter = ["vm-engine-interpreter"]
-jit = ["vm-engine-jit", "vm-mem"]
+interpreter = ["vm-engine/interpreter"]
+jit = ["vm-engine/jit", "vm-mem"]
 
 # Component features (can be combined as needed)
 memory = ["vm-mem"]

@@ -1062,3 +1062,73 @@ impl ErrorLogger {
         log::debug!("VM Debug: {}", error);
     }
 }
+
+/// ============================================================================
+/// 统一错误转换 Trait
+/// ============================================================================
+
+/// 统一错误转换 Trait
+///
+/// 为所有错误类型提供转换为 `VmError` 的标准方法。
+pub trait IntoVmError {
+    /// 将错误转换为 `VmError`
+    fn into_vm_error(self) -> VmError;
+
+    /// 将错误转换为 `VmError` 并附加上下文信息
+    fn into_vm_error_with_context(self, context: impl Into<String>) -> VmError;
+}
+
+/// 为 `VmError` 实现恒等转换
+impl IntoVmError for VmError {
+    fn into_vm_error(self) -> VmError {
+        self
+    }
+
+    fn into_vm_error_with_context(self, _context: impl Into<String>) -> VmError {
+        self
+    }
+}
+
+/// 为字符串错误提供简单转换
+impl IntoVmError for String {
+    fn into_vm_error(self) -> VmError {
+        VmError::Io(self)
+    }
+
+    fn into_vm_error_with_context(self, context: impl Into<String>) -> VmError {
+        VmError::Io(format!("{}: {}", context.into(), self))
+    }
+}
+
+/// 为 `&str` 错误提供简单转换
+impl IntoVmError for &str {
+    fn into_vm_error(self) -> VmError {
+        VmError::Io(self.to_string())
+    }
+
+    fn into_vm_error_with_context(self, context: impl Into<String>) -> VmError {
+        VmError::Io(format!("{}: {}", context.into(), self))
+    }
+}
+
+/// 为 Box<dyn Error> 提供转换
+impl IntoVmError for Box<dyn std::error::Error + Send + Sync> {
+    fn into_vm_error(self) -> VmError {
+        VmError::Io(self.to_string())
+    }
+
+    fn into_vm_error_with_context(self, context: impl Into<String>) -> VmError {
+        VmError::Io(format!("{}: {}", context.into(), self))
+    }
+}
+
+/// 为标准库 IO 错误提供转换
+impl IntoVmError for std::io::Error {
+    fn into_vm_error(self) -> VmError {
+        VmError::Io(self.to_string())
+    }
+
+    fn into_vm_error_with_context(self, context: impl Into<String>) -> VmError {
+        VmError::Io(format!("{}: {}", context.into(), self))
+    }
+}

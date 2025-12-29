@@ -6,9 +6,9 @@
 //! - Flush operations
 //! - Error handling (out of bounds, read-only device, I/O errors)
 
+use vm_core::{CoreError, GuestAddr, MMU, VmError};
 use vm_device::block::*;
 use vm_device::block_service::*;
-use vm_core::{GuestAddr, MMU, VmError, CoreError};
 
 /// Mock MMU implementation for testing
 struct MockMmu {
@@ -72,10 +72,7 @@ impl MMU for MockMmu {
 
         match size {
             1 => Ok(self.memory[offset] as u64),
-            2 => Ok(u16::from_le_bytes([
-                self.memory[offset],
-                self.memory[offset + 1],
-            ]) as u64),
+            2 => Ok(u16::from_le_bytes([self.memory[offset], self.memory[offset + 1]]) as u64),
             4 => Ok(u32::from_le_bytes([
                 self.memory[offset],
                 self.memory[offset + 1],
@@ -221,22 +218,10 @@ mod block_device_creation_tests {
 
     #[test]
     fn test_block_request_type_from_u32() {
-        assert_eq!(
-            BlockRequestType::from_u32(0),
-            Some(BlockRequestType::In)
-        );
-        assert_eq!(
-            BlockRequestType::from_u32(1),
-            Some(BlockRequestType::Out)
-        );
-        assert_eq!(
-            BlockRequestType::from_u32(4),
-            Some(BlockRequestType::Flush)
-        );
-        assert_eq!(
-            BlockRequestType::from_u32(8),
-            Some(BlockRequestType::GetId)
-        );
+        assert_eq!(BlockRequestType::from_u32(0), Some(BlockRequestType::In));
+        assert_eq!(BlockRequestType::from_u32(1), Some(BlockRequestType::Out));
+        assert_eq!(BlockRequestType::from_u32(4), Some(BlockRequestType::Flush));
+        assert_eq!(BlockRequestType::from_u32(8), Some(BlockRequestType::GetId));
         assert_eq!(BlockRequestType::from_u32(999), None);
     }
 
@@ -304,15 +289,9 @@ mod block_device_service_tests {
         let status_addr = GuestAddr(0x3000);
 
         mmu.set_data(0x1000, &[0u8; 16]); // Request header (type=0, sector=0)
-        mmu.set_data(0x3000, &[0u8; 1]);  // Status
+        mmu.set_data(0x3000, &[0u8; 1]); // Status
 
-        let status = service.process_request(
-            &mut mmu,
-            req_addr,
-            data_addr,
-            512,
-            status_addr,
-        );
+        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
 
         // Should fail because there's no file backing
         assert_eq!(status, BlockStatus::IoErr);
@@ -328,20 +307,17 @@ mod block_device_service_tests {
         let status_addr = GuestAddr(0x3000);
 
         // Request sector 2000 (beyond capacity of 1024)
-        mmu.set_data(0x1000, &[
-            0u8, 0u8, 0u8, 0u8,   // type = 0 (read)
-            0u8, 0u8, 0u8, 0u8,   // reserved
-            0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0x07, // sector = 2048
-        ]);
+        mmu.set_data(
+            0x1000,
+            &[
+                0u8, 0u8, 0u8, 0u8, // type = 0 (read)
+                0u8, 0u8, 0u8, 0u8, // reserved
+                0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0x07, // sector = 2048
+            ],
+        );
         mmu.set_data(0x3000, &[0u8; 1]);
 
-        let status = service.process_request(
-            &mut mmu,
-            req_addr,
-            data_addr,
-            512,
-            status_addr,
-        );
+        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
 
         assert_eq!(status, BlockStatus::IoErr);
     }
@@ -356,20 +332,17 @@ mod block_device_service_tests {
         let status_addr = GuestAddr(0x3000);
 
         // Write request (type=1)
-        mmu.set_data(0x1000, &[
-            1u8, 0u8, 0u8, 0u8,   // type = 1 (write)
-            0u8, 0u8, 0u8, 0u8,   // reserved
-            0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // sector = 0
-        ]);
+        mmu.set_data(
+            0x1000,
+            &[
+                1u8, 0u8, 0u8, 0u8, // type = 1 (write)
+                0u8, 0u8, 0u8, 0u8, // reserved
+                0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // sector = 0
+            ],
+        );
         mmu.set_data(0x3000, &[0u8; 1]);
 
-        let status = service.process_request(
-            &mut mmu,
-            req_addr,
-            data_addr,
-            512,
-            status_addr,
-        );
+        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
 
         assert_eq!(status, BlockStatus::IoErr);
     }
@@ -402,20 +375,17 @@ mod block_device_service_tests {
         let status_addr = GuestAddr(0x3000);
 
         // Invalid request type (99)
-        mmu.set_data(0x1000, &[
-            99u8, 0u8, 0u8, 0u8,  // type = 99 (invalid)
-            0u8, 0u8, 0u8, 0u8,   // reserved
-            0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // sector = 0
-        ]);
+        mmu.set_data(
+            0x1000,
+            &[
+                99u8, 0u8, 0u8, 0u8, // type = 99 (invalid)
+                0u8, 0u8, 0u8, 0u8, // reserved
+                0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // sector = 0
+            ],
+        );
         mmu.set_data(0x3000, &[0u8; 1]);
 
-        let status = service.process_request(
-            &mut mmu,
-            req_addr,
-            data_addr,
-            512,
-            status_addr,
-        );
+        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
 
         assert_eq!(status, BlockStatus::Unsupported);
     }
@@ -429,13 +399,7 @@ mod block_device_service_tests {
         let data_addr = GuestAddr(0x2000);
         let status_addr = GuestAddr(0x3000);
 
-        let status = service.process_request(
-            &mut mmu,
-            req_addr,
-            data_addr,
-            512,
-            status_addr,
-        );
+        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
 
         assert_eq!(status, BlockStatus::IoErr);
     }
@@ -451,13 +415,7 @@ mod block_device_service_tests {
 
         mmu.set_data(0x1000, &[0u8; 16]); // Valid request
 
-        let status = service.process_request(
-            &mut mmu,
-            req_addr,
-            data_addr,
-            512,
-            status_addr,
-        );
+        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
 
         // Should fail when trying to write status
         assert_eq!(status, BlockStatus::IoErr);

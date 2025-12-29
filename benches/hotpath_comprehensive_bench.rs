@@ -15,7 +15,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use std::time::Duration;
 
 // Moduli for hotpath_optimizer
-use vm_engine_interpreter::hotpath_optimizer::{
+use vm_engine::interpreter::hotpath_optimizer::{
     optimized_arith, optimized_memory, optimized_regs, HotPathExecutor, HotPathStats,
 };
 
@@ -256,7 +256,7 @@ fn bench_tlb_lookup(c: &mut Criterion) {
 // ============================================================================
 
 fn bench_jit_compilation(c: &mut Criterion) {
-    use vm_engine_jit::core::{IRBlock, JITConfig, JITEngine};
+    use vm_engine::jit::core::{IRBlock, JITConfig, JITEngine};
     use vm_ir::IROp;
 
     let mut group = c.benchmark_group("jit_compilation");

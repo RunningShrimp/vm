@@ -46,7 +46,7 @@
 //! ### Basic Resource Allocation
 //!
 //! ```rust
-//! use crate::domain_services::resource_management_service::{
+//! use crate::jit::domain_services::resource_management_service::{
 //!     ResourceManagementDomainService, ResourceAllocationRequest,
 //!     ResourceType, ResourceManagementConfig
 //! };
@@ -217,8 +217,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 use crate::{VmError, VmResult};
 
 /// Resource type for management

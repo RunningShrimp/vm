@@ -5,7 +5,7 @@
 #![cfg(feature = "async")]
 
 use crate::VmError;
-use crate::domain_event_bus::{DomainEventBus, EventHandler, EventSubscriptionId};
+use crate::jit::domain_event_bus::{DomainEventBus, EventHandler, EventSubscriptionId};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}};
 use std::time::SystemTime;

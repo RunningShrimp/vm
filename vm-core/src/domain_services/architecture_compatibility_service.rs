@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
-use crate::domain_services::rules::translation_rules::TranslationBusinessRule;
-use crate::error::VmError;
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
+use crate::jit::domain_services::rules::translation_rules::TranslationBusinessRule;
+use crate::jit::error::VmError;
 use crate::VmResult;
 use crate::GuestArch;
 

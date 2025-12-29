@@ -12,17 +12,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vm_core::GuestAddr;
-use vm_engine_jit::Jit;
-use vm_engine_jit::optimizing_compiler::{
+use vm_engine::jit::Jit;
+use vm_engine::jit::optimizing_compiler::{
     RegisterAllocator, InstructionScheduler, OptimizationPassManager
 };
-use vm_engine_jit::unified_gc::{
+use vm_engine::jit::unified_gc::{
     UnifiedGc, UnifiedGcConfig, UnifiedGcStats
 };
-use vm_engine_jit::unified_cache::{
+use vm_engine::jit::unified_cache::{
     UnifiedCodeCache, CacheConfig, EvictionPolicy
 };
-use vm_engine_jit::ewma_hotspot::{EwmaHotspotDetector, EwmaHotspotConfig};
+use vm_engine::jit::ewma_hotspot::{EwmaHotspotDetector, EwmaHotspotConfig};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 /// 创建基准测试用的IR块
@@ -52,24 +52,24 @@ fn create_benchmark_ir_block(addr: GuestAddr, size: usize) -> IRBlock {
 /// 创建基准测试用的配置
 fn create_benchmark_gc_config() -> UnifiedGcConfig {
     UnifiedGcConfig {
-        young_gen: vm_engine_jit::unified_gc::YoungGenConfig {
+        young_gen: vm_engine::jit::unified_gc::YoungGenConfig {
             initial_size: 4 * 1024 * 1024,      // 4MB
             max_size: 64 * 1024 * 1024,         // 64MB
             promotion_threshold: 50,
             ..Default::default()
         },
-        old_gen: vm_engine_jit::unified_gc::OldGenConfig {
+        old_gen: vm_engine::jit::unified_gc::OldGenConfig {
             initial_size: 16 * 1024 * 1024,  // 16MB
             max_size: 256 * 1024 * 1024,     // 256MB
             ..Default::default()
         },
-        concurrent: vm_engine_jit::unified_gc::ConcurrentConfig {
+        concurrent: vm_engine::jit::unified_gc::ConcurrentConfig {
             enabled: true,
             marking_threads: 2,
             sweeping_threads: 1,
             ..Default::default()
         },
-        adaptive: vm_engine_jit::unified_gc::AdaptiveConfig {
+        adaptive: vm_engine::jit::unified_gc::AdaptiveConfig {
             enabled: true,
             target_pause_time_ms: 10,
             ..Default::default()

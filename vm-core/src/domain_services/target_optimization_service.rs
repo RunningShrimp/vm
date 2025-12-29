@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 use crate::{GuestArch, VmError, VmResult};
 
 /// Target architecture for optimization

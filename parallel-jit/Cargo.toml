@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 parking_lot = "0.12"
-vm-executors = { path = "../vm-executors" }
+vm-engine = { path = "../vm-engine", features = ["executor"] }
 tiered-compiler = { path = "../tiered-compiler" }
 
 [dev-dependencies]

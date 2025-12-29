@@ -7,8 +7,7 @@ edition = "2024"
 path = "src/lib.rs"
 
 [dependencies]
-vm-common = { path = "../vm-common" }
-vm-core = { path = "../vm-core" }
+vm-core = { path = "../vm-core", features = ["common"] }
 libc = { workspace = true }
 lru = "0.16"
 parking_lot = { workspace = true }

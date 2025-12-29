@@ -7,10 +7,10 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::SystemTime;
-use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig;
-use crate::error::VmError;
+use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::jit::domain_services::optimization_pipeline_service::OptimizationPipelineConfig;
+use crate::jit::error::VmError;
 use crate::VmResult;
 use crate::GuestArch;
 

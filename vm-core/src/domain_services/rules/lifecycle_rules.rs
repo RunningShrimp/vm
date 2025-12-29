@@ -3,7 +3,7 @@
 //! This module contains business rules related to VM lifecycle management.
 
 use crate::{VmError, VmResult, VmState};
-use crate::aggregate_root::VirtualMachineAggregate;
+use crate::jit::aggregate_root::VirtualMachineAggregate;
 
 /// Trait for lifecycle business rules
 ///

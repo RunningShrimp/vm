@@ -9,7 +9,7 @@ description = "Performance regression detection system for the VM project"
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-cross-arch = { path = "../vm-cross-arch", features = ["all"] }
-vm-engine-jit = { path = "../vm-engine-jit" }
+vm-engine = { path = "../vm-engine", features = ["jit"] }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

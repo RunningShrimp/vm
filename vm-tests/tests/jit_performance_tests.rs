@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 use vm_core::{ExecResult, ExecStatus, ExecutionEngine, MMU};
-use vm_engine_jit::Jit;
+use vm_engine::jit::Jit;
 use vm_ir::{IRBlock, IROp, Terminator};
 
 /// 创建测试用的IR块
@@ -214,7 +214,7 @@ fn test_jit_consistency() {
 
 #[test]
 fn test_jit_vs_interpreter_performance() {
-    use vm_engine_interpreter::Interpreter;
+    use vm_engine::interpreter::Interpreter;
 
     let ir_block = create_test_ir_block(0x3000, 100);
     let mut jit = Jit::new();

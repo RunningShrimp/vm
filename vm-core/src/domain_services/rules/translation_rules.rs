@@ -234,7 +234,7 @@ impl TranslationBusinessRule for ResourceAvailabilityRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_services::translation_strategy_service::{
+    use crate::jit::domain_services::translation_strategy_service::{
         TranslationContext, PerformanceRequirements, ResourceConstraints, TimingRequirements
     };
     

@@ -303,7 +303,7 @@ fn test_cross_arch_concurrent_execution() {
     let handles: Vec<_> = (0..4)
         .map(|_| {
             let config_clone = config.clone();
-            std::thread::spawn(move || CrossArchRuntime::new(config_clone, 1024 * 1024))
+            std::thread::spawn(move || CrossArchRuntime::new(config_clone))
         })
         .collect();
 
