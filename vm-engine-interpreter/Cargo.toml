@@ -4,13 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-parking_lot = "0.12"
+# vm-engine-interpreter uses: sync (mpsc), rt-multi-thread (tokio::spawn in tests), macros (tokio::test)
+tokio = { workspace = true, features = ["sync", "rt-multi-thread", "macros"] }
+parking_lot = { workspace = true }
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-osal = { path = "../vm-osal" }
 vm-simd = { path = "../vm-simd" }
 vm-mem = { path = "../vm-mem" }
+vm-foundation = { path = "../vm-foundation" }
 
 [dev-dependencies]
 tokio-test = "0.4"

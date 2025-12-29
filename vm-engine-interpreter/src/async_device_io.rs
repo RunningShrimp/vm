@@ -2,11 +2,10 @@
 //!
 //! 将异步设备I/O与执行引擎集成，实现真正的异步I/O操作
 
-use vm_core::{GuestAddr, MMU, VmError};
-// removed external dependency on vm_device
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use vm_core::{GuestAddr, MMU, VmError};
 
 /// 异步设备I/O管理器
 ///
@@ -129,10 +128,7 @@ impl AsyncDeviceIoManager {
     /// 检查是否有待处理的I/O响应
     pub async fn poll_io_responses(&mut self) -> Option<IoResponse> {
         if let Some(ref mut rx) = self.io_response_rx {
-            match rx.try_recv() {
-                Ok(response) => Some(response),
-                Err(_) => None,
-            }
+            rx.try_recv().ok()
         } else {
             None
         }

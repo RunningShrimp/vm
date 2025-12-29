@@ -19,6 +19,9 @@ pub type DeviceId = u32;
 /// IO 请求ID
 pub type RequestId = u64;
 
+/// Type alias for batch handlers to reduce type complexity
+type BatchHandlersMap = Arc<RwLock<HashMap<DeviceId, mpsc::UnboundedSender<Vec<IoRequest>>>>>;
+
 /// 异步 I/O 请求类型
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IoRequest {
@@ -44,22 +47,17 @@ pub enum IoRequest {
 }
 
 /// IO 优先级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum IoPriority {
     /// 低优先级
     Low = 0,
     /// 普通优先级
+    #[default]
     Normal = 1,
     /// 高优先级
     High = 2,
     /// 实时优先级
     Realtime = 3,
-}
-
-impl Default for IoPriority {
-    fn default() -> Self {
-        IoPriority::Normal
-    }
 }
 
 /// IO 操作结果
@@ -193,7 +191,7 @@ impl AsyncIoScheduler {
 
     /// 使用批量配置创建异步 I/O 调度器
     pub fn with_batch_config(max_concurrent_requests: usize, batch_config: BatchConfig) -> Self {
-        let scheduler = Self {
+        Self {
             request_queue: Arc::new(RwLock::new(BinaryHeap::new())),
             device_handlers: Arc::new(RwLock::new(HashMap::new())),
             batch_handlers: Arc::new(RwLock::new(HashMap::new())),
@@ -204,9 +202,7 @@ impl AsyncIoScheduler {
             batch_config,
             batch_buffer: Arc::new(RwLock::new(HashMap::new())),
             max_concurrent_requests,
-        };
-
-        scheduler
+        }
     }
 
     /// 启动调度器
@@ -224,8 +220,14 @@ impl AsyncIoScheduler {
         let scheduler_task = tokio::spawn(async move {
             loop {
                 // 处理批量缓冲区（超时或达到大小限制的批量）
-                Self::process_batch_buffer(&batch_buffer, &batch_handlers, &stats, &batch_config, &semaphore)
-                    .await;
+                Self::process_batch_buffer(
+                    &batch_buffer,
+                    &batch_handlers,
+                    &stats,
+                    &batch_config,
+                    &semaphore,
+                )
+                .await;
 
                 // 从队列获取请求并添加到批量缓冲区
                 {
@@ -236,13 +238,13 @@ impl AsyncIoScheduler {
                     for _ in 0..batch_config.max_batch_size {
                         if let Some(pending) = q.pop() {
                             let device_id = pending.device_id();
-                            
+
                             // 获取或创建该设备的批量请求
                             let batch = buffer.entry(device_id).or_insert_with(|| BatchIoRequest {
                                 requests: Vec::new(),
                                 start_time: std::time::Instant::now(),
                             });
-                            
+
                             // 添加请求到批量
                             batch.requests.push(pending);
                         } else {
@@ -267,7 +269,7 @@ impl AsyncIoScheduler {
     /// 处理批量缓冲区
     async fn process_batch_buffer(
         batch_buffer: &Arc<RwLock<HashMap<DeviceId, BatchIoRequest>>>,
-        batch_handlers: &Arc<RwLock<HashMap<DeviceId, mpsc::UnboundedSender<Vec<IoRequest>>>>>,
+        batch_handlers: &BatchHandlersMap,
         stats: &Arc<RwLock<IoStats>>,
         config: &BatchConfig,
         semaphore: &Arc<tokio::sync::Semaphore>,
@@ -299,7 +301,8 @@ impl AsyncIoScheduler {
                 .try_read()
                 .and_then(|h| h.get(&device_id).cloned())
             {
-                let io_requests: Vec<IoRequest> = requests.into_iter().map(|pr| pr.request).collect();
+                let io_requests: Vec<IoRequest> =
+                    requests.into_iter().map(|pr| pr.request).collect();
                 let stats_clone = Arc::clone(stats);
                 let semaphore_clone = Arc::clone(semaphore);
 

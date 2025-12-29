@@ -59,18 +59,10 @@ pub struct VfMacConfig {
     pub admin_set: bool,
 }
 
-impl VfMacConfig {
-    /// 创建 MAC 配置
-    pub fn new(mac_addr: [u8; 6]) -> Self {
-        Self {
-            mac_addr,
-            admin_set: false,
-        }
-    }
-
-    /// MAC 地址为字符串
-    pub fn to_string(&self) -> String {
-        format!(
+impl std::fmt::Display for VfMacConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             self.mac_addr[0],
             self.mac_addr[1],
@@ -79,6 +71,16 @@ impl VfMacConfig {
             self.mac_addr[4],
             self.mac_addr[5]
         )
+    }
+}
+
+impl VfMacConfig {
+    /// 创建 MAC 配置
+    pub fn new(mac_addr: [u8; 6]) -> Self {
+        Self {
+            mac_addr,
+            admin_set: false,
+        }
     }
 }
 
@@ -200,7 +202,7 @@ impl VfConfig {
             "VfConfig(BDF={:04x}): state={:?}, MAC={}, memory={} KB, interrupts={}",
             self.vf_id.get_vf_bdf(),
             self.state,
-            self.mac_config.to_string(),
+            self.mac_config,
             self.memory_size / 1024,
             self.interrupt_count
         )
@@ -270,9 +272,33 @@ impl SriovVfManager {
         }
     }
 
+    /// Helper to handle lock poisoning for RwLock write
+    fn write_lock<'a, T>(&self, lock: &'a RwLock<T>) -> std::sync::RwLockWriteGuard<'a, T> {
+        lock.write().unwrap_or_else(|e| {
+            log::error!("RwLock write poisoned: {:?}", e);
+            std::process::abort();
+        })
+    }
+
+    /// Helper to handle lock poisoning for RwLock read
+    fn read_lock<'a, T>(&self, lock: &'a RwLock<T>) -> std::sync::RwLockReadGuard<'a, T> {
+        lock.read().unwrap_or_else(|e| {
+            log::error!("RwLock read poisoned: {:?}", e);
+            std::process::abort();
+        })
+    }
+
+    /// Helper to handle lock poisoning for Mutex
+    fn mutex_lock<'a, T>(&self, lock: &'a Mutex<T>) -> std::sync::MutexGuard<'a, T> {
+        lock.lock().unwrap_or_else(|e| {
+            log::error!("Mutex poisoned: {:?}", e);
+            std::process::abort();
+        })
+    }
+
     /// 创建 VF
     pub fn create_vf(&self, vf_id: VfId, mac_addr: [u8; 6]) -> bool {
-        let mut configs = self.vf_configs.write().unwrap();
+        let mut configs = self.write_lock(&self.vf_configs);
 
         // 检查是否已存在
         if configs.contains_key(&vf_id) {
@@ -280,7 +306,7 @@ impl SriovVfManager {
         }
 
         // 检查是否超过最大数
-        let mut created = self.created_vfs.lock().unwrap();
+        let mut created = self.mutex_lock(&self.created_vfs);
         if *created >= self.max_vfs {
             return false;
         }
@@ -292,7 +318,7 @@ impl SriovVfManager {
         *created += 1;
 
         // 初始化性能统计
-        let mut stats = self.vf_stats.write().unwrap();
+        let mut stats = self.write_lock(&self.vf_stats);
         stats.insert(vf_id, VfPerfStats::default());
 
         true
@@ -300,12 +326,12 @@ impl SriovVfManager {
 
     /// 销毁 VF
     pub fn destroy_vf(&self, vf_id: VfId) -> bool {
-        let mut configs = self.vf_configs.write().unwrap();
-        let mut stats = self.vf_stats.write().unwrap();
+        let mut configs = self.write_lock(&self.vf_configs);
+        let mut stats = self.write_lock(&self.vf_stats);
 
         if configs.remove(&vf_id).is_some() {
             stats.remove(&vf_id);
-            let mut created = self.created_vfs.lock().unwrap();
+            let mut created = self.mutex_lock(&self.created_vfs);
             if *created > 0 {
                 *created -= 1;
             }
@@ -317,7 +343,7 @@ impl SriovVfManager {
 
     /// 启用 VF
     pub fn enable_vf(&self, vf_id: VfId) -> bool {
-        let mut configs = self.vf_configs.write().unwrap();
+        let mut configs = self.write_lock(&self.vf_configs);
         if let Some(config) = configs.get_mut(&vf_id)
             && (config.state == VfState::Initialized || config.state == VfState::Disabled)
         {
@@ -329,7 +355,7 @@ impl SriovVfManager {
 
     /// 禁用 VF
     pub fn disable_vf(&self, vf_id: VfId) -> bool {
-        let mut configs = self.vf_configs.write().unwrap();
+        let mut configs = self.write_lock(&self.vf_configs);
         if let Some(config) = configs.get_mut(&vf_id)
             && config.state == VfState::Enabled
         {
@@ -341,13 +367,13 @@ impl SriovVfManager {
 
     /// 获取 VF 配置
     pub fn get_vf_config(&self, vf_id: VfId) -> Option<VfConfig> {
-        let configs = self.vf_configs.read().unwrap();
+        let configs = self.read_lock(&self.vf_configs);
         configs.get(&vf_id).cloned()
     }
 
     /// 设置 VLAN
     pub fn set_vlan(&self, vf_id: VfId, vlan_config: VlanConfig) -> bool {
-        let mut configs = self.vf_configs.write().unwrap();
+        let mut configs = self.write_lock(&self.vf_configs);
         if let Some(config) = configs.get_mut(&vf_id) {
             return config.set_vlan(vlan_config);
         }
@@ -356,7 +382,7 @@ impl SriovVfManager {
 
     /// 设置 QoS
     pub fn set_qos(&self, vf_id: VfId, qos_config: QosConfig) -> bool {
-        let mut configs = self.vf_configs.write().unwrap();
+        let mut configs = self.write_lock(&self.vf_configs);
         if let Some(config) = configs.get_mut(&vf_id) {
             return config.set_qos(qos_config);
         }
@@ -365,7 +391,7 @@ impl SriovVfManager {
 
     /// 分配资源
     pub fn allocate_resources(&self, vf_id: VfId, memory: u64, interrupts: u32) -> bool {
-        let mut configs = self.vf_configs.write().unwrap();
+        let mut configs = self.write_lock(&self.vf_configs);
         if let Some(config) = configs.get_mut(&vf_id) {
             config.allocate_resources(memory, interrupts);
             return true;
@@ -382,7 +408,7 @@ impl SriovVfManager {
         dropped: u64,
         latency_ns: u64,
     ) -> bool {
-        let mut stats = self.vf_stats.write().unwrap();
+        let mut stats = self.write_lock(&self.vf_stats);
         if let Some(stat) = stats.get_mut(&vf_id) {
             stat.packets_processed += packets;
             stat.bytes_processed += bytes;
@@ -395,25 +421,25 @@ impl SriovVfManager {
 
     /// 获取 VF 统计
     pub fn get_stats(&self, vf_id: VfId) -> Option<VfPerfStats> {
-        let stats = self.vf_stats.read().unwrap();
+        let stats = self.read_lock(&self.vf_stats);
         stats.get(&vf_id).copied()
     }
 
     /// 获取所有 VF
     pub fn list_vfs(&self) -> Vec<VfId> {
-        let configs = self.vf_configs.read().unwrap();
+        let configs = self.read_lock(&self.vf_configs);
         configs.keys().copied().collect()
     }
 
     /// 获取已创建的 VF 数
     pub fn vf_count(&self) -> usize {
-        *self.created_vfs.lock().unwrap()
+        *self.mutex_lock(&self.created_vfs)
     }
 
     /// 诊断报告
     pub fn diagnostic_report(&self) -> String {
-        let configs = self.vf_configs.read().unwrap();
-        let stats = self.vf_stats.read().unwrap();
+        let configs = self.read_lock(&self.vf_configs);
+        let stats = self.read_lock(&self.vf_stats);
 
         let mut report = format!(
             "SriovVfManager: max_vfs={}, created={}\n",
@@ -524,19 +550,23 @@ mod tests {
 
     #[test]
     fn test_vf_perf_stats() {
-        let mut stats = VfPerfStats::default();
-        stats.packets_processed = 1000;
-        stats.bytes_processed = 1_000_000;
-        stats.total_latency_ns = 1_000_000_000;
+        let stats = VfPerfStats {
+            packets_processed: 1000,
+            bytes_processed: 1_000_000,
+            total_latency_ns: 1_000_000_000,
+            ..Default::default()
+        };
 
         assert!(stats.avg_latency_us() > 999.0 && stats.avg_latency_us() < 1001.0);
     }
 
     #[test]
     fn test_vf_perf_stats_drop_rate() {
-        let mut stats = VfPerfStats::default();
-        stats.packets_processed = 900;
-        stats.packets_dropped = 100;
+        let stats = VfPerfStats {
+            packets_processed: 900,
+            packets_dropped: 100,
+            ..Default::default()
+        };
 
         let drop_rate = stats.drop_rate();
         assert!(drop_rate > 9.9 && drop_rate < 10.1); // ~10%
@@ -581,11 +611,15 @@ mod tests {
         manager.create_vf(vf_id, mac);
 
         assert!(manager.enable_vf(vf_id));
-        let config = manager.get_vf_config(vf_id).unwrap();
+        let config = manager
+            .get_vf_config(vf_id)
+            .expect("VF config should exist");
         assert_eq!(config.state, VfState::Enabled);
 
         assert!(manager.disable_vf(vf_id));
-        let config = manager.get_vf_config(vf_id).unwrap();
+        let config = manager
+            .get_vf_config(vf_id)
+            .expect("VF config should exist");
         assert_eq!(config.state, VfState::Disabled);
     }
 
@@ -599,7 +633,9 @@ mod tests {
         manager.create_vf(vf_id, mac);
         assert!(manager.allocate_resources(vf_id, 1024 * 1024, 8));
 
-        let config = manager.get_vf_config(vf_id).unwrap();
+        let config = manager
+            .get_vf_config(vf_id)
+            .expect("VF config should exist");
         assert_eq!(config.memory_size, 1024 * 1024);
         assert_eq!(config.interrupt_count, 8);
     }
@@ -614,7 +650,7 @@ mod tests {
         manager.create_vf(vf_id, mac);
         manager.update_stats(vf_id, 1000, 1_000_000, 10, 1_000_000_000);
 
-        let stats = manager.get_stats(vf_id).unwrap();
+        let stats = manager.get_stats(vf_id).expect("VF stats should exist");
         assert_eq!(stats.packets_processed, 1000);
         assert_eq!(stats.bytes_processed, 1_000_000);
     }

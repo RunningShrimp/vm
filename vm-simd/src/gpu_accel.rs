@@ -273,19 +273,20 @@ impl GpuManager {
     }
 
     /// 在设备上创建流
-    pub fn create_stream(&self, device_id: u32) -> Arc<GpuStream> {
+    pub fn create_stream(&self, device_id: u32) -> Result<Arc<GpuStream>, String> {
         let stream_id = {
             let mut streams = self.streams.write();
             let streams_vec = streams.entry(device_id).or_default();
             streams_vec.len() as u32
         };
         let stream = Arc::new(GpuStream::new(device_id, stream_id));
-        self.streams
-            .write()
-            .get_mut(&device_id)
-            .unwrap()
-            .push(stream.clone());
-        stream
+        let mut streams = self.streams.write();
+        if let Some(streams_vec) = streams.get_mut(&device_id) {
+            streams_vec.push(stream.clone());
+            Ok(stream)
+        } else {
+            Err(format!("Device {} not found", device_id))
+        }
     }
 
     /// 启用 P2P 访问
@@ -370,12 +371,12 @@ mod tests {
 
         let block1 = mem_mgr
             .allocate(512 * 1024, MemoryAllocationStrategy::DeviceOnly)
-            .unwrap();
+            .expect("Failed to allocate block1");
         assert_eq!(block1.size, 512 * 1024);
 
         let block2 = mem_mgr
             .allocate(256 * 1024, MemoryAllocationStrategy::Unified)
-            .unwrap();
+            .expect("Failed to allocate block2");
         assert_eq!(block2.size, 256 * 1024);
         assert!(block2.host_ptr.is_some());
 
@@ -389,12 +390,14 @@ mod tests {
         let mem_mgr = GpuMemoryManager::new(0, 1024 * 1024);
         let block = mem_mgr
             .allocate(512 * 1024, MemoryAllocationStrategy::DeviceOnly)
-            .unwrap();
+            .expect("Failed to allocate block");
 
         let (before, _) = mem_mgr.get_stats();
         assert_eq!(before, 512 * 1024);
 
-        mem_mgr.deallocate(block.device_ptr).unwrap();
+        mem_mgr
+            .deallocate(block.device_ptr)
+            .expect("Failed to deallocate block");
         let (after, _) = mem_mgr.get_stats();
         assert_eq!(after, 0);
     }
@@ -404,10 +407,10 @@ mod tests {
         let manager = GpuManager::new(GpuBackend::Cuda);
         manager
             .init_device(0, "NVIDIA A100", 80 * 1024 * 1024 * 1024)
-            .unwrap();
+            .expect("Failed to initialize device");
 
-        let stream1 = manager.create_stream(0);
-        let stream2 = manager.create_stream(0);
+        let stream1 = manager.create_stream(0).expect("Failed to create stream1");
+        let stream2 = manager.create_stream(0).expect("Failed to create stream2");
 
         assert_eq!(stream1.stream_id, 0);
         assert_eq!(stream2.stream_id, 1);
@@ -422,10 +425,10 @@ mod tests {
         let manager = GpuManager::new(GpuBackend::Cuda);
         manager
             .init_device(0, "NVIDIA A100", 80 * 1024 * 1024 * 1024)
-            .unwrap();
+            .expect("Failed to initialize device 0");
         manager
             .init_device(1, "NVIDIA A100", 80 * 1024 * 1024 * 1024)
-            .unwrap();
+            .expect("Failed to initialize device 1");
 
         assert!(manager.enable_p2p(0, 1).is_ok());
 
@@ -443,25 +446,27 @@ mod tests {
     #[test]
     fn test_multi_gpu_memory_stats() {
         let manager = GpuManager::new(GpuBackend::Cuda);
-        manager.init_device(0, "NVIDIA A100", 1024 * 1024).unwrap();
-        manager.init_device(1, "NVIDIA A100", 1024 * 1024).unwrap();
+        manager
+            .init_device(0, "NVIDIA A100", 1024 * 1024)
+            .expect("Failed to initialize device 0");
+        manager
+            .init_device(1, "NVIDIA A100", 1024 * 1024)
+            .expect("Failed to initialize device 1");
 
         let mem_mgr0 = manager.memory_managers.read();
-        mem_mgr0
-            .get(&0)
-            .unwrap()
-            .allocate(256 * 1024, MemoryAllocationStrategy::DeviceOnly)
-            .unwrap();
-        mem_mgr0
-            .get(&1)
-            .unwrap()
-            .allocate(512 * 1024, MemoryAllocationStrategy::Unified)
-            .unwrap();
+        let mgr0 = mem_mgr0.get(&0).expect("Device 0 not found");
+        mgr0.allocate(256 * 1024, MemoryAllocationStrategy::DeviceOnly)
+            .expect("Failed to allocate on device 0");
+        let mgr1 = mem_mgr0.get(&1).expect("Device 1 not found");
+        mgr1.allocate(512 * 1024, MemoryAllocationStrategy::Unified)
+            .expect("Failed to allocate on device 1");
         drop(mem_mgr0);
 
         let stats = manager.get_memory_stats();
-        assert_eq!(stats.get(&0).unwrap().0, 256 * 1024);
-        assert_eq!(stats.get(&1).unwrap().0, 512 * 1024);
+        let stat0 = stats.get(&0).expect("No stats for device 0");
+        assert_eq!(stat0.0, 256 * 1024);
+        let stat1 = stats.get(&1).expect("No stats for device 1");
+        assert_eq!(stat1.0, 512 * 1024);
     }
 
     #[test]
@@ -469,9 +474,9 @@ mod tests {
         let manager = GpuManager::new(GpuBackend::Cuda);
         manager
             .init_device(0, "NVIDIA A100", 80 * 1024 * 1024 * 1024)
-            .unwrap();
+            .expect("Failed to initialize device");
 
-        let stream = manager.create_stream(0);
+        let stream = manager.create_stream(0).expect("Failed to create stream");
         let kernel = GpuKernel {
             name: "matrix_multiply".to_string(),
             grid_dim: (16, 16, 1),

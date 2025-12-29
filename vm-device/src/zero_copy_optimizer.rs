@@ -2,10 +2,9 @@
 //!
 //! 实现零拷贝I/O优化，包括内存映射、DMA优化和缓冲区管理。
 
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use vm_core::{GuestAddr, GuestPhysAddr, MMU, VmError};
+use vm_core::{GuestAddr, GuestPhysAddr, MMU, MemoryError, VmError, VmResult};
 
 /// 零拷贝缓冲区
 #[derive(Debug)]
@@ -138,13 +137,71 @@ impl ZeroCopyIoOptimizer {
         self.mmu = Some(mmu);
     }
 
+    /// Helper to acquire buffer_cache read lock with error handling
+    fn lock_buffer_cache_read(
+        &self,
+    ) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<u64, ZeroCopyBuffer>>> {
+        self.buffer_cache.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "ZeroCopyIoOptimizer buffer_cache read lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire buffer_cache write lock with error handling
+    fn lock_buffer_cache_write(
+        &self,
+    ) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<u64, ZeroCopyBuffer>>> {
+        self.buffer_cache.write().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "ZeroCopyIoOptimizer buffer_cache write lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire stats read lock with error handling
+    fn lock_stats_read(&self) -> VmResult<std::sync::RwLockReadGuard<'_, ZeroCopyStats>> {
+        self.stats.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "ZeroCopyIoOptimizer stats read lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire stats write lock with error handling
+    fn lock_stats_write(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, ZeroCopyStats>> {
+        self.stats.write().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "ZeroCopyIoOptimizer stats write lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire next_buffer_id lock with error handling
+    fn lock_next_buffer_id(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.next_buffer_id.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "ZeroCopyIoOptimizer next_buffer_id lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 获取或创建零拷贝缓冲区
-    pub fn get_or_create_buffer(&mut self, guest_addr: GuestAddr, size: usize) -> Result<u64, VmError> {
+    pub fn get_or_create_buffer(
+        &mut self,
+        guest_addr: GuestAddr,
+        size: usize,
+    ) -> Result<u64, VmError> {
         let buffer_id = self.generate_buffer_id();
 
         // 检查缓存
         {
-            let cache = self.buffer_cache.read().unwrap();
+            let cache = self.lock_buffer_cache_read()?;
             if let Some(existing) = cache.values().find(|buf| {
                 buf.guest_addr == guest_addr
                     && buf.size == size
@@ -152,13 +209,13 @@ impl ZeroCopyIoOptimizer {
                         self.config.buffer_timeout_secs,
                     ))
             }) {
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.lock_stats_write()?;
                 stats.cache_hits += 1;
 
                 // 增加引用计数
                 let existing_id = existing.id;
                 drop(cache);
-                let mut cache = self.buffer_cache.write().unwrap();
+                let mut cache = self.lock_buffer_cache_write()?;
                 if let Some(buf) = cache.get_mut(&existing_id) {
                     buf.inc_ref();
                 }
@@ -171,24 +228,25 @@ impl ZeroCopyIoOptimizer {
         let mut buffer = ZeroCopyBuffer::new(buffer_id, guest_addr, size);
 
         // 如果启用DMA优化且大小超过阈值，尝试预映射
-        if self.config.enable_dma_optimization && size >= self.config.premapping_threshold {
-            if let Some(mmu) = &mut self.mmu {
-                // 使用MMU将虚拟地址转换为物理地址
-                if let Ok(phys_addr) = mmu.translate(guest_addr, vm_core::AccessType::Read) {
-                    buffer.guest_phys_addr = Some(phys_addr);
-                    buffer.mapped = true;
-                    
-                    // 更新映射统计
-                    let mut stats = self.stats.write().unwrap();
-                    stats.mappings += 1;
-                }
+        if self.config.enable_dma_optimization
+            && size >= self.config.premapping_threshold
+            && let Some(mmu) = &mut self.mmu
+        {
+            // 使用MMU将虚拟地址转换为物理地址
+            if let Ok(phys_addr) = mmu.translate(guest_addr, vm_core::AccessType::Read) {
+                buffer.guest_phys_addr = Some(phys_addr);
+                buffer.mapped = true;
+
+                // 更新映射统计
+                let mut stats = self.lock_stats_write()?;
+                stats.mappings += 1;
             }
         }
 
         // 添加到缓存
         {
-            let mut cache = self.buffer_cache.write().unwrap();
-            let mut stats = self.stats.write().unwrap();
+            let mut cache = self.lock_buffer_cache_write()?;
+            let mut stats = self.lock_stats_write()?;
 
             // 检查缓存大小限制
             if cache.len() >= self.config.max_cached_buffers {
@@ -206,21 +264,21 @@ impl ZeroCopyIoOptimizer {
 
     /// 释放缓冲区
     pub fn release_buffer(&self, buffer_id: u64) -> Result<(), VmError> {
-        let mut cache = self.buffer_cache.write().unwrap();
+        let mut cache = self.lock_buffer_cache_write()?;
 
-        if let Some(buffer) = cache.get_mut(&buffer_id) {
-            if buffer.dec_ref() {
-                // 引用计数为0，取消映射
-                if buffer.mapped {
-                    let mut stats = self.stats.write().unwrap();
-                    stats.unmappings += 1;
-                }
-
-                cache.remove(&buffer_id);
-
-                let mut stats = self.stats.write().unwrap();
-                stats.total_buffers = stats.total_buffers.saturating_sub(1);
+        if let Some(buffer) = cache.get_mut(&buffer_id)
+            && buffer.dec_ref()
+        {
+            // 引用计数为0，取消映射
+            if buffer.mapped {
+                let mut stats = self.lock_stats_write()?;
+                stats.unmappings += 1;
             }
+
+            cache.remove(&buffer_id);
+
+            let mut stats = self.lock_stats_write()?;
+            stats.total_buffers = stats.total_buffers.saturating_sub(1);
         }
 
         Ok(())
@@ -233,7 +291,7 @@ impl ZeroCopyIoOptimizer {
         dst_buffer_id: u64,
         size: usize,
     ) -> Result<usize, VmError> {
-        let cache = self.buffer_cache.read().unwrap();
+        let cache = self.lock_buffer_cache_read()?;
 
         let src_buffer = cache.get(&src_buffer_id).ok_or_else(|| {
             VmError::Core(vm_core::CoreError::InvalidState {
@@ -263,14 +321,20 @@ impl ZeroCopyIoOptimizer {
         // 执行零拷贝传输（这里是模拟，实际实现需要DMA或内存映射）
         let transferred = size; // 假设全部传输成功
 
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.lock_stats_write()?;
         stats.zero_copy_bytes += transferred as u64;
 
         Ok(transferred)
     }
 
     /// 执行DMA传输
-    pub fn dma_transfer(
+    ///
+    /// # Safety
+    /// 调用者必须确保：
+    /// - host_addr 是有效的指针
+    /// - host_addr 指向的内存至少有 size 字节
+    /// - host_addr 指向的内存已正确初始化（对于读取操作）
+    pub unsafe fn dma_transfer(
         &self,
         buffer_id: u64,
         host_addr: *mut u8,
@@ -284,7 +348,7 @@ impl ZeroCopyIoOptimizer {
             }));
         }
 
-        let cache = self.buffer_cache.read().unwrap();
+        let cache = self.lock_buffer_cache_read()?;
         let buffer = cache.get(&buffer_id).ok_or_else(|| {
             VmError::Core(vm_core::CoreError::InvalidState {
                 message: "Buffer not found".to_string(),
@@ -311,7 +375,7 @@ impl ZeroCopyIoOptimizer {
                 // 模拟DMA写入操作，使用物理地址作为参考
                 unsafe {
                     // 使用物理地址的低8位作为写入值，模拟地址相关的传输
-                    let write_value = (phys_addr.0 as u8) & 0xFF;
+                    let write_value = phys_addr.0 as u8;
                     std::ptr::write_volatile(host_addr, write_value);
                 }
             } else {
@@ -329,7 +393,7 @@ impl ZeroCopyIoOptimizer {
             size
         };
 
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.lock_stats_write()?;
         stats.dma_bytes += transferred as u64;
 
         Ok(transferred)
@@ -337,7 +401,10 @@ impl ZeroCopyIoOptimizer {
 
     /// 获取统计信息
     pub fn stats(&self) -> ZeroCopyStats {
-        self.stats.read().unwrap().clone()
+        match self.lock_stats_read() {
+            Ok(stats) => stats.clone(),
+            Err(_) => ZeroCopyStats::default(),
+        }
     }
 
     /// 清理过期缓冲区
@@ -350,31 +417,39 @@ impl ZeroCopyIoOptimizer {
             .collect();
 
         for id in expired {
-            if let Some(buffer) = cache.remove(&id) {
-                if buffer.mapped {
-                    let mut stats = self.stats.write().unwrap();
-                    stats.unmappings += 1;
-                }
+            if let Some(buffer) = cache.remove(&id)
+                && buffer.mapped
+                && let Ok(mut stats) = self.lock_stats_write()
+            {
+                stats.unmappings += 1;
             }
         }
     }
 
     /// 生成缓冲区ID
     fn generate_buffer_id(&self) -> u64 {
-        let mut id = self.next_buffer_id.lock().unwrap();
-        let current = *id;
-        *id = id.wrapping_add(1);
-        current
+        match self.lock_next_buffer_id() {
+            Ok(mut id) => {
+                let current = *id;
+                *id = id.wrapping_add(1);
+                current
+            }
+            Err(_) => 0, // Fallback to 0 if lock is poisoned
+        }
     }
 
     /// 获取缓存命中率
     pub fn cache_hit_rate(&self) -> f64 {
-        let stats = self.stats.read().unwrap();
-        let total = stats.cache_hits + stats.cache_misses;
+        let (hits, misses) = match self.lock_stats_read() {
+            Ok(stats) => (stats.cache_hits, stats.cache_misses),
+            Err(_) => return 0.0,
+        };
+
+        let total = hits + misses;
         if total == 0 {
             0.0
         } else {
-            stats.cache_hits as f64 / total as f64
+            hits as f64 / total as f64
         }
     }
 }
@@ -385,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_zero_copy_buffer_lifecycle() {
-        let mut buffer = ZeroCopyBuffer::new(1, 0x1000, 4096);
+        let mut buffer = ZeroCopyBuffer::new(1, GuestAddr(0x1000), 4096);
 
         assert_eq!(buffer.ref_count(), 1);
         assert!(!buffer.is_expired(std::time::Duration::from_secs(1)));
@@ -412,10 +487,13 @@ mod tests {
     #[test]
     fn test_buffer_creation_and_release() {
         let config = ZeroCopyConfig::default();
-        let optimizer = ZeroCopyIoOptimizer::new(config);
+        let mut optimizer = ZeroCopyIoOptimizer::new(config);
 
         // 创建缓冲区
-        let buffer_id = optimizer.get_or_create_buffer(0x1000, 4096).unwrap();
+        let buffer_id = match optimizer.get_or_create_buffer(GuestAddr(0x1000), 4096) {
+            Ok(id) => id,
+            Err(e) => panic!("Failed to create buffer: {:?}", e),
+        };
 
         {
             let stats = optimizer.stats();
@@ -424,7 +502,10 @@ mod tests {
         }
 
         // 再次获取相同缓冲区（应该命中缓存）
-        let buffer_id2 = optimizer.get_or_create_buffer(0x1000, 4096).unwrap();
+        let buffer_id2 = match optimizer.get_or_create_buffer(GuestAddr(0x1000), 4096) {
+            Ok(id) => id,
+            Err(e) => panic!("Failed to get buffer: {:?}", e),
+        };
         assert_eq!(buffer_id, buffer_id2);
 
         {
@@ -432,8 +513,13 @@ mod tests {
             assert_eq!(stats.cache_hits, 1);
         }
 
-        // 释放缓冲区
-        optimizer.release_buffer(buffer_id).unwrap();
+        // 释放缓冲区（需要释放两次，因为引用计数为2）
+        if let Err(e) = optimizer.release_buffer(buffer_id) {
+            panic!("Failed to release buffer: {:?}", e);
+        }
+        if let Err(e) = optimizer.release_buffer(buffer_id) {
+            panic!("Failed to release buffer: {:?}", e);
+        }
 
         {
             let stats = optimizer.stats();

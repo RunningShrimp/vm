@@ -74,15 +74,16 @@ impl ShardedMmuCache {
         let timestamp = shard.access_counter.fetch_add(1, Ordering::Relaxed);
 
         // 读锁保护缓存查找
-        let _guard = shard.lock.read().unwrap();
+        let _guard = shard.lock.read().ok()?;
 
         for entry in &shard.cache_entries {
             if entry.vaddr == vaddr && entry.valid {
                 // 更新访问时间（写锁时间很短）
                 drop(_guard);
-                let mut guard = shard.lock.write().unwrap();
-                if let Some(entry) = shard.cache_entries.iter_mut().find(|e| e.vaddr == vaddr) {
-                    entry.timestamp = timestamp;
+                if let Ok(mut guard) = shard.lock.write() {
+                    if let Some(entry) = shard.cache_entries.iter_mut().find(|e| e.vaddr == vaddr) {
+                        entry.timestamp = timestamp;
+                    }
                 }
                 return Some(entry.paddr);
             }
@@ -102,7 +103,7 @@ impl ShardedMmuCache {
         let shard = &self.shards[self.shard_index(vaddr)];
         let timestamp = shard.access_counter.load(Ordering::Relaxed);
 
-        let mut guard = shard.lock.write().unwrap();
+        let mut guard = shard.lock.write().map_err(|_| "Lock poisoned".to_string())?;
 
         // 检查缓存是否已满，执行LRU淘汰
         if shard.cache_entries.len() >= 1024 {
@@ -123,12 +124,12 @@ impl ShardedMmuCache {
     /// 无效化指定地址的缓存
     pub fn invalidate(&self, vaddr: GuestAddr) {
         let shard = &self.shards[self.shard_index(vaddr)];
-        let mut guard = shard.lock.write().unwrap();
-
-        for entry in &mut shard.cache_entries {
-            if entry.vaddr == vaddr {
-                entry.valid = false;
-                break;
+        if let Ok(mut guard) = shard.lock.write() {
+            for entry in &mut shard.cache_entries {
+                if entry.vaddr == vaddr {
+                    entry.valid = false;
+                    break;
+                }
             }
         }
     }
@@ -136,8 +137,9 @@ impl ShardedMmuCache {
     /// 清空所有缓存
     pub fn flush_all(&self) {
         for shard in &self.shards {
-            let mut guard = shard.lock.write().unwrap();
-            shard.cache_entries.clear();
+            if let Ok(mut guard) = shard.lock.write() {
+                shard.cache_entries.clear();
+            }
         }
     }
 }
@@ -316,7 +318,7 @@ impl<B: 'static + Send + Sync + Clone> OptimizedMultiVcpuExecutor<B> {
                         execution_time_us,
                     };
 
-                    completion_queue.enqueue(work_result).unwrap();
+                    let _ = completion_queue.enqueue(work_result);
                 }
             } else {
                 // 队列为空，短暂休眠

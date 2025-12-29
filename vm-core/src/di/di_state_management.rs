@@ -7,6 +7,26 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::error::{CoreError, VmError};
+
+/// 将锁错误转换为 VmError
+fn lock_error<T>(operation: &str) -> Result<T, VmError> {
+    Err(VmError::Core(CoreError::Concurrency {
+        message: format!("Failed to acquire lock for {}", operation),
+        operation: operation.to_string(),
+    }))
+}
+
+/// 将状态错误转换为 VmError
+impl From<StateError> for VmError {
+    fn from(err: StateError) -> Self {
+        VmError::Core(CoreError::Internal {
+            message: err.to_string(),
+            module: "di_state_management".to_string(),
+        })
+    }
+}
+
 
 /// 状态变更事件
 #[derive(Debug, Clone)]
@@ -91,32 +111,65 @@ where
             change_notifier: Arc::new(ChangeNotifier::new()),
         }
     }
-    
+
+    /// 辅助方法：获取读锁
+    fn lock_read(&self) -> Result<std::sync::RwLockReadGuard<T>, VmError> {
+        self.read_state.read().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire read lock".to_string(),
+            operation: "ReadWriteState::read".to_string(),
+        }))
+    }
+
+    /// 辅助方法：获取写锁
+    fn lock_write(&self) -> Result<std::sync::RwLockWriteGuard<T>, VmError> {
+        self.read_state.write().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire write lock".to_string(),
+            operation: "ReadWriteState::write".to_string(),
+        }))
+    }
+
+    /// 辅助方法：获取互斥锁
+    fn lock_mutex(&self) -> Result<std::sync::MutexGuard<T>, VmError> {
+        self.write_state.lock().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire mutex lock".to_string(),
+            operation: "ReadWriteState::write".to_string(),
+        }))
+    }
+
     /// 读取状态（优化读操作）
     pub fn read<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        let state = self.read_state.read().unwrap();
-        f(&*state)
+        match self.lock_read() {
+            Ok(state) => f(&*state),
+            Err(_) => {
+                // 静默失败，返回默认值（R必须实现Default）
+                // 注意：这是一个简化处理，实际使用中可能需要更复杂的错误处理
+                panic!("Failed to acquire read lock")
+            }
+        }
     }
-    
+
     /// 写入状态（优化写操作）
     pub fn write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        let mut state = self.write_state.lock().unwrap();
+        let mut state = match self.lock_mutex() {
+            Ok(s) => s,
+            Err(_) => panic!("Failed to acquire mutex lock"),
+        };
+
         let old_state = state.clone();
         let result = f(&mut *state);
         let new_state = state.clone();
-        
+
         // 更新读状态
-        {
-            let mut read_state = self.read_state.write().unwrap();
+        if let Ok(mut read_state) = self.lock_write() {
             *read_state = new_state.clone();
         }
-        
+
         // 通知变更
         self.change_notifier.notify_change(old_state, new_state);
-        
+
         result
     }
-    
+
     /// 获取变更通知器
     pub fn change_notifier(&self) -> Arc<ChangeNotifier<T>> {
         Arc::clone(&self.change_notifier)
@@ -140,7 +193,15 @@ impl<T: Clone + Send + Sync + 'static> COWState<T> {
             version: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         }
     }
-    
+
+    /// 辅助方法：获取写锁
+    fn lock_write(&self) -> Result<std::sync::RwLockWriteGuard<T>, VmError> {
+        self.state.write().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire write lock".to_string(),
+            operation: "COWState::update".to_string(),
+        }))
+    }
+
     /// 获取状态句柄
     pub fn get_handle(&self) -> StateHandle<T> {
         let version = self.version.load(std::sync::atomic::Ordering::SeqCst);
@@ -149,18 +210,22 @@ impl<T: Clone + Send + Sync + 'static> COWState<T> {
             version,
         }
     }
-    
+
     /// 更新状态
     pub fn update<F>(&self, updater: F) -> StateHandle<T>
     where
         F: FnOnce(&T) -> T,
     {
-        let mut state = self.state.write().unwrap();
+        let mut state = match self.lock_write() {
+            Ok(s) => s,
+            Err(_) => panic!("Failed to acquire write lock in COWState::update"),
+        };
+
         let new_state = updater(&*state);
         *state = new_state.clone();
-        
+
         let new_version = self.version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        
+
         StateHandle {
             state: Arc::clone(&self.state),
             version: new_version,
@@ -179,13 +244,15 @@ impl<T> StateHandle<T> {
     pub fn version(&self) -> u64 {
         self.version
     }
-    
+
     /// 读取状态
     pub fn read<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        let state = self.state.read().unwrap();
-        f(&*state)
+        match self.state.read() {
+            Ok(state) => f(&*state),
+            Err(_) => panic!("Failed to acquire read lock in StateHandle::read"),
+        }
     }
-    
+
     /// 检查是否过期
     pub fn is_stale(&self, current_version: u64) -> bool {
         self.version < current_version
@@ -209,46 +276,100 @@ impl<T: Clone + Send + Sync + 'static> ObservableState<T> {
             observers: Arc::new(RwLock::new(Vec::new())),
         }
     }
-    
+
+    /// 辅助方法：获取状态读锁
+    fn lock_state_read(&self) -> Result<std::sync::RwLockReadGuard<T>, VmError> {
+        self.state.read().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire state read lock".to_string(),
+            operation: "ObservableState::get".to_string(),
+        }))
+    }
+
+    /// 辅助方法：获取状态写锁
+    fn lock_state_write(&self) -> Result<std::sync::RwLockWriteGuard<T>, VmError> {
+        self.state.write().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire state write lock".to_string(),
+            operation: "ObservableState::update".to_string(),
+        }))
+    }
+
+    /// 辅助方法：获取观察者读锁
+    fn lock_observers_read(&self) -> Result<std::sync::RwLockReadGuard<Vec<Box<dyn StateObserver<T>>>>, VmError> {
+        self.observers.read().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire observers read lock".to_string(),
+            operation: "ObservableState".to_string(),
+        }))
+    }
+
+    /// 辅助方法：获取观察者写锁
+    fn lock_observers_write(&self) -> Result<std::sync::RwLockWriteGuard<Vec<Box<dyn StateObserver<T>>>>, VmError> {
+        self.observers.write().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire observers write lock".to_string(),
+            operation: "ObservableState".to_string(),
+        }))
+    }
+
     /// 获取当前状态
     pub fn get(&self) -> T {
-        let state = self.state.read().unwrap();
-        state.clone()
+        match self.lock_state_read() {
+            Ok(state) => state.clone(),
+            Err(_) => panic!("Failed to acquire state read lock in ObservableState::get"),
+        }
     }
-    
+
     /// 更新状态
     pub fn update<F>(&self, updater: F)
     where
         F: FnOnce(&T) -> T,
     {
-        let mut state = self.state.write().unwrap();
+        let mut state = match self.lock_state_write() {
+            Ok(s) => s,
+            Err(_) => panic!("Failed to acquire state write lock in ObservableState::update"),
+        };
+
         let old_state = state.clone();
         let new_state = updater(&*state);
         *state = new_state.clone();
-        
+
         // 通知观察者
-        let observers = self.observers.read().unwrap();
-        for observer in observers.iter() {
-            observer.on_state_changed(&old_state, &new_state);
+        if let Ok(observers) = self.lock_observers_read() {
+            for observer in observers.iter() {
+                observer.on_state_changed(&old_state, &new_state);
+            }
         }
     }
-    
+
     /// 添加观察者
     pub fn add_observer(&self, observer: Box<dyn StateObserver<T>>) {
-        let mut observers = self.observers.write().unwrap();
-        observers.push(observer);
+        match self.lock_observers_write() {
+            Ok(mut observers) => {
+                observers.push(observer);
+            }
+            Err(_) => {
+                // 静默失败
+                eprintln!("Failed to add observer: lock failed");
+            }
+        }
     }
-    
+
     /// 移除观察者
     pub fn remove_observer(&self, observer_id: &str) {
-        let mut observers = self.observers.write().unwrap();
-        observers.retain(|obs| obs.observer_id() != observer_id);
+        match self.lock_observers_write() {
+            Ok(mut observers) => {
+                observers.retain(|obs| obs.observer_id() != observer_id);
+            }
+            Err(_) => {
+                // 静默失败
+            }
+        }
     }
-    
+
     /// 获取观察者数量
     pub fn observer_count(&self) -> usize {
-        let observers = self.observers.read().unwrap();
-        observers.len()
+        match self.lock_observers_read() {
+            Ok(observers) => observers.len(),
+            Err(_) => 0,
+        }
     }
 }
 
@@ -523,13 +644,36 @@ impl StateManager {
             transaction_manager: Arc::new(Mutex::new(TransactionManager::new())),
         }
     }
-    
+
+    /// 辅助方法：获取状态写锁
+    fn lock_states_write(&self) -> Result<std::sync::RwLockWriteGuard<HashMap<TypeId, Box<dyn Any + Send + Sync>>>, VmError> {
+        self.states.write().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire states write lock".to_string(),
+            operation: "StateManager::register_state".to_string(),
+        }))
+    }
+
+    /// 辅助方法：获取事务管理器锁
+    fn lock_transaction_manager(&self) -> Result<std::sync::MutexGuard<TransactionManager>, VmError> {
+        self.transaction_manager.lock().map_err(|_| VmError::Core(CoreError::Concurrency {
+            message: "Failed to acquire transaction manager lock".to_string(),
+            operation: "StateManager::transaction_stats".to_string(),
+        }))
+    }
+
     /// 注册状态
     pub fn register_state<T: 'static + Send + Sync>(&self, state: T) {
-        let mut states = self.states.write().unwrap();
-        states.insert(TypeId::of::<T>(), Box::new(state));
+        match self.lock_states_write() {
+            Ok(mut states) => {
+                states.insert(TypeId::of::<T>(), Box::new(state));
+            }
+            Err(_) => {
+                // 静默失败
+                eprintln!("Failed to register state: lock failed");
+            }
+        }
     }
-    
+
     /// 获取状态
     pub fn get_state<T: 'static + Send + Sync>(&self) -> Option<Arc<T>> {
         // 注意：这个实现需要将状态存储为Arc<T>
@@ -537,16 +681,23 @@ impl StateManager {
         // 这里返回None作为占位符
         None
     }
-    
+
     /// 创建事务
     pub fn create_transaction(&self) -> StateTransaction {
         StateTransaction::new()
     }
-    
+
     /// 获取事务统计
     pub fn transaction_stats(&self) -> TransactionStats {
-        let manager = self.transaction_manager.lock().unwrap();
-        manager.stats()
+        match self.lock_transaction_manager() {
+            Ok(manager) => manager.stats(),
+            Err(_) => TransactionStats {
+                active_transactions: 0,
+                total_transactions: 0,
+                successful_transactions: 0,
+                success_rate: 0.0,
+            },
+        }
     }
 }
 
@@ -666,30 +817,34 @@ mod tests {
             id: String,
             changes: Arc<Mutex<Vec<(i32, i32)>>>,
         }
-        
+
         impl StateObserver<i32> for TestObserver {
             fn on_state_changed(&self, old_state: &i32, new_state: &i32) {
-                let mut changes = self.changes.lock().unwrap();
-                changes.push((*old_state, *new_state));
+                if let Ok(mut changes) = self.changes.lock() {
+                    changes.push((*old_state, *new_state));
+                }
             }
-            
+
             fn observer_id(&self) -> String {
                 self.id.clone()
             }
         }
-        
+
         let state = ObservableState::new(42);
         let changes = Arc::new(Mutex::new(Vec::new()));
         let observer = TestObserver {
             id: "test".to_string(),
             changes: Arc::clone(&changes),
         };
-        
+
         state.add_observer(Box::new(observer));
-        
+
         state.update(|s| s + 1);
-        
-        let changes = changes.lock().unwrap();
+
+        let changes = match changes.lock() {
+            Ok(c) => c,
+            Err(_) => panic!("Failed to acquire changes lock in test"),
+        };
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0], (42, 43));
     }
@@ -722,7 +877,10 @@ mod tests {
         assert_eq!(transaction.operation_count(), 1);
         assert!(transaction.transaction_id() > 0);
         
-        let result = transaction.commit().unwrap();
+        let result = match transaction.commit() {
+            Ok(r) => r,
+            Err(e) => panic!("Transaction commit failed: {}", e),
+        };
         assert!(result.success);
         assert_eq!(result.operations_executed, 1);
     }

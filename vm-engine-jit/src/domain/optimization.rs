@@ -1,27 +1,245 @@
-//! Optimization bounded context
-//! 
+//! # Optimization Bounded Context
+//!
 //! This module defines the optimization domain, including optimization strategies,
 //! passes, and analysis tools for JIT compiled code.
+//!
+//! ## Overview
+//!
+//! The optimization bounded context provides a comprehensive optimization framework
+//! for IR blocks, supporting multiple optimization levels, pass types, and
+//! performance analysis capabilities.
+//!
+//! ## Key Components
+//!
+//! ### Optimization Passes
+//!
+//! - **DeadCodeElimination**: Removes unused instructions
+//! - **ConstantFolding**: Evaluates constant expressions at compile time
+//! - **CommonSubexpressionElimination**: Eliminates redundant computations
+//! - **LoopInvariantCodeMotion**: Moves loop-invariant code outside loops
+//! - **InstructionCombining**: Merges related instructions
+//! - **RegisterAllocation**: Assigns IR virtual registers to physical registers
+//! - **InstructionScheduling**: Reorders instructions for better performance
+//! - **MemoryOptimization**: Optimizes memory access patterns
+//! - **Vectorization**: Utilizes SIMD/vector instructions
+//! - **InlineExpansion**: Inlines function calls
+//! - **TailCallOptimization**: Optimizes tail recursion
+//! - **PeepholeOptimization**: Local pattern-based optimizations
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Optimization
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::optimization::{
+//!     OptimizationService, OptimizationConfig, OptimizationLevel
+//! };
+//!
+//! let mut service = OptimizationService::new();
+//!
+//! let config = OptimizationConfig {
+//!     level: OptimizationLevel::Standard,
+//!     parallel: true,
+//!     ..Default::default()
+//! };
+//!
+//! let result = service.optimize(ir_block, config)?;
+//! println!("Performance improvement: {:.1}%", result.performance_improvement);
+//! ```
+//!
+//! ### Custom Pass Selection
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::optimization::{OptimizationConfig, OptimizationPassType};
+//!
+//! let config = OptimizationConfig {
+//!     enabled_passes: vec![
+//!         OptimizationPassType::ConstantFolding,
+//!         OptimizationPassType::DeadCodeElimination,
+//!         OptimizationPassType::InstructionCombining,
+//!     ],
+//!     ..Default::default()
+//! };
+//! ```
+//!
+//! ### Analyzing Optimization Potential
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::optimization::analysis;
+//!
+//! let potential = analysis::analyze_optimization_potential(&ir_block);
+//! println!("Optimization potential: {:.1}%", potential.overall_potential * 100.0);
+//! println!("Constant folding opportunities: {}", potential.constant_folding_opportunities);
+//! ```
+//!
+//! ## Optimization Levels
+//!
+//! ### None
+//! Skip all optimizations. Useful for:
+//! - Debugging
+//! - Fast compilation
+//! - Analyzing baseline performance
+//!
+//! ### Basic
+//! Fast, simple optimizations:
+//! - Constant folding
+//! - Dead code elimination
+//! - Peephole optimizations
+//!
+//! ### Standard (Default)
+//! Balanced optimization suite:
+//! - All basic optimizations
+//! - Common subexpression elimination
+//! - Instruction combining
+//! - Basic register allocation
+//!
+//! ### Aggressive
+//! Advanced optimizations:
+//! - All standard optimizations
+//! - Loop invariant code motion
+//! - Instruction scheduling
+//! - Memory optimization
+//! - Function inlining
+//!
+//! ### Maximum
+//! All available optimizations:
+//! - All aggressive optimizations
+//! - Vectorization
+//! - Tail call optimization
+//! - Advanced inlining
+//! - May increase compilation time significantly
+//!
+//! ## Pass Execution Order
+//!
+//! Passes are typically executed in this order:
+//!
+//! 1. **Constant Folding**: Simplify expressions first
+//! 2. **Dead Code Elimination**: Remove obviously dead code
+//! 3. **Instruction Combining**: Merge operations
+//! 4. **Common Subexpression Elimination**: Find redundant computations
+//! 5. **Loop Invariant Code Motion**: Optimize loops
+//! 6. **Inline Expansion**: Expand small functions
+//! 7. **Memory Optimization**: Improve memory access
+//! 8. **Vectorization**: Add SIMD operations
+//! 9. **Instruction Scheduling**: Reorder for throughput
+//! 10. **Register Allocation**: Assign physical registers
+//! 11. **Peephole Optimization**: Final cleanup
+//!
+//! ## Creating Custom Optimization Passes
+//!
+//! Implement the `OptimizationPass` trait:
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::optimization::{
+//!     OptimizationPass, OptimizationPassType, OptimizationPassResult,
+//!     OptimizationConfig, OptimizationStatus, JITResult
+//! };
+//! use vm_ir::IRBlock;
+//!
+//! struct MyCustomPass;
+//!
+//! impl OptimizationPass for MyCustomPass {
+//!     fn pass_type(&self) -> OptimizationPassType {
+//!         OptimizationPassType::Custom
+//!     }
+//!
+//!     fn name(&self) -> &str {
+//!         "my_custom_pass"
+//!     }
+//!
+//!     fn run(&self, ir_block: &mut IRBlock, config: &OptimizationConfig)
+//!         -> JITResult<OptimizationPassResult>
+//!     {
+//!         // Implementation here
+//!         Ok(OptimizationPassResult {
+//!             pass_type: self.pass_type(),
+//!             status: OptimizationStatus::Completed,
+//!             optimizations_performed: 0,
+//!             ..Default::default()
+//!         })
+//!     }
+//! }
+//!
+//! // Register with service
+//! service.add_pass(Arc::new(MyCustomPass));
+//! ```
+//!
+//! ## Domain-Driven Design Applied
+//!
+//! ### Entities
+//!
+//! - `OptimizationContext`: Aggregate root for optimization operations
+//! - Tracks state through optimization pipeline
+//!
+//! ### Value Objects
+//!
+//! - `OptimizationConfig`: Immutable optimization settings
+//! - `OptimizationResult`: Immutable optimization outcome
+//! - `OptimizationMetrics`: Detailed performance metrics
+//!
+//! ### Domain Services
+//!
+//! - `OptimizationService`: Orchestrates optimization pipeline
+//! - Manages pass registration and execution
+//!
+//! ### Strategy Pattern
+//!
+//! - `OptimizationPass`: Pluggable optimization implementations
+//! - Each pass is independent and composable
+//!
+//! ## Integration Points
+//!
+//! ### With Compilation Domain
+//!
+//! - Optimizes IR before code generation
+//! - Provides feedback for compilation decisions
+//!
+//! ### With IR Layer
+//!
+//! - Consumes and produces `IRBlock`
+//! - Analyzes IR patterns for optimization opportunities
+//!
+//! ### With Monitoring Domain
+//!
+//! - Reports optimization metrics
+//! - Tracks optimization success rates
+//!
+//! ## Performance Analysis
+//!
+//! The `analysis` module provides:
+//!
+//! - **Potential Analysis**: Estimate optimization benefits before running
+//! - **Metrics Tracking**: Per-pass optimization counts
+//! - **Performance Improvement**: Calculate speedup percentage
+//! - **Code Size Reduction**: Track size optimization
+//!
+//! ## Performance Considerations
+//!
+//! - **Compilation Time**: More passes = longer compilation
+//! - **Memory Usage**: IR held in memory throughout optimization
+//! - **Parallelism**: Some passes can run in parallel
+//! - **Diminishing Returns**: Higher levels may not justify the cost
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::common::{Config, Stats, JITErrorBuilder};
-use vm_error::VmError;
-use crate::ir::{IRBlock, IRInstruction, Operand};
+use crate::common::{Config, Stats, JITResult};
+use vm_ir::IRBlock;
 
 /// Unique identifier for optimization contexts
 pub type OptimizationId = u64;
 
 /// Optimization level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum OptimizationLevel {
     /// No optimization
     None,
     /// Basic optimizations only
     Basic,
     /// Standard optimizations
+    #[default]
     Standard,
     /// Aggressive optimizations
     Aggressive,
@@ -29,11 +247,6 @@ pub enum OptimizationLevel {
     Maximum,
 }
 
-impl Default for OptimizationLevel {
-    fn default() -> Self {
-        OptimizationLevel::Standard
-    }
-}
 
 impl std::fmt::Display for OptimizationLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -100,8 +313,10 @@ impl std::fmt::Display for OptimizationPassType {
 
 /// Optimization status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum OptimizationStatus {
     /// Not started
+    #[default]
     NotStarted,
     /// In progress
     InProgress,
@@ -113,11 +328,6 @@ pub enum OptimizationStatus {
     Skipped,
 }
 
-impl Default for OptimizationStatus {
-    fn default() -> Self {
-        OptimizationStatus::NotStarted
-    }
-}
 
 impl std::fmt::Display for OptimizationStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -314,6 +524,7 @@ impl OptimizationContext {
     /// Create a new optimization context
     pub fn new(ir_block: IRBlock, config: OptimizationConfig) -> Self {
         let optimization_id = generate_optimization_id();
+        let level = config.level;
         Self {
             optimization_id,
             ir_block,
@@ -321,7 +532,7 @@ impl OptimizationContext {
             status: OptimizationStatus::NotStarted,
             start_time: Instant::now(),
             pass_results: Vec::new(),
-            current_level: config.level,
+            current_level: level,
             metrics: OptimizationMetrics::default(),
         }
     }
@@ -354,7 +565,7 @@ impl OptimizationContext {
     }
     
     /// Fail optimization
-    pub fn fail(&mut self, error_message: String) -> OptimizationResult {
+    pub fn fail(&mut self, _error_message: String) -> OptimizationResult {
         self.status = OptimizationStatus::Failed;
         let total_time = self.start_time.elapsed();
         
@@ -379,27 +590,27 @@ impl OptimizationContext {
     /// Calculate performance improvement
     fn calculate_performance_improvement(&self, optimized_block: &IRBlock) -> f32 {
         // Simple heuristic based on instruction count reduction
-        let original_count = self.ir_block.instructions.len();
-        let optimized_count = optimized_block.instructions.len();
-        
+        let original_count = self.ir_block.ops.len();
+        let optimized_count = optimized_block.ops.len();
+
         if original_count == 0 {
             return 0.0;
         }
-        
+
         let reduction = (original_count - optimized_count) as f32 / original_count as f32;
         reduction * 100.0
     }
-    
+
     /// Calculate code size reduction
     fn calculate_code_size_reduction(&self, optimized_block: &IRBlock) -> f32 {
         // Simple heuristic based on instruction count
-        let original_count = self.ir_block.instructions.len();
-        let optimized_count = optimized_block.instructions.len();
-        
+        let original_count = self.ir_block.ops.len();
+        let optimized_count = optimized_block.ops.len();
+
         if original_count == 0 {
             return 0.0;
         }
-        
+
         let reduction = (original_count - optimized_count) as f32 / original_count as f32;
         reduction * 100.0
     }
@@ -574,25 +785,24 @@ impl OptimizationService {
         let mut optimized_block = context.ir_block.clone();
         
         // Run optimization passes
+        let mut pass_results = Vec::new();
+        
         for pass in &self.passes {
             if !pass.should_run(&context.config) {
                 continue;
             }
             
             let start_time = Instant::now();
-            let instructions_before = optimized_block.instructions.len();
-            
+            let instructions_before = optimized_block.ops.len();
+ 
             match pass.run(&mut optimized_block, &context.config) {
                 Ok(mut result) => {
                     result.execution_time = start_time.elapsed();
                     result.instructions_before = instructions_before;
-                    result.instructions_after = optimized_block.instructions.len();
-                    
-                    // Update metrics
-                    self.update_metrics(&result);
-                    context.metrics.merge(&self.metrics);
-                    
-                    context.add_pass_result(result);
+                    result.instructions_after = optimized_block.ops.len();
+ 
+                    context.add_pass_result(result.clone());
+                    pass_results.push(result);
                 }
                 Err(e) => {
                     let mut result = OptimizationPassResult::default();
@@ -600,14 +810,21 @@ impl OptimizationService {
                     result.status = OptimizationStatus::Failed;
                     result.execution_time = start_time.elapsed();
                     result.instructions_before = instructions_before;
-                    result.instructions_after = optimized_block.instructions.len();
+                    result.instructions_after = optimized_block.ops.len();
                     result.error_message = Some(e.to_string());
                     
-                    context.add_pass_result(result);
+                    context.add_pass_result(result.clone());
+                    pass_results.push(result);
                     
                     // Continue with other passes even if one fails
                 }
             }
+        }
+        
+        // Update metrics after all passes are done
+        for result in &pass_results {
+            self.update_metrics(result);
+            context.metrics.merge(&self.metrics);
         }
         
         Ok(context.complete(optimized_block))
@@ -687,45 +904,43 @@ fn generate_optimization_id() -> OptimizationId {
 /// Optimization analysis tools
 pub mod analysis {
     use super::*;
-    
+
     /// Analyze optimization potential
     pub fn analyze_optimization_potential(ir_block: &IRBlock) -> OptimizationPotential {
         let mut potential = OptimizationPotential::default();
-        
+
         // Count different types of instructions
-        for instruction in &ir_block.instructions {
-            match instruction.opcode {
+        for instruction in &ir_block.ops {
+            match instruction {
                 // Instructions that can be constant folded
-                crate::ir::Opcode::Add |
-                crate::ir::Opcode::Sub |
-                crate::ir::Opcode::Mul |
-                crate::ir::Opcode::Div => {
-                    if instruction.operands.iter().any(|op| matches!(op, Operand::Constant(_))) {
-                        potential.constant_folding_opportunities += 1;
-                    }
+                vm_ir::IROp::Add { .. } |
+                vm_ir::IROp::Sub { .. } |
+                vm_ir::IROp::Mul { .. } |
+                vm_ir::IROp::Div { .. } => {
+                    potential.constant_folding_opportunities += 1;
                 }
-                
+
                 // Instructions that can be eliminated
-                crate::ir::Opcode::Nop => {
+                vm_ir::IROp::Nop => {
                     potential.dead_code_elimination_opportunities += 1;
                 }
-                
+
                 // Memory operations that can be optimized
-                crate::ir::Opcode::Load |
-                crate::ir::Opcode::Store => {
+                vm_ir::IROp::Load { .. } |
+                vm_ir::IROp::Store { .. } => {
                     potential.memory_optimization_opportunities += 1;
                 }
-                
+
                 _ => {}
             }
         }
-        
+
         // Calculate overall potential
         potential.overall_potential = (
             potential.constant_folding_opportunities as f32 +
             potential.dead_code_elimination_opportunities as f32 +
             potential.memory_optimization_opportunities as f32
-        ) / (ir_block.instructions.len() as f32);
+        ) / (ir_block.ops.len() as f32);
         
         potential
     }
@@ -767,19 +982,27 @@ mod tests {
         config.max_time = Duration::ZERO;
         assert!(config.validate().is_err());
     }
-    
+
     #[test]
     fn test_optimization_context() {
-        let ir_block = IRBlock::default();
+        let ir_block = IRBlock {
+            start_pc: vm_core::GuestAddr(0),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        };
         let config = OptimizationConfig::default();
         let mut context = OptimizationContext::new(ir_block, config);
-        
+
         assert_eq!(context.status, OptimizationStatus::NotStarted);
-        
+
         context.start();
         assert_eq!(context.status, OptimizationStatus::InProgress);
-        
-        let optimized_block = IRBlock::default();
+
+        let optimized_block = IRBlock {
+            start_pc: vm_core::GuestAddr(0),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        };
         let result = context.complete(optimized_block);
         
         assert_eq!(result.status, OptimizationStatus::Completed);

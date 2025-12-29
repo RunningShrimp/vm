@@ -8,7 +8,7 @@ use crate::{CoreError, GuestAddr, GuestPhysAddr, MemoryError, VmError, VmResult}
 pub trait GuestAddrExt {
     fn checked_add(self, offset: u64) -> VmResult<GuestAddr>;
     fn checked_sub(self, offset: u64) -> VmResult<GuestAddr>;
-    fn is_aligned(self, alignment: u64) -> bool;
+    fn is_aligned(&self, alignment: u64) -> bool;
     fn align_down(self, alignment: u64) -> GuestAddr;
     fn align_up(self, alignment: u64) -> VmResult<GuestAddr>;
     fn page_index(self, page_size: u64) -> u64;
@@ -17,19 +17,21 @@ pub trait GuestAddrExt {
 
 impl GuestAddrExt for GuestAddr {
     fn checked_add(self, offset: u64) -> VmResult<GuestAddr> {
-        self.0.checked_add(offset)
+        self.0
+            .checked_add(offset)
             .map(GuestAddr)
             .ok_or(VmError::Memory(MemoryError::InvalidAddress(self)))
     }
 
     fn checked_sub(self, offset: u64) -> VmResult<GuestAddr> {
-        self.0.checked_sub(offset)
+        self.0
+            .checked_sub(offset)
             .map(GuestAddr)
             .ok_or(VmError::Memory(MemoryError::InvalidAddress(self)))
     }
 
-    fn is_aligned(self, alignment: u64) -> bool {
-        alignment.is_power_of_two() && self.0 % alignment == 0
+    fn is_aligned(&self, alignment: u64) -> bool {
+        alignment.is_power_of_two() && self.0.is_multiple_of(alignment)
     }
 
     fn align_down(self, alignment: u64) -> GuestAddr {
@@ -46,7 +48,9 @@ impl GuestAddrExt for GuestAddr {
         }
         let aligned = (self.0 + alignment - 1) & !(alignment - 1);
         if aligned < self.0 {
-            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(aligned))));
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                aligned,
+            ))));
         }
         Ok(GuestAddr(aligned))
     }
@@ -62,7 +66,7 @@ impl GuestAddrExt for GuestAddr {
 
 /// Extension trait for GuestPhysAddr to add type-safe operations
 pub trait GuestPhysAddrExt {
-    fn is_aligned(self, alignment: u64) -> bool;
+    fn is_aligned(&self, alignment: u64) -> bool;
     fn align_down(self, alignment: u64) -> GuestPhysAddr;
     fn align_up(self, alignment: u64) -> VmResult<GuestPhysAddr>;
     fn page_index(self, page_size: u64) -> u64;
@@ -70,8 +74,8 @@ pub trait GuestPhysAddrExt {
 }
 
 impl GuestPhysAddrExt for GuestPhysAddr {
-    fn is_aligned(self, alignment: u64) -> bool {
-        alignment.is_power_of_two() && self.0 % alignment == 0
+    fn is_aligned(&self, alignment: u64) -> bool {
+        alignment.is_power_of_two() && self.0.is_multiple_of(alignment)
     }
 
     fn align_down(self, alignment: u64) -> GuestPhysAddr {

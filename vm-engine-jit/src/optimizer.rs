@@ -15,25 +15,25 @@ use vm_ir::{IRBlock, IROp, RegId};
 pub trait IROptimizer: Send + Sync {
     /// 优化IR块
     fn optimize(&mut self, block: &IRBlock) -> Result<IRBlock, VmError>;
-    
+
     /// 获取优化器名称
     fn name(&self) -> &str;
-    
+
     /// 获取优化器版本
     fn version(&self) -> &str;
-    
+
     /// 设置优化选项
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError>;
-    
+
     /// 获取优化选项
     fn get_option(&self, option: &str) -> Option<String>;
-    
+
     /// 获取支持的优化列表
     fn supported_optimizations(&self) -> Vec<String>;
-    
+
     /// 启用特定优化
     fn enable_optimization(&mut self, optimization: &str) -> Result<(), VmError>;
-    
+
     /// 禁用特定优化
     fn disable_optimization(&mut self, optimization: &str) -> Result<(), VmError>;
 }
@@ -92,7 +92,7 @@ impl DefaultIROptimizer {
     /// 创建新的默认IR优化器
     pub fn new(config: crate::core::JITConfig) -> Self {
         let mut enabled_optimizations = HashMap::new();
-        
+
         // 默认启用所有优化
         enabled_optimizations.insert("constant_folding".to_string(), true);
         enabled_optimizations.insert("dead_code_elimination".to_string(), true);
@@ -100,7 +100,7 @@ impl DefaultIROptimizer {
         enabled_optimizations.insert("strength_reduction".to_string(), true);
         enabled_optimizations.insert("copy_propagation".to_string(), true);
         enabled_optimizations.insert("algebraic_simplification".to_string(), true);
-        
+
         Self {
             name: "DefaultIROptimizer".to_string(),
             version: "1.0.0".to_string(),
@@ -110,75 +110,116 @@ impl DefaultIROptimizer {
             stats: OptimizationStats::default(),
         }
     }
-    
+
     /// 常量折叠优化
     fn constant_folding(&self, block: &IRBlock) -> IRBlock {
         // 检查全局优化开关和特定优化开关
-        if !self.config.enable_optimization || !self.enabled_optimizations.get("constant_folding").unwrap_or(&false) {
+        if !self.config.enable_optimization
+            || !self
+                .enabled_optimizations
+                .get("constant_folding")
+                .unwrap_or(&false)
+        {
             return block.clone();
         }
-        
+
         let mut optimized_block = block.clone();
         let mut changed = true;
-        
+
         // 迭代应用常量折叠，直到没有更多变化
         while changed {
             changed = false;
             let mut new_ops = Vec::new();
-            
+
             for op in &optimized_block.ops {
                 match op {
                     // 处理二元运算
                     IROp::Add { dst, src1, src2 } => {
-                        if let (Some(val1), Some(val2)) = (self.get_constant_value(*src1), self.get_constant_value(*src2)) {
+                        if let (Some(val1), Some(val2)) = (
+                            self.get_constant_value(*src1),
+                            self.get_constant_value(*src2),
+                        ) {
                             // 两个操作数都是常量，可以折叠
                             let result = val1.wrapping_add(val2);
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
                         }
                     }
                     IROp::Sub { dst, src1, src2 } => {
-                        if let (Some(val1), Some(val2)) = (self.get_constant_value(*src1), self.get_constant_value(*src2)) {
+                        if let (Some(val1), Some(val2)) = (
+                            self.get_constant_value(*src1),
+                            self.get_constant_value(*src2),
+                        ) {
                             let result = val1.wrapping_sub(val2);
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
                         }
                     }
                     IROp::Mul { dst, src1, src2 } => {
-                        if let (Some(val1), Some(val2)) = (self.get_constant_value(*src1), self.get_constant_value(*src2)) {
+                        if let (Some(val1), Some(val2)) = (
+                            self.get_constant_value(*src1),
+                            self.get_constant_value(*src2),
+                        ) {
                             let result = val1.wrapping_mul(val2);
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
                         }
                     }
                     IROp::And { dst, src1, src2 } => {
-                        if let (Some(val1), Some(val2)) = (self.get_constant_value(*src1), self.get_constant_value(*src2)) {
+                        if let (Some(val1), Some(val2)) = (
+                            self.get_constant_value(*src1),
+                            self.get_constant_value(*src2),
+                        ) {
                             let result = val1 & val2;
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
                         }
                     }
                     IROp::Or { dst, src1, src2 } => {
-                        if let (Some(val1), Some(val2)) = (self.get_constant_value(*src1), self.get_constant_value(*src2)) {
+                        if let (Some(val1), Some(val2)) = (
+                            self.get_constant_value(*src1),
+                            self.get_constant_value(*src2),
+                        ) {
                             let result = val1 | val2;
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
                         }
                     }
                     IROp::Xor { dst, src1, src2 } => {
-                        if let (Some(val1), Some(val2)) = (self.get_constant_value(*src1), self.get_constant_value(*src2)) {
+                        if let (Some(val1), Some(val2)) = (
+                            self.get_constant_value(*src1),
+                            self.get_constant_value(*src2),
+                        ) {
                             let result = val1 ^ val2;
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
@@ -188,7 +229,10 @@ impl DefaultIROptimizer {
                     IROp::SllImm { dst, src, sh } => {
                         if let Some(val) = self.get_constant_value(*src) {
                             let result = val.wrapping_shl(*sh as u32);
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
@@ -197,7 +241,10 @@ impl DefaultIROptimizer {
                     IROp::SrlImm { dst, src, sh } => {
                         if let Some(val) = self.get_constant_value(*src) {
                             let result = val.wrapping_shr(*sh as u32);
-                            new_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                            new_ops.push(IROp::MovImm {
+                                dst: *dst,
+                                imm: result,
+                            });
                             changed = true;
                         } else {
                             new_ops.push(op.clone());
@@ -207,24 +254,29 @@ impl DefaultIROptimizer {
                     _ => new_ops.push(op.clone()),
                 }
             }
-            
+
             optimized_block.ops = new_ops;
         }
-        
+
         optimized_block
     }
-    
+
     /// 死代码消除
     fn dead_code_elimination(&self, block: &IRBlock) -> IRBlock {
         // 检查全局优化开关和特定优化开关
-        if !self.config.enable_optimization || !self.enabled_optimizations.get("dead_code_elimination").unwrap_or(&false) {
+        if !self.config.enable_optimization
+            || !self
+                .enabled_optimizations
+                .get("dead_code_elimination")
+                .unwrap_or(&false)
+        {
             return block.clone();
         }
-        
+
         // 简单的死代码消除：移除不影响结果的指令
         let mut optimized_block = block.clone();
         let mut live_vars = std::collections::HashSet::new();
-        
+
         // 从后向前分析，标记活跃变量
         for op in optimized_block.ops.iter().rev() {
             match op {
@@ -235,14 +287,18 @@ impl DefaultIROptimizer {
                         live_vars.remove(dst);
                     }
                 }
-                IROp::Add { dst, src1, src2 } |
-                IROp::Sub { dst, src1, src2 } |
-                IROp::Mul { dst, src1, src2 } |
-                IROp::Div { dst, src1, src2, .. } |
-                IROp::Rem { dst, src1, src2, .. } |
-                IROp::And { dst, src1, src2 } |
-                IROp::Or { dst, src1, src2 } |
-                IROp::Xor { dst, src1, src2 } => {
+                IROp::Add { dst, src1, src2 }
+                | IROp::Sub { dst, src1, src2 }
+                | IROp::Mul { dst, src1, src2 }
+                | IROp::Div {
+                    dst, src1, src2, ..
+                }
+                | IROp::Rem {
+                    dst, src1, src2, ..
+                }
+                | IROp::And { dst, src1, src2 }
+                | IROp::Or { dst, src1, src2 }
+                | IROp::Xor { dst, src1, src2 } => {
                     if !live_vars.contains(dst) {
                         // 这个指令的结果没有被使用，可以删除
                     } else {
@@ -267,14 +323,14 @@ impl DefaultIROptimizer {
                 _ => {}
             }
         }
-        
+
         // 第二遍：只保留活跃变量相关的指令
         let mut new_ops = Vec::new();
         let mut current_live = live_vars.clone();
-        
+
         for op in optimized_block.ops.iter().rev() {
             let mut keep = true;
-            
+
             match op {
                 IROp::MovImm { dst, .. } => {
                     if !current_live.contains(dst) {
@@ -283,14 +339,18 @@ impl DefaultIROptimizer {
                         current_live.remove(dst);
                     }
                 }
-                IROp::Add { dst, src1, src2 } |
-                IROp::Sub { dst, src1, src2 } |
-                IROp::Mul { dst, src1, src2 } |
-                IROp::Div { dst, src1, src2, .. } |
-                IROp::Rem { dst, src1, src2, .. } |
-                IROp::And { dst, src1, src2 } |
-                IROp::Or { dst, src1, src2 } |
-                IROp::Xor { dst, src1, src2 } => {
+                IROp::Add { dst, src1, src2 }
+                | IROp::Sub { dst, src1, src2 }
+                | IROp::Mul { dst, src1, src2 }
+                | IROp::Div {
+                    dst, src1, src2, ..
+                }
+                | IROp::Rem {
+                    dst, src1, src2, ..
+                }
+                | IROp::And { dst, src1, src2 }
+                | IROp::Or { dst, src1, src2 }
+                | IROp::Xor { dst, src1, src2 } => {
                     if !current_live.contains(dst) {
                         keep = false;
                     } else {
@@ -314,19 +374,19 @@ impl DefaultIROptimizer {
                 // 其他操作...
                 _ => {}
             }
-            
+
             if keep {
                 new_ops.push(op.clone());
             }
         }
-        
+
         // 反转回来，保持原始顺序
         new_ops.reverse();
         optimized_block.ops = new_ops;
-        
+
         optimized_block
     }
-    
+
     /// 获取寄存器的常量值
     fn get_constant_value(&self, _reg: RegId) -> Option<u64> {
         // 在实际实现中，这里需要跟踪寄存器的值
@@ -338,44 +398,45 @@ impl DefaultIROptimizer {
 impl IROptimizer for DefaultIROptimizer {
     fn optimize(&mut self, block: &IRBlock) -> Result<IRBlock, VmError> {
         let mut optimized_block = block.clone();
-        
+
         // 记录原始指令数量
         self.stats.original_insn_count = optimized_block.ops.len();
-        
+
         // 应用各种优化
         optimized_block = self.constant_folding(&optimized_block);
         optimized_block = self.dead_code_elimination(&optimized_block);
-        
+
         // 记录优化后指令数量
         self.stats.optimized_insn_count = optimized_block.ops.len();
-        
+
         Ok(optimized_block)
     }
-    
+
     fn name(&self) -> &str {
         &self.name
     }
-    
+
     fn version(&self) -> &str {
         &self.version
     }
-    
+
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError> {
         self.options.insert(option.to_string(), value.to_string());
         Ok(())
     }
-    
+
     fn get_option(&self, option: &str) -> Option<String> {
         self.options.get(option).cloned()
     }
-    
+
     fn supported_optimizations(&self) -> Vec<String> {
         self.enabled_optimizations.keys().cloned().collect()
     }
-    
+
     fn enable_optimization(&mut self, optimization: &str) -> Result<(), VmError> {
         if self.enabled_optimizations.contains_key(optimization) {
-            self.enabled_optimizations.insert(optimization.to_string(), true);
+            self.enabled_optimizations
+                .insert(optimization.to_string(), true);
             Ok(())
         } else {
             Err(VmError::Core(vm_core::CoreError::Config {
@@ -384,10 +445,11 @@ impl IROptimizer for DefaultIROptimizer {
             }))
         }
     }
-    
+
     fn disable_optimization(&mut self, optimization: &str) -> Result<(), VmError> {
         if self.enabled_optimizations.contains_key(optimization) {
-            self.enabled_optimizations.insert(optimization.to_string(), false);
+            self.enabled_optimizations
+                .insert(optimization.to_string(), false);
             Ok(())
         } else {
             Err(VmError::Core(vm_core::CoreError::Config {
@@ -469,22 +531,24 @@ impl ValueRange {
     }
 
     pub fn range(min: i64, max: i64) -> Self {
-        Self { min, max, known: true }
+        Self {
+            min,
+            max,
+            known: true,
+        }
     }
 
     pub fn intersect(&self, other: &ValueRange) -> ValueRange {
         if !self.known || !other.known {
             return ValueRange::unknown();
         }
-        ValueRange::range(
-            self.min.max(other.min),
-            self.max.min(other.max),
-        )
+        ValueRange::range(self.min.max(other.min), self.max.min(other.max))
     }
 }
 
 /// 常量信息
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // 预留字段用于未来优化功能
 struct ConstantInfo {
     /// 常量值
     pub value: i64,
@@ -496,12 +560,17 @@ struct ConstantInfo {
 
 impl ConstantInfo {
     fn known(value: i64, definition_index: Option<usize>) -> Self {
-        Self { value, known: true, definition_index }
+        Self {
+            value,
+            known: true,
+            definition_index,
+        }
     }
 }
 
 /// 循环信息
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // 预留字段用于未来循环优化功能
 struct LoopInfo {
     /// 循环头索引
     pub header_index: usize,
@@ -515,6 +584,7 @@ struct LoopInfo {
 
 /// 内联候选
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // 预留字段用于未来内联优化功能
 struct InlineCandidate {
     /// 调用指令索引
     pub call_index: usize,
@@ -528,6 +598,7 @@ struct InlineCandidate {
 
 /// 别名信息
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // 预留字段用于未来别名分析功能
 struct AliasInfo {
     /// 可能的别名寄存器
     pub potential_aliases: HashSet<u32>,
@@ -557,8 +628,12 @@ pub struct AdvancedOptimizationStats {
 impl Clone for AdvancedOptimizationStats {
     fn clone(&self) -> Self {
         Self {
-            constant_propagations: AtomicU64::new(self.constant_propagations.load(Ordering::Relaxed)),
-            dead_code_eliminations: AtomicU64::new(self.dead_code_eliminations.load(Ordering::Relaxed)),
+            constant_propagations: AtomicU64::new(
+                self.constant_propagations.load(Ordering::Relaxed),
+            ),
+            dead_code_eliminations: AtomicU64::new(
+                self.dead_code_eliminations.load(Ordering::Relaxed),
+            ),
             loop_optimizations: AtomicU64::new(self.loop_optimizations.load(Ordering::Relaxed)),
             inlinings: AtomicU64::new(self.inlinings.load(Ordering::Relaxed)),
             specializations: AtomicU64::new(self.specializations.load(Ordering::Relaxed)),
@@ -676,19 +751,18 @@ impl AdvancedOptimizer {
         let mut visited = HashSet::new();
 
         for (i, op) in ir_block.ops.iter().enumerate() {
-            if matches!(op, IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. }) {
-                if let Some(backward_target) = self.find_backward_target(ir_block, i) {
-                    if !visited.contains(&backward_target) {
-                        visited.insert(backward_target);
-                        let loop_info = LoopInfo {
-                            header_index: backward_target,
-                            body_indices: self.collect_loop_body(ir_block, backward_target, i),
-                            induction_variables: self.find_induction_variables(ir_block, backward_target),
-                            iteration_count: self.estimate_iteration_count(ir_block, backward_target),
-                        };
-                        loops.push(loop_info);
-                    }
-                }
+            if matches!(op, IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. })
+                && let Some(backward_target) = self.find_backward_target(ir_block, i)
+                && !visited.contains(&backward_target)
+            {
+                visited.insert(backward_target);
+                let loop_info = LoopInfo {
+                    header_index: backward_target,
+                    body_indices: self.collect_loop_body(ir_block, backward_target, i),
+                    induction_variables: self.find_induction_variables(ir_block, backward_target),
+                    iteration_count: self.estimate_iteration_count(ir_block, backward_target),
+                };
+                loops.push(loop_info);
             }
         }
 
@@ -698,26 +772,33 @@ impl AdvancedOptimizer {
 
     /// 查找向后跳转目标
     fn find_backward_target(&self, ir_block: &IRBlock, current: usize) -> Option<usize> {
-        if let IROp::Beq { target, .. } = &ir_block.ops[current] {
-            if target.0 < current as u64 {
-                return Some(target.0 as usize);
-            }
+        if let IROp::Beq { target, .. } = &ir_block.ops[current]
+            && target.0 < current as u64
+        {
+            return Some(target.0 as usize);
         }
         None
     }
 
     /// 收集循环体
-    fn collect_loop_body(&self, ir_block: &IRBlock, header: usize, end: usize) -> Vec<usize> {
+    fn collect_loop_body(&self, _ir_block: &IRBlock, header: usize, end: usize) -> Vec<usize> {
         (header..=end).collect()
     }
 
     /// 查找归纳变量
     fn find_induction_variables(&self, ir_block: &IRBlock, loop_header: usize) -> Vec<u32> {
         let mut induction_vars = Vec::new();
-        if let IROp::Add { dst, src1, src2 } = &ir_block.ops[loop_header] {
-            if matches!(ir_block.ops.get(loop_header as usize + 1), Some(IROp::MovImm { dst: src1, .. })) {
-                induction_vars.push(*dst);
-            }
+        if let IROp::Add {
+            dst,
+            src1: _,
+            src2: _,
+        } = &ir_block.ops[loop_header]
+            && matches!(
+                ir_block.ops.get(loop_header + 1),
+                Some(IROp::MovImm { dst: _src1, .. })
+            )
+        {
+            induction_vars.push(*dst);
         }
         induction_vars
     }
@@ -734,22 +815,24 @@ impl AdvancedOptimizer {
         for (i, op) in ir_block.ops.iter().enumerate() {
             match op {
                 IROp::MovImm { dst, imm } => {
-                    constants.insert(*dst, ConstantInfo::known(*imm, Some(i)));
+                    constants.insert(*dst, ConstantInfo::known(*imm as i64, Some(i)));
                 }
                 IROp::Add { dst, src1, src2 } => {
-                    if let (Some(const1), Some(const2)) = (constants.get(src1), constants.get(src2)) {
-                        if const1.known && const2.known {
-                            let result = const1.value.wrapping_add(const2.value);
-                            constants.insert(*dst, ConstantInfo::known(result, Some(i)));
-                        }
+                    if let (Some(const1), Some(const2)) = (constants.get(src1), constants.get(src2))
+                        && const1.known
+                        && const2.known
+                    {
+                        let result = const1.value.wrapping_add(const2.value);
+                        constants.insert(*dst, ConstantInfo::known(result, Some(i)));
                     }
                 }
                 IROp::Sub { dst, src1, src2 } => {
-                    if let (Some(const1), Some(const2)) = (constants.get(src1), constants.get(src2)) {
-                        if const1.known && const2.known {
-                            let result = const1.value.wrapping_sub(const2.value);
-                            constants.insert(*dst, ConstantInfo::known(result, Some(i)));
-                        }
+                    if let (Some(const1), Some(const2)) = (constants.get(src1), constants.get(src2))
+                        && const1.known
+                        && const2.known
+                    {
+                        let result = const1.value.wrapping_sub(const2.value);
+                        constants.insert(*dst, ConstantInfo::known(result, Some(i)));
                     }
                 }
                 _ => {}
@@ -766,7 +849,7 @@ impl AdvancedOptimizer {
 
         for op in &ir_block.ops {
             if let IROp::MovImm { dst, imm } = op {
-                ranges.insert(*dst, ValueRange::known(*imm));
+                ranges.insert(*dst, ValueRange::known(*imm as i64));
             }
         }
 
@@ -785,8 +868,10 @@ impl AdvancedOptimizer {
     }
 
     /// 常量传播
-    fn constant_propagation(&mut self, ir_block: &mut IRBlock) -> Result<(), String> {
-        self.optimization_stats.constant_propagations.fetch_add(1, Ordering::Relaxed);
+    fn constant_propagation(&mut self, _ir_block: &mut IRBlock) -> Result<(), String> {
+        self.optimization_stats
+            .constant_propagations
+            .fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -813,7 +898,9 @@ impl AdvancedOptimizer {
         ir_block.ops = new_ops;
 
         self.dead_instructions = dead_instructions;
-        self.optimization_stats.dead_code_eliminations.fetch_add(1, Ordering::Relaxed);
+        self.optimization_stats
+            .dead_code_eliminations
+            .fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -821,76 +908,102 @@ impl AdvancedOptimizer {
     fn loop_optimization(&mut self, ir_block: &mut IRBlock) -> Result<(), String> {
         for loop_info in &self.loops.clone() {
             self.loop_invariant_code_motion(ir_block, loop_info)?;
-            if loop_info.iteration_count.is_some()
-                && loop_info.iteration_count.unwrap() <= self.config.max_loop_unroll_count as u64 {
+
+            // 只有当迭代次数已知且不超过最大展开次数时才进行循环展开
+            if let Some(iteration_count) = loop_info.iteration_count
+                && iteration_count <= self.config.max_loop_unroll_count as u64
+            {
                 self.loop_unrolling(ir_block, loop_info)?;
             }
+
             self.induction_variable_optimization(ir_block, loop_info)?;
-            self.optimization_stats.loop_optimizations.fetch_add(1, Ordering::Relaxed);
+            self.optimization_stats
+                .loop_optimizations
+                .fetch_add(1, Ordering::Relaxed);
         }
         Ok(())
     }
 
     /// 循环不变量外提
-    fn loop_invariant_code_motion(&mut self, _ir_block: &mut IRBlock, _loop_info: &LoopInfo) -> Result<(), String> {
+    fn loop_invariant_code_motion(
+        &mut self,
+        _ir_block: &mut IRBlock,
+        _loop_info: &LoopInfo,
+    ) -> Result<(), String> {
         Ok(())
     }
 
     /// 循环展开
-    fn loop_unrolling(&mut self, _ir_block: &mut IRBlock, _loop_info: &LoopInfo) -> Result<(), String> {
+    fn loop_unrolling(
+        &mut self,
+        _ir_block: &mut IRBlock,
+        _loop_info: &LoopInfo,
+    ) -> Result<(), String> {
         Ok(())
     }
 
     /// 归纳变量优化
-    fn induction_variable_optimization(&mut self, _ir_block: &mut IRBlock, _loop_info: &LoopInfo) -> Result<(), String> {
+    fn induction_variable_optimization(
+        &mut self,
+        _ir_block: &mut IRBlock,
+        _loop_info: &LoopInfo,
+    ) -> Result<(), String> {
         Ok(())
     }
 
     /// 内联优化
     fn inlining_optimization(&mut self, _ir_block: &mut IRBlock) -> Result<(), String> {
-        self.optimization_stats.inlinings.fetch_add(1, Ordering::Relaxed);
+        self.optimization_stats
+            .inlinings
+            .fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     /// 值范围优化
     fn value_range_optimization(&mut self, _ir_block: &mut IRBlock) -> Result<(), String> {
-        self.optimization_stats.value_range_analyses.fetch_add(1, Ordering::Relaxed);
+        self.optimization_stats
+            .value_range_analyses
+            .fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     /// 别名优化
     fn alias_optimization(&mut self, _ir_block: &mut IRBlock) -> Result<(), String> {
-        self.optimization_stats.alias_analyses.fetch_add(1, Ordering::Relaxed);
+        self.optimization_stats
+            .alias_analyses
+            .fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     /// 函数特化
     fn function_specialization(&mut self, _ir_block: &mut IRBlock) -> Result<(), String> {
-        self.optimization_stats.specializations.fetch_add(1, Ordering::Relaxed);
+        self.optimization_stats
+            .specializations
+            .fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     /// 获取定义的寄存器
     fn get_defined_register(&self, op: &IROp) -> Option<u32> {
         match op {
-            IROp::Add { dst, .. } |
-            IROp::Sub { dst, .. } |
-            IROp::Mul { dst, .. } |
-            IROp::Div { dst, .. } |
-            IROp::AddImm { dst, .. } |
-            IROp::MulImm { dst, .. } |
-            IROp::Mov { dst, .. } |
-            IROp::MovImm { dst, .. } |
-            IROp::Sll { dst, .. } |
-            IROp::Srl { dst, .. } |
-            IROp::Sra { dst, .. } |
-            IROp::SllImm { dst, .. } |
-            IROp::SrlImm { dst, .. } |
-            IROp::SraImm { dst, .. } |
-            IROp::And { dst, .. } |
-            IROp::Or { dst, .. } |
-            IROp::Xor { dst, .. } |
-            IROp::Load { dst, .. } => Some(*dst),
+            IROp::Add { dst, .. }
+            | IROp::Sub { dst, .. }
+            | IROp::Mul { dst, .. }
+            | IROp::Div { dst, .. }
+            | IROp::AddImm { dst, .. }
+            | IROp::MulImm { dst, .. }
+            | IROp::Mov { dst, .. }
+            | IROp::MovImm { dst, .. }
+            | IROp::Sll { dst, .. }
+            | IROp::Srl { dst, .. }
+            | IROp::Sra { dst, .. }
+            | IROp::SllImm { dst, .. }
+            | IROp::SrlImm { dst, .. }
+            | IROp::SraImm { dst, .. }
+            | IROp::And { dst, .. }
+            | IROp::Or { dst, .. }
+            | IROp::Xor { dst, .. }
+            | IROp::Load { dst, .. } => Some(*dst),
             _ => None,
         }
     }
@@ -914,7 +1027,16 @@ impl AdvancedOptimizer {
                 IROp::Xor { src1, src2, .. } => *src1 == reg || *src2 == reg,
                 IROp::Store { src, .. } => *src == reg,
                 IROp::Load { base, .. } => *base == reg,
-                IROp::CondJmp { cond, .. } => *cond == reg,
+                // 分支指令使用 src1 和 src2 字段
+                IROp::Beq { src1, src2, .. } | IROp::Bne { src1, src2, .. } => {
+                    *src1 == reg || *src2 == reg
+                }
+                IROp::Blt { src1, src2, .. } | IROp::Bge { src1, src2, .. } => {
+                    *src1 == reg || *src2 == reg
+                }
+                IROp::Bltu { src1, src2, .. } | IROp::Bgeu { src1, src2, .. } => {
+                    *src1 == reg || *src2 == reg
+                }
                 _ => false,
             }
         })
@@ -924,11 +1046,12 @@ impl AdvancedOptimizer {
 impl IROptimizer for AdvancedOptimizer {
     fn optimize(&mut self, block: &IRBlock) -> Result<IRBlock, VmError> {
         let mut result_block = block.clone();
-        self.optimize_block(&mut result_block)
-            .map_err(|e| VmError::Core(vm_core::CoreError::Config {
+        self.optimize_block(&mut result_block).map_err(|e| {
+            VmError::Core(vm_core::CoreError::Config {
                 message: e,
                 path: None,
-            }))?;
+            })
+        })?;
         Ok(result_block)
     }
 
@@ -943,50 +1066,57 @@ impl IROptimizer for AdvancedOptimizer {
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError> {
         match option {
             "enable_loop_optimization" => {
-                self.config.enable_loop_optimization = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.enable_loop_optimization = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: option.to_string(),
                         value: value.to_string(),
                         message: "Invalid bool value".to_string(),
-                    }))?;
+                    })
+                })?;
             }
             "enable_inlining" => {
-                self.config.enable_inlining = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.enable_inlining = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: option.to_string(),
                         value: value.to_string(),
                         message: "Invalid bool value".to_string(),
-                    }))?;
+                    })
+                })?;
             }
             "enable_constant_propagation" => {
-                self.config.enable_constant_propagation = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.enable_constant_propagation = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: option.to_string(),
                         value: value.to_string(),
                         message: "Invalid bool value".to_string(),
-                    }))?;
+                    })
+                })?;
             }
             "enable_dead_code_elimination" => {
-                self.config.enable_dead_code_elimination = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.enable_dead_code_elimination = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: option.to_string(),
                         value: value.to_string(),
                         message: "Invalid bool value".to_string(),
-                    }))?;
+                    })
+                })?;
             }
             "optimization_level" => {
-                self.config.optimization_level = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.optimization_level = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: option.to_string(),
                         value: value.to_string(),
                         message: "Invalid optimization level".to_string(),
-                    }))?;
+                    })
+                })?;
             }
-            _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
-                name: option.to_string(),
-                value: value.to_string(),
-                message: format!("Unknown option: {}", option),
-            })),
+            _ => {
+                return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                    name: option.to_string(),
+                    value: value.to_string(),
+                    message: format!("Unknown option: {}", option),
+                }));
+            }
         }
         Ok(())
     }
@@ -995,8 +1125,12 @@ impl IROptimizer for AdvancedOptimizer {
         match option {
             "enable_loop_optimization" => Some(self.config.enable_loop_optimization.to_string()),
             "enable_inlining" => Some(self.config.enable_inlining.to_string()),
-            "enable_constant_propagation" => Some(self.config.enable_constant_propagation.to_string()),
-            "enable_dead_code_elimination" => Some(self.config.enable_dead_code_elimination.to_string()),
+            "enable_constant_propagation" => {
+                Some(self.config.enable_constant_propagation.to_string())
+            }
+            "enable_dead_code_elimination" => {
+                Some(self.config.enable_dead_code_elimination.to_string())
+            }
             "optimization_level" => Some(self.config.optimization_level.to_string()),
             _ => None,
         }
@@ -1021,11 +1155,13 @@ impl IROptimizer for AdvancedOptimizer {
             "dead_code_elimination" => self.config.enable_dead_code_elimination = true,
             "value_range_analysis" => self.config.enable_value_range_analysis = true,
             "alias_analysis" => self.config.enable_alias_analysis = true,
-            _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
-                name: "optimization".to_string(),
-                value: optimization.to_string(),
-                message: format!("Unknown optimization: {}", optimization),
-            })),
+            _ => {
+                return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                    name: "optimization".to_string(),
+                    value: optimization.to_string(),
+                    message: format!("Unknown optimization: {}", optimization),
+                }));
+            }
         }
         Ok(())
     }
@@ -1038,11 +1174,13 @@ impl IROptimizer for AdvancedOptimizer {
             "dead_code_elimination" => self.config.enable_dead_code_elimination = false,
             "value_range_analysis" => self.config.enable_value_range_analysis = false,
             "alias_analysis" => self.config.enable_alias_analysis = false,
-            _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
-                name: "optimization".to_string(),
-                value: optimization.to_string(),
-                message: format!("Unknown optimization: {}", optimization),
-            })),
+            _ => {
+                return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                    name: "optimization".to_string(),
+                    value: optimization.to_string(),
+                    message: format!("Unknown optimization: {}", optimization),
+                }));
+            }
         }
         Ok(())
     }
@@ -1068,8 +1206,13 @@ mod tests {
 
     #[test]
     fn test_default_optimizer_optimize() {
+        use vm_ir::Terminator;
         let optimizer = DefaultIROptimizer::new(crate::core::JITConfig::default());
-        let block = IRBlock::new(0);
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0),
+            ops: vec![],
+            term: Terminator::Ret,
+        };
         let result = optimizer.optimize(&block);
         assert!(result.is_ok());
     }
@@ -1104,8 +1247,8 @@ mod tests {
         assert!(config.enable_inlining);
         assert!(config.enable_constant_propagation);
         assert!(config.enable_dead_code_elimination);
-        assert_eq!(config.optimization_level, OptimizationLevel::O2);
-        assert_eq!(config.max_inline_size, 32);
+        assert_eq!(config.optimization_level, 3);
+        assert_eq!(config.max_inline_depth, 3);
         assert_eq!(config.max_loop_unroll_count, 4);
     }
 

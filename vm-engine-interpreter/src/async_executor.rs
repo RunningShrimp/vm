@@ -8,6 +8,9 @@ use std::sync::Arc;
 use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, MMU, VmError};
 use vm_ir::IRBlock;
 
+#[cfg(test)]
+use vm_ir::Terminator;
+
 /// 异步执行统计信息
 #[derive(Clone, Debug, Default)]
 pub struct AsyncExecStats {
@@ -50,7 +53,7 @@ impl AsyncExecutionContext {
     /// 检查是否应该yield
     #[inline]
     pub fn should_yield(&self) -> bool {
-        self.current_steps > 0 && self.current_steps % self.yield_interval == 0
+        self.current_steps > 0 && self.current_steps.is_multiple_of(self.yield_interval)
     }
 
     /// 是否已达到最大步数限制
@@ -300,9 +303,7 @@ impl AsyncMultiVcpuExecutor {
                 });
 
                 let result = result.unwrap_or_else(|e| ExecResult {
-                    status: ExecStatus::Fault(vm_core::ExecutionError::Halted {
-                        reason: e,
-                    }),
+                    status: ExecStatus::Fault(vm_core::ExecutionError::Halted { reason: e }),
                     stats: ExecStats::default(),
                     next_pc: vm_core::GuestAddr(0),
                 });
@@ -363,6 +364,12 @@ impl AsyncMultiVcpuExecutor {
 /// Mock MMU for testing
 pub struct MockMMU;
 
+impl Default for MockMMU {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockMMU {
     pub fn new() -> Self {
         Self
@@ -373,11 +380,11 @@ impl vm_core::AddressTranslator for MockMMU {
     fn translate(
         &mut self,
         va: vm_core::GuestAddr,
-        _access: vm_core::AccessType
+        _access: vm_core::AccessType,
     ) -> Result<vm_core::GuestPhysAddr, VmError> {
         Ok(vm_core::GuestPhysAddr::from(va)) // 无翻译
     }
-    
+
     fn flush_tlb(&mut self) {
         // Mock implementation
     }
@@ -387,30 +394,35 @@ impl vm_core::MemoryAccess for MockMMU {
     fn read(&self, _pa: vm_core::GuestAddr, _size: u8) -> Result<u64, VmError> {
         Ok(0)
     }
-    
+
     fn write(&mut self, _pa: vm_core::GuestAddr, _val: u64, _size: u8) -> Result<(), VmError> {
         Ok(())
     }
-    
+
     fn fetch_insn(&self, _pc: vm_core::GuestAddr) -> Result<u64, VmError> {
         Ok(0)
     }
-    
+
     fn memory_size(&self) -> usize {
         0
     }
-    
+
     fn dump_memory(&self) -> Vec<u8> {
         Vec::new()
     }
-    
+
     fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
         Ok(())
     }
 }
 
 impl vm_core::MmioManager for MockMMU {
-    fn map_mmio(&self, _base: vm_core::GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
+    fn map_mmio(
+        &self,
+        _base: vm_core::GuestAddr,
+        _size: u64,
+        _device: Box<dyn vm_core::MmioDevice>,
+    ) {
         // Mock implementation
     }
 }
@@ -419,7 +431,7 @@ impl vm_core::MmuAsAny for MockMMU {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    
+
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
@@ -431,7 +443,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_execution_context_creation() {
-        let block = IRBlock { ops: vec![] };
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: Terminator::Ret,
+        };
         let ctx = AsyncExecutionContext::new(block, 1000, 100);
 
         assert_eq!(ctx.max_steps, 1000);
@@ -447,7 +463,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_should_yield() {
-        let block = IRBlock { ops: vec![] };
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: Terminator::Ret,
+        };
         let mut ctx = AsyncExecutionContext::new(block, 1000, 100);
 
         assert!(!ctx.should_yield()); // 0 steps
@@ -461,7 +481,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_complete() {
-        let block = IRBlock { ops: vec![] };
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: Terminator::Ret,
+        };
         let mut ctx = AsyncExecutionContext::new(block, 1000, 100);
 
         assert!(!ctx.is_complete());
@@ -475,7 +499,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_stats_tracking() {
-        let block = IRBlock { ops: vec![] };
+        let block = IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: Terminator::Ret,
+        };
         let mut ctx = AsyncExecutionContext::new(block, 1000, 100);
 
         ctx.step();

@@ -2,8 +2,8 @@
 //!
 //! 实现高性能的无锁队列，用于多线程环境下的高效数据交换
 
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 /// 无锁队列节点
 struct Node<T> {
@@ -37,7 +37,7 @@ impl<T> LockFreeQueue<T> {
     /// 创建新的无锁队列
     pub fn new() -> Self {
         let dummy = Box::into_raw(Box::new(Node::new(None)));
-        
+
         Self {
             head: AtomicPtr::new(dummy),
             tail: AtomicPtr::new(dummy),
@@ -48,41 +48,39 @@ impl<T> LockFreeQueue<T> {
     /// 入队操作
     pub fn push(&self, data: T) -> Result<(), QueueError> {
         let new_node = Box::into_raw(Box::new(Node::new(Some(data))));
-        
+
         loop {
             let tail = self.tail.load(Ordering::Acquire);
             let tail_ref = unsafe { &*tail };
             let next = tail_ref.next.load(Ordering::Acquire);
-            
+
             // 检查尾指针是否仍然有效
             if tail == self.tail.load(Ordering::Acquire) {
                 if next.is_null() {
                     // 尝试将新节点链接到尾部
-                    if tail_ref.next.compare_exchange_weak(
-                        std::ptr::null_mut(),
-                        new_node,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                    ).is_ok() {
-                        // 成功链接，更新尾指针
-                        self.tail.compare_exchange(
-                            tail,
+                    if tail_ref
+                        .next
+                        .compare_exchange_weak(
+                            std::ptr::null_mut(),
                             new_node,
                             Ordering::Release,
                             Ordering::Relaxed,
-                        ).ok();
-                        
+                        )
+                        .is_ok()
+                    {
+                        // 成功链接，更新尾指针
+                        self.tail
+                            .compare_exchange(tail, new_node, Ordering::Release, Ordering::Relaxed)
+                            .ok();
+
                         self.size.fetch_add(1, Ordering::Relaxed);
                         return Ok(());
                     }
                 } else {
                     // 尾指针落后，帮助推进
-                    self.tail.compare_exchange(
-                        tail,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                    ).ok();
+                    self.tail
+                        .compare_exchange(tail, next, Ordering::Release, Ordering::Relaxed)
+                        .ok();
                 }
             }
         }
@@ -95,7 +93,7 @@ impl<T> LockFreeQueue<T> {
             let tail = self.tail.load(Ordering::Acquire);
             let head_ref = unsafe { &*head };
             let next = head_ref.next.load(Ordering::Acquire);
-            
+
             // 检查头指针是否仍然有效
             if head == self.head.load(Ordering::Acquire) {
                 if head == tail {
@@ -104,28 +102,24 @@ impl<T> LockFreeQueue<T> {
                         return Err(QueueError::Empty);
                     }
                     // 尾指针落后，帮助推进
-                    self.tail.compare_exchange(
-                        tail,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                    ).ok();
+                    self.tail
+                        .compare_exchange(tail, next, Ordering::Release, Ordering::Relaxed)
+                        .ok();
                 } else {
                     // 尝试取出数据
                     let data = unsafe { (*next).data.take().ok_or(QueueError::Corrupted)? };
-                    
+
                     // 尝试更新头指针
-                    if self.head.compare_exchange_weak(
-                        head,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                    ).is_ok() {
+                    if self
+                        .head
+                        .compare_exchange_weak(head, next, Ordering::Release, Ordering::Relaxed)
+                        .is_ok()
+                    {
                         // 成功更新，释放旧头节点
                         unsafe {
                             let _ = Box::from_raw(head);
                         }
-                        
+
                         self.size.fetch_sub(1, Ordering::Relaxed);
                         return Ok(data);
                     }
@@ -155,7 +149,7 @@ impl<T> LockFreeQueue<T> {
 
     /// 清空队列
     pub fn clear(&self) {
-        while let Ok(_) = self.pop() {
+        while self.pop().is_ok() {
             // 继续弹出直到队列为空
         }
     }
@@ -171,7 +165,7 @@ impl<T> Drop for LockFreeQueue<T> {
     fn drop(&mut self) {
         // 清空队列
         self.clear();
-        
+
         // 释放哑节点
         let head = self.head.load(Ordering::Relaxed);
         if !head.is_null() {
@@ -233,7 +227,9 @@ impl<T> BoundedLockFreeQueue<T> {
         if self.len() >= self.capacity {
             return Err(BoundedQueueError::Full);
         }
-        self.queue.push(data).map_err(|_| BoundedQueueError::Corrupted)
+        self.queue
+            .push(data)
+            .map_err(|_| BoundedQueueError::Corrupted)
     }
 
     /// 出队操作
@@ -354,6 +350,12 @@ impl<T> MpmcQueue<T> {
     }
 }
 
+impl<T> Default for MpmcQueue<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 生产者句柄
 pub struct Producer<T> {
     queue: Arc<LockFreeQueue<T>>,
@@ -415,8 +417,6 @@ impl<T> Drop for Consumer<T> {
         self.active = false;
     }
 }
-
-
 
 /// 工作窃取队列
 pub struct WorkStealingQueue<T> {
@@ -553,10 +553,10 @@ impl<T> InstrumentedLockFreeQueue<T> {
     /// 入队操作
     pub fn push(&self, data: T) -> Result<(), QueueError> {
         let result = self.queue.push(data);
-        
+
         if result.is_ok() {
             self.stats.push_count.fetch_add(1, Ordering::Relaxed);
-            
+
             // 更新最大大小
             let current_size = self.queue.len();
             let max_size = self.stats.max_size.load(Ordering::Relaxed);
@@ -564,14 +564,14 @@ impl<T> InstrumentedLockFreeQueue<T> {
                 self.stats.max_size.store(current_size, Ordering::Relaxed);
             }
         }
-        
+
         result
     }
 
     /// 出队操作
     pub fn pop(&self) -> Result<T, QueueError> {
         let result = self.queue.pop();
-        
+
         match &result {
             Ok(_) => {
                 self.stats.pop_count.fetch_add(1, Ordering::Relaxed);
@@ -581,7 +581,7 @@ impl<T> InstrumentedLockFreeQueue<T> {
             }
             _ => {}
         }
-        
+
         result
     }
 
@@ -626,25 +626,25 @@ mod tests {
     #[test]
     fn test_basic_queue() {
         let queue = LockFreeQueue::new();
-        
+
         // 测试空队列
         assert!(queue.is_empty());
         assert_eq!(queue.len(), 0);
         assert!(queue.try_pop().is_none());
-        
+
         // 测试入队
-        queue.push(1).unwrap();
-        queue.push(2).unwrap();
-        queue.push(3).unwrap();
-        
+        queue.push(1).expect("queue push should succeed");
+        queue.push(2).expect("queue push should succeed");
+        queue.push(3).expect("queue push should succeed");
+
         assert!(!queue.is_empty());
         assert_eq!(queue.len(), 3);
-        
+
         // 测试出队
-        assert_eq!(queue.pop().unwrap(), 1);
-        assert_eq!(queue.pop().unwrap(), 2);
-        assert_eq!(queue.pop().unwrap(), 3);
-        
+        assert_eq!(queue.pop().expect("queue should have element"), 1);
+        assert_eq!(queue.pop().expect("queue should have element"), 2);
+        assert_eq!(queue.pop().expect("queue should have element"), 3);
+
         assert!(queue.is_empty());
         assert_eq!(queue.len(), 0);
     }
@@ -652,25 +652,25 @@ mod tests {
     #[test]
     fn test_bounded_queue() {
         let queue = BoundedLockFreeQueue::new(2);
-        
+
         // 测试空队列
         assert!(queue.is_empty());
         assert!(!queue.is_full());
-        
+
         // 测试入队
-        queue.push(1).unwrap();
-        queue.push(2).unwrap();
-        
+        queue.push(1).expect("queue push should succeed");
+        queue.push(2).expect("queue push should succeed");
+
         assert!(!queue.is_empty());
         assert!(queue.is_full());
-        
+
         // 测试队列已满
         assert!(queue.push(3).is_err());
-        
+
         // 测试出队
-        assert_eq!(queue.pop().unwrap(), 1);
-        assert_eq!(queue.pop().unwrap(), 2);
-        
+        assert_eq!(queue.pop().expect("queue should have element"), 1);
+        assert_eq!(queue.pop().expect("queue should have element"), 2);
+
         assert!(queue.is_empty());
         assert!(!queue.is_full());
     }
@@ -678,45 +678,45 @@ mod tests {
     #[test]
     fn test_mpmc_queue() {
         let queue = MpmcQueue::new();
-        
+
         // 创建生产者和消费者
         let producer = queue.create_producer();
         let consumer = queue.create_consumer();
-        
+
         // 测试生产者
-        producer.push(1).unwrap();
-        producer.push(2).unwrap();
-        
+        producer.push(1).expect("producer push should succeed");
+        producer.push(2).expect("producer push should succeed");
+
         // 测试消费者
-        assert_eq!(consumer.pop().unwrap(), 1);
-        assert_eq!(consumer.pop().unwrap(), 2);
-        
+        assert_eq!(consumer.pop().expect("consumer pop should succeed"), 1);
+        assert_eq!(consumer.pop().expect("consumer pop should succeed"), 2);
+
         assert!(consumer.try_pop().is_none());
     }
 
     #[test]
     fn test_concurrent_queue() {
         let queue = Arc::new(LockFreeQueue::new());
-        
+
         let mut producer_handles = Vec::new();
         let mut consumer_handles = Vec::new();
-        
+
         // 生产者线程
         for i in 0..4 {
             let queue = queue.clone();
             let handle = thread::spawn(move || {
                 for j in 0..100 {
-                    queue.push(i * 100 + j).unwrap();
+                    queue.push(i * 100 + j).expect("queue push should succeed");
                 }
             });
             producer_handles.push(handle);
         }
-        
+
         // 等待所有生产者线程完成
         for handle in producer_handles {
-            handle.join().unwrap();
+            handle.join().expect("producer thread should not panic");
         }
-        
+
         // 消费者线程
         let mut results = Vec::new();
         for _ in 0..4 {
@@ -732,13 +732,13 @@ mod tests {
             });
             consumer_handles.push(handle);
         }
-        
+
         // 收集所有消费者线程的结果
         for handle in consumer_handles {
-            let thread_results = handle.join().unwrap();
+            let thread_results = handle.join().expect("consumer thread should not panic");
             results.extend(thread_results);
         }
-        
+
         // 验证结果
         assert_eq!(results.len(), 400);
     }
@@ -746,17 +746,17 @@ mod tests {
     #[test]
     fn test_instrumented_queue() {
         let queue = InstrumentedLockFreeQueue::new();
-        
+
         // 执行一些操作
-        queue.push(1).unwrap();
-        queue.push(2).unwrap();
-        queue.pop().unwrap();
-        queue.try_pop();
-        
+        queue.push(1).expect("queue push should succeed");
+        queue.push(2).expect("queue push should succeed");
+        queue.pop().expect("queue should have element");
+        queue.try_pop(); // 队列中还有1个元素，所以这会成功
+
         // 检查统计信息
         let stats = queue.get_stats();
         assert_eq!(stats.push_count, 2);
-        assert_eq!(stats.pop_count, 1);
+        assert_eq!(stats.pop_count, 2); // pop() 和 try_pop() 都成功了
         assert_eq!(stats.max_size, 2);
     }
 
@@ -764,23 +764,47 @@ mod tests {
     fn test_work_stealing_queue() {
         let shared = Arc::new(LockFreeQueue::new());
         let worker_queue = WorkStealingQueue::new(shared.clone(), 0);
-        
+
         // 添加任务到共享队列
-        shared.push(1).unwrap();
-        shared.push(2).unwrap();
-        
+        shared.push(1).expect("shared queue push should succeed");
+        shared.push(2).expect("shared queue push should succeed");
+
         // 添加任务到本地队列
-        worker_queue.push_local(3).unwrap();
-        worker_queue.push_local(4).unwrap();
-        
+        worker_queue
+            .push_local(3)
+            .expect("local queue push should succeed");
+        worker_queue
+            .push_local(4)
+            .expect("local queue push should succeed");
+
         // 测试本地弹出
-        assert_eq!(worker_queue.pop_local().unwrap(), 3);
-        assert_eq!(worker_queue.pop_local().unwrap(), 4);
-        
+        assert_eq!(
+            worker_queue
+                .pop_local()
+                .expect("local queue should have element"),
+            3
+        );
+        assert_eq!(
+            worker_queue
+                .pop_local()
+                .expect("local queue should have element"),
+            4
+        );
+
         // 测试共享弹出
-        assert_eq!(worker_queue.pop_shared().unwrap(), 1);
-        assert_eq!(worker_queue.pop_shared().unwrap(), 2);
-        
+        assert_eq!(
+            worker_queue
+                .pop_shared()
+                .expect("shared queue should have element"),
+            1
+        );
+        assert_eq!(
+            worker_queue
+                .pop_shared()
+                .expect("shared queue should have element"),
+            2
+        );
+
         assert!(!worker_queue.has_work());
     }
 }

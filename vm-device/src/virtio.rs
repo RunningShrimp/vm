@@ -67,10 +67,10 @@ impl Queue {
 
         for i in 0..available_count {
             let ring_offset = ((self.last_avail_idx.wrapping_add(i as u16) % self.size) as u64) * 2;
-            if let Ok(desc_index) = mmu.read_u16(ring_addr + ring_offset) {
-                if let Ok(chain) = DescChain::try_new(mmu, self.desc_addr, desc_index) {
-                    chains.push(chain);
-                }
+            if let Ok(desc_index) = mmu.read_u16(ring_addr + ring_offset)
+                && let Ok(chain) = DescChain::try_new(mmu, self.desc_addr, desc_index)
+            {
+                chains.push(chain);
             }
         }
 

@@ -4,31 +4,49 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-vm-core = { path = "../vm-core" }
+vm-core = { path = "../vm-core", features = ["std"] }
 vm-ir = { path = "../vm-ir" }
 vm-engine-interpreter = { path = "../vm-engine-interpreter" }
-vm-engine-jit = { path = "../vm-engine-jit" }
 vm-mem = { path = "../vm-mem" }
-vm-device = { path = "../vm-device", features = ["async-io"] }
-vm-frontend-riscv64 = { path = "../vm-frontend-riscv64" }
-vm-frontend-x86_64 = { path = "../vm-frontend-x86_64" }
-vm-frontend-arm64 = { path = "../vm-frontend-arm64" }
-vm-accel = { path = "../vm-accel" }
-vm-osal = { path = "../vm-osal" }
+vm-device = { path = "../vm-device", optional = true }
+vm-frontend = { path = "../vm-frontend", optional = true }
 vm-runtime = { path = "../vm-runtime" }
-log = "0.4"
-tokio = { version = "1", features = ["full"] }
-anyhow = "1.0"
-thiserror = "2"
-uuid = { version = "1.19", features = ["v4"] }
+log = { workspace = true }
+# vm-service uses: sync (types in API), rt-multi-thread (tokio::spawn), time (sleep, Duration)
+tokio = { workspace = true, features = ["sync", "rt-multi-thread", "time"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 tracing = "0.1"
-parking_lot = "0.12.5"
+parking_lot = { workspace = true }
 bincode = { version = "2.0", features = ["serde"] }
 
+# Optional dependencies for JIT and device support
+vm-engine-jit = { path = "../vm-engine-jit", optional = true }
+vm-accel = { path = "../vm-accel", optional = true }
+vm-smmu = { path = "../vm-smmu", optional = true }
+
 [features]
-default = []
-async = ["vm-core/async", "vm-mem/async"]
-no_std = []
+default = ["std", "devices", "performance"]
+std = []
+
+# Performance features (merged: jit, async, frontend)
+performance = ["std", "vm-core/async", "vm-mem/async", "vm-engine-jit", "vm-frontend"]
+
+# Device support (CLINT, PLIC, virtio devices)
+devices = ["vm-device"]
+
+# Frontend decoder support (all architectures)
+frontend = ["vm-frontend"]
+all-arch = ["frontend", "vm-frontend/all"]
+
+# Legacy feature aliases (deprecated, use "performance" instead)
+async = ["performance"]
+jit = ["performance"]
+
+# Hardware acceleration (CPU virtualization, SMMU, etc.)
+accel = ["vm-accel"]
+smmu = ["vm-accel/smmu", "devices", "vm-device/smmu", "vm-smmu"]
 
 [dev-dependencies]
 vm-mem = { path = "../vm-mem" }

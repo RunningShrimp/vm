@@ -19,7 +19,8 @@
 
 use std::collections::HashMap;
 use vm_core::{
-    ExecResult, ExecStats, ExecStatus, ExecutionEngine, GuestAddr, MMU, SyscallResult, VmError, VmResult,
+    ExecResult, ExecStats, ExecStatus, ExecutionEngine, GuestAddr, MMU, SyscallResult, VmError,
+    VmResult,
 };
 use vm_ir::{AtomicOp, IRBlock, IROp, Terminator};
 use vm_simd::{
@@ -36,6 +37,8 @@ pub mod async_executor;
 pub mod async_executor_integration;
 /// 异步中断处理模块
 pub mod async_interrupt_handler;
+/// 热路径优化模块
+pub mod hotpath_optimizer;
 
 /// 块缓存配置
 pub const BLOCK_CACHE_SIZE: usize = 256;
@@ -298,12 +301,18 @@ impl Default for BlockCache {
     }
 }
 
+/// 中断处理器类型别名 - 简化复杂类型定义
+type InterruptHandler =
+    Box<dyn Fn(InterruptCtx, &mut Interpreter) -> ExecInterruptAction + Send + Sync>;
+/// 扩展中断处理器类型别名 - 简化复杂类型定义
+type InterruptHandlerExt =
+    Box<dyn Fn(InterruptCtxExt, &mut Interpreter) -> ExecInterruptAction + Send + Sync>;
+
 pub struct Interpreter {
     regs: [u64; 32],
     pc: GuestAddr,
-    intr_handler: Option<Box<dyn Fn(InterruptCtx, &mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
-    intr_handler_ext:
-        Option<Box<dyn Fn(InterruptCtxExt, &mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
+    intr_handler: Option<InterruptHandler>,
+    intr_handler_ext: Option<InterruptHandlerExt>,
     pub fence_acquire_count: u64,
     pub fence_release_count: u64,
     pub intr_mask_until: u32,
@@ -384,7 +393,15 @@ impl Interpreter {
             csr_scause: 0,
         }
     }
+}
 
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Interpreter {
     /// 创建带块缓存的解释器
     pub fn with_block_cache(cache_size: usize) -> Self {
         Self {
@@ -612,7 +629,7 @@ impl Interpreter {
                     pc: self.pc.0,
                     sp: self.regs[2],
                     fp: self.regs[3],
-                    gpr: self.regs.clone(),
+                    gpr: self.regs,
                 },
                 memory: Vec::new(), // Memory is not tracked here
                 pc: self.pc,
@@ -622,7 +639,7 @@ impl Interpreter {
     }
 
     pub fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
-        self.regs = state.state.regs.gpr.clone();
+        self.regs = state.state.regs.gpr;
         self.pc = state.state.pc;
     }
 }
@@ -662,7 +679,7 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     pc: self.pc.0,
                     sp: self.regs[2],
                     fp: self.regs[3],
-                    gpr: self.regs.clone(),
+                    gpr: self.regs,
                 },
                 memory: Vec::new(), // Memory is not tracked here
                 pc: self.pc,
@@ -672,7 +689,7 @@ impl ExecutionEngine<IRBlock> for Interpreter {
     }
 
     fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
-        self.regs = state.state.regs.gpr.clone();
+        self.regs = state.state.regs.gpr;
         self.pc = state.state.pc;
     }
 
@@ -709,12 +726,10 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         } else {
                             (s1 as i64).wrapping_div(s2 as i64) as u64
                         }
+                    } else if s2 == 0 {
+                        u64::MAX
                     } else {
-                        if s2 == 0 {
-                            u64::MAX
-                        } else {
-                            s1.wrapping_div(s2)
-                        }
+                        s1.wrapping_div(s2)
                     };
                     self.set_reg(*dst, v);
                     count += 1;
@@ -733,8 +748,10 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         } else {
                             (s1 as i64).wrapping_rem(s2 as i64) as u64
                         }
+                    } else if s2 == 0 {
+                        s1
                     } else {
-                        if s2 == 0 { s1 } else { s1.wrapping_rem(s2) }
+                        s1.wrapping_rem(s2)
                     };
                     self.set_reg(*dst, v);
                     count += 1;
@@ -858,19 +875,23 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     flags,
                 } => {
                     let va = self.get_reg(*base).wrapping_add(*offset as u64);
-                    if flags.align != 0 && (va % flags.align as u64 != 0) {
+                    if flags.align != 0 && !va.is_multiple_of(flags.align as u64) {
                         return make_result(
-                        ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
-                        count,
-                        block.start_pc,
-                    );
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
+                            count,
+                            block.start_pc,
+                        );
                     }
                     if flags.atomic && !(matches!(size, 1 | 2 | 4 | 8) && flags.align == *size) {
                         return make_result(
-                        ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
-                        count,
-                        block.start_pc,
-                    );
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
+                            count,
+                            block.start_pc,
+                        );
                     }
                     match flags.order {
                         vm_ir::MemOrder::Acquire => {
@@ -890,16 +911,28 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let pa = match mmu.translate(GuestAddr(va), vm_core::AccessType::Read) {
                         Ok(p) => p,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
-                    match mmu.read(pa.into(), *size as u8) {
+                    match mmu.read(pa.into(), *size) {
                         Ok(v_bytes) => {
                             let v = v_bytes;
                             self.set_reg(*dst, v);
                         }
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     }
                     count += 1;
@@ -912,19 +945,23 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     flags,
                 } => {
                     let va = self.get_reg(*base).wrapping_add(*offset as u64);
-                    if flags.align != 0 && (va % flags.align as u64 != 0) {
+                    if flags.align != 0 && !va.is_multiple_of(flags.align as u64) {
                         return make_result(
-                        ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
-                        count,
-                        block.start_pc,
-                    );
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
+                            count,
+                            block.start_pc,
+                        );
                     }
                     if flags.atomic && !(matches!(size, 1 | 2 | 4 | 8) && flags.align == *size) {
                         return make_result(
-                        ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
-                        count,
-                        block.start_pc,
-                    );
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
+                            count,
+                            block.start_pc,
+                        );
                     }
                     match flags.order {
                         vm_ir::MemOrder::Release => {
@@ -942,14 +979,26 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let pa = match mmu.translate(GuestAddr(va), vm_core::AccessType::Write) {
                         Ok(p) => p,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
                     let new_val = self.get_reg(*src);
-                    match mmu.write(pa.into(), new_val, *size as u8) {
+                    match mmu.write(pa.into(), new_val, *size) {
                         Ok(()) => {}
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     }
                     count += 1;
@@ -982,10 +1031,12 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         }
                         SyscallResult::Exit(_) => {
                             return make_result(
-                        ExecStatus::Fault(vm_core::ExecutionError::Halted { reason: "shutdown".to_string() }),
-                        count,
-                        block.start_pc,
-                    );
+                                ExecStatus::Fault(vm_core::ExecutionError::Halted {
+                                    reason: "shutdown".to_string(),
+                                }),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     }
                 }
@@ -1042,7 +1093,7 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let a = self.get_reg(*src1);
                     let b = self.get_reg(*src2);
                     let es = *element_size as u64;
-                    let lane_bits = (es * 8) as u64;
+                    let lane_bits = es * 8;
                     let lanes = 64 / lane_bits;
                     let mut acc = 0u64;
                     for i in 0..lanes {
@@ -1051,8 +1102,8 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         let av = (a >> shift) & mask;
                         let bv = (b >> shift) & mask;
                         let rv = if *signed {
-                            let max = ((1i128 << (lane_bits - 1)) - 1) as i128;
-                            let min = (-(1i128 << (lane_bits - 1))) as i128;
+                            let max = (1i128 << (lane_bits - 1)) - 1;
+                            let min = -(1i128 << (lane_bits - 1));
                             let sa = sign_extend(av, lane_bits) as i128;
                             let sb = sign_extend(bv, lane_bits) as i128;
                             let prod = sa * sb;
@@ -1065,7 +1116,7 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                             };
                             (clamped as i128 as u128 as u64) & mask
                         } else {
-                            let max = ((1u128 << lane_bits) - 1) as u128;
+                            let max = (1u128 << lane_bits) - 1;
                             let prod = (av as u128) * (bv as u128);
                             let clamped = if prod > max { max } else { prod };
                             (clamped as u64) & mask
@@ -1090,17 +1141,17 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let b =
                         ((self.get_reg(*src2_hi) as u128) << 64) | (self.get_reg(*src2_lo) as u128);
                     let es = *element_size as u64;
-                    let lane_bits = (es * 8) as u64;
+                    let lane_bits = es * 8;
                     let lanes = (128 / lane_bits) as usize;
                     let mut acc: u128 = 0;
                     for i in 0..lanes {
                         let shift = i * lane_bits as usize;
-                        let mask = ((1u128 << lane_bits) - 1) as u128;
+                        let mask = (1u128 << lane_bits) - 1;
                         let av = (a >> shift) & mask;
                         let bv = (b >> shift) & mask;
                         let rv = if *signed {
-                            let max = ((1i128 << (lane_bits - 1)) - 1) as i128;
-                            let min = (-(1i128 << (lane_bits - 1))) as i128;
+                            let max = (1i128 << (lane_bits - 1)) - 1;
+                            let min = -(1i128 << (lane_bits - 1));
                             let sa = ((av << (128 - lane_bits)) as i128) >> (128 - lane_bits);
                             let sb = ((bv << (128 - lane_bits)) as i128) >> (128 - lane_bits);
                             let sum = sa + sb;
@@ -1110,10 +1161,10 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                                 min
                             } else {
                                 sum
-                            } as i128;
-                            (clamped as i128 as u128) & mask
+                            };
+                            (clamped as u128) & mask
                         } else {
-                            let max = ((1u128 << lane_bits) - 1) as u128;
+                            let max = (1u128 << lane_bits) - 1;
                             let sum = av + bv;
                             let clamped = if sum > max { max } else { sum };
                             clamped & mask
@@ -1137,26 +1188,49 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let pa_r = match mmu.translate(GuestAddr(va), vm_core::AccessType::Read) {
                         Ok(p) => p,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
-                    let old = match mmu.read(pa_r.into(), *size as u8) {
+                    let old = match mmu.read(pa_r.into(), *size) {
                         Ok(v) => v,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
-                    let old = old;
                     if old == self.get_reg(*expected) {
                         let pa_w = match mmu.translate(GuestAddr(va), vm_core::AccessType::Write) {
                             Ok(p) => p,
                             Err(_) => {
-                                return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                                return make_result(
+                                    ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                        vm_core::Fault::GeneralProtection,
+                                    )),
+                                    count,
+                                    block.start_pc,
+                                );
                             }
                         };
                         let new_val = self.get_reg(*new);
-                        if let Err(_) = mmu.write(pa_w.into(), new_val, *size as u8) {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                        if mmu.write(pa_w.into(), new_val, *size).is_err() {
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     }
                     self.set_reg(*dst, old);
@@ -1181,13 +1255,25 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let pa_r = match mmu.translate(GuestAddr(va), vm_core::AccessType::Read) {
                         Ok(p) => p,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
-                    let old_bytes = match mmu.read(pa_r.into(), *size as u8) {
+                    let old_bytes = match mmu.read(pa_r.into(), *size) {
                         Ok(v) => v,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
                     let old = old_bytes;
@@ -1195,12 +1281,24 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         let pa_w = match mmu.translate(GuestAddr(va), vm_core::AccessType::Write) {
                             Ok(p) => p,
                             Err(_) => {
-                                return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                                return make_result(
+                                    ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                        vm_core::Fault::GeneralProtection,
+                                    )),
+                                    count,
+                                    block.start_pc,
+                                );
                             }
                         };
                         let new_val = self.get_reg(*new);
-                        if let Err(_) = mmu.write(pa_w.into(), new_val, *size as u8) {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                        if mmu.write(pa_w.into(), new_val, *size).is_err() {
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                         if matches!(flags.order, vm_ir::MemOrder::Release)
                             || matches!(flags.order, vm_ir::MemOrder::AcqRel)
@@ -1228,13 +1326,25 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let pa_r = match mmu.translate(GuestAddr(va), vm_core::AccessType::Read) {
                         Ok(p) => p,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
-                    let old_bytes = match mmu.read(pa_r.into(), *size as u8) {
+                    let old_bytes = match mmu.read(pa_r.into(), *size) {
                         Ok(v) => v,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
                     let old = old_bytes;
@@ -1243,12 +1353,24 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         let pa_w = match mmu.translate(GuestAddr(va), vm_core::AccessType::Write) {
                             Ok(p) => p,
                             Err(_) => {
-                                return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                                return make_result(
+                                    ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                        vm_core::Fault::GeneralProtection,
+                                    )),
+                                    count,
+                                    block.start_pc,
+                                );
                             }
                         };
                         let new_val = self.get_reg(*new);
-                        if let Err(_) = mmu.write(pa_w.into(), new_val, *size as u8) {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                        if mmu.write(pa_w.into(), new_val, *size).is_err() {
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                         success = 1;
                     }
@@ -1270,7 +1392,13 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let val = match mmu.load_reserved(GuestAddr(va), *size) {
                         Ok(v) => v,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
                     self.set_reg(*dst, val);
@@ -1288,10 +1416,19 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     if matches!(flags.order, vm_ir::MemOrder::Release) {
                         self.fence_release_count += 1;
                     }
-                    let success = match mmu.store_conditional(GuestAddr(va), self.get_reg(*src), *size) {
-                        Ok(s) => s,
-                        Err(_) => return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc),
-                    };
+                    let success =
+                        match mmu.store_conditional(GuestAddr(va), self.get_reg(*src), *size) {
+                            Ok(s) => s,
+                            Err(_) => {
+                                return make_result(
+                                    ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                        vm_core::Fault::GeneralProtection,
+                                    )),
+                                    count,
+                                    block.start_pc,
+                                );
+                            }
+                        };
                     self.set_reg(*dst_flag, if success { 0 } else { 1 });
                     count += 1;
                 }
@@ -1307,13 +1444,25 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let pa_r = match mmu.translate(GuestAddr(va), vm_core::AccessType::Read) {
                         Ok(p) => p,
                         Err(_e) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
-                    let old_bytes = match mmu.read(pa_r.into(), *size as u8) {
+                    let old_bytes = match mmu.read(pa_r.into(), *size) {
                         Ok(v) => v,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
                     let old = old_bytes;
@@ -1326,14 +1475,14 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         vm_ir::AtomicOp::MinS => {
                             let bits = (*size as u64) * 8;
                             let a = sign_extend(old, bits) as i64;
-                            let b = sign_extend(self.get_reg(*src), bits) as i64;
+                            let b = sign_extend(self.get_reg(*src), bits);
                             let r = if a < b { a } else { b } as i64;
                             (r as i64 as u64) & (((1u128 << bits) - 1) as u64)
                         }
                         vm_ir::AtomicOp::MaxS => {
                             let bits = (*size as u64) * 8;
                             let a = sign_extend(old, bits) as i64;
-                            let b = sign_extend(self.get_reg(*src), bits) as i64;
+                            let b = sign_extend(self.get_reg(*src), bits);
                             let r = if a > b { a } else { b } as i64;
                             (r as i64 as u64) & (((1u128 << bits) - 1) as u64)
                         }
@@ -1342,12 +1491,26 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     let pa_w = match mmu.translate(GuestAddr(va), vm_core::AccessType::Write) {
                         Ok(p) => p,
                         Err(_) => {
-                            return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                count,
+                                block.start_pc,
+                            );
                         }
                     };
-                    let newv_bytes = (0..*size).map(|i| (newv >> (i * 8)) as u8).collect::<Vec<_>>();
-                    if let Err(_) = mmu.write_bulk(pa_w.into(), &newv_bytes) {
-                        return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), count, block.start_pc);
+                    let newv_bytes = (0..*size)
+                        .map(|i| (newv >> (i * 8)) as u8)
+                        .collect::<Vec<_>>();
+                    if mmu.write_bulk(pa_w.into(), &newv_bytes).is_err() {
+                        return make_result(
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
+                            count,
+                            block.start_pc,
+                        );
                     }
                     self.set_reg(*dst_old, old);
                     self.set_reg(*dst_flag, 1);
@@ -1518,9 +1681,17 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                 } => {
                     let addr = self.get_reg(*base);
                     let val = self.get_reg(*src);
-                    let current = match mmu.read(GuestAddr(addr), *size as u8) {
+                    let current = match mmu.read(GuestAddr(addr), *size) {
                         Ok(v) => v,
-                        Err(_e) => return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), 0, block.start_pc),
+                        Err(_e) => {
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                0,
+                                block.start_pc,
+                            );
+                        }
                     };
                     let res = match op {
                         AtomicOp::Add => current.wrapping_add(val),
@@ -1534,14 +1705,14 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         AtomicOp::MinS => {
                             let bits = (*size as u64) * 8;
                             let a = sign_extend(current, bits) as i64;
-                            let b = sign_extend(val, bits) as i64;
+                            let b = sign_extend(val, bits);
                             let r = if a < b { a } else { b } as i64;
                             r as i64 as u64
                         }
                         AtomicOp::MaxS => {
                             let bits = (*size as u64) * 8;
                             let a = sign_extend(current, bits) as i64;
-                            let b = sign_extend(val, bits) as i64;
+                            let b = sign_extend(val, bits);
                             let r = if a > b { a } else { b } as i64;
                             r as i64 as u64
                         }
@@ -1553,9 +1724,17 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         (1u64 << (*size * 8)) - 1
                     };
                     let res = res & mask;
-                    let res_bytes = (0..*size).map(|i| (res >> (i * 8)) as u8).collect::<Vec<_>>();
-                    if let Err(_) = mmu.write_bulk(GuestAddr(addr), &res_bytes) {
-                        return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), 0, block.start_pc);
+                    let res_bytes = (0..*size)
+                        .map(|i| (res >> (i * 8)) as u8)
+                        .collect::<Vec<_>>();
+                    if mmu.write_bulk(GuestAddr(addr), &res_bytes).is_err() {
+                        return make_result(
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
+                            0,
+                            block.start_pc,
+                        );
                     }
                     self.set_reg(*dst, current);
                 }
@@ -1576,11 +1755,18 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                     {
                         self.fence_acquire_count += 1;
                     }
-                    let current = match mmu.read(GuestAddr(addr), *size as u8) {
+                    let current = match mmu.read(GuestAddr(addr), *size) {
                         Ok(v) => v,
-                        Err(_) => return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), 0, block.start_pc),
+                        Err(_) => {
+                            return make_result(
+                                ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                    vm_core::Fault::GeneralProtection,
+                                )),
+                                0,
+                                block.start_pc,
+                            );
+                        }
                     };
-                    let current = current;
                     let res = match op {
                         AtomicOp::Add => current.wrapping_add(val),
                         AtomicOp::Sub => current.wrapping_sub(val),
@@ -1593,14 +1779,14 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         AtomicOp::MinS => {
                             let bits = (*size as u64) * 8;
                             let a = sign_extend(current, bits) as i64;
-                            let b = sign_extend(val, bits) as i64;
+                            let b = sign_extend(val, bits);
                             let r = if a < b { a } else { b } as i64;
                             r as i64 as u64
                         }
                         AtomicOp::MaxS => {
                             let bits = (*size as u64) * 8;
                             let a = sign_extend(current, bits) as i64;
-                            let b = sign_extend(val, bits) as i64;
+                            let b = sign_extend(val, bits);
                             let r = if a > b { a } else { b } as i64;
                             r as i64 as u64
                         }
@@ -1612,9 +1798,17 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         (1u64 << (*size * 8)) - 1
                     };
                     let res = res & mask;
-                    let res_bytes = (0..*size).map(|i| (res >> (i * 8)) as u8).collect::<Vec<_>>();
-                    if let Err(_) = mmu.write_bulk(GuestAddr(addr), &res_bytes) {
-                        return make_result(ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)), 0, block.start_pc);
+                    let res_bytes = (0..*size)
+                        .map(|i| (res >> (i * 8)) as u8)
+                        .collect::<Vec<_>>();
+                    if mmu.write_bulk(GuestAddr(addr), &res_bytes).is_err() {
+                        return make_result(
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
+                            0,
+                            block.start_pc,
+                        );
                     }
                     if matches!(
                         flags.order,
@@ -1758,7 +1952,9 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         self.csr_scause = cause_code;
                         self.csr_sepc = block.start_pc.0;
                         return make_result(
-                            ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
                             count,
                             block.start_pc,
                         );
@@ -1766,7 +1962,9 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                         self.csr_mcause = cause_code;
                         self.csr_mepc = block.start_pc.0;
                         return make_result(
-                            ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
                             count,
                             block.start_pc,
                         );
@@ -1814,8 +2012,11 @@ impl ExecutionEngine<IRBlock> for Interpreter {
         }
         if self.intr_mask_until == 0 {
             let mtime = mmu.read(GuestAddr(0x02000000 + 0x0000bff8), 8).unwrap_or(0);
-            let mtimecmp0 = mmu.read(GuestAddr(0x02000000 + 0x00004000), 8).unwrap_or(u64::MAX);
-            let plic_pending = mmu.read(GuestAddr(0x0C000000 + 0x00001000), 4).unwrap_or(0) & 0xFFFFFFFF;
+            let mtimecmp0 = mmu
+                .read(GuestAddr(0x02000000 + 0x00004000), 8)
+                .unwrap_or(u64::MAX);
+            let plic_pending =
+                mmu.read(GuestAddr(0x0C000000 + 0x00001000), 4).unwrap_or(0) & 0xFFFFFFFF;
             const MSTATUS_MIE: u64 = 1 << 3;
             const MIP_MTIP: u64 = 1 << 7;
             const MIP_MEIP: u64 = 1 << 11;
@@ -1844,7 +2045,9 @@ impl ExecutionEngine<IRBlock> for Interpreter {
         // Compute next_pc based on terminator
         let next_pc = match &block.term {
             Terminator::Jmp { target } => *target,
-            Terminator::JmpReg { base, offset } => GuestAddr(self.get_reg(*base).wrapping_add(*offset as u64)),
+            Terminator::JmpReg { base, offset } => {
+                GuestAddr(self.get_reg(*base).wrapping_add(*offset as u64))
+            }
             Terminator::CondJmp {
                 cond,
                 target_true,
@@ -1864,8 +2067,6 @@ impl ExecutionEngine<IRBlock> for Interpreter {
         self.pc = next_pc;
         make_result(ExecStatus::Ok, count, next_pc)
     }
-
-
 }
 
 pub fn run_chain(
@@ -1907,7 +2108,9 @@ pub fn run_chain(
             }
             Terminator::Fault { cause: _ } => {
                 return make_result(
-                    ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
+                    ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                        vm_core::Fault::GeneralProtection,
+                    )),
                     total,
                     pc,
                 );
@@ -1937,27 +2140,29 @@ pub fn run_chain(
                 };
                 match action {
                     ExecInterruptAction::Continue => {
-                        pc = pc + 4;
+                        pc += 4;
                         continue;
                     }
                     ExecInterruptAction::InjectState => {
-                        pc = pc + 4;
+                        pc += 4;
                         continue;
                     }
                     ExecInterruptAction::Retry => {
                         continue;
                     }
                     ExecInterruptAction::Mask => {
-                        pc = pc + 4;
+                        pc += 4;
                         continue;
                     }
                     ExecInterruptAction::Deliver => {
-                        pc = pc + 4;
+                        pc += 4;
                         continue;
                     }
                     ExecInterruptAction::Abort => {
                         return make_result(
-                            ExecStatus::Fault(vm_core::ExecutionError::Fault(vm_core::Fault::GeneralProtection)),
+                            ExecStatus::Fault(vm_core::ExecutionError::Fault(
+                                vm_core::Fault::GeneralProtection,
+                            )),
                             total,
                             pc,
                         );
@@ -2098,9 +2303,9 @@ pub fn fast_load_add_store(
 ) -> Result<(), VmError> {
     let addr = GuestAddr(regs[base_reg as usize].wrapping_add(offset as u64));
     let val = mmu.read(addr, size)?;
-    
+
     let result = val.wrapping_add(regs[add_reg as usize]);
-    
+
     mmu.write(addr, result, size)
 }
 

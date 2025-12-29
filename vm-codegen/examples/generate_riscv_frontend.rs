@@ -1,8 +1,7 @@
 //! 使用前端代码生成器生成RISC-V前端代码的示例
 
 use vm_codegen::{
-    CodegenConfig, FrontendCodeGenerator, 
-    create_instruction_spec, create_instruction_set
+    CodegenConfig, FrontendCodeGenerator, create_instruction_set, create_instruction_spec,
 };
 
 fn main() {
@@ -16,7 +15,7 @@ fn main() {
             0x37,
             r#"let imm = ((insn & 0xfffff000) as i32) as i64;
                 let rd = ((insn >> 7) & 0x1f) as u32;
-                b.push(IROp::AddImm { dst: rd, src: 0, imm });"#
+                b.push(IROp::AddImm { dst: rd, src: 0, imm });"#,
         ),
         // ADDI
         create_instruction_spec(
@@ -27,7 +26,7 @@ fn main() {
             r#"let imm = ((insn as i32) >> 20) as i64;
                 let rs1 = ((insn >> 15) & 0x1f) as u32;
                 let rd = ((insn >> 7) & 0x1f) as u32;
-                b.push(IROp::AddImm { dst: rd, src: rs1, imm });"#
+                b.push(IROp::AddImm { dst: rd, src: rs1, imm });"#,
         ),
         // ADD/SUB/MUL/DIV等R-type指令
         create_instruction_spec(
@@ -57,7 +56,7 @@ fn main() {
                     (4, 0x00) => IROp::Xor { dst: rd, src1: rs1, src2: rs2 }, // XOR
                     _ => return Ok(false),
                 };
-                b.push(irop);"#
+                b.push(irop);"#,
         ),
         // LOAD指令
         create_instruction_spec(
@@ -87,7 +86,7 @@ fn main() {
                     offset: imm,
                     size,
                     flags: MemFlags::default()
-                });"#
+                });"#,
         ),
         // STORE指令
         create_instruction_spec(
@@ -115,7 +114,7 @@ fn main() {
                     offset: imm,
                     size,
                     flags: MemFlags::default()
-                });"#
+                });"#,
         ),
         // BRANCH指令
         create_instruction_spec(
@@ -185,7 +184,7 @@ fn main() {
                         });
                     }
                     _ => {}
-                }"#
+                }"#,
         ),
         // JAL
         create_instruction_spec(
@@ -203,7 +202,7 @@ fn main() {
                 let target = b.pc().wrapping_add(imm as u64);
 
                 b.push(IROp::MovImm { dst: rd, imm: b.pc() + 4 });
-                b.set_term(Terminator::Jmp { target });"#
+                b.set_term(Terminator::Jmp { target });"#,
         ),
         // SYSTEM指令 (ECALL/EBREAK)
         create_instruction_spec(
@@ -227,7 +226,7 @@ fn main() {
                         }
                     }
                     _ => {} // CSR instructions would go here
-                }"#
+                }"#,
         ),
     ];
 

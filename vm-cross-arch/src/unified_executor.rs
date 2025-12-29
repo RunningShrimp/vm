@@ -2,24 +2,25 @@
 //!
 //! 整合AOT、JIT、解释器，提供统一的跨架构执行接口
 
-use super::{
-    CacheConfig, CacheOptimizer, CachePolicy, CrossArchRuntime, CrossArchRuntimeConfig,
-};
+#[cfg(feature = "jit")]
+use super::{CrossArchRuntime, CrossArchRuntimeConfig};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use vm_core::{ExecResult, ExecutionEngine, GuestAddr, GuestArch, VmError};
 use vm_ir::IRBlock;
+
+#[cfg(feature = "memory")]
 use vm_mem::SoftMmu;
 
 // AOT加载器类型别名（避免直接依赖vm-engine-jit的内部模块）
+#[cfg(feature = "jit")]
 type AotLoader = vm_engine_jit::aot::AotLoader;
 
 /// JIT/AOT代码函数指针类型
 /// 参数：执行上下文指针
-/// 返回：执行结果
-pub type CodeFunction = extern "C" fn(*mut u8) -> Result<(), ()>;
+/// 返回：执行状态码 (0 = 成功, 非0 = 错误)
+pub type CodeFunction = extern "C" fn(*mut u8) -> u32;
 
 /// 原生执行上下文
 ///
@@ -76,8 +77,8 @@ unsafe impl Sync for ExecutableCode {}
 impl ExecutableCode {
     /// 从字节码创建可执行代码
     pub unsafe fn from_bytes(code: &[u8]) -> Result<Self, ()> {
-        let mut exec_mem = vm_engine_jit::executable_memory::ExecutableMemory::new(code.len())
-            .ok_or(())?;
+        let mut exec_mem =
+            vm_engine_jit::executable_memory::ExecutableMemory::new(code.len()).ok_or(())?;
         let slice = exec_mem.as_mut_slice();
         slice.copy_from_slice(code);
 
@@ -97,11 +98,23 @@ impl ExecutableCode {
     }
 
     /// 执行代码
-    pub unsafe fn execute(&self, context: *mut u8) -> Result<(), ()> {
-        (self.entry_point)(context)
+    pub unsafe fn execute(&self, context: *mut u8) -> Result<(), VmError> {
+        let status_code = (self.entry_point)(context);
+        if status_code == 0 {
+            Ok(())
+        } else {
+            Err(VmError::Core(vm_core::CoreError::Internal {
+                message: format!(
+                    "Native code execution failed with status code {}",
+                    status_code
+                ),
+                module: "UnifiedExecutor".to_string(),
+            }))
+        }
     }
 
     /// 获取代码指针
+    #[allow(dead_code)]
     pub fn as_ptr(&self) -> *const u8 {
         self.ptr
     }
@@ -193,13 +206,13 @@ impl UnifiedExecutor {
     /// 检查AOT缓存
     fn check_aot_cache(&self, pc: GuestAddr) -> Option<ExecutableCode> {
         // 首先检查AOT加载器（如果已加载镜像）
-        if let Some(ref loader) = self.aot_loader {
-            if let Some(block) = loader.lookup_block(pc) {
-                unsafe {
-                    let code_slice = std::slice::from_raw_parts(block.host_addr, block.size);
-                    if let Ok(exec_code) = ExecutableCode::from_bytes(code_slice) {
-                        return Some(exec_code);
-                    }
+        if let Some(ref loader) = self.aot_loader
+            && let Some(block) = loader.lookup_block(pc)
+        {
+            unsafe {
+                let code_slice = std::slice::from_raw_parts(block.host_addr, block.size);
+                if let Ok(exec_code) = ExecutableCode::from_bytes(code_slice) {
+                    return Some(exec_code);
                 }
             }
         }
@@ -245,10 +258,7 @@ impl UnifiedExecutor {
                         next_pc,
                     })
                 }
-                Err(()) => Err(VmError::Core(vm_core::CoreError::Internal {
-                    message: "AOT code execution failed".to_string(),
-                    module: "UnifiedExecutor".to_string(),
-                })),
+                Err(e) => Err(e),
             }
         }
     }
@@ -279,10 +289,7 @@ impl UnifiedExecutor {
                         next_pc,
                     })
                 }
-                Err(()) => Err(VmError::Core(vm_core::CoreError::Internal {
-                    message: "JIT code execution failed".to_string(),
-                    module: "UnifiedExecutor".to_string(),
-                })),
+                Err(e) => Err(e),
             }
         }
     }

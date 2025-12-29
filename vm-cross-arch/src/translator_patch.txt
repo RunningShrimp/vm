@@ -1,0 +1,12 @@
+--- a/vm-cross-arch/src/translator.rs
++++ b/vm-cross-arch/src/translator.rs
+@@ -7,6 +7,9 @@
+ use std::sync::Arc;
+ use std::sync::Mutex;
+ 
++// Import local types instead of vm_cross_arch_support
++use crate::register_mapping::RegisterMapper;
++use crate::optimized_register_allocator::OptimizedRegisterMapper;
++use vm_foundation::Architecture;
++
+ use crate::encoder::{ArchEncoder, Arm64Encoder, Riscv64Encoder, X86_64Encoder};

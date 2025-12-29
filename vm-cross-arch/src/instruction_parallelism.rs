@@ -2,9 +2,9 @@
 //!
 //! 识别可并行执行的指令，提高跨架构转换的效率
 
+use super::Architecture;
 use std::collections::HashSet;
 use vm_ir::{IROp, RegId};
-use super::Architecture;
 
 /// 指令依赖关系
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,7 +169,7 @@ impl InstructionParallelizer {
 
         // 将指令按并行组重组
         let mut optimized_ops = Vec::new();
-        
+
         // 按并行组顺序添加指令
         // 这里简化实现，实际应该考虑资源约束和指令调度
         for group in &self.parallel_groups {
@@ -179,12 +179,12 @@ impl InstructionParallelizer {
                 }
             }
         }
-        
+
         // 如果没有生成优化的指令，返回原始序列
         if optimized_ops.is_empty() {
             optimized_ops.extend_from_slice(ops);
         }
-        
+
         Ok(optimized_ops)
     }
 
@@ -231,21 +231,31 @@ impl InstructionParallelizer {
         let mut writes = Vec::new();
 
         match op {
-            IROp::Add { dst, src1, src2 } |
-            IROp::Sub { dst, src1, src2 } |
-            IROp::Mul { dst, src1, src2 } |
-            IROp::Div { dst, src1, src2, signed: _ } |
-            IROp::Rem { dst, src1, src2, signed: _ } |
-            IROp::And { dst, src1, src2 } |
-            IROp::Or { dst, src1, src2 } |
-            IROp::Xor { dst, src1, src2 } => {
+            IROp::Add { dst, src1, src2 }
+            | IROp::Sub { dst, src1, src2 }
+            | IROp::Mul { dst, src1, src2 }
+            | IROp::Div {
+                dst,
+                src1,
+                src2,
+                signed: _,
+            }
+            | IROp::Rem {
+                dst,
+                src1,
+                src2,
+                signed: _,
+            }
+            | IROp::And { dst, src1, src2 }
+            | IROp::Or { dst, src1, src2 }
+            | IROp::Xor { dst, src1, src2 } => {
                 reads.push(*src1);
                 reads.push(*src2);
                 writes.push(*dst);
             }
-            IROp::Sll { dst, src, shreg } |
-            IROp::Srl { dst, src, shreg } |
-            IROp::Sra { dst, src, shreg } => {
+            IROp::Sll { dst, src, shreg }
+            | IROp::Srl { dst, src, shreg }
+            | IROp::Sra { dst, src, shreg } => {
                 reads.push(*src);
                 reads.push(*shreg);
                 writes.push(*dst);
@@ -262,9 +272,8 @@ impl InstructionParallelizer {
             IROp::Mov { dst, src } => {
                 reads.push(*src);
                 writes.push(*dst);
-            },
+            }
             _ => {} // 处理所有其他未明确列出的 IROp 变体
-
         }
 
         (reads, writes)
@@ -273,27 +282,30 @@ impl InstructionParallelizer {
     /// 估算指令延迟
     fn estimate_instruction_latency(&self, op: &IROp) -> u32 {
         match op {
-            IROp::Add { .. } |
-            IROp::Sub { .. } |
-            IROp::And { .. } |
-            IROp::Or { .. } |
-            IROp::Xor { .. } |
-            IROp::Sll { .. } |
-            IROp::Srl { .. } |
-            IROp::Sra { .. } |
-            IROp::Mov { .. } => 1,
+            IROp::Add { .. }
+            | IROp::Sub { .. }
+            | IROp::And { .. }
+            | IROp::Or { .. }
+            | IROp::Xor { .. }
+            | IROp::Sll { .. }
+            | IROp::Srl { .. }
+            | IROp::Sra { .. }
+            | IROp::Mov { .. } => 1,
             IROp::Mul { .. } => 3,
-            IROp::Div { .. } |
-            IROp::Rem { .. } => 10,
+            IROp::Div { .. } | IROp::Rem { .. } => 10,
             IROp::Load { .. } => 3,
             IROp::Store { .. } => 2,
             IROp::MovImm { .. } => 1, // 替换Const
-            _ => 1, // 处理其他不存在的变体
+            _ => 1,                   // 处理其他不存在的变体
         }
     }
 
     /// 检查两个指令之间的依赖关系
-    fn check_dependency(&self, from: &InstructionNode, to: &InstructionNode) -> Option<DependencyEdge> {
+    fn check_dependency(
+        &self,
+        from: &InstructionNode,
+        to: &InstructionNode,
+    ) -> Option<DependencyEdge> {
         // 检查真依赖（RAW - Read After Write）
         for &write_reg in &from.writes {
             if to.reads.contains(&write_reg) {
@@ -385,7 +397,7 @@ impl InstructionParallelizer {
                 let idx = ready[0];
                 let node = &self.nodes[idx];
                 let node_resources = self.estimate_resource_requirements(&node.op);
-                
+
                 group.instructions.push(idx);
                 group.latency = node.latency;
                 self.add_resources(&mut current_resources, &node_resources);
@@ -401,14 +413,15 @@ impl InstructionParallelizer {
             for &idx in &instructions {
                 processed.insert(idx);
                 ready.retain(|&i| i != idx);
-                
+
                 // 添加新的就绪指令：所有前驱都已处理
                 for &succ_idx in &self.nodes[idx].successors {
                     if !processed.contains(&succ_idx) {
-                        let all_predecessors_processed = self.nodes[succ_idx].predecessors
+                        let all_predecessors_processed = self.nodes[succ_idx]
+                            .predecessors
                             .iter()
                             .all(|&pred_idx| processed.contains(&pred_idx));
-                        
+
                         if all_predecessors_processed && !ready.contains(&succ_idx) {
                             ready.push(succ_idx);
                         }
@@ -425,70 +438,53 @@ impl InstructionParallelizer {
     /// 估算指令的资源需求
     fn estimate_resource_requirements(&self, op: &IROp) -> ResourceRequirements {
         match op {
-            IROp::Add { .. } |
-            IROp::Sub { .. } |
-            IROp::And { .. } |
-            IROp::Or { .. } |
-            IROp::Xor { .. } |
-            IROp::Sll { .. } |
-            IROp::Srl { .. } |
-            IROp::Sra { .. } |
-            IROp::CmpEq { .. } |
-            IROp::CmpNe { .. } |
-            IROp::CmpLt { .. } |
-            IROp::CmpLtU { .. } |
-            IROp::CmpGe { .. } |
-            IROp::CmpGeU { .. } => {
-                ResourceRequirements {
-                    alu_units: 1,
-                    ..Default::default()
-                }
-            }
-            IROp::Mul { .. } => {
-                ResourceRequirements {
-                    alu_units: 1,
-                    ..Default::default()
-                }
-            }
-            IROp::Div { .. } |
-            IROp::Rem { .. } => {
-                ResourceRequirements {
-                    alu_units: 1,
-                    ..Default::default()
-                }
-            }
-            IROp::Load { .. } => {
-                ResourceRequirements {
-                    memory_ports: 1,
-                    ..Default::default()
-                }
-            }
-            IROp::Store { .. } => {
-                ResourceRequirements {
-                    memory_ports: 1,
-                    ..Default::default()
-                }
-            }
+            IROp::Add { .. }
+            | IROp::Sub { .. }
+            | IROp::And { .. }
+            | IROp::Or { .. }
+            | IROp::Xor { .. }
+            | IROp::Sll { .. }
+            | IROp::Srl { .. }
+            | IROp::Sra { .. }
+            | IROp::CmpEq { .. }
+            | IROp::CmpNe { .. }
+            | IROp::CmpLt { .. }
+            | IROp::CmpLtU { .. }
+            | IROp::CmpGe { .. }
+            | IROp::CmpGeU { .. } => ResourceRequirements {
+                alu_units: 1,
+                ..Default::default()
+            },
+            IROp::Mul { .. } => ResourceRequirements {
+                alu_units: 1,
+                ..Default::default()
+            },
+            IROp::Div { .. } | IROp::Rem { .. } => ResourceRequirements {
+                alu_units: 1,
+                ..Default::default()
+            },
+            IROp::Load { .. } => ResourceRequirements {
+                memory_ports: 1,
+                ..Default::default()
+            },
+            IROp::Store { .. } => ResourceRequirements {
+                memory_ports: 1,
+                ..Default::default()
+            },
 
-            IROp::Mov { .. } => {
-                ResourceRequirements {
-                    alu_units: 1,
-                    ..Default::default()
-                }
-            }
-            IROp::MovImm { .. } => {
-                ResourceRequirements {
-                    alu_units: 1,
-                    ..Default::default()
-                }
-            }
-            _ => {
-                ResourceRequirements {
-                    alu_units: 1,
-                    branch_units: 1,
-                    ..Default::default()
-                }
-            }
+            IROp::Mov { .. } => ResourceRequirements {
+                alu_units: 1,
+                ..Default::default()
+            },
+            IROp::MovImm { .. } => ResourceRequirements {
+                alu_units: 1,
+                ..Default::default()
+            },
+            _ => ResourceRequirements {
+                alu_units: 1,
+                branch_units: 1,
+                ..Default::default()
+            },
         }
     }
 
@@ -499,9 +495,12 @@ impl InstructionParallelizer {
         current_resources: &ResourceRequirements,
     ) -> bool {
         current_resources.alu_units + node_resources.alu_units <= self.target_resources.alu_units
-            && current_resources.memory_ports + node_resources.memory_ports <= self.target_resources.memory_ports
-            && current_resources.vector_units + node_resources.vector_units <= self.target_resources.vector_units
-            && current_resources.branch_units + node_resources.branch_units <= self.target_resources.branch_units
+            && current_resources.memory_ports + node_resources.memory_ports
+                <= self.target_resources.memory_ports
+            && current_resources.vector_units + node_resources.vector_units
+                <= self.target_resources.vector_units
+            && current_resources.branch_units + node_resources.branch_units
+                <= self.target_resources.branch_units
     }
 
     /// 添加资源需求
@@ -516,25 +515,25 @@ impl InstructionParallelizer {
     fn calculate_stats(&mut self) {
         let total_instructions = self.nodes.len();
         let parallel_groups = self.parallel_groups.len();
-        let parallel_instructions = self.nodes.iter()
-            .filter(|n| n.can_parallel)
-            .count();
-        
-        let max_parallelism = self.parallel_groups
+        let parallel_instructions = self.nodes.iter().filter(|n| n.can_parallel).count();
+
+        let max_parallelism = self
+            .parallel_groups
             .iter()
             .map(|g| g.instructions.len())
             .max()
             .unwrap_or(0);
-        
+
         let avg_parallelism = if parallel_groups > 0 {
             self.parallel_groups
                 .iter()
                 .map(|g| g.instructions.len())
-                .sum::<usize>() as f64 / parallel_groups as f64
+                .sum::<usize>() as f64
+                / parallel_groups as f64
         } else {
             0.0
         };
-        
+
         let parallelization_rate = if total_instructions > 0 {
             parallel_instructions as f64 / total_instructions as f64
         } else {
@@ -574,7 +573,7 @@ impl InstructionParallelizer {
     /// 重新调度指令以优化并行性
     pub fn reschedule_for_parallelism(&self, original_instructions: &[IROp]) -> Vec<IROp> {
         let mut rescheduled = Vec::with_capacity(original_instructions.len());
-        
+
         // 按并行组重新组织指令
         for group in &self.parallel_groups {
             for &idx in &group.instructions {
@@ -583,14 +582,14 @@ impl InstructionParallelizer {
                 }
             }
         }
-        
+
         // 添加未并行化的指令
         for node in &self.nodes {
             if !node.can_parallel {
                 rescheduled.push(node.op.clone());
             }
         }
-        
+
         rescheduled
     }
 }
@@ -608,30 +607,38 @@ mod tests {
             vector_units: 1,
             branch_units: 1,
         };
-        
+
         let mut parallelizer = InstructionParallelizer::new(target_resources);
-        
+
         // 创建测试指令序列
-        let mut builder = IRBuilder::new(0x1000);
-        builder.push(IROp::Const { dst: 0, value: 10 });
-        builder.push(IROp::Const { dst: 1, value: 20 });
-        builder.push(IROp::Add { dst: 2, src1: 0, src2: 1 });
-        builder.push(IROp::Const { dst: 3, value: 30 });
-        builder.push(IROp::Mul { dst: 4, src1: 2, src2: 3 });
+        let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
+        builder.push(IROp::MovImm { dst: 0, imm: 10 });
+        builder.push(IROp::MovImm { dst: 1, imm: 20 });
+        builder.push(IROp::Add {
+            dst: 2,
+            src1: 0,
+            src2: 1,
+        });
+        builder.push(IROp::MovImm { dst: 3, imm: 30 });
+        builder.push(IROp::Mul {
+            dst: 4,
+            src1: 2,
+            src2: 3,
+        });
         let instructions = builder.build().ops;
-        
+
         // 分析并行性
         let result = parallelizer.analyze_parallelism(&instructions);
         assert!(result.is_ok());
-        
+
         // 验证依赖关系
         let dependencies = parallelizer.get_dependencies();
         assert!(!dependencies.is_empty());
-        
+
         // 验证并行组
         let groups = parallelizer.get_parallel_groups();
         assert!(!groups.is_empty());
-        
+
         // 验证统计信息
         let stats = parallelizer.get_stats();
         assert_eq!(stats.total_instructions, 5);
@@ -647,27 +654,35 @@ mod tests {
             vector_units: 1,
             branch_units: 1,
         };
-        
+
         let mut parallelizer = InstructionParallelizer::new(target_resources);
-        
+
         // 创建测试指令序列
-        let mut builder = IRBuilder::new(0x1000);
-        builder.push(IROp::Const { dst: 0, value: 10 });
-        builder.push(IROp::Const { dst: 1, value: 20 });
-        builder.push(IROp::Add { dst: 2, src1: 0, src2: 1 });
-        builder.push(IROp::Const { dst: 3, value: 30 });
-        builder.push(IROp::Mul { dst: 4, src1: 2, src2: 3 });
+        let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
+        builder.push(IROp::MovImm { dst: 0, imm: 10 });
+        builder.push(IROp::MovImm { dst: 1, imm: 20 });
+        builder.push(IROp::Add {
+            dst: 2,
+            src1: 0,
+            src2: 1,
+        });
+        builder.push(IROp::MovImm { dst: 3, imm: 30 });
+        builder.push(IROp::Mul {
+            dst: 4,
+            src1: 2,
+            src2: 3,
+        });
         let instructions = builder.build().ops;
-        
+
         // 分析并行性
         let _ = parallelizer.analyze_parallelism(&instructions);
-        
+
         // 重新调度指令
         let rescheduled = parallelizer.reschedule_for_parallelism(&instructions);
-        
+
         // 验证指令数量不变
         assert_eq!(rescheduled.len(), instructions.len());
-        
+
         // 验证所有指令都存在
         for original_insn in &instructions {
             assert!(rescheduled.contains(original_insn));

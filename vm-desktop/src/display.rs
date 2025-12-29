@@ -97,18 +97,19 @@ impl FramebufferRenderer {
         // 1. 转换像素格式 (ARGB, RGB等)
         // 2. 处理字节序
         // 3. 编码为PNG/JPEG以高效传输
-        
+
         // 简单实现：假设输入为RGB格式
         let mut png_data = Vec::new();
         let cursor = Cursor::new(&mut png_data);
-        
+
         // 将原始数据转换为图像格式
         let img = image::ImageBuffer::from_raw(self.width, self.height, raw_data.to_vec())
             .ok_or("Failed to create image buffer".to_string())?;
-        
+
         // 编码为PNG
         let dyn_img = image::DynamicImage::ImageRgb8(img);
-        dyn_img.write_to(cursor, image::ImageFormat::Png)
+        dyn_img
+            .write_to(cursor, image::ImageFormat::Png)
             .map_err(|e| e.to_string())?;
 
         Ok(png_data)
@@ -141,38 +142,49 @@ impl TerminalEmulator {
     pub fn process_data(&mut self, data: &[u8]) -> Result<(), String> {
         // Convert data to string
         let text = String::from_utf8_lossy(data).to_string();
-        
+
         let mut result: Vec<String> = Vec::new();
         let mut i = 0;
-        
-        while i < text.len() {
-            if text.chars().nth(i) == Some('\x1b') {
+
+        // Convert to char iterator for efficient indexing
+        let chars: Vec<char> = text.chars().collect();
+
+        while i < chars.len() {
+            if chars[i] == '\x1b' {
                 // 检测到转义序列
-                if i + 1 < text.len() && text.chars().nth(i+1) == Some('[') {
+                if i + 1 < chars.len() && chars[i + 1] == '[' {
                     // CSI序列
-                    let seq_end = text[i..].find('m').unwrap_or(text.len());
-                    let seq = &text[i..i+seq_end];
-                    
-                    // 解析颜色代码
-                    if seq.contains("31m") {
-                        result.push("<span style=\"color:red\">".to_string());
-                    } else if seq.contains("32m") {
-                        result.push("<span style=\"color:green\">".to_string());
-                    } else if seq.contains("0m") {
-                        result.push("</span>".to_string());
+                    // Find the end of the sequence (look for 'm' character)
+                    let seq_end = chars[i..]
+                        .iter()
+                        .position(|&c| c == 'm')
+                        .map(|pos| i + pos)
+                        .unwrap_or(chars.len());
+
+                    if seq_end < chars.len() {
+                        let seq: String = chars[i..=seq_end].iter().collect();
+
+                        // 解析颜色代码
+                        if seq.contains("31m") {
+                            result.push("<span style=\"color:red\">".to_string());
+                        } else if seq.contains("32m") {
+                            result.push("<span style=\"color:green\">".to_string());
+                        } else if seq.contains("0m") {
+                            result.push("</span>".to_string());
+                        }
                     }
-                    
-                    i += seq_end;
+
+                    i = seq_end + 1;
                 } else {
-                    result.push(text.chars().nth(i).unwrap().to_string());
+                    result.push(chars[i].to_string());
                     i += 1;
                 }
             } else {
-                result.push(text.chars().nth(i).unwrap().to_string());
+                result.push(chars[i].to_string());
                 i += 1;
             }
         }
-        
+
         // Basic implementation: treat result as raw text and add to buffer
         for c in result.join("").chars() {
             let c_u8 = c as u8;

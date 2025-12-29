@@ -184,7 +184,8 @@ impl PluginLoader {
 
         // 更新统计
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write()
+                .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire stats lock: {}", e)))?;
             stats.total_loads += 1;
             stats.total_load_time_ns += start_time.elapsed().as_nanos() as u64;
         }
@@ -193,7 +194,8 @@ impl PluginLoader {
         if !path.exists() {
             let error = format!("Plugin file not found: {}", path.display());
             {
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.stats.write()
+                    .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire stats lock: {}", e)))?;
                 stats.failed_loads += 1;
             }
             return Err(LoadError::PluginNotFound(error));
@@ -214,11 +216,13 @@ impl PluginLoader {
 
         // 检查插件数量限制
         {
-            let libraries = self.loaded_libraries.read().unwrap();
+            let libraries = self.loaded_libraries.read()
+                .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire libraries lock: {}", e)))?;
             if libraries.len() >= self.config.max_plugins {
                 let error = format!("Maximum plugin limit {} reached", self.config.max_plugins);
                 {
-                    let mut stats = self.stats.write().unwrap();
+                    let mut stats = self.stats.write()
+                        .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire stats lock: {}", e)))?;
                     stats.failed_loads += 1;
                 }
                 return Err(LoadError::LibraryLoadError(error));
@@ -242,7 +246,8 @@ impl PluginLoader {
 
         // 更新统计
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write()
+                .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire stats lock: {}", e)))?;
             stats.successful_loads += 1;
             stats.loaded_plugins += 1;
             let plugin_type = metadata.plugin_type.to_string();
@@ -255,8 +260,10 @@ impl PluginLoader {
 
     /// 卸载插件
     pub async fn unload_plugin(&self, plugin_id: &PluginId) -> Result<(), LoadError> {
-        let mut libraries = self.loaded_libraries.write().unwrap();
-        let mut factories = self.factory_cache.write().unwrap();
+        let mut libraries = self.loaded_libraries.write()
+            .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire libraries lock: {}", e)))?;
+        let mut factories = self.factory_cache.write()
+            .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire factories lock: {}", e)))?;
         
         // 移除库
         if let Some(loaded_library) = libraries.remove(plugin_id) {
@@ -272,7 +279,8 @@ impl PluginLoader {
 
         // 更新加载器统计
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write()
+                .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire stats lock: {}", e)))?;
             stats.total_unloads += 1;
             stats.loaded_plugins = libraries.len();
         }
@@ -286,7 +294,8 @@ impl PluginLoader {
         plugin_id: &PluginId,
         context: &PluginContext,
     ) -> Result<Box<dyn Plugin>, LoadError> {
-        let factories = self.factory_cache.read().unwrap();
+        let factories = self.factory_cache.read()
+            .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire factories lock: {}", e)))?;
         
         if let Some(factory) = factories.get(plugin_id) {
             let config = self.create_plugin_config(context);
@@ -509,18 +518,24 @@ impl PluginLoader {
     }
 
     /// 获取加载统计信息
-    pub fn get_loader_stats(&self) -> LoaderStats {
-        self.stats.read().unwrap().clone()
+    pub fn get_loader_stats(&self) -> Result<LoaderStats, LoadError> {
+        self.stats.read()
+            .map(|stats| stats.clone())
+            .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire stats lock: {}", e)))
     }
 
     /// 获取已加载的插件列表
-    pub fn get_loaded_plugins(&self) -> Vec<PluginId> {
-        self.loaded_libraries.read().unwrap().keys().cloned().collect()
+    pub fn get_loaded_plugins(&self) -> Result<Vec<PluginId>, LoadError> {
+        self.loaded_libraries.read()
+            .map(|libraries| libraries.keys().cloned().collect())
+            .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire libraries lock: {}", e)))
     }
 
     /// 检查插件是否已加载
-    pub fn is_plugin_loaded(&self, plugin_id: &PluginId) -> bool {
-        self.loaded_libraries.read().unwrap().contains_key(plugin_id)
+    pub fn is_plugin_loaded(&self, plugin_id: &PluginId) -> Result<bool, LoadError> {
+        self.loaded_libraries.read()
+            .map(|libraries| libraries.contains_key(plugin_id))
+            .map_err(|e| LoadError::LibraryLoadError(format!("Failed to acquire libraries lock: {}", e)))
     }
 
     /// 重新加载插件
@@ -529,13 +544,13 @@ impl PluginLoader {
         plugin_path: P,
     ) -> Result<LoadedPlugin, LoadError> {
         let path = plugin_path.as_ref();
-        
+
         // 尝试获取插件ID
         let metadata = self.load_plugin_metadata(path).await?;
         let plugin_id = metadata.id.clone();
 
         // 先卸载
-        if self.is_plugin_loaded(&plugin_id) {
+        if self.is_plugin_loaded(&plugin_id)? {
             self.unload_plugin(&plugin_id).await?;
         }
 
@@ -584,7 +599,10 @@ mod tests {
     fn test_plugin_loader_creation() {
         let config = LoaderConfig::default();
         let loader = PluginLoader::new(config);
-        assert_eq!(loader.get_loaded_plugins().len(), 0);
+        let plugins = loader.get_loaded_plugins().map_err(|e| {
+            format!("Failed to get loaded plugins: {:?}", e)
+        }).expect("Should be able to get loaded plugins");
+        assert_eq!(plugins.len(), 0);
     }
 
     #[test]
@@ -602,10 +620,12 @@ mod tests {
     async fn test_plugin_metadata_inference() {
         let config = LoaderConfig::default();
         let loader = PluginLoader::new(config);
-        
+
         let path = PathBuf::from("test_plugin.so");
-        let metadata = loader.infer_metadata_from_path(&path).unwrap();
-        
+        let metadata = loader.infer_metadata_from_path(&path).map_err(|e| {
+            format!("Failed to infer metadata: {:?}", e)
+        }).expect("Should be able to infer metadata");
+
         assert_eq!(metadata.id.as_str(), "test_plugin");
         assert_eq!(metadata.name, "test_plugin Plugin");
         assert_eq!(metadata.version, PluginVersion { major: 1, minor: 0, patch: 0 });

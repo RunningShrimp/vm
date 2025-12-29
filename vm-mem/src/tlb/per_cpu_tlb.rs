@@ -5,10 +5,14 @@
 use crate::GuestAddr;
 use crate::mmu::{PageTableFlags, PageWalkResult};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, ThreadId};
 use std::time::Instant;
+use vm_core::error::{MemoryError, VmError};
+
+/// Type alias for TLB operations result
+pub type PerCpuTlbResult<T> = Result<T, VmError>;
 
 /// Per-CPU TLB条目
 #[derive(Debug, Clone)]
@@ -161,7 +165,10 @@ impl PerCpuTlbStats {
         self.evictions.store(0, Ordering::Relaxed);
         self.asid_switches.store(0, Ordering::Relaxed);
         self.global_mappings.store(0, Ordering::Relaxed);
-        self.max_entries.store(self.current_entries.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.max_entries.store(
+            self.current_entries.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -219,22 +226,22 @@ impl SingleCpuTlb {
     /// 查找TLB条目
     fn lookup(&mut self, gva: GuestAddr, asid: u16) -> Option<&mut PerCpuTlbEntry> {
         self.stats.total_accesses.fetch_add(1, Ordering::Relaxed);
-        
+
         // 检查ASID是否切换
         if self.current_asid != asid {
             self.stats.asid_switches.fetch_add(1, Ordering::Relaxed);
             self.current_asid = asid;
         }
-        
+
         let page_base = GuestAddr(gva.0 & !(4096 - 1)); // 页对齐
         let key = (page_base, asid);
-        
+
         if self.entries.contains_key(&key) {
             self.stats.hits.fetch_add(1, Ordering::Relaxed);
-            
+
             // 更新LRU列表
             self.update_lru(&key);
-            
+
             // 获取并更新条目
             if let Some(entry) = self.entries.get_mut(&key) {
                 entry.access_count += 1;
@@ -254,7 +261,7 @@ impl SingleCpuTlb {
     fn insert(&mut self, walk_result: PageWalkResult, gva: GuestAddr, asid: u16) {
         let page_base = GuestAddr(gva.0 & !(walk_result.page_size - 1));
         let key = (page_base, asid);
-        
+
         let entry = PerCpuTlbEntry {
             gva: page_base,
             gpa: GuestAddr(walk_result.gpa & !(walk_result.page_size - 1)),
@@ -266,25 +273,25 @@ impl SingleCpuTlb {
             reference_bit: true,
             global: walk_result.flags.global,
         };
-        
+
         // 如果是全局映射，增加计数
         if entry.global {
             self.stats.global_mappings.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         // 检查是否需要替换
         if self.entries.len() >= self.capacity {
             self.evict_entry();
         }
-        
+
         // 插入新条目
         self.entries.insert(key, entry);
         self.update_lru(&key);
-        
+
         // 更新当前条目数
         let current = self.entries.len();
         self.stats.current_entries.store(current, Ordering::Relaxed);
-        
+
         // 更新最大条目数
         let max = self.stats.max_entries.load(Ordering::Relaxed);
         if current > max {
@@ -306,17 +313,21 @@ impl SingleCpuTlb {
         self.entries.retain(|_key, entry| entry.asid != asid);
         self.lru_list.retain(|key| key.1 != asid);
         self.stats.flushes.fetch_add(1, Ordering::Relaxed);
-        self.stats.current_entries.store(self.entries.len(), Ordering::Relaxed);
+        self.stats
+            .current_entries
+            .store(self.entries.len(), Ordering::Relaxed);
     }
 
     /// 刷新特定页面的条目
     fn flush_page(&mut self, gva: GuestAddr, asid: u16) {
         let page_base = GuestAddr(gva.0 & !(4096 - 1));
         let key = (page_base, asid);
-        
+
         if self.entries.remove(&key).is_some() {
             self.lru_list.retain(|k| *k != key);
-            self.stats.current_entries.store(self.entries.len(), Ordering::Relaxed);
+            self.stats
+                .current_entries
+                .store(self.entries.len(), Ordering::Relaxed);
         }
     }
 
@@ -369,19 +380,20 @@ impl SingleCpuTlb {
     /// 自适应LRU替换
     fn evict_adaptive_lru(&mut self) {
         // 找到访问频率最低的条目
-        if let Some((&key, _)) = self.entries.iter()
-            .min_by(|(_, entry1), (_, entry2)| {
-                // 综合考虑访问次数和最后访问时间
-                let time_factor1 = entry1.last_access.elapsed().as_secs() as f64;
-                let access_factor1 = entry1.access_count as f64;
-                let score1 = time_factor1 / (access_factor1 + 1.0);
-                
-                let time_factor2 = entry2.last_access.elapsed().as_secs() as f64;
-                let access_factor2 = entry2.access_count as f64;
-                let score2 = time_factor2 / (access_factor2 + 1.0);
-                
-                score1.partial_cmp(&score2).unwrap_or(std::cmp::Ordering::Equal)
-            }) {
+        if let Some((&key, _)) = self.entries.iter().min_by(|(_, entry1), (_, entry2)| {
+            // 综合考虑访问次数和最后访问时间
+            let time_factor1 = entry1.last_access.elapsed().as_secs() as f64;
+            let access_factor1 = entry1.access_count as f64;
+            let score1 = time_factor1 / (access_factor1 + 1.0);
+
+            let time_factor2 = entry2.last_access.elapsed().as_secs() as f64;
+            let access_factor2 = entry2.access_count as f64;
+            let score2 = time_factor2 / (access_factor2 + 1.0);
+
+            score1
+                .partial_cmp(&score2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }) {
             self.entries.remove(&key);
             self.lru_list.retain(|k| k != &key);
             self.stats.evictions.fetch_add(1, Ordering::Relaxed);
@@ -393,18 +405,18 @@ impl SingleCpuTlb {
         if self.entries.is_empty() {
             return;
         }
-        
+
         let keys: Vec<_> = self.entries.keys().cloned().collect();
         let start_hand = self.clock_hand;
-        
+
         loop {
             let key = keys[self.clock_hand % keys.len()];
-            
+
             if let Some(entry) = self.entries.get_mut(&key) {
                 if entry.reference_bit {
                     entry.reference_bit = false;
                     self.clock_hand = (self.clock_hand + 1) % keys.len();
-                    
+
                     // 避免无限循环
                     if self.clock_hand == start_hand {
                         break;
@@ -444,7 +456,7 @@ impl SingleCpuTlb {
                 self.evict_entry();
             }
         }
-        
+
         self.capacity = new_capacity;
         self.lru_list.reserve(new_capacity);
     }
@@ -468,16 +480,12 @@ impl PerCpuTlbManager {
     /// 创建新的Per-CPU TLB管理器
     pub fn new(config: PerCpuTlbConfig) -> Self {
         let mut cpu_tlbs = Vec::with_capacity(config.max_cpus);
-        
+
         for cpu_id in 0..config.max_cpus {
-            let tlb = SingleCpuTlb::new(
-                cpu_id,
-                config.entries_per_cpu,
-                config.replacement_policy,
-            );
+            let tlb = SingleCpuTlb::new(cpu_id, config.entries_per_cpu, config.replacement_policy);
             cpu_tlbs.push(Mutex::new(tlb));
         }
-        
+
         Self {
             config,
             cpu_tlbs,
@@ -492,35 +500,75 @@ impl PerCpuTlbManager {
         Self::new(PerCpuTlbConfig::default())
     }
 
+    /// Helper method to lock thread_to_cpu mapping with error handling
+    fn lock_thread_to_cpu(
+        &self,
+    ) -> PerCpuTlbResult<std::sync::MutexGuard<'_, HashMap<ThreadId, usize>>> {
+        self.thread_to_cpu.lock().map_err(|e| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: format!("Failed to lock thread_to_cpu mapping: {}", e),
+            })
+        })
+    }
+
+    /// Helper method to lock a specific CPU TLB with error handling
+    fn lock_cpu_tlb(
+        &self,
+        cpu_id: usize,
+    ) -> PerCpuTlbResult<std::sync::MutexGuard<'_, SingleCpuTlb>> {
+        if cpu_id >= self.cpu_tlbs.len() {
+            return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+                cpu_id as u64,
+            ))));
+        }
+        self.cpu_tlbs[cpu_id].lock().map_err(|e| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: format!("Failed to lock CPU TLB {}: {}", cpu_id, e),
+            })
+        })
+    }
+
     /// 获取当前线程的CPU ID
-    fn get_current_cpu_id(&self) -> usize {
+    fn get_current_cpu_id(&self) -> PerCpuTlbResult<usize> {
         let thread_id = thread::current().id();
-        
+
+        // Check if thread already has a CPU ID assigned
         {
-            let mapping = self.thread_to_cpu.lock().unwrap();
+            let mapping = self.lock_thread_to_cpu()?;
             if let Some(&cpu_id) = mapping.get(&thread_id) {
-                return cpu_id;
+                return Ok(cpu_id);
             }
         }
-        
-        // 分配新的CPU ID
+
+        // Allocate new CPU ID
         let cpu_id = self.next_cpu_id.fetch_add(1, Ordering::Relaxed) % self.config.max_cpus;
-        
+
         {
-            let mut mapping = self.thread_to_cpu.lock().unwrap();
+            let mut mapping = self.lock_thread_to_cpu()?;
             mapping.insert(thread_id, cpu_id);
         }
-        
-        cpu_id
+
+        Ok(cpu_id)
     }
 
     /// 查找TLB条目
     pub fn lookup(&self, gva: GuestAddr, asid: u16) -> Option<GuestAddr> {
-        let cpu_id = self.get_current_cpu_id();
-        let mut tlb = self.cpu_tlbs[cpu_id].lock().unwrap();
-        
-        self.global_stats.total_accesses.fetch_add(1, Ordering::Relaxed);
-        
+        // Get CPU ID, return None on error
+        let cpu_id = match self.get_current_cpu_id() {
+            Ok(id) => id,
+            Err(_) => return None,
+        };
+
+        // Lock TLB, return None on error
+        let mut tlb = match self.lock_cpu_tlb(cpu_id) {
+            Ok(tlb_guard) => tlb_guard,
+            Err(_) => return None,
+        };
+
+        self.global_stats
+            .total_accesses
+            .fetch_add(1, Ordering::Relaxed);
+
         if let Some(entry) = tlb.lookup(gva, asid) {
             self.global_stats.hits.fetch_add(1, Ordering::Relaxed);
             Some(entry.translate(gva))
@@ -532,56 +580,76 @@ impl PerCpuTlbManager {
 
     /// 插入TLB条目
     pub fn insert(&self, walk_result: PageWalkResult, gva: GuestAddr, asid: u16) {
-        let cpu_id = self.get_current_cpu_id();
-        let mut tlb = self.cpu_tlbs[cpu_id].lock().unwrap();
+        // Get CPU ID, silently fail on error
+        let cpu_id = match self.get_current_cpu_id() {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+
+        // Lock TLB, silently fail on error
+        let mut tlb = match self.lock_cpu_tlb(cpu_id) {
+            Ok(tlb_guard) => tlb_guard,
+            Err(_) => return,
+        };
+
         tlb.insert(walk_result, gva, asid);
     }
 
     /// 刷新所有CPU的TLB
     pub fn flush_all(&self) {
-        for tlb in &self.cpu_tlbs {
-            let mut tlb = tlb.lock().unwrap();
-            tlb.flush_all();
+        for tlb_mutex in &self.cpu_tlbs {
+            // Silently fail if lock cannot be acquired
+            if let Ok(mut tlb) = tlb_mutex.lock() {
+                tlb.flush_all();
+            }
         }
         self.global_stats.flushes.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 刷新特定ASID的所有TLB条目
     pub fn flush_asid(&self, asid: u16) {
-        for tlb in &self.cpu_tlbs {
-            let mut tlb = tlb.lock().unwrap();
-            tlb.flush_asid(asid);
+        for tlb_mutex in &self.cpu_tlbs {
+            // Silently fail if lock cannot be acquired
+            if let Ok(mut tlb) = tlb_mutex.lock() {
+                tlb.flush_asid(asid);
+            }
         }
         self.global_stats.flushes.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 刷新特定页面的所有TLB条目
     pub fn flush_page(&self, gva: GuestAddr, asid: u16) {
-        for tlb in &self.cpu_tlbs {
-            let mut tlb = tlb.lock().unwrap();
-            tlb.flush_page(gva, asid);
+        for tlb_mutex in &self.cpu_tlbs {
+            // Silently fail if lock cannot be acquired
+            if let Ok(mut tlb) = tlb_mutex.lock() {
+                tlb.flush_page(gva, asid);
+            }
         }
     }
 
     /// 获取特定CPU的统计信息
     pub fn get_cpu_stats(&self, cpu_id: usize) -> Option<PerCpuTlbStatsSnapshot> {
-        if cpu_id < self.cpu_tlbs.len() {
-            let tlb = self.cpu_tlbs[cpu_id].lock().unwrap();
-            Some(tlb.get_stats())
-        } else {
-            None
+        if cpu_id >= self.cpu_tlbs.len() {
+            return None;
+        }
+
+        match self.lock_cpu_tlb(cpu_id) {
+            Ok(tlb) => Some(tlb.get_stats()),
+            Err(_) => None,
         }
     }
 
     /// 获取所有CPU的统计信息
     pub fn get_all_stats(&self) -> Vec<PerCpuTlbStatsSnapshot> {
         let mut all_stats = Vec::with_capacity(self.cpu_tlbs.len());
-        
-        for tlb in &self.cpu_tlbs {
-            let tlb = tlb.lock().unwrap();
-            all_stats.push(tlb.get_stats());
+
+        for tlb_mutex in &self.cpu_tlbs {
+            // Skip CPUs where lock cannot be acquired
+            if let Ok(tlb) = tlb_mutex.lock() {
+                all_stats.push(tlb.get_stats());
+            }
         }
-        
+
         all_stats
     }
 
@@ -592,17 +660,23 @@ impl PerCpuTlbManager {
 
     /// 重置所有统计信息
     pub fn reset_all_stats(&self) {
-        for tlb in &self.cpu_tlbs {
-            let mut tlb = tlb.lock().unwrap();
-            tlb.reset_stats();
+        for tlb_mutex in &self.cpu_tlbs {
+            // Silently fail if lock cannot be acquired
+            if let Ok(mut tlb) = tlb_mutex.lock() {
+                tlb.reset_stats();
+            }
         }
         self.global_stats.reset();
     }
 
     /// 调整特定CPU的TLB大小
     pub fn resize_cpu_tlb(&self, cpu_id: usize, new_size: usize) {
-        if cpu_id < self.cpu_tlbs.len() {
-            let mut tlb = self.cpu_tlbs[cpu_id].lock().unwrap();
+        if cpu_id >= self.cpu_tlbs.len() {
+            return;
+        }
+
+        // Silently fail if lock cannot be acquired
+        if let Ok(mut tlb) = self.lock_cpu_tlb(cpu_id) {
             tlb.resize(new_size);
         }
     }
@@ -612,9 +686,9 @@ impl PerCpuTlbManager {
         if !self.config.enable_adaptive_sizing {
             return;
         }
-        
+
         let all_stats = self.get_all_stats();
-        
+
         for (cpu_id, stats) in all_stats.iter().enumerate() {
             // 根据命中率调整大小
             if stats.hit_rate < self.config.hit_rate_threshold {
@@ -640,8 +714,8 @@ mod tests {
     #[test]
     fn test_per_cpu_tlb_entry() {
         let mut entry = PerCpuTlbEntry {
-            gva: 0x1000,
-            gpa: 0x2000,
+            gva: GuestAddr(0x1000),
+            gpa: GuestAddr(0x2000),
             page_size: 4096,
             flags: PageTableFlags::default(),
             asid: 0,
@@ -650,14 +724,14 @@ mod tests {
             reference_bit: false,
             global: false,
         };
-        
-        assert!(entry.contains(0x1000));
-        assert!(entry.contains(0x1FFF));
-        assert!(!entry.contains(0x2000));
-        
-        assert_eq!(entry.translate(0x1000), 0x2000);
-        assert_eq!(entry.translate(0x1FFF), 0x2FFF);
-        
+
+        assert!(entry.contains(GuestAddr(0x1000)));
+        assert!(entry.contains(GuestAddr(0x1FFF)));
+        assert!(!entry.contains(GuestAddr(0x2000)));
+
+        assert_eq!(entry.translate(GuestAddr(0x1000)), GuestAddr(0x2000));
+        assert_eq!(entry.translate(GuestAddr(0x1FFF)), GuestAddr(0x2FFF));
+
         entry.update_access();
         assert_eq!(entry.access_count, 1);
         assert!(entry.reference_bit);
@@ -666,28 +740,28 @@ mod tests {
     #[test]
     fn test_single_cpu_tlb() {
         let mut tlb = SingleCpuTlb::new(0, 4, TlbReplacementPolicy::Lru);
-        
+
         // 初始状态
         assert_eq!(tlb.entries.len(), 0);
-        
+
         // 插入条目
         let walk_result = PageWalkResult {
-            gpa: 0x2000,
+            gpa: GuestAddr(0x2000),
             page_size: 4096,
             flags: PageTableFlags::default(),
         };
-        tlb.insert(walk_result, 0x1000, 0);
-        
+        tlb.insert(walk_result, GuestAddr(0x1000), 0);
+
         assert_eq!(tlb.entries.len(), 1);
-        
+
         // 查找条目
-        let entry = tlb.lookup(0x1000, 0);
+        let entry = tlb.lookup(GuestAddr(0x1000), 0);
         assert!(entry.is_some());
-        
+
         // 查找不存在的条目
-        let entry = tlb.lookup(0x3000, 0);
+        let entry = tlb.lookup(GuestAddr(0x3000), 0);
         assert!(entry.is_none());
-        
+
         // 刷新所有条目
         tlb.flush_all();
         assert_eq!(tlb.entries.len(), 0);
@@ -696,23 +770,23 @@ mod tests {
     #[test]
     fn test_per_cpu_tlb_manager() {
         let manager = PerCpuTlbManager::with_default_config();
-        
+
         // 插入条目
         let walk_result = PageWalkResult {
-            gpa: 0x2000,
+            gpa: GuestAddr(0x2000),
             page_size: 4096,
             flags: PageTableFlags::default(),
         };
-        manager.insert(walk_result, 0x1000, 0);
-        
+        manager.insert(walk_result, GuestAddr(0x1000), 0);
+
         // 查找条目
-        let gpa = manager.lookup(0x1000, 0);
-        assert_eq!(gpa, Some(0x2000));
-        
+        let gpa = manager.lookup(GuestAddr(0x1000), 0);
+        assert_eq!(gpa, Some(GuestAddr(0x2000)));
+
         // 查找不存在的条目
-        let gpa = manager.lookup(0x3000, 0);
+        let gpa = manager.lookup(GuestAddr(0x3000), 0);
         assert_eq!(gpa, None);
-        
+
         // 获取统计信息
         let stats = manager.get_global_stats();
         assert_eq!(stats.total_accesses, 2);
@@ -723,32 +797,32 @@ mod tests {
     #[test]
     fn test_tlb_replacement_policies() {
         let mut tlb = SingleCpuTlb::new(0, 2, TlbReplacementPolicy::Lru);
-        
+
         // 插入两个条目，填满TLB
         let walk_result1 = PageWalkResult {
-            gpa: 0x2000,
+            gpa: GuestAddr(0x2000),
             page_size: 4096,
             flags: PageTableFlags::default(),
         };
-        tlb.insert(walk_result1, 0x1000, 0);
-        
+        tlb.insert(walk_result1, GuestAddr(0x1000), 0);
+
         let walk_result2 = PageWalkResult {
-            gpa: 0x3000,
+            gpa: GuestAddr(0x3000),
             page_size: 4096,
             flags: PageTableFlags::default(),
         };
-        tlb.insert(walk_result2, 0x2000, 0);
-        
+        tlb.insert(walk_result2, GuestAddr(0x2000), 0);
+
         assert_eq!(tlb.entries.len(), 2);
-        
+
         // 插入第三个条目，应该替换一个
         let walk_result3 = PageWalkResult {
-            gpa: 0x4000,
+            gpa: GuestAddr(0x4000),
             page_size: 4096,
             flags: PageTableFlags::default(),
         };
-        tlb.insert(walk_result3, 0x3000, 0);
-        
+        tlb.insert(walk_result3, GuestAddr(0x3000), 0);
+
         assert_eq!(tlb.entries.len(), 2);
     }
 }

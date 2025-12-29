@@ -1,7 +1,7 @@
+use crate::common::OptimizationStats;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 use vm_ir::IRBlock;
-use crate::common::OptimizationStats;
 
 pub struct CompilationPredictor {
     config: CompilationPredictorConfig,
@@ -78,7 +78,14 @@ impl CompilationPredictor {
         }
     }
 
-    pub fn record_compilation(&mut self, block_id: u64, compilation_time: Duration, code_size: usize, optimization_level: u8, execution_count: u64) {
+    pub fn record_compilation(
+        &mut self,
+        block_id: u64,
+        compilation_time: Duration,
+        code_size: usize,
+        optimization_level: u8,
+        execution_count: u64,
+    ) {
         let record = CompilationRecord {
             block_id,
             compilation_time,
@@ -98,16 +105,21 @@ impl CompilationPredictor {
         self.update_predictions();
     }
 
-    pub fn predict_compilation_time(&mut self, block: &IRBlock, execution_count: u64) -> Option<Prediction> {
+    pub fn predict_compilation_time(
+        &mut self,
+        block: &IRBlock,
+        execution_count: u64,
+    ) -> Option<Prediction> {
         let block_id = block.start_pc.0;
 
-        if let Some(prediction) = self.predictions.get(&block_id) {
-            if prediction.confidence >= self.config.confidence_threshold {
-                return Some(prediction.clone());
-            }
+        if let Some(prediction) = self.predictions.get(&block_id)
+            && prediction.confidence >= self.config.confidence_threshold
+        {
+            return Some(prediction.clone());
         }
 
-        let samples: Vec<&CompilationRecord> = self.history
+        let samples: Vec<&CompilationRecord> = self
+            .history
             .iter()
             .filter(|r| r.block_id == block_id || r.code_size == block.ops.len())
             .collect();
@@ -127,7 +139,12 @@ impl CompilationPredictor {
         Some(prediction)
     }
 
-    fn heuristic_predict(&self, block_id: u64, samples: &[&CompilationRecord], execution_count: u64) -> Prediction {
+    fn heuristic_predict(
+        &self,
+        block_id: u64,
+        samples: &[&CompilationRecord],
+        execution_count: u64,
+    ) -> Prediction {
         let avg_time = self.calculate_average_time(samples);
         let avg_size = self.calculate_average_size(samples);
         let confidence = self.calculate_confidence(samples);
@@ -152,7 +169,12 @@ impl CompilationPredictor {
         }
     }
 
-    fn ml_predict(&self, block_id: u64, samples: &[&CompilationRecord], execution_count: u64) -> Prediction {
+    fn ml_predict(
+        &self,
+        block_id: u64,
+        samples: &[&CompilationRecord],
+        execution_count: u64,
+    ) -> Prediction {
         let avg_time = self.calculate_average_time(samples);
         let avg_size = self.calculate_average_size(samples);
 
@@ -188,12 +210,14 @@ impl CompilationPredictor {
         }
 
         let avg_time = self.calculate_average_time(samples).as_nanos() as f64;
-        let variance = samples.iter()
+        let variance = samples
+            .iter()
             .map(|r| {
                 let diff = r.compilation_time.as_nanos() as f64 - avg_time;
                 diff * diff
             })
-            .sum::<f64>() / samples.len() as f64;
+            .sum::<f64>()
+            / samples.len() as f64;
 
         let std_dev = variance.sqrt();
         if avg_time == 0.0 {
@@ -210,11 +234,18 @@ impl CompilationPredictor {
 
         let n = samples.len() as f64;
         let sum_x = (0..samples.len()).map(|i| i as f64).sum::<f64>();
-        let sum_y = samples.iter().map(|r| r.compilation_time.as_nanos() as f64).sum::<f64>();
-        let sum_xy = samples.iter().enumerate()
+        let sum_y = samples
+            .iter()
+            .map(|r| r.compilation_time.as_nanos() as f64)
+            .sum::<f64>();
+        let sum_xy = samples
+            .iter()
+            .enumerate()
             .map(|(i, r)| i as f64 * r.compilation_time.as_nanos() as f64)
             .sum::<f64>();
-        let sum_x2 = (0..samples.len()).map(|i| (i as f64) * (i as f64)).sum::<f64>();
+        let sum_x2 = (0..samples.len())
+            .map(|i| (i as f64) * (i as f64))
+            .sum::<f64>();
 
         let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
         slope / (samples.len() as f64)
@@ -225,9 +256,17 @@ impl CompilationPredictor {
         Duration::from_nanos(nanos)
     }
 
-    fn predict_optimization_level(&self, samples: &[&CompilationRecord], execution_count: u64) -> u8 {
-        let avg_level = samples.iter().map(|r| r.optimization_level as u64).sum::<u64>() / samples.len() as u64;
-        
+    fn predict_optimization_level(
+        &self,
+        samples: &[&CompilationRecord],
+        execution_count: u64,
+    ) -> u8 {
+        let avg_level = samples
+            .iter()
+            .map(|r| r.optimization_level as u64)
+            .sum::<u64>()
+            / samples.len() as u64;
+
         if execution_count > 1000 {
             avg_level.min(3) as u8
         } else if execution_count > 100 {
@@ -246,10 +285,8 @@ impl CompilationPredictor {
     }
 
     pub fn calculate_accuracy(&self) -> PredictionAccuracy {
-        let accurate_predictions: Vec<&CompilationRecord> = self.history
-            .iter()
-            .filter(|r| r.predicted)
-            .collect();
+        let accurate_predictions: Vec<&CompilationRecord> =
+            self.history.iter().filter(|r| r.predicted).collect();
 
         if accurate_predictions.is_empty() {
             return PredictionAccuracy {
@@ -266,20 +303,24 @@ impl CompilationPredictor {
 
         for record in &accurate_predictions {
             if let Some(prediction) = self.predictions.get(&record.block_id) {
-                let error = prediction.predicted_compilation_time.as_nanos() as i64 - record.compilation_time.as_nanos() as i64;
+                let error = prediction.predicted_compilation_time.as_nanos() as i64
+                    - record.compilation_time.as_nanos() as i64;
                 total_error += error.unsigned_abs();
                 total_squared_error += (error as f64) * (error as f64);
 
-                let relative_error = (error.unsigned_abs() as f64 / record.compilation_time.as_nanos().max(1) as f64);
+                let relative_error =
+                    error.unsigned_abs() as f64 / record.compilation_time.as_nanos().max(1) as f64;
                 if relative_error < 0.2 {
                     accurate_count += 1;
                 }
             }
         }
 
-        let mean_absolute_error = Duration::from_nanos(total_error / accurate_predictions.len() as u64);
+        let mean_absolute_error =
+            Duration::from_nanos(total_error / accurate_predictions.len() as u64);
         let mean_squared_error = total_squared_error / accurate_predictions.len() as f64;
-        let accuracy_percentage = (accurate_count as f64 / accurate_predictions.len() as f64) * 100.0;
+        let accuracy_percentage =
+            (accurate_count as f64 / accurate_predictions.len() as f64) * 100.0;
 
         PredictionAccuracy {
             mean_absolute_error,
@@ -319,8 +360,21 @@ impl DefaultCompilationPredictor {
         }
     }
 
-    pub fn record_compilation(&mut self, block_id: u64, compilation_time: Duration, code_size: usize, optimization_level: u8, execution_count: u64) {
-        self.inner.record_compilation(block_id, compilation_time, code_size, optimization_level, execution_count);
+    pub fn record_compilation(
+        &mut self,
+        block_id: u64,
+        compilation_time: Duration,
+        code_size: usize,
+        optimization_level: u8,
+        execution_count: u64,
+    ) {
+        self.inner.record_compilation(
+            block_id,
+            compilation_time,
+            code_size,
+            optimization_level,
+            execution_count,
+        );
     }
 
     pub fn predict(&mut self, block: &IRBlock, execution_count: u64) -> Option<Prediction> {
@@ -357,7 +411,7 @@ mod tests {
     fn test_record_compilation() {
         let config = CompilationPredictorConfig::default();
         let mut predictor = CompilationPredictor::new(config);
-        
+
         predictor.record_compilation(1, Duration::from_millis(10), 100, 0, 5);
         assert_eq!(predictor.history.len(), 1);
     }
@@ -366,17 +420,17 @@ mod tests {
     fn test_prediction_confidence() {
         let config = CompilationPredictorConfig::default();
         let mut predictor = CompilationPredictor::new(config);
-        
+
         for i in 0..15 {
             predictor.record_compilation(1, Duration::from_millis(10 + i), 100, 0, 5);
         }
-        
+
         let block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
             ops: vec![],
             term: vm_ir::Terminator::Ret,
         };
-        
+
         if let Some(prediction) = predictor.predict_compilation_time(&block, 5) {
             assert!(prediction.confidence > 0.0);
         }
@@ -386,13 +440,13 @@ mod tests {
     fn test_should_compile() {
         let config = CompilationPredictorConfig::default();
         let mut predictor = CompilationPredictor::new(config);
-        
+
         let block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
             ops: vec![],
             term: vm_ir::Terminator::Ret,
         };
-        
+
         assert!(predictor.should_compile(&block, 15));
     }
 }

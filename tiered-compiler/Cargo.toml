@@ -6,7 +6,6 @@ publish = false
 
 [dependencies]
 parking_lot = "0.12"
-async-executor = { path = "../async-executor" }
-coroutine-scheduler = { path = "../coroutine-scheduler" }
+vm-executors = { path = "../vm-executors" }
 
 [dev-dependencies]

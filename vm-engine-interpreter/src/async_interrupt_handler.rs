@@ -22,7 +22,7 @@ pub enum InterruptPriority {
 
 impl PartialOrd for InterruptPriority {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        (*self as i32).partial_cmp(&(*other as i32))
+        Some(self.cmp(other))
     }
 }
 
@@ -90,13 +90,7 @@ impl Eq for Interrupt {}
 
 impl PartialOrd for Interrupt {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // 反向比较，优先级高的排在前面
-        Some(
-            other
-                .priority
-                .cmp(&self.priority)
-                .then_with(|| self.timestamp_ns.cmp(&other.timestamp_ns)),
-        )
+        Some(self.cmp(other))
     }
 }
 
@@ -134,7 +128,7 @@ pub struct AsyncInterruptQueue {
     /// 异步通道发送端
     tx: mpsc::UnboundedSender<Interrupt>,
     /// 注册的中断处理器
-    handlers: Arc<RwLock<Vec<(InterruptType, Box<dyn Fn(Interrupt) + Send + Sync>)>>>,
+    handlers: InterruptHandlerList,
     /// 统计信息
     stats: Arc<parking_lot::Mutex<InterruptStats>>,
 }
@@ -151,6 +145,11 @@ pub struct InterruptStats {
     /// 平均处理延迟（纳秒）
     pub avg_latency_ns: u64,
 }
+
+/// 中断处理器类型
+type InterruptHandler = Box<dyn Fn(Interrupt) + Send + Sync>;
+/// 中断处理器列表类型
+type InterruptHandlerList = Arc<RwLock<Vec<(InterruptType, InterruptHandler)>>>;
 
 impl AsyncInterruptQueue {
     /// 创建新的异步中断队列
@@ -326,7 +325,7 @@ mod tests {
         queue
             .dispatch_interrupt(Interrupt::new(InterruptType::Timer, InterruptPriority::Low))
             .await
-            .unwrap();
+            .expect("Failed to dispatch Low priority interrupt");
 
         queue
             .dispatch_interrupt(Interrupt::new(
@@ -334,7 +333,7 @@ mod tests {
                 InterruptPriority::Critical,
             ))
             .await
-            .unwrap();
+            .expect("Failed to dispatch Critical priority interrupt");
 
         queue
             .dispatch_interrupt(Interrupt::new(
@@ -342,16 +341,18 @@ mod tests {
                 InterruptPriority::Normal,
             ))
             .await
-            .unwrap();
+            .expect("Failed to dispatch Normal priority interrupt");
 
         // 验证优先级顺序
-        let first = queue.pop_next().unwrap();
+        let first = queue.pop_next().expect("Queue should have first interrupt");
         assert_eq!(first.priority, InterruptPriority::Critical);
 
-        let second = queue.pop_next().unwrap();
+        let second = queue
+            .pop_next()
+            .expect("Queue should have second interrupt");
         assert_eq!(second.priority, InterruptPriority::Normal);
 
-        let third = queue.pop_next().unwrap();
+        let third = queue.pop_next().expect("Queue should have third interrupt");
         assert_eq!(third.priority, InterruptPriority::Low);
     }
 
@@ -365,7 +366,7 @@ mod tests {
                 InterruptPriority::Normal,
             ))
             .await
-            .unwrap();
+            .expect("Failed to dispatch interrupt for stats test");
 
         let stats = queue.get_stats();
         assert!(stats.avg_latency_ns > 0);

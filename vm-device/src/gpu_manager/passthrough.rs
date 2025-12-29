@@ -1,4 +1,4 @@
-///! GPU Passthrough 重导出
-///!
-///! 从 gpu_passthrough 模块重导出相关类型
+/// GPU Passthrough 重导出
+///
+/// 从 gpu_passthrough 模块重导出相关类型
 pub use crate::gpu_passthrough::{GpuInfo, GpuPassthrough, GpuVendor, scan_available_gpus};

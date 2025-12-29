@@ -1195,7 +1195,7 @@ mod tests {
             }
         ];
         
-        let result = service.optimize_for_target(&code, &loops, &instructions).unwrap();
+        let result = service.optimize_for_target(&code, &loops, &instructions).expect("Failed to optimize for target");
         
         assert!(result.success);
         assert!(!result.optimized_code.is_empty());
@@ -1226,7 +1226,7 @@ mod tests {
             }
         ];
         
-        let result = service.optimize_loops(&code, &loops).unwrap();
+        let result = service.optimize_loops(&code, &loops).expect("Failed to optimize loops");
         assert!(result.success);
         assert!(result.optimization_details.iter().any(|detail| detail.contains("Unrolled loop")));
         
@@ -1249,7 +1249,7 @@ mod tests {
             }
         ];
         
-        let result = service.optimize_loops(&code, &loops).unwrap();
+        let result = service.optimize_loops(&code, &loops).expect("Failed to optimize loops");
         assert!(result.success);
         assert!(result.optimization_details.iter().any(|detail| detail.contains("Vectorized loop")));
     }
@@ -1284,7 +1284,7 @@ mod tests {
         config.scheduling_strategy = InstructionSchedulingStrategy::ListScheduling;
         
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.schedule_instructions(&code, &instructions).unwrap();
+        let result = service.schedule_instructions(&code, &instructions).expect("Failed to schedule instructions");
         assert!(result.success);
         assert!(result.optimization_details.iter().any(|detail| detail.contains("list scheduling")));
         
@@ -1293,7 +1293,7 @@ mod tests {
         config.scheduling_strategy = InstructionSchedulingStrategy::ResourceAware;
         
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.schedule_instructions(&code, &instructions).unwrap();
+        let result = service.schedule_instructions(&code, &instructions).expect("Failed to schedule instructions");
         assert!(result.success);
         assert!(result.optimization_details.iter().any(|detail| detail.contains("resource-aware scheduling")));
     }
@@ -1328,7 +1328,7 @@ mod tests {
         config.pipeline_strategy = PipelineOptimizationStrategy::BasicHazardDetection;
         
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.optimize_pipeline(&code, &instructions).unwrap();
+        let result = service.optimize_pipeline(&code, &instructions).expect("Failed to optimize pipeline");
         assert!(result.success);
         assert!(result.optimization_details.iter().any(|detail| detail.contains("basic hazard detection")));
         
@@ -1337,7 +1337,7 @@ mod tests {
         config.pipeline_strategy = PipelineOptimizationStrategy::AdvancedHazardDetection;
         
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.optimize_pipeline(&code, &instructions).unwrap();
+        let result = service.optimize_pipeline(&code, &instructions).expect("Failed to optimize pipeline");
         assert!(result.success);
         assert!(result.optimization_details.iter().any(|detail| detail.contains("advanced hazard detection")));
     }

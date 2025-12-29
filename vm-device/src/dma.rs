@@ -82,7 +82,7 @@ impl From<DmaError> for VmError {
     fn from(err: DmaError) -> Self {
         match err {
             DmaError::MappingFailed(msg) | DmaError::Unsupported(msg) => {
-                VmError::Io(std::io::Error::new(std::io::ErrorKind::Other, msg).to_string())
+                VmError::Io(std::io::Error::other(msg).to_string())
             }
             DmaError::OutOfMemory => VmError::Memory(MemoryError::AllocationFailed {
                 message: "DMA: out of memory".into(),
@@ -114,12 +114,27 @@ impl DmaManager {
         }
     }
 
+    /// Helper method to lock mappings for read-only access
+    fn lock_mappings_read(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, HashMap<GuestAddr, DmaDescriptor>>, DmaError> {
+        self.mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))
+    }
+
+    /// Helper method to lock mappings for write access
+    fn lock_mappings_write(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, HashMap<GuestAddr, DmaDescriptor>>, DmaError> {
+        self.mappings
+            .lock()
+            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))
+    }
+
     /// 注册 DMA 映射
     pub fn register_mapping(&self, desc: DmaDescriptor) -> Result<(), DmaError> {
-        let mut mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mut mappings = self.lock_mappings_write()?;
 
         if desc.len == 0 {
             return Err(DmaError::InvalidAddress);
@@ -135,19 +150,13 @@ impl DmaManager {
 
     /// 查找 DMA 映射
     pub fn find_mapping(&self, guest_addr: GuestAddr) -> Result<Option<DmaDescriptor>, DmaError> {
-        let mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mappings = self.lock_mappings_read()?;
         Ok(mappings.get(&guest_addr).copied())
     }
 
     /// 从客户机地址翻译 DMA 地址
     pub fn translate_dma_addr(&self, guest_addr: GuestAddr) -> Result<DmaTranslation, DmaError> {
-        let mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mappings = self.lock_mappings_read()?;
 
         if let Some(desc) = mappings.get(&guest_addr) {
             let host_addr = desc
@@ -171,10 +180,7 @@ impl DmaManager {
         len: usize,
     ) -> Result<Vec<ScatterGatherEntry>, DmaError> {
         let mut sg_list = Vec::new();
-        let mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mappings = self.lock_mappings_read()?;
 
         let mut remaining = len;
         let mut current_guest = guest_addr;
@@ -213,10 +219,7 @@ impl DmaManager {
 
     /// 同步 DMA 缓存（对于非一致设备）
     pub fn sync_for_device(&self, guest_addr: GuestAddr) -> Result<(), DmaError> {
-        let mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mappings = self.lock_mappings_read()?;
 
         if let Some(desc) = mappings.get(&guest_addr) {
             if !desc.flags.coherent {
@@ -231,10 +234,7 @@ impl DmaManager {
 
     /// 同步 DMA 缓存（从设备读取）
     pub fn sync_from_device(&self, guest_addr: GuestAddr) -> Result<(), DmaError> {
-        let mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mappings = self.lock_mappings_read()?;
 
         if let Some(desc) = mappings.get(&guest_addr) {
             if !desc.flags.coherent {
@@ -249,30 +249,21 @@ impl DmaManager {
 
     /// 注销 DMA 映射
     pub fn unregister_mapping(&self, guest_addr: GuestAddr) -> Result<(), DmaError> {
-        let mut mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mut mappings = self.lock_mappings_write()?;
         mappings.remove(&guest_addr);
         Ok(())
     }
 
     /// 清除所有映射
     pub fn clear_all_mappings(&self) -> Result<(), DmaError> {
-        let mut mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mut mappings = self.lock_mappings_write()?;
         mappings.clear();
         Ok(())
     }
 
     /// 获取映射统计信息
     pub fn get_stats(&self) -> Result<DmaStats, DmaError> {
-        let mappings = self
-            .mappings
-            .lock()
-            .map_err(|_| DmaError::MappingFailed("Lock failed".into()))?;
+        let mappings = self.lock_mappings_read()?;
 
         let total_size: usize = mappings.values().map(|d| d.len).sum();
         let coherent_count = mappings.values().filter(|d| d.flags.coherent).count();
@@ -314,8 +305,8 @@ mod tests {
     fn test_register_and_find_mapping() {
         let dma = DmaManager::new(4096);
         let desc = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: vm_core::GuestAddr(0x1000),
+            host_addr: Some(vm_core::HostAddr(0x2000)),
             len: 512,
             flags: DmaFlags {
                 readable: true,
@@ -325,38 +316,46 @@ mod tests {
         };
 
         assert!(dma.register_mapping(desc).is_ok());
-        let found = dma.find_mapping(0x1000).unwrap();
+        let found = dma
+            .find_mapping(vm_core::GuestAddr(0x1000))
+            .expect("Failed to find mapping");
         assert!(found.is_some());
-        assert_eq!(found.unwrap().len, 512);
+        assert_eq!(found.expect("No mapping found").len, 512);
     }
 
     #[test]
     fn test_translate_dma_address() {
         let dma = DmaManager::new(4096);
         let desc = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: vm_core::GuestAddr(0x1000),
+            host_addr: Some(vm_core::HostAddr(0x2000)),
             len: 512,
             flags: DmaFlags::default(),
         };
 
-        dma.register_mapping(desc).unwrap();
-        let translation = dma.translate_dma_addr(0x1000).unwrap();
-        assert_eq!(translation.host_addr, 0x2000);
+        dma.register_mapping(desc)
+            .expect("Failed to register mapping");
+        let translation = dma
+            .translate_dma_addr(vm_core::GuestAddr(0x1000))
+            .expect("Failed to translate DMA address");
+        assert_eq!(translation.host_addr, vm_core::HostAddr(0x2000));
     }
 
     #[test]
     fn test_scatter_gather_list() {
         let dma = DmaManager::new(4096);
         let desc = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: vm_core::GuestAddr(0x1000),
+            host_addr: Some(vm_core::HostAddr(0x2000)),
             len: 1024,
             flags: DmaFlags::default(),
         };
 
-        dma.register_mapping(desc).unwrap();
-        let sg_list = dma.build_scatter_gather_list(0x1000, 512).unwrap();
+        dma.register_mapping(desc)
+            .expect("Failed to register mapping");
+        let sg_list = dma
+            .build_scatter_gather_list(vm_core::GuestAddr(0x1000), 512)
+            .expect("Failed to build scatter-gather list");
         assert_eq!(sg_list.len(), 1);
         assert_eq!(sg_list[0].descriptor.len, 512);
     }
@@ -364,7 +363,7 @@ mod tests {
     #[test]
     fn test_invalid_address_translation() {
         let dma = DmaManager::new(4096);
-        let result = dma.translate_dma_addr(0x5000);
+        let result = dma.translate_dma_addr(vm_core::GuestAddr(0x5000));
         assert!(result.is_err());
     }
 
@@ -372,22 +371,24 @@ mod tests {
     fn test_dma_stats() {
         let dma = DmaManager::new(4096);
         let desc1 = DmaDescriptor {
-            guest_addr: 0x1000,
-            host_addr: Some(0x2000),
+            guest_addr: vm_core::GuestAddr(0x1000),
+            host_addr: Some(vm_core::HostAddr(0x2000)),
             len: 512,
             flags: DmaFlags::default(),
         };
         let desc2 = DmaDescriptor {
-            guest_addr: 0x2000,
-            host_addr: Some(0x3000),
+            guest_addr: vm_core::GuestAddr(0x2000),
+            host_addr: Some(vm_core::HostAddr(0x3000)),
             len: 1024,
             flags: DmaFlags::default(),
         };
 
-        dma.register_mapping(desc1).unwrap();
-        dma.register_mapping(desc2).unwrap();
+        dma.register_mapping(desc1)
+            .expect("Failed to register desc1");
+        dma.register_mapping(desc2)
+            .expect("Failed to register desc2");
 
-        let stats = dma.get_stats().unwrap();
+        let stats = dma.get_stats().expect("Failed to get stats");
         assert_eq!(stats.total_mappings, 2);
         assert_eq!(stats.total_size, 1536);
     }

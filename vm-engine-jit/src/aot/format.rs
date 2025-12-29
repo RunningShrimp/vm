@@ -30,7 +30,7 @@ impl Default for AotHeader {
             section_count: 0,
             entry_point: 0,
             optimization_level: 2, // 默认优化级别
-            target_isa: 0, // 默认ISA
+            target_isa: 0,         // 默认ISA
         }
     }
 }
@@ -79,7 +79,10 @@ impl AotImage {
         let magic = u32::from_le_bytes(magic_bytes);
 
         if magic != AOT_MAGIC {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid AOT magic"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid AOT magic",
+            ));
         }
 
         let mut version_bytes = [0u8; 4];

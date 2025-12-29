@@ -1,9 +1,13 @@
+//! GDB 远程调试协议实现
+//!
+//! 支持通过 GDB Remote Serial Protocol (RSP) 调试虚拟机
+
 use crate::{GuestAddr, MMU, VcpuStateContainer};
+
 use std::io::{BufRead, BufReader, Write};
-///! GDB 远程调试协议实现
-///!
-///! 支持通过 GDB Remote Serial Protocol (RSP) 调试虚拟机
+
 use std::net::{TcpListener, TcpStream};
+
 use std::sync::{Arc, Mutex};
 
 /// GDB 调试服务器
@@ -28,7 +32,6 @@ impl GdbServer {
         let addr = format!("127.0.0.1:{}", self.port);
         let listener =
             TcpListener::bind(&addr).map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
-
         println!("GDB server listening on {}", addr);
         self.listener = Some(listener);
         let mut running = self
@@ -36,7 +39,6 @@ impl GdbServer {
             .lock()
             .map_err(|e| format!("Failed to lock running state: {}", e))?;
         *running = true;
-
         Ok(())
     }
 
@@ -54,7 +56,6 @@ impl GdbServer {
             let (stream, addr) = listener
                 .accept()
                 .map_err(|e| format!("Failed to accept connection: {}", e))?;
-
             println!("GDB client connected from {}", addr);
             Ok(GdbConnection::new(stream))
         } else {
@@ -88,14 +89,11 @@ impl GdbConnection {
     pub fn recv_packet(&mut self) -> Result<String, String> {
         // 清空缓冲区但保留容量，用于下次读取
         self.buffer.clear();
-        
         let mut reader = BufReader::new(&self.stream);
         let mut line = String::new();
-
         reader
             .read_line(&mut line)
             .map_err(|e| format!("Failed to read packet: {}", e))?;
-
         // GDB 数据包格式: $data#checksum
         if line.starts_with('$') {
             let end = line.find('#').unwrap_or(line.len());
@@ -112,15 +110,12 @@ impl GdbConnection {
     pub fn send_packet(&mut self, data: &str) -> Result<(), String> {
         let checksum = Self::calculate_checksum(data);
         let packet = format!("${}#{:02x}\n", data, checksum);
-
         self.stream
             .write_all(packet.as_bytes())
             .map_err(|e| format!("Failed to send packet: {}", e))?;
-
         self.stream
             .flush()
             .map_err(|e| format!("Failed to flush stream: {}", e))?;
-
         Ok(())
     }
 
@@ -166,27 +161,23 @@ impl GdbSession {
     ) -> Result<bool, String> {
         let parts: Vec<&str> = cmd.split(',').collect();
         let cmd_type = parts[0];
-
         match cmd_type {
             // 查询支持的功能
             "qSupported" => {
                 self.connection
                     .send_packet("PacketSize=4096;qXfer:features:read+")?;
             }
-
             // 读取所有寄存器
             "g" => {
                 let regs_hex = self.format_registers(vcpu);
                 self.connection.send_packet(&regs_hex)?;
             }
-
             // 写入所有寄存器
             cmd if cmd.starts_with("G") => {
                 let hex_data = &cmd[1..];
                 self.parse_registers(vcpu, hex_data)?;
                 self.connection.send_packet("OK")?;
             }
-
             // 读取内存
             cmd if cmd.starts_with("m") => {
                 let params = &cmd[1..];
@@ -196,7 +187,6 @@ impl GdbSession {
                         .map_err(|_| "Invalid address".to_string())?;
                     let len = usize::from_str_radix(parts[1], 16)
                         .map_err(|_| "Invalid length".to_string())?;
-
                     match self.read_memory(mmu, GuestAddr(addr), len) {
                         Ok(data) => {
                             let hex = data
@@ -211,7 +201,6 @@ impl GdbSession {
                     }
                 }
             }
-
             // 写入内存
             cmd if cmd.starts_with("M") => {
                 let params = &cmd[1..];
@@ -222,7 +211,6 @@ impl GdbSession {
                         let addr = u64::from_str_radix(addr_len[0], 16)
                             .map_err(|_| "Invalid address".to_string())?;
                         let data = Self::hex_to_bytes(parts[1])?;
-
                         match self.write_memory(mmu, GuestAddr(addr), &data) {
                             Ok(_) => self.connection.send_packet("OK")?,
                             Err(_) => self.connection.send_error(0x01)?,
@@ -230,19 +218,16 @@ impl GdbSession {
                     }
                 }
             }
-
             // 继续执行
             "c" => {
                 self.connection.send_packet("OK")?;
                 return Ok(true); // 继续执行
             }
-
             // 单步执行
             "s" => {
                 self.connection.send_packet("OK")?;
                 return Ok(true); // 单步执行
             }
-
             // 设置断点
             cmd if cmd.starts_with("Z0") => {
                 let params = &cmd[3..];
@@ -254,7 +239,6 @@ impl GdbSession {
                     self.connection.send_packet("OK")?;
                 }
             }
-
             // 删除断点
             cmd if cmd.starts_with("z0") => {
                 let params = &cmd[3..];
@@ -266,35 +250,32 @@ impl GdbSession {
                     self.connection.send_packet("OK")?;
                 }
             }
-
             // 查询当前线程
             "qC" => {
                 self.connection.send_packet("QC1")?;
             }
-
             // 查询附加状态
             "qAttached" => {
                 self.connection.send_packet("1")?;
             }
-
             // 终止调试
             "k" => {
                 self.connection.send_packet("OK")?;
                 return Ok(false); // 终止会话
             }
-
             // 未知命令
             _ => {
                 self.connection.send_packet("")?;
             }
         }
-
         Ok(false)
     }
 
     /// 格式化寄存器为十六进制字符串
     fn format_registers(&self, vcpu: &VcpuStateContainer) -> String {
-        vcpu.state.regs.gpr
+        vcpu.state
+            .regs
+            .gpr
             .iter()
             .map(|r| format!("{:016x}", r))
             .collect::<Vec<_>>()
@@ -326,7 +307,10 @@ impl GdbSession {
         let mut data = Vec::with_capacity(len);
         for i in 0..len {
             match mmu.read(addr + i as u64, 1) {
-                Ok(byte) => data.push(byte.try_into().unwrap()),
+                Ok(byte) => {
+                    // Convert u64 to u8, safe because we requested 1 byte
+                    data.push(byte as u8);
+                }
                 Err(_) => return Err("Memory read failed".to_string()),
             }
         }

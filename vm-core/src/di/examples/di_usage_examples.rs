@@ -18,13 +18,16 @@ impl VmStateManager {
     }
     
     pub fn get_state(&self) -> VmState {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock()
+            .map_err(|e| format!("Failed to acquire lock: {}", e))?;
         state.clone()
     }
-    
-    pub fn set_state(&self, new_state: VmState) {
-        let mut state = self.state.lock().unwrap();
+
+    pub fn set_state(&self, new_state: VmState) -> Result<(), String> {
+        let mut state = self.state.lock()
+            .map_err(|e| format!("Failed to acquire lock: {}", e))?;
         *state = new_state;
+        Ok(())
     }
 }
 
@@ -108,7 +111,7 @@ pub fn basic_di_example() -> Result<(), DIError> {
     vm_state.set_state(VmState {
         pc: 0x1000,
         registers: [1; 32],
-    });
+    })?;
     
     // 执行
     let engine = container.get_service::<ExecutionEngine>()?;
@@ -141,7 +144,7 @@ pub fn factory_example() -> Result<(), DIError> {
     vm_state.set_state(VmState {
         pc: 0x2000,
         registers: [2; 32],
-    });
+    })?;
     
     let engine = container.get_service::<ExecutionEngine>()?;
     engine.execute().map_err(|e| DIError::ServiceCreationFailed(e))?;
@@ -364,7 +367,7 @@ pub fn compatibility_layer_example() -> Result<(), DIError> {
     vm_state.set_state(VmState {
         pc: 0x5000,
         registers: [5; 32],
-    });
+    })?;
     
     // 切换到依赖注入模式
     compatibility_layer.switch_to_di();
@@ -402,7 +405,7 @@ pub fn global_service_locator_example() -> Result<(), DIError> {
     vm_state.set_state(VmState {
         pc: 0x6000,
         registers: [6; 32],
-    });
+    })?;
     
     let state = vm_state.get_state();
     println!("全局服务定位器状态: PC {}", state.pc);

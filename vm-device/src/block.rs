@@ -211,6 +211,6 @@ pub fn mmio_write(mmio: &mut VirtioBlockMmio, offset: u64, val: u64, _size: u8) 
         0x28 => mmio.interrupt_status = val as u32,
         0x30 => mmio.used_idx = val as u16,
         0x38 => mmio.cause_evt = val,
-        _ => {}, // 未定义的寄存器忽略写入
+        _ => {} // 未定义的寄存器忽略写入
     }
 }

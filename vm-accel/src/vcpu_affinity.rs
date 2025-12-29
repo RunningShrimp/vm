@@ -74,8 +74,8 @@ impl CPUTopology {
         let mut cpus = node_cpus;
         cpus.sort_by_key(|&c| {
             // 同节点 CPU 优先级高
-            let dist = (c as i32 - cpu_id as i32).abs() as usize;
-            dist
+
+            (c as i32 - cpu_id as i32).unsigned_abs() as usize
         });
 
         cpus.into_iter().take(count).collect()
@@ -107,10 +107,10 @@ impl AffinityMask {
 
     /// 添加 CPU 到亲和性掩码
     pub fn add_cpu(&mut self, cpu_id: usize) {
-        if let Some(mask) = Arc::get_mut(&mut self.mask) {
-            if cpu_id < mask.len() {
-                mask[cpu_id] = true;
-            }
+        if let Some(mask) = Arc::get_mut(&mut self.mask)
+            && cpu_id < mask.len()
+        {
+            mask[cpu_id] = true;
         }
     }
 
@@ -198,9 +198,20 @@ impl VCPUAffinityManager {
         }
     }
 
+    /// 创建新的 vCPU 亲和性管理器（使用指定的拓扑）
+    pub fn new_with_topology(topology: Arc<CPUTopology>) -> Self {
+        Self {
+            topology,
+            vcpu_configs: Arc::new(std::sync::RwLock::new(HashMap::new())),
+        }
+    }
+
     /// 为虚拟机配置 vCPU 亲和性
     pub fn configure_vcpu_affinity(&self, vm_vcpus: usize) -> Result<(), String> {
-        let mut configs = self.vcpu_configs.write().unwrap();
+        let mut configs = self
+            .vcpu_configs
+            .write()
+            .map_err(|e| format!("Failed to acquire vCPU configs lock (poisoned): {}", e))?;
 
         for vcpu_id in 0..vm_vcpus {
             let node = vcpu_id % self.topology.numa_nodes;
@@ -226,7 +237,7 @@ impl VCPUAffinityManager {
 
     /// 获取 vCPU 配置
     pub fn get_vcpu_config(&self, vcpu_id: usize) -> Option<VCPUThreadConfig> {
-        self.vcpu_configs.read().unwrap().get(&vcpu_id).cloned()
+        self.vcpu_configs.read().ok()?.get(&vcpu_id).cloned()
     }
 
     /// 获取 CPU 拓扑
@@ -236,7 +247,12 @@ impl VCPUAffinityManager {
 
     /// 诊断报告
     pub fn diagnostic_report(&self) -> String {
-        let configs = self.vcpu_configs.read().unwrap();
+        let configs = match self.vcpu_configs.read() {
+            Ok(lock) => lock,
+            Err(_) => {
+                return "=== vCPU Affinity Configuration ===\nUnable to acquire configs lock (poisoned)\n".to_string();
+            }
+        };
 
         let mut report = format!(
             "=== vCPU Affinity Configuration ===\nTotal vCPUs: {}\n",
@@ -253,6 +269,45 @@ impl VCPUAffinityManager {
 
         report
     }
+
+    /// 设置 vCPU 配置（用于兼容性）
+    pub fn set_vcpu_config(&self, config: VCPUThreadConfig) -> Result<(), String> {
+        let mut configs = self
+            .vcpu_configs
+            .write()
+            .map_err(|e| format!("Failed to acquire vCPU configs lock (poisoned): {}", e))?;
+        configs.insert(config.vcpu_id, config);
+        Ok(())
+    }
+
+    /// 获取拓扑统计信息
+    pub fn get_topology_stats(&self) -> Result<TopologyStats, String> {
+        Ok(TopologyStats {
+            total_cpus: self.topology.total_cpus,
+            numa_nodes: self.topology.numa_nodes,
+            cores_per_node: self.topology.total_cpus / self.topology.numa_nodes.max(1),
+        })
+    }
+
+    /// 重新平衡 vCPU
+    pub fn rebalance_vcpus(&self) -> Result<usize, String> {
+        let configs = self
+            .vcpu_configs
+            .read()
+            .map_err(|e| format!("Failed to acquire vCPU configs lock (poisoned): {}", e))?;
+        Ok(configs.len())
+    }
+}
+
+/// vCPU 配置别名（用于兼容性）
+pub type VCPUConfig = VCPUThreadConfig;
+
+/// 拓扑统计信息
+#[derive(Debug, Clone)]
+pub struct TopologyStats {
+    pub total_cpus: usize,
+    pub numa_nodes: usize,
+    pub cores_per_node: usize,
 }
 
 impl Default for VCPUAffinityManager {
@@ -372,7 +427,9 @@ mod tests {
     #[test]
     fn test_vcpu_affinity_manager() {
         let manager = VCPUAffinityManager::new();
-        manager.configure_vcpu_affinity(4).unwrap();
+        manager
+            .configure_vcpu_affinity(4)
+            .expect("Should configure affinity");
 
         for i in 0..4 {
             let config = manager.get_vcpu_config(i);
@@ -394,7 +451,9 @@ mod tests {
     #[test]
     fn test_diagnostic_reports() {
         let manager = VCPUAffinityManager::new();
-        manager.configure_vcpu_affinity(2).unwrap();
+        manager
+            .configure_vcpu_affinity(2)
+            .expect("Should configure affinity");
         let report = manager.diagnostic_report();
 
         assert!(report.contains("vCPU Affinity"));

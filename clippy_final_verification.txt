@@ -1,0 +1,1095 @@
+    Blocking waiting for file lock on build directory
+   Compiling proc-macro2 v1.0.103
+   Compiling serde_core v1.0.228
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.228
+   Compiling find-msvc-tools v0.1.5
+   Compiling shlex v1.3.0
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.178
+   Compiling zerocopy v0.8.31
+    Checking memchr v2.7.6
+   Compiling libm v0.2.15
+   Compiling cc v1.2.49
+    Checking smallvec v1.15.1
+   Compiling num-traits v0.2.19
+    Checking once_cell v1.21.3
+    Checking core-foundation-sys v0.8.7
+   Compiling icu_normalizer_data v2.1.1
+   Compiling getrandom v0.2.16
+   Compiling icu_properties_data v2.1.2
+   Compiling rand_core v0.6.4
+    Checking stable_deref_trait v1.2.1
+   Compiling typenum v1.19.0
+   Compiling quote v1.0.42
+   Compiling syn v2.0.111
+    Checking itoa v1.0.15
+   Compiling generic-array v0.14.7
+    Checking bitflags v2.10.0
+    Checking pin-project-lite v0.2.16
+    Checking bytes v1.11.0
+   Compiling syn v1.0.109
+   Compiling crossbeam-utils v0.8.21
+    Checking scopeguard v1.2.0
+    Checking allocator-api2 v0.2.21
+   Compiling writeable v0.6.2
+   Compiling litemap v0.8.1
+   Compiling serde_json v1.0.145
+   Compiling thiserror v1.0.69
+    Checking futures-core v0.3.31
+   Compiling ryu v1.0.20
+   Compiling lock_api v0.4.14
+   Compiling ring v0.17.14
+   Compiling log v0.4.29
+   Compiling ppv-lite86 v0.2.21
+   Compiling byteorder v1.5.0
+    Checking mio v1.1.1
+   Compiling synstructure v0.13.2
+   Compiling rand_chacha v0.3.1
+    Checking socket2 v0.6.1
+   Compiling rand v0.8.5
+   Compiling paste v1.0.15
+   Compiling getrandom v0.3.4
+    Checking percent-encoding v2.3.2
+    Checking bitflags v1.3.2
+   Compiling utf8_iter v1.0.4
+   Compiling uuid v1.19.0
+   Compiling form_urlencoded v1.2.2
+   Compiling indexmap v1.9.3
+    Checking futures-sink v0.3.31
+   Compiling ring v0.16.20
+    Checking parking_lot_core v0.9.12
+   Compiling ahash v0.8.12
+   Compiling base64 v0.21.7
+   Compiling hashbrown v0.12.3
+   Compiling serde_derive v1.0.228
+   Compiling zerofrom-derive v0.1.6
+   Compiling yoke-derive v0.8.1
+   Compiling zerovec-derive v0.11.2
+   Compiling displaydoc v0.2.5
+   Compiling thiserror-impl v2.0.17
+   Compiling zerocopy-derive v0.8.31
+   Compiling thiserror-impl v1.0.69
+   Compiling zerofrom v0.1.6
+   Compiling tokio-macros v2.6.0
+   Compiling yoke v0.8.1
+    Checking slab v0.4.11
+    Checking tokio v1.48.0
+    Checking thiserror v2.0.17
+   Compiling crypto-common v0.1.7
+    Checking zerovec v0.11.5
+   Compiling zerotrie v0.2.3
+   Compiling block-buffer v0.10.4
+    Checking parking_lot v0.12.5
+    Checking futures-channel v0.3.31
+    Checking tinystr v0.8.2
+   Compiling potential_utf v0.1.4
+   Compiling icu_collections v2.1.1
+    Checking icu_locale_core v2.1.1
+    Checking either v1.15.0
+    Checking pin-utils v0.1.0
+   Compiling subtle v2.6.1
+   Compiling futures-macro v0.3.31
+   Compiling digest v0.10.7
+   Compiling rustls v0.20.9
+    Checking futures-task v0.3.31
+   Compiling parking_lot_core v0.8.6
+    Checking futures-io v0.3.31
+    Checking icu_provider v2.1.1
+    Checking icu_properties v2.1.2
+   Compiling icu_normalizer v2.1.1
+    Checking futures-util v0.3.31
+   Compiling untrusted v0.9.0
+    Checking idna_adapter v1.2.1
+    Checking idna v1.1.0
+    Checking url v2.5.7
+   Compiling cpufeatures v0.2.17
+   Compiling webpki v0.22.4
+    Checking iana-time-zone v0.1.64
+   Compiling ahash v0.7.8
+   Compiling untrusted v0.7.1
+    Checking chrono v0.4.42
+   Compiling sct v0.7.1
+   Compiling sha2 v0.10.9
+   Compiling instant v0.1.13
+   Compiling tinyvec_macros v0.1.1
+    Checking simd-adler32 v0.3.8
+   Compiling tinyvec v1.10.0
+    Checking hashbrown v0.14.5
+   Compiling minimal-lexical v0.2.1
+   Compiling nom v7.1.3
+   Compiling unicode-normalization v0.1.25
+   Compiling parking_lot v0.11.2
+   Compiling hmac v0.12.1
+   Compiling dirs-sys v0.3.7
+   Compiling unicode_categories v0.1.1
+   Compiling unicode-properties v0.1.4
+   Compiling crc-catalog v2.4.0
+   Compiling unicode-bidi v0.3.18
+   Compiling crc v3.4.0
+   Compiling hashlink v0.8.4
+   Compiling stringprep v0.1.5
+    Checking miniz_oxide v0.8.9
+   Compiling hkdf v0.12.4
+   Compiling dirs v4.0.0
+   Compiling futures-intrusive v0.4.2
+   Compiling crossbeam-queue v0.3.12
+    Checking tokio-rustls v0.23.4
+   Compiling atoi v1.0.0
+   Compiling sqlformat v0.2.6
+   Compiling webpki-roots v0.22.6
+   Compiling sha1 v0.10.6
+    Checking vm-common v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-common)
+   Compiling md-5 v0.10.6
+   Compiling rustls-pemfile v1.0.4
+   Compiling unicode-segmentation v1.12.0
+   Compiling hex v0.4.3
+   Compiling whoami v1.6.1
+   Compiling base64 v0.13.1
+   Compiling event-listener v2.5.3
+   Compiling dotenvy v0.15.7
+   Compiling heck v0.4.1
+    Checking sqlx-rt v0.6.3
+    Checking tokio-stream v0.1.17
+    Checking aho-corasick v1.1.4
+    Checking futures-executor v0.3.31
+   Compiling async-trait v0.1.89
+    Checking adler v1.0.2
+    Checking bincode v2.0.1
+    Checking futures v0.3.31
+    Checking miniz_oxide v0.7.4
+   Compiling semver v1.0.27
+    Checking core-foundation v0.9.4
+   Compiling bytemuck_derive v1.10.2
+    Checking equivalent v1.0.2
+   Compiling crc32fast v1.5.0
+    Checking foldhash v0.2.0
+   Compiling foreign-types-macros v0.2.3
+    Checking hashbrown v0.16.1
+    Checking regex-automata v0.4.13
+    Checking foreign-types-shared v0.3.1
+   Compiling darling_core v0.21.3
+    Checking objc2-encode v4.1.0
+    Checking foreign-types v0.5.0
+    Checking crossbeam-epoch v0.9.18
+   Compiling rustc_version v0.4.1
+    Checking crossbeam-deque v0.8.6
+    Checking tracing-core v0.1.35
+    Checking object v0.37.3
+    Checking half v2.7.1
+   Compiling tracing-attributes v0.1.31
+    Checking flate2 v1.1.5
+   Compiling objc2-exception-helper v0.1.1
+    Checking bytemuck v1.24.0
+    Checking num_cpus v1.17.0
+    Checking option-ext v0.2.0
+   Compiling siphasher v1.0.1
+   Compiling phf_shared v0.11.3
+   Compiling rayon-core v1.13.0
+    Checking fdeflate v0.3.7
+   Compiling sqlx-core v0.6.3
+    Checking lazy_static v1.5.0
+    Checking core-graphics-types v0.1.3
+    Checking same-file v1.0.6
+   Compiling objc2 v0.6.3
+    Checking walkdir v2.5.0
+    Checking regex v1.12.2
+    Checking core-graphics v0.23.2
+   Compiling phf_generator v0.11.3
+    Checking dirs-sys v0.5.0
+    Checking color_quant v1.1.0
+    Checking weezl v0.1.12
+   Compiling siphasher v0.3.11
+    Checking dirs v6.0.0
+    Checking rayon v1.11.0
+    Checking png v0.17.16
+   Compiling pathfinder_simd v0.5.5
+    Checking tracing v0.1.43
+    Checking indexmap v2.12.1
+   Compiling cfg_aliases v0.2.1
+    Checking utf8parse v0.2.2
+   Compiling getrandom v0.1.16
+    Checking anstyle-parse v0.2.7
+    Checking crossbeam-channel v0.5.15
+    Checking backtrace v0.3.76
+   Compiling darling_macro v0.21.3
+    Checking anstyle-query v1.1.5
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstyle v1.0.13
+    Checking vm-foundation v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-foundation)
+    Checking colorchoice v1.0.4
+    Checking anstream v0.6.21
+   Compiling darling v0.21.3
+    Checking raw-cpuid v11.6.0
+    Checking jpeg-decoder v0.3.2
+   Compiling font-kit v0.14.3
+   Compiling typeid v1.0.3
+    Checking plotters-backend v0.3.7
+    Checking gif v0.12.0
+    Checking image v0.24.9
+    Checking core-text v20.1.0
+    Checking pathfinder_geometry v0.5.1
+    Checking http v1.4.0
+    Checking float-ord v0.3.2
+    Checking strsim v0.11.1
+    Checking clap_lex v0.7.6
+    Checking ciborium-io v0.2.2
+    Checking ciborium-ll v0.2.2
+    Checking clap_builder v4.5.53
+    Checking plotters-svg v0.3.7
+   Compiling phf_macros v0.11.3
+   Compiling clap_derive v4.5.49
+   Compiling rand_core v0.5.1
+    Checking plotters-bitmap v0.3.7
+    Checking itertools v0.10.5
+    Checking ttf-parser v0.20.0
+    Checking objc2-core-foundation v0.3.2
+   Compiling serde_with_macros v3.16.1
+   Compiling erased-serde v0.4.9
+    Checking cast v0.3.0
+   Compiling rand_chacha v0.2.2
+   Compiling rand_pcg v0.2.1
+    Checking ciborium v0.2.2
+    Checking criterion-plot v0.5.0
+   Compiling phf_shared v0.8.0
+    Checking plotters v0.3.7
+    Checking tinytemplate v1.2.1
+    Checking is-terminal v0.4.17
+    Checking anes v0.1.6
+    Checking arrayvec v0.7.6
+    Checking raw-window-handle v0.6.2
+   Compiling proc-macro-hack v0.5.20+deprecated
+    Checking oorandom v11.1.5
+   Compiling rand v0.7.3
+    Checking crossbeam v0.8.4
+   Compiling phf_shared v0.10.0
+    Checking lru v0.16.2
+    Checking dashmap v6.1.0
+    Checking core-foundation v0.10.1
+    Checking clap v4.5.53
+    Checking serde_with v3.16.1
+    Checking memmap2 v0.9.9
+    Checking fnv v1.0.7
+   Compiling new_debug_unreachable v1.0.6
+   Compiling phf_generator v0.10.0
+    Checking block2 v0.6.2
+   Compiling string_cache_codegen v0.5.4
+    Checking core-graphics-types v0.2.0
+   Compiling phf_codegen v0.11.3
+   Compiling precomputed-hash v0.1.1
+   Compiling winnow v0.7.14
+   Compiling mac v0.1.1
+   Compiling futf v0.1.5
+    Checking objc2-foundation v0.3.2
+   Compiling phf_generator v0.8.0
+   Compiling markup5ever v0.14.1
+    Checking criterion v0.5.1
+   Compiling phf_codegen v0.8.0
+   Compiling cssparser v0.29.6
+   Compiling profiling-procmacros v1.0.17
+   Compiling toml_datetime v0.7.3
+   Compiling serde_spanned v1.0.4
+   Compiling toml_writer v1.0.6+spec-1.1.0
+   Compiling dtoa v1.0.10
+   Compiling utf-8 v0.7.6
+   Compiling sqlx-macros v0.6.3
+   Compiling tendril v0.4.3
+   Compiling dtoa-short v0.3.5
+    Checking profiling v1.0.17
+   Compiling selectors v0.24.0
+   Compiling toml_parser v1.0.4
+   Compiling string_cache v0.8.9
+   Compiling phf v0.11.3
+    Checking vm-optimizers v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-optimizers)
+   Compiling phf_macros v0.10.0
+   Compiling toml v0.9.8
+    Checking dpi v0.1.2
+   Compiling cssparser-macros v0.6.1
+   Compiling ctor v0.2.9
+   Compiling num-conv v0.1.0
+   Compiling unic-common v0.9.0
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling convert_case v0.4.0
+   Compiling time-core v0.1.6
+   Compiling nodrop v0.1.14
+   Compiling camino v1.2.2
+   Compiling matches v0.1.10
+   Compiling regex-syntax v0.8.8
+   Compiling unic-char-range v0.9.0
+    Checking sqlx v0.6.3
+   Compiling objc-sys v0.3.5
+   Compiling derive_more v0.99.20
+   Compiling unic-char-property v0.9.0
+   Compiling servo_arc v0.2.0
+   Compiling alloc-stdlib v0.2.2
+   Compiling unic-ucd-version v0.9.0
+   Compiling phf v0.10.1
+   Compiling phf v0.8.0
+   Compiling naga v27.0.3
+    Checking vm-core v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-core)
+   Compiling swift-rs v1.0.7
+    Checking vm-simd v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-simd)
+    Checking vm-ir v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-ir)
+    Checking vm-platform v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-platform)
+    Checking vm-mem v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-mem)
+    Checking vm-osal v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-osal)
+   Compiling match_token v0.1.0
+   Compiling fxhash v0.2.1
+   Compiling serde_derive_internals v0.29.1
+    Checking vm-smmu v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-smmu)
+    Checking num-integer v0.1.46
+    Checking vm-accel v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-accel)
+    Checking malloc_buf v0.0.6
+    Checking unicode-width v0.2.2
+    Checking dispatch v0.2.0
+    Checking fastrand v2.3.0
+    Checking bit-vec v0.8.0
+   Compiling schemars v0.8.22
+    Checking codespan-reporting v0.12.0
+    Checking bit-set v0.8.0
+    Checking objc v0.2.7
+    Checking vm-engine-jit v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-engine-jit)
+   Compiling html5ever v0.29.1
+   Compiling schemars_derive v0.8.22
+    Checking num-bigint v0.4.6
+    Checking vm-runtime v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-runtime)
+warning: method `try_get_allocator` is never used
+   --> vm-mem/src/memory/numa_allocator.rs:394:8
+    |
+375 | impl GlobalNumaAllocator {
+    | ------------------------ method in this implementation
+...
+394 |     fn try_get_allocator(&self) -> Result<&NumaAllocator, String> {
+    |        ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `lock_inner_mut` is never used
+   --> vm-mem/src/tlb/unified_tlb.rs:436:8
+    |
+420 | impl ConcurrentTlb {
+    | ------------------ method in this implementation
+...
+436 |     fn lock_inner_mut(&self) -> Result<std::sync::MutexGuard<'_, crate::ConcurrentTlbManager>, MemoryError> {
+    |        ^^^^^^^^^^^^^^
+
+   Compiling brotli-decompressor v5.0.0
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-mem/src/optimization/advanced/prefetch.rs:316:41
+    |
+316 |     fn lock_translation_cache(&self) -> Result<std::sync::MutexGuard<'_, HashMap<(GuestAddr, u16), TranslationResult>>, VmError> {
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+    = note: `-W clippy::type-complexity` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::type_complexity)]`
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-mem/src/optimization/advanced/batch.rs:211:10
+    |
+211 |     ) -> Result<std::sync::MutexGuard<'_, HashMap<(GuestAddr, u16), TranslationCacheEntry>>, VmError>
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+   Compiling unic-ucd-ident v0.9.0
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-mem/src/tlb/tlb_flush.rs:678:34
+    |
+678 |     fn lock_page_stats(&self) -> Result<std::sync::MutexGuard<'_, HashMap<(GuestAddr, u16), PageStats>>, VmError> {
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+   Compiling wgpu-hal v27.0.4
+   Compiling cfb v0.7.3
+warning: `vm-mem` (lib) generated 5 warnings
+    Checking vm-frontend v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-frontend)
+warning: associated function `acquire_task_queue` is never used
+   --> vm-engine-jit/src/core.rs:265:8
+    |
+249 | impl JITEngine {
+    | -------------- associated function in this implementation
+...
+265 |     fn acquire_task_queue(task_queue: &PriorityTaskQueue) -> Result<std::sync::MutexGuard<'_, std::collections::BinaryHeap<(std::cm...
+    |        ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `try_lock_entries_with_timeout` is never used
+  --> vm-engine-jit/src/inline_cache.rs:52:8
+   |
+28 | impl InlineCache {
+   | ---------------- method in this implementation
+...
+52 |     fn try_lock_entries_with_timeout(
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-engine-jit/src/core.rs:265:62
+    |
+265 | ...e) -> Result<std::sync::MutexGuard<'_, std::collections::BinaryHeap<(std::cmp::Reverse<u32>, CompilationTask)>>, VmError> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+    = note: `-W clippy::type-complexity` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::type_complexity)]`
+
+    Checking vm-engine-interpreter v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-engine-interpreter)
+warning: `vm-engine-jit` (lib) generated 3 warnings
+   Compiling cargo-platform v0.1.9
+   Compiling jsonptr v0.6.3
+   Compiling dunce v1.0.5
+    Checking rustc-hash v1.1.0
+    Checking hexf-parse v0.2.1
+   Compiling dyn-clone v1.0.20
+    Checking unicode-ident v1.0.22
+    Checking block v0.1.6
+   Compiling json-patch v3.0.1
+    Checking metal v0.32.0
+   Compiling cargo_metadata v0.19.2
+   Compiling infer v0.19.0
+   Compiling brotli v8.0.2
+    Checking objc2-core-image v0.3.2
+    Checking objc2-core-data v0.3.2
+    Checking objc2-cloud-kit v0.3.2
+    Checking objc2-quartz-core v0.3.2
+   Compiling serde-untagged v0.1.9
+   Compiling urlpattern v0.3.0
+    Checking num-rational v0.4.2
+    Checking objc2 v0.5.2
+    Checking objc2-core-video v0.3.2
+    Checking objc2-core-text v0.3.2
+    Checking objc2-core-graphics v0.3.2
+    Checking http-body v1.0.1
+    Checking wgpu-types v27.0.1
+   Compiling anyhow v1.0.100
+   Compiling glob v0.3.3
+    Checking base64 v0.22.1
+    Checking objc2-app-kit v0.3.2
+    Checking block2 v0.5.1
+   Compiling wgpu-core v27.0.3
+   Compiling equator-macro v0.4.2
+   Compiling heapless v0.8.0
+    Checking powerfmt v0.2.0
+    Checking tower-service v0.3.3
+   Compiling system-configuration-sys v0.6.0
+   Compiling rustix v1.1.2
+   Compiling httparse v1.10.1
+   Compiling litrs v1.0.0
+   Compiling kuchikiki v0.8.8-speedreader
+    Checking equator v0.4.2
+   Compiling document-features v0.2.12
+    Checking deranged v0.5.5
+   Compiling tauri-utils v2.8.1
+    Checking objc2-foundation v0.2.2
+   Compiling embed-resource v3.0.6
+   Compiling time-macros v0.2.24
+   Compiling winit v0.30.12
+   Compiling wgpu v27.0.1
+    Checking tokio-util v0.7.17
+    Checking hash32 v0.3.1
+    Checking wgpu-core-deps-apple v27.0.0
+    Checking errno v0.3.14
+   Compiling adler2 v2.0.1
+    Checking mime v0.3.17
+   Compiling smoltcp v0.12.0
+    Checking try-lock v0.2.5
+    Checking atomic-waker v1.1.2
+    Checking time v0.3.44
+    Checking want v0.3.1
+    Checking h2 v0.4.12
+    Checking aligned-vec v0.6.4
+    Checking objc2-app-kit v0.2.2
+   Compiling tauri-winres v0.3.5
+   Compiling cargo_toml v0.22.3
+    Checking sync_wrapper v1.0.2
+   Compiling cookie v0.18.1
+    Checking managed v0.8.0
+    Checking smol_str v0.2.2
+    Checking cursor-icon v1.2.0
+    Checking httpdate v1.0.3
+    Checking tower-layer v0.3.3
+    Checking hyper v1.8.1
+    Checking system-configuration v0.6.1
+    Checking tempfile v3.23.0
+    Checking v_frame v0.3.9
+    Checking http-body-util v0.1.3
+    Checking vm-cross-arch-support v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-cross-arch-support)
+    Checking vm-passthrough v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-passthrough)
+    Checking objc2-security v0.3.2
+    Checking objc2-javascript-core v0.3.2
+    Checking bincode v1.3.3
+    Checking as-slice v0.2.1
+    Checking ipnet v2.11.0
+   Compiling built v0.8.0
+   Compiling av-scenechange v0.14.1
+    Checking pollster v0.4.0
+    Checking hyper-util v0.1.19
+    Checking aligned v0.4.3
+    Checking vm-cross-arch v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-cross-arch)
+   Compiling rav1e v0.8.1
+    Checking tower v0.5.2
+    Checking safe_arch v0.7.4
+   Compiling arg_enum_proc_macro v0.3.4
+   Compiling quick-xml v0.38.4
+    Checking security-framework-sys v2.15.0
+    Checking core2 v0.4.0
+    Checking nom v8.0.0
+   Compiling matrixmultiply v0.3.10
+warning: method `lock_block_cache` is never used
+  --> vm-cross-arch/src/translation_impl.rs:58:8
+   |
+48 | impl ArchTranslator {
+   | ------------------- method in this implementation
+...
+58 |     fn lock_block_cache(&self) -> Result<std::sync::MutexGuard<'_, CrossArchBlockCache>, TranslationError> {
+   |        ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling tauri-runtime v2.9.2
+    Checking quick-error v2.0.1
+   Compiling pkg-config v0.3.32
+   Compiling wry v0.53.5
+   Compiling vcpkg v0.2.15
+warning: `vm-cross-arch` (lib) generated 1 warning
+   Compiling pastey v0.1.1
+    Checking y4m v0.8.0
+   Compiling native-tls v0.2.14
+   Compiling plist v1.8.0
+   Compiling libsqlite3-sys v0.25.2
+    Checking security-framework v2.11.1
+   Compiling tauri-build v2.5.3
+    Checking bitstream-io v4.9.0
+    Checking wide v0.7.33
+   Compiling ico v0.4.0
+    Checking core-graphics v0.24.0
+    Checking av1-grain v0.2.5
+    Checking maybe-rayon v0.1.1
+    Checking serde_urlencoded v0.7.1
+    Checking itertools v0.14.0
+   Compiling fax_derive v0.2.0
+   Compiling num-derive v0.4.2
+    Checking approx v0.5.1
+    Checking num-complex v0.4.6
+   Compiling simd_helpers v0.1.0
+    Checking zune-core v0.4.12
+   Compiling tauri-runtime-wry v2.9.3
+    Checking vm-device v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-device)
+   Compiling noop_proc_macro v0.3.0
+    Checking iri-string v0.7.9
+    Checking rawpointer v0.2.1
+    Checking imgref v1.12.0
+    Checking loop9 v0.1.5
+    Checking keyboard-types v0.7.0
+    Checking simba v0.6.0
+    Checking fax v0.2.6
+    Checking zune-jpeg v0.4.21
+   Compiling tauri-codegen v2.5.2
+    Checking vm-interface v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-interface)
+    Checking avif-serialize v0.8.6
+    Checking tower-http v0.6.8
+    Checking rand_distr v0.4.3
+    Checking zune-inflate v0.2.54
+   Compiling nalgebra-macros v0.1.0
+   Compiling serialize-to-javascript-impl v0.1.2
+    Checking pxfm v0.1.27
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-device/src/io_multiplexing.rs:167:38
+    |
+167 |     fn lock_handlers_write(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>> {
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+    = note: `-W clippy::type-complexity` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::type_complexity)]`
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-device/src/io_multiplexing.rs:175:37
+    |
+175 |     fn lock_handlers_read(&self) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>> {
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+    Checking zune-core v0.5.0
+    Checking byteorder-lite v0.1.0
+warning: `vm-device` (lib) generated 2 warnings
+    Checking vm-service v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-service)
+    Checking lebe v0.5.3
+    Checking bit_field v0.10.3
+    Checking rgb v0.8.52
+    Checking exr v1.74.0
+    Checking image-webp v0.2.4
+    Checking zune-jpeg v0.5.8
+    Checking serialize-to-javascript v0.1.2
+    Checking tokio-native-tls v0.3.1
+    Checking tiff v0.10.3
+    Checking axum-core v0.5.5
+    Checking vm-executors v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-executors)
+    Checking nalgebra v0.29.0
+    Checking gif v0.14.1
+    Checking qoi v0.4.1
+    Checking png v0.18.0
+    Checking moxcms v0.7.11
+    Checking dirs-sys v0.4.1
+   Compiling serde_repr v0.1.20
+    Checking serde_path_to_error v0.1.20
+    Checking zeroize v1.8.2
+    Checking fallible-streaming-iterator v0.1.9
+    Checking objc2-web-kit v0.3.2
+    Checking tao v0.34.5
+    Checking muda v0.17.1
+    Checking window-vibrancy v0.6.0
+    Checking fallible-iterator v0.2.0
+    Checking matchit v0.8.4
+    Checking heck v0.5.0
+    Checking embed_plist v1.2.2
+    Checking rusqlite v0.28.0
+    Checking axum v0.8.7
+    Checking ravif v0.12.0
+    Checking rustls-pki-types v1.13.1
+    Checking dirs v5.0.1
+    Checking hyper-tls v0.6.0
+    Checking env_filter v0.1.4
+    Checking matchers v0.2.0
+    Checking sharded-slab v0.1.7
+    Checking tracing-log v0.2.0
+    Checking metrics v0.24.3
+    Checking vm-error v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-error)
+    Checking thread_local v1.1.9
+    Checking encoding_rs v0.8.35
+    Checking nu-ansi-term v0.50.3
+    Checking jiff v0.2.17
+   Compiling vm-codegen v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-codegen)
+    Checking tracing-subscriber v0.3.22
+    Checking tiered-compiler v0.1.0 (/Users/wangbiao/Desktop/project/vm/tiered-compiler)
+    Checking vm-cross-arch-integration-tests v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-cross-arch-integration-tests)
+warning: unused import: `crate::CrossArchTestConfig`
+  --> vm-cross-arch-integration-tests/src/cross_arch_integration_tests_part3.rs:13:5
+   |
+13 | use crate::CrossArchTestConfig;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-cross-arch-integration-tests` (lib) generated 1 warning (run `cargo clippy --fix --lib -p vm-cross-arch-integration-tests` to apply 1 suggestion)
+    Checking vm-stress-test-runner v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-stress-test-runner)
+    Checking vm-encoding v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-encoding)
+    Checking libloading v0.9.0
+    Checking vm-instruction-patterns v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-instruction-patterns)
+    Checking reqwest v0.12.25
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:449:49
+    |
+449 |             .with_operand(OperandType::Register(0)) // dst
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+449 |             .with_operand(OperandType::Register(vm_encoding::RegId(0))) // dst
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:450:49
+    |
+450 |             .with_operand(OperandType::Register(1)) // src1
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+450 |             .with_operand(OperandType::Register(vm_encoding::RegId(1))) // src1
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:451:49
+    |
+451 |             .with_operand(OperandType::Register(2)) // src2
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+451 |             .with_operand(OperandType::Register(vm_encoding::RegId(2))) // src2
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:467:36
+    |
+467 |                 dependencies: vec![1, 2],
+    |                                    ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+467 |                 dependencies: vec![vm_encoding::RegId(1), 2],
+    |                                    +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:468:31
+    |
+468 |                 outputs: vec![0],
+    |                               ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+468 |                 outputs: vec![vm_encoding::RegId(0)],
+    |                               +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:481:49
+    |
+481 |             .with_operand(OperandType::Register(0)) // dst
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+481 |             .with_operand(OperandType::Register(vm_encoding::RegId(0))) // dst
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:482:49
+    |
+482 |             .with_operand(OperandType::Register(1)) // src1
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+482 |             .with_operand(OperandType::Register(vm_encoding::RegId(1))) // src1
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:483:49
+    |
+483 |             .with_operand(OperandType::Register(2)) // src2
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+483 |             .with_operand(OperandType::Register(vm_encoding::RegId(2))) // src2
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:499:36
+    |
+499 |                 dependencies: vec![1, 2],
+    |                                    ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+499 |                 dependencies: vec![vm_encoding::RegId(1), 2],
+    |                                    +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:500:31
+    |
+500 |                 outputs: vec![0],
+    |                               ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+500 |                 outputs: vec![vm_encoding::RegId(0)],
+    |                               +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:516:49
+    |
+516 |             .with_operand(OperandType::Register(0)) // dst
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+516 |             .with_operand(OperandType::Register(vm_encoding::RegId(0))) // dst
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:517:49
+    |
+517 |             .with_operand(OperandType::Register(1)) // src1
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+517 |             .with_operand(OperandType::Register(vm_encoding::RegId(1))) // src1
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:518:49
+    |
+518 |             .with_operand(OperandType::Register(2)) // src2
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+518 |             .with_operand(OperandType::Register(vm_encoding::RegId(2))) // src2
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:534:36
+    |
+534 |                 dependencies: vec![1, 2],
+    |                                    ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+534 |                 dependencies: vec![vm_encoding::RegId(1), 2],
+    |                                    +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:535:31
+    |
+535 |                 outputs: vec![0],
+    |                               ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+535 |                 outputs: vec![vm_encoding::RegId(0)],
+    |                               +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:548:49
+    |
+548 |             .with_operand(OperandType::Register(0)) // dst
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+548 |             .with_operand(OperandType::Register(vm_encoding::RegId(0))) // dst
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:549:49
+    |
+549 |             .with_operand(OperandType::Register(1)) // src1
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+549 |             .with_operand(OperandType::Register(vm_encoding::RegId(1))) // src1
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:550:49
+    |
+550 |             .with_operand(OperandType::Register(2)) // src2
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+550 |             .with_operand(OperandType::Register(vm_encoding::RegId(2))) // src2
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:566:36
+    |
+566 |                 dependencies: vec![1, 2],
+    |                                    ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+566 |                 dependencies: vec![vm_encoding::RegId(1), 2],
+    |                                    +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:567:31
+    |
+567 |                 outputs: vec![0],
+    |                               ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+567 |                 outputs: vec![vm_encoding::RegId(0)],
+    |                               +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:583:49
+    |
+583 |             .with_operand(OperandType::Register(0)) // dst
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+583 |             .with_operand(OperandType::Register(vm_encoding::RegId(0))) // dst
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:584:69
+    |
+584 |             .with_operand(OperandType::Memory(MemoryOperand::simple(1, 0, 8))) // [src]
+    |                                               --------------------- ^ expected `RegId`, found integer
+    |                                               |
+    |                                               arguments to this function are incorrect
+    |
+note: associated function defined here
+   --> vm-instruction-patterns/src/lib.rs:189:12
+    |
+189 |     pub fn simple(base: RegId, displacement: i64, size: u8) -> Self {
+    |            ^^^^^^ -----------
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+584 |             .with_operand(OperandType::Memory(MemoryOperand::simple(vm_encoding::RegId(1), 0, 8))) // [src]
+    |                                                                     +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:600:36
+    |
+600 |                 dependencies: vec![1],
+    |                                    ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+600 |                 dependencies: vec![vm_encoding::RegId(1)],
+    |                                    +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:601:31
+    |
+601 |                 outputs: vec![0],
+    |                               ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+601 |                 outputs: vec![vm_encoding::RegId(0)],
+    |                               +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:614:69
+    |
+614 |             .with_operand(OperandType::Memory(MemoryOperand::simple(0, 0, 8))) // [dst]
+    |                                               --------------------- ^ expected `RegId`, found integer
+    |                                               |
+    |                                               arguments to this function are incorrect
+    |
+note: associated function defined here
+   --> vm-instruction-patterns/src/lib.rs:189:12
+    |
+189 |     pub fn simple(base: RegId, displacement: i64, size: u8) -> Self {
+    |            ^^^^^^ -----------
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+614 |             .with_operand(OperandType::Memory(MemoryOperand::simple(vm_encoding::RegId(0), 0, 8))) // [dst]
+    |                                                                     +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:615:49
+    |
+615 |             .with_operand(OperandType::Register(1)) // src
+    |                           --------------------- ^ expected `RegId`, found integer
+    |                           |
+    |                           arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> vm-instruction-patterns/src/lib.rs:158:5
+    |
+158 |     Register(RegId),
+    |     ^^^^^^^^
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+615 |             .with_operand(OperandType::Register(vm_encoding::RegId(1))) // src
+    |                                                 +++++++++++++++++++ +
+
+error[E0308]: mismatched types
+   --> vm-instruction-patterns/src/lib.rs:631:36
+    |
+631 |                 dependencies: vec![0, 1],
+    |                                    ^ expected `RegId`, found integer
+    |
+help: try wrapping the expression in `vm_encoding::RegId`
+    |
+631 |                 dependencies: vec![vm_encoding::RegId(0), 1],
+    |                                    +++++++++++++++++++ +
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `vm-instruction-patterns` (lib) due to 27 previous errors
+warning: build failed, waiting for other jobs to finish...
+warning: vm-codegen@0.1.0: Skip codegen examples (set VM_CODEGEN_GEN=1 to enable)

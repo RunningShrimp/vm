@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 use tokio::sync::broadcast;
 
 pub mod vendor_metrics;
@@ -36,6 +37,21 @@ pub mod dashboard;
 pub mod export;
 
 pub use alerts::{Alert, AlertLevel, AlertManager, AlertType};
+
+/// 监控错误类型
+#[derive(Debug, Error)]
+pub enum MonitorError {
+    #[error("RwLock poisoned")]
+    LockError,
+    #[error("Metric '{0}' already exists")]
+    MetricExists(String),
+    #[error("Alert rule '{0}' already exists")]
+    AlertRuleExists(String),
+    #[error("System time error")]
+    TimeError,
+    #[error("No data available")]
+    NoData,
+}
 
 /// 性能快照
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,9 +301,78 @@ impl PerformanceMonitor {
         }
     }
 
+    // Helper methods for lock operations
+    fn lock_metric_configs(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<String, MetricConfig>>, MonitorError> {
+        self.metric_configs
+            .write()
+            .map_err(|_| MonitorError::LockError)
+    }
+
+    fn lock_metrics_write(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<String, VecDeque<MetricPoint>>>, MonitorError>
+    {
+        self.metrics.write().map_err(|_| MonitorError::LockError)
+    }
+
+    fn lock_metrics_read(
+        &self,
+    ) -> Result<std::sync::RwLockReadGuard<'_, HashMap<String, VecDeque<MetricPoint>>>, MonitorError>
+    {
+        self.metrics.read().map_err(|_| MonitorError::LockError)
+    }
+
+    fn lock_alert_rules_write(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<String, AlertRule>>, MonitorError> {
+        self.alert_rules
+            .write()
+            .map_err(|_| MonitorError::LockError)
+    }
+
+    fn lock_alert_rules_read(
+        &self,
+    ) -> Result<std::sync::RwLockReadGuard<'_, HashMap<String, AlertRule>>, MonitorError> {
+        self.alert_rules.read().map_err(|_| MonitorError::LockError)
+    }
+
+    fn lock_active_alerts_read(
+        &self,
+    ) -> Result<std::sync::RwLockReadGuard<'_, HashMap<String, AlertEvent>>, MonitorError> {
+        self.active_alerts
+            .read()
+            .map_err(|_| MonitorError::LockError)
+    }
+
+    fn lock_active_alerts_write(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<String, AlertEvent>>, MonitorError> {
+        self.active_alerts
+            .write()
+            .map_err(|_| MonitorError::LockError)
+    }
+
+    fn lock_monitor_handles_write(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, Vec<tokio::task::JoinHandle<()>>>, MonitorError>
+    {
+        self.monitor_handles
+            .write()
+            .map_err(|_| MonitorError::LockError)
+    }
+
+    fn get_timestamp_ms() -> Result<u64, MonitorError> {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .map_err(|_| MonitorError::TimeError)
+    }
+
     /// 注册指标
     pub fn register_metric(&self, config: MetricConfig) -> Result<(), String> {
-        let mut configs = self.metric_configs.write().unwrap();
+        let mut configs = self.lock_metric_configs().map_err(|e| e.to_string())?;
         if configs.contains_key(&config.name) {
             return Err(format!("Metric '{}' already exists", config.name));
         }
@@ -298,10 +383,10 @@ impl PerformanceMonitor {
 
     /// 记录指标值
     pub fn record_metric(&self, name: &str, value: f64, tags: HashMap<String, String>) {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let timestamp = match Self::get_timestamp_ms() {
+            Ok(ts) => ts,
+            Err(_) => return, // Silently fail on time error
+        };
 
         let point = MetricPoint {
             timestamp,
@@ -309,7 +394,10 @@ impl PerformanceMonitor {
             tags,
         };
 
-        let mut metrics = self.metrics.write().unwrap();
+        let mut metrics = match self.lock_metrics_write() {
+            Ok(m) => m,
+            Err(_) => return, // Silently fail on lock error
+        };
         let points = metrics.entry(name.to_string()).or_default();
 
         points.push_back(point);
@@ -327,7 +415,10 @@ impl PerformanceMonitor {
         start_time: Option<u64>,
         end_time: Option<u64>,
     ) -> Vec<MetricPoint> {
-        let metrics = self.metrics.read().unwrap();
+        let metrics = match self.lock_metrics_read() {
+            Ok(m) => m,
+            Err(_) => return Vec::new(), // Return empty on lock error
+        };
         if let Some(points) = metrics.get(name) {
             let filtered: Vec<_> = points
                 .iter()
@@ -354,10 +445,10 @@ impl PerformanceMonitor {
 
     /// 计算指标统计信息
     pub fn get_metric_stats(&self, name: &str, window_seconds: u64) -> Option<MetricStats> {
-        let end_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let end_time = match Self::get_timestamp_ms() {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
         let start_time = end_time.saturating_sub(window_seconds * 1000);
 
         let data = self.get_metric_data(name, Some(start_time), Some(end_time));
@@ -375,19 +466,21 @@ impl PerformanceMonitor {
         let variance = values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / values.len() as f64;
         let std_dev = variance.sqrt();
 
+        let latest = *values.last().unwrap_or(&0.0);
+
         Some(MetricStats {
             count: values.len(),
             min,
             max,
             avg,
             std_dev,
-            latest: *values.last().unwrap(),
+            latest,
         })
     }
 
     /// 添加告警规则
     pub fn add_alert_rule(&self, rule: AlertRule) -> Result<(), String> {
-        let mut rules = self.alert_rules.write().unwrap();
+        let mut rules = self.lock_alert_rules_write().map_err(|e| e.to_string())?;
         if rules.contains_key(&rule.id) {
             return Err(format!("Alert rule '{}' already exists", rule.id));
         }
@@ -398,14 +491,18 @@ impl PerformanceMonitor {
 
     /// 删除告警规则
     pub fn remove_alert_rule(&self, rule_id: &str) -> bool {
-        let mut rules = self.alert_rules.write().unwrap();
-        rules.remove(rule_id).is_some()
+        match self.lock_alert_rules_write() {
+            Ok(mut rules) => rules.remove(rule_id).is_some(),
+            Err(_) => false,
+        }
     }
 
     /// 获取活跃告警
     pub fn get_active_alerts(&self) -> Vec<AlertEvent> {
-        let alerts = self.active_alerts.read().unwrap();
-        alerts.values().cloned().collect()
+        match self.lock_active_alerts_read() {
+            Ok(alerts) => alerts.values().cloned().collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// 订阅告警事件
@@ -420,28 +517,37 @@ impl PerformanceMonitor {
         let handle = tokio::spawn(async move {
             monitor.system_metrics_collector().await;
         });
-        self.monitor_handles.write().unwrap().push(handle);
+        if let Ok(mut handles) = self.lock_monitor_handles_write() {
+            handles.push(handle);
+        }
 
         // 告警检查任务
         let monitor = Arc::new(self.clone());
         let handle = tokio::spawn(async move {
             monitor.alert_checker().await;
         });
-        self.monitor_handles.write().unwrap().push(handle);
+        if let Ok(mut handles) = self.lock_monitor_handles_write() {
+            handles.push(handle);
+        }
 
         // 数据清理任务
         let monitor = Arc::new(self.clone());
         let handle = tokio::spawn(async move {
             monitor.data_cleanup_task().await;
         });
-        self.monitor_handles.write().unwrap().push(handle);
+        if let Ok(mut handles) = self.lock_monitor_handles_write() {
+            handles.push(handle);
+        }
 
         Ok(())
     }
 
     /// 停止监控
     pub async fn stop_monitoring(&self) {
-        let handles = std::mem::take(&mut *self.monitor_handles.write().unwrap());
+        let handles = match self.lock_monitor_handles_write() {
+            Ok(mut h) => std::mem::take(&mut *h),
+            Err(_) => return, // Silently fail on lock error
+        };
         for handle in handles {
             handle.abort();
         }
@@ -485,7 +591,10 @@ impl PerformanceMonitor {
         loop {
             interval.tick().await;
 
-            let rules = self.alert_rules.read().unwrap().clone();
+            let rules = match self.lock_alert_rules_read() {
+                Ok(r) => r.clone(),
+                Err(_) => continue, // Skip on lock error
+            };
             for rule in rules.values() {
                 if !rule.enabled {
                     continue;
@@ -508,16 +617,21 @@ impl PerformanceMonitor {
         loop {
             interval.tick().await;
 
-            let configs = self.metric_configs.read().unwrap().clone();
-            let mut metrics = self.metrics.write().unwrap();
+            let configs = match self.metric_configs.read() {
+                Ok(c) => c.clone(),
+                Err(_) => continue, // Skip on lock error
+            };
+            let mut metrics = match self.metrics.write() {
+                Ok(m) => m,
+                Err(_) => continue, // Skip on lock error
+            };
 
             for (name, config) in configs.iter() {
                 if let Some(points) = metrics.get_mut(name) {
-                    let cutoff_time = (SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64)
-                        .saturating_sub(config.retention_hours * 3600 * 1000);
+                    let cutoff_time = match Self::get_timestamp_ms() {
+                        Ok(t) => t.saturating_sub(config.retention_hours * 3600 * 1000),
+                        Err(_) => continue, // Skip on time error
+                    };
 
                     // 移除过期数据点
                     while let Some(point) = points.front() {
@@ -550,20 +664,15 @@ impl PerformanceMonitor {
 
     /// 触发告警
     async fn trigger_alert(&self, rule: &AlertRule, value: f64) {
+        let now_ms = match Self::get_timestamp_ms() {
+            Ok(t) => t,
+            Err(_) => return, // Silently fail on time error
+        };
+
         let event = AlertEvent {
-            id: format!(
-                "alert_{}_{}",
-                rule.id,
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis()
-            ),
+            id: format!("alert_{}_{}", rule.id, now_ms),
             rule_id: rule.id.clone(),
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
+            timestamp: now_ms,
             severity: rule.severity,
             message: format!("{}: {} (value: {:.2})", rule.name, rule.description, value),
             value,
@@ -571,7 +680,10 @@ impl PerformanceMonitor {
         };
 
         // 存储活跃告警
-        let mut alerts = self.active_alerts.write().unwrap();
+        let mut alerts = match self.lock_active_alerts_write() {
+            Ok(a) => a,
+            Err(_) => return, // Silently fail on lock error
+        };
         alerts.insert(event.id.clone(), event.clone());
 
         // 广播告警事件
@@ -667,11 +779,10 @@ impl PerformanceMonitor {
 
     /// 生成性能报告
     pub fn generate_report(&self) -> PerformanceReport {
+        let timestamp = Self::get_timestamp_ms().unwrap_or(0);
+
         let mut report = PerformanceReport {
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
+            timestamp,
             system_metrics: HashMap::new(),
             vm_metrics: HashMap::new(),
             alerts: self.get_active_alerts(),

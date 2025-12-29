@@ -534,30 +534,33 @@ impl PerformanceMonitoringFeedbackManager {
         if data_points.is_empty() {
             return 0.0;
         }
-        
+
         // 简化实现：基于最新的数据点计算评分
-        let latest = data_points.back().unwrap();
-        
+        let latest = match data_points.back() {
+            Some(data) => data,
+            None => return 0.0,
+        };
+
         // 执行时间评分（越低越好）
         let execution_time_score = if latest.execution_time.as_nanos() > 0 {
             1_000_000.0 / latest.execution_time.as_nanos() as f64
         } else {
             1.0
         };
-        
+
         // 吞吐量评分（越高越好）
         let throughput_score = latest.throughput / 1000.0;
-        
+
         // 缓存命中率评分（越高越好）
         let cache_hit_rate_score = latest.cache_hit_rate;
-        
+
         // 内存使用评分（越低越好）
         let memory_usage_score = if latest.memory_usage > 0 {
             1.0 / (latest.memory_usage as f64 / 1024.0 / 1024.0)
         } else {
             1.0
         };
-        
+
         // 加权平均
         (execution_time_score * 0.4 + throughput_score * 0.3 + cache_hit_rate_score * 0.2 + memory_usage_score * 0.1) * 100.0
     }

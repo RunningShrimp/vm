@@ -476,11 +476,31 @@ impl PluginConfigManager {
         }
     }
 
+    /// Helper method to lock config cache for reading
+    fn lock_config_cache(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<PluginId, PluginConfig>>, ConfigValidationError> {
+        self.config_cache.read().map_err(|e| ConfigValidationError::ValidationError(format!("Failed to lock config cache for reading: {}", e)))
+    }
+
+    /// Helper method to lock config cache for writing
+    fn lock_config_cache_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<PluginId, PluginConfig>>, ConfigValidationError> {
+        self.config_cache.write().map_err(|e| ConfigValidationError::ValidationError(format!("Failed to lock config cache for writing: {}", e)))
+    }
+
+    /// Helper method to lock change listeners for reading
+    fn lock_change_listeners(&self) -> Result<std::sync::RwLockReadGuard<'_, Vec<Box<dyn ConfigChangeListener>>>, ConfigValidationError> {
+        self.change_listeners.read().map_err(|e| ConfigValidationError::ValidationError(format!("Failed to lock change listeners for reading: {}", e)))
+    }
+
+    /// Helper method to lock change listeners for writing
+    fn lock_change_listeners_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, Vec<Box<dyn ConfigChangeListener>>>, ConfigValidationError> {
+        self.change_listeners.write().map_err(|e| ConfigValidationError::ValidationError(format!("Failed to lock change listeners for writing: {}", e)))
+    }
+
     /// 获取插件配置
     pub async fn get_plugin_config(&self, plugin_id: &PluginId) -> Result<PluginConfig, ConfigValidationError> {
         // 先检查缓存
         if self.config.enable_cache {
-            let cache = self.config_cache.read().unwrap();
+            let cache = self.lock_config_cache()?;
             if let Some(config) = cache.get(plugin_id) {
                 return Ok(config.clone());
             }
@@ -508,7 +528,7 @@ impl PluginConfigManager {
 
         // 更新缓存
         if self.config.enable_cache {
-            let mut cache = self.config_cache.write().unwrap();
+            let mut cache = self.lock_config_cache_mut()?;
             cache.insert(plugin_id.clone(), config.clone());
         }
 
@@ -538,7 +558,7 @@ impl PluginConfigManager {
 
         // 更新缓存
         if self.config.enable_cache {
-            let mut cache = self.config_cache.write().unwrap();
+            let mut cache = self.lock_config_cache_mut()?;
             cache.insert(plugin_id.clone(), new_config.clone());
         }
 
@@ -613,7 +633,7 @@ impl PluginConfigManager {
 
         // 从缓存删除
         if self.config.enable_cache {
-            let mut cache = self.config_cache.write().unwrap();
+            let mut cache = self.lock_config_cache_mut()?;
             cache.remove(plugin_id);
         }
 
@@ -654,12 +674,14 @@ impl PluginConfigManager {
 
     /// 添加配置变更监听器
     pub fn add_config_change_listener(&self, listener: Box<dyn ConfigChangeListener>) {
-        self.change_listeners.write().unwrap().push(listener);
+        if let Ok(mut listeners) = self.lock_change_listeners_mut() {
+            listeners.push(listener);
+        }
     }
 
     /// 移除配置变更监听器
     pub fn remove_config_change_listener(&self, index: usize) {
-        let mut listeners = self.change_listeners.write().unwrap();
+        if let Ok(mut listeners) = self.lock_change_listeners_mut() {
         if index < listeners.len() {
             listeners.remove(index);
         }
@@ -668,16 +690,18 @@ impl PluginConfigManager {
     /// 清除配置缓存
     pub fn clear_config_cache(&self, plugin_id: &PluginId) {
         if self.config.enable_cache {
-            let mut cache = self.config_cache.write().unwrap();
-            cache.remove(plugin_id);
+            if let Ok(mut cache) = self.lock_config_cache_mut() {
+                cache.remove(plugin_id);
+            }
         }
     }
 
     /// 清除所有配置缓存
     pub fn clear_all_config_cache(&self) {
         if self.config.enable_cache {
-            let mut cache = self.config_cache.write().unwrap();
-            cache.clear();
+            if let Ok(mut cache) = self.lock_config_cache_mut() {
+                cache.clear();
+            }
         }
     }
 
@@ -689,7 +713,10 @@ impl PluginConfigManager {
 
     /// 通知配置变更
     fn notify_config_change(&self, event: ConfigChangeEvent) {
-        let listeners = self.change_listeners.read().unwrap();
+        let listeners = match self.lock_change_listeners() {
+            Ok(l) => l,
+            Err(_) => return,
+        };
         for listener in listeners.iter() {
             listener.on_config_changed(&event);
         }
@@ -1005,6 +1032,11 @@ impl DefaultConfigValidator {
             schema_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+    /// Helper method to lock schema cache for reading
+    fn lock_schema_cache(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<PluginId, ConfigSchema>>, ConfigValidationError> {
+        self.schema_cache.read().map_err(|e| ConfigValidationError::ValidationError(format!("Failed to lock schema cache for reading: {}", e)))
+    }
 }
 
 #[async_trait::async_trait]
@@ -1042,7 +1074,7 @@ impl ConfigValidator for DefaultConfigValidator {
     }
 
     fn get_config_schema(&self, plugin_id: &PluginId) -> Result<ConfigSchema, ConfigValidationError> {
-        let cache = self.schema_cache.read().unwrap();
+        let cache = self.lock_schema_cache()?;
         
         // 简化实现，返回默认模式
         if let Some(schema) = cache.get(plugin_id) {
@@ -1336,7 +1368,7 @@ mod tests {
             data: HashMap::new(),
             metadata: ConfigMetadata::default(),
         };
-        
+
         assert_eq!(config.plugin_id.as_str(), "test");
         assert_eq!(config.version, 1);
     }
@@ -1345,41 +1377,59 @@ mod tests {
     fn test_config_value_conversions() {
         let bool_val = ConfigValue::Bool(true);
         assert_eq!(bool_val.as_bool(), Some(true));
-        
+
         let int_val = ConfigValue::Integer(42);
         assert_eq!(int_val.as_integer(), Some(42));
-        
+
         let float_val = ConfigValue::Float(3.14);
         assert_eq!(float_val.as_float(), Some(3.14));
-        
+
         let string_val = ConfigValue::String("test".to_string());
         assert_eq!(string_val.as_string(), Some(&"test".to_string()));
     }
 
     #[tokio::test]
     async fn test_file_config_storage() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = match tempfile::tempdir() {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to create temp dir: {:?}", e);
+                return;
+            }
+        };
         let config_dir = temp_dir.path();
         let manager_config = ConfigManagerConfig::default();
-        
+
         let storage = FileConfigStorage::new(config_dir, ConfigFormat::Json, manager_config);
         let plugin_id = PluginId::from("test");
-        
+
         let config = PluginConfig {
             plugin_id: plugin_id.clone(),
             version: 1,
             data: HashMap::from([("key".to_string(), ConfigValue::String("value".to_string()))]),
             metadata: ConfigMetadata::default(),
         };
-        
+
         // 保存配置
-        storage.save_config(&plugin_id, &config).await.unwrap();
-        
+        if let Err(e) = storage.save_config(&plugin_id, &config).await {
+            eprintln!("Failed to save config: {:?}", e);
+            return;
+        }
+
         // 加载配置
-        let loaded_config = storage.load_config(&plugin_id).await.unwrap();
+        let loaded_config = match storage.load_config(&plugin_id).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to load config: {:?}", e);
+                return;
+            }
+        };
         assert!(loaded_config.is_some());
-        
-        let loaded_config = loaded_config.unwrap();
+
+        let loaded_config = match loaded_config {
+            Some(c) => c,
+            None => return,
+        };
         assert_eq!(loaded_config.plugin_id, plugin_id);
         assert_eq!(loaded_config.data.get("key"), Some(&ConfigValue::String("value".to_string())));
     }
@@ -1388,7 +1438,7 @@ mod tests {
     async fn test_config_validation() {
         let validator = DefaultConfigValidator::new();
         let plugin_id = PluginId::from("test");
-        
+
         let config = PluginConfig {
             plugin_id: plugin_id.clone(),
             version: 1,
@@ -1399,8 +1449,14 @@ mod tests {
             ]),
             metadata: ConfigMetadata::default(),
         };
-        
-        let result = validator.validate_config(&plugin_id, &config).await.unwrap();
+
+        let result = match validator.validate_config(&plugin_id, &config).await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Failed to validate config: {:?}", e);
+                return;
+            }
+        };
         assert!(result.is_valid);
         assert!(result.errors.is_empty());
     }

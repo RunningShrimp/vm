@@ -263,6 +263,27 @@ impl DynamicOptimizationManager {
         }
     }
 
+    /// Helper: 获取性能历史锁
+    fn lock_performance_history(&self) -> Result<std::sync::MutexGuard<'_, PerformanceHistory>, VmError> {
+        self.performance_history
+            .lock()
+            .map_err(|_| VmError::LockPoisoned("PerformanceHistory mutex poisoned".into()))
+    }
+
+    /// Helper: 获取阈值管理器锁
+    fn lock_threshold_manager(&self) -> Result<std::sync::MutexGuard<'_, AdaptiveThresholdManager>, VmError> {
+        self.threshold_manager
+            .lock()
+            .map_err(|_| VmError::LockPoisoned("AdaptiveThresholdManager mutex poisoned".into()))
+    }
+
+    /// Helper: 获取建议锁
+    fn lock_suggestions(&self) -> Result<std::sync::MutexGuard<'_, Vec<OptimizationSuggestion>>, VmError> {
+        self.suggestions
+            .lock()
+            .map_err(|_| VmError::LockPoisoned("Suggestions mutex poisoned".into()))
+    }
+
     /// 记录执行性能
     pub fn record_execution(
         &self,
@@ -282,36 +303,54 @@ impl DynamicOptimizationManager {
             optimization_level,
             simd_enabled,
         };
-        
+
         // 添加到性能历史
         {
-            let mut history = self.performance_history.lock().unwrap();
+            let mut history = match self.lock_performance_history() {
+                Ok(h) => h,
+                Err(e) => {
+                    log::error!("Failed to lock performance history: {}", e);
+                    return;
+                }
+            };
             history.add_data_point(data_point);
         }
-        
+
         // 检查是否需要分析
         self.check_and_analyze(pc);
     }
 
     /// 检查并分析性能
     fn check_and_analyze(&self, pc: GuestAddr) {
-        let history = self.performance_history.lock().unwrap();
-        
+        let history = match self.lock_performance_history() {
+            Ok(h) => h,
+            Err(e) => {
+                log::error!("Failed to lock performance history during analysis: {}", e);
+                return;
+            }
+        };
+
         if let Some(stats) = history.get_stats(pc) {
             // 如果执行次数足够，进行分析
             if stats.total_executions >= self.config.min_executions_for_analysis {
                 drop(history); // 释放锁
-                
+
                 // 分析性能并生成建议
                 let suggestion = self.analyze_performance(pc);
-                
+
                 if let Some(suggestion) = suggestion {
                     // 添加建议
                     {
-                        let mut suggestions = self.suggestions.lock().unwrap();
+                        let mut suggestions = match self.lock_suggestions() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                log::error!("Failed to lock suggestions: {}", e);
+                                return;
+                            }
+                        };
                         suggestions.push(suggestion.clone());
                     }
-                    
+
                     // 如果配置为自动应用，则应用建议
                     if self.config.auto_apply_suggestions {
                         self.apply_suggestion(&suggestion);
@@ -323,20 +362,20 @@ impl DynamicOptimizationManager {
 
     /// 分析性能并生成优化建议
     fn analyze_performance(&self, pc: GuestAddr) -> Option<OptimizationSuggestion> {
-        let history = self.performance_history.lock().unwrap();
+        let history = self.lock_performance_history().ok()?;
         let stats = history.get_stats(pc)?;
-        
+
         // 获取当前配置
         // 注意：这里需要实际的实现，暂时使用默认配置
         let current_config = JITConfig::default();
-        
+
         // 分析性能趋势
         let mut suggested_level = current_config.optimization_level;
         let mut suggested_simd = current_config.enable_simd;
         let mut suggested_threshold = current_config.hotspot_threshold;
         let mut confidence = 0.5;
         let mut reasons = Vec::new();
-        
+
         // 根据性能趋势调整优化级别
         match stats.performance_trend {
             PerformanceTrend::Degrading => {
@@ -368,7 +407,7 @@ impl DynamicOptimizationManager {
                 // 数据不足，不做调整
             }
         }
-        
+
         // 根据代码类型调整SIMD设置
         // 注意：这里需要实际的代码大小信息，暂时跳过
         if !suggested_simd { // 代码块较大
@@ -376,7 +415,7 @@ impl DynamicOptimizationManager {
             confidence += 0.1;
             reasons.push("代码块较大，建议启用SIMD优化".to_string());
         }
-        
+
         // 根据执行频率调整热点阈值
         if stats.total_executions > suggested_threshold as u64 * 2 {
             // 执行频率很高，降低阈值以便更早编译
@@ -389,16 +428,16 @@ impl DynamicOptimizationManager {
             confidence += 0.1;
             reasons.push("执行频率低，建议提高热点阈值".to_string());
         }
-        
+
         // 限制置信度范围
         let confidence_f64: f64 = confidence as f64;
         confidence = confidence_f64.min(1.0).max(0.0) as f32;
-        
+
         // 如果没有足够的理由，不返回建议
         if reasons.is_empty() || confidence < 0.3 {
             return None;
         }
-        
+
         Some(OptimizationSuggestion {
             pc,
             suggested_optimization_level: suggested_level,
@@ -412,36 +451,42 @@ impl DynamicOptimizationManager {
     /// 应用优化建议
     pub fn apply_suggestion(&self, suggestion: &OptimizationSuggestion) {
         log::info!("应用优化建议 for PC {:#x}: {}", suggestion.pc, suggestion.reason);
-        
+
         // 更新JIT引擎配置
         // 注意：这里需要实际的实现，暂时使用默认配置
         let mut config = JITConfig::default();
-        
+
         if config.optimization_level != suggestion.suggested_optimization_level {
             config.optimization_level = suggestion.suggested_optimization_level;
             log::info!("更新优化级别: {}", config.optimization_level);
         }
-        
+
         if config.enable_simd != suggestion.suggested_simd_enabled {
             config.enable_simd = suggestion.suggested_simd_enabled;
             log::info!("更新SIMD设置: {}", config.enable_simd);
         }
-        
+
         if config.hotspot_threshold != suggestion.suggested_hotspot_threshold {
             config.hotspot_threshold = suggestion.suggested_hotspot_threshold;
             log::info!("更新热点阈值: {}", config.hotspot_threshold);
         }
-        
+
         // 注意：这里需要实际的实现，暂时跳过
         // self.jit_engine.update_config(config);
-        
+
         // 更新自适应阈值管理器
         {
-            let mut threshold_manager = self.threshold_manager.lock().unwrap();
+            let mut threshold_manager = match self.lock_threshold_manager() {
+                Ok(tm) => tm,
+                Err(e) => {
+                    log::error!("Failed to lock threshold manager: {}", e);
+                    return;
+                }
+            };
             // 注意：这里需要实际的实现，暂时跳过
             // threshold_manager.update_threshold(suggestion.pc, suggestion.suggested_hotspot_threshold);
         }
-        
+
         // 清除相关缓存，强制重新编译
         // 注意：这里需要实际的实现，暂时跳过
         // self.jit_engine.clear_cache_for_pc(suggestion.pc);
@@ -449,73 +494,108 @@ impl DynamicOptimizationManager {
 
     /// 获取优化建议
     pub fn get_suggestions(&self) -> Vec<OptimizationSuggestion> {
-        let suggestions = self.suggestions.lock().unwrap();
-        suggestions.clone()
+        match self.lock_suggestions() {
+            Ok(suggestions) => suggestions.clone(),
+            Err(e) => {
+                log::error!("Failed to lock suggestions: {}", e);
+                Vec::new()
+            }
+        }
     }
 
     /// 清除优化建议
     pub fn clear_suggestions(&self) {
-        let mut suggestions = self.suggestions.lock().unwrap();
-        suggestions.clear();
+        match self.lock_suggestions() {
+            Ok(mut suggestions) => {
+                suggestions.clear();
+            }
+            Err(e) => {
+                log::error!("Failed to lock suggestions: {}", e);
+            }
+        }
     }
 
     /// 获取性能统计
     pub fn get_performance_stats(&self, pc: GuestAddr) -> Option<PerformanceStats> {
-        let history = self.performance_history.lock().unwrap();
+        let history = self.lock_performance_history().ok()?;
         history.get_stats(pc).cloned()
     }
 
     /// 获取所有性能统计
     pub fn get_all_performance_stats(&self) -> HashMap<GuestAddr, PerformanceStats> {
-        let history = self.performance_history.lock().unwrap();
-        history.get_all_stats().clone()
+        match self.lock_performance_history() {
+            Ok(history) => history.get_all_stats().clone(),
+            Err(e) => {
+                log::error!("Failed to lock performance history: {}", e);
+                HashMap::new()
+            }
+        }
     }
 
     /// 手动触发性能分析
     pub fn trigger_analysis(&self) -> Vec<OptimizationSuggestion> {
         let mut suggestions = Vec::new();
-        
+
         // 先获取所有需要分析的PC地址
         let pcs_to_analyze: Vec<GuestAddr> = {
-            let history = self.performance_history.lock().unwrap();
-            history.get_all_stats()
-                .iter()
-                .filter_map(|(&pc, stats)| {
-                    if stats.total_executions >= self.config.min_executions_for_analysis {
-                        Some(pc)
-                    } else {
-                        None
-                    }
-                })
-                .collect()
+            match self.lock_performance_history() {
+                Ok(history) => {
+                    history.get_all_stats()
+                        .iter()
+                        .filter_map(|(&pc, stats)| {
+                            if stats.total_executions >= self.config.min_executions_for_analysis {
+                                Some(pc)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                }
+                Err(e) => {
+                    log::error!("Failed to lock performance history for analysis: {}", e);
+                    return Vec::new();
+                }
+            }
         };
-        
+
         // 对每个PC进行分析
         for pc in pcs_to_analyze {
             if let Some(suggestion) = self.analyze_performance(pc) {
                 suggestions.push(suggestion);
             }
         }
-        
+
         // 更新建议列表
         {
-            let mut current_suggestions = self.suggestions.lock().unwrap();
-            *current_suggestions = suggestions.clone();
+            match self.lock_suggestions() {
+                Ok(mut current_suggestions) => {
+                    *current_suggestions = suggestions.clone();
+                }
+                Err(e) => {
+                    log::error!("Failed to lock suggestions: {}", e);
+                }
+            }
         }
-        
+
         suggestions
     }
 
     /// 更新配置
     pub fn update_config(&mut self, config: DynamicOptimizationConfig) {
         self.config = config;
-        
+
         // 更新性能历史大小
         {
-            let mut history = self.performance_history.lock().unwrap();
-            if history.max_data_points != self.config.max_history_points {
-                // 重新创建性能历史
-                *history = PerformanceHistory::new(self.config.max_history_points);
+            match self.lock_performance_history() {
+                Ok(mut history) => {
+                    if history.max_data_points != self.config.max_history_points {
+                        // 重新创建性能历史
+                        *history = PerformanceHistory::new(self.config.max_history_points);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to lock performance history: {}", e);
+                }
             }
         }
     }
@@ -543,9 +623,10 @@ mod tests {
         };
         
         history.add_data_point(data_point);
-        
+
         // 检查统计
-        let stats = history.get_stats(0x1000).unwrap();
+        let stats = history.get_stats(0x1000)
+            .expect("Stats should exist for PC 0x1000");
         assert_eq!(stats.total_executions, 1);
         assert_eq!(stats.total_execution_time_ns, 1000);
         assert_eq!(stats.avg_execution_time_ns, 1000);
@@ -570,8 +651,9 @@ mod tests {
             };
             history.add_data_point(data_point);
         }
-        
-        let stats = history.get_stats(0x1000).unwrap();
+
+        let stats = history.get_stats(0x1000)
+            .expect("Stats should exist for PC 0x1000");
         assert_eq!(stats.performance_trend, PerformanceTrend::Improving);
     }
 }

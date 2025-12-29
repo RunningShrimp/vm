@@ -2,14 +2,22 @@
 //!
 //! 实现代码版本管理和回滚机制
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
 use vm_core::VmError;
 
+/// Helper function to get current timestamp safely
+fn get_current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// 代码版本标识
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CodeVersion(u64);
 
 impl CodeVersion {
@@ -49,10 +57,7 @@ pub struct CompiledCodeBlock {
 
 impl CompiledCodeBlock {
     pub fn new(version: CodeVersion, ir_hash: u64, code: Vec<u8>, entry_point: usize) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = get_current_timestamp();
 
         Self {
             version,
@@ -220,10 +225,7 @@ impl CodeVersionManager {
 
         self.history.push(VersionHistory {
             version,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            timestamp: get_current_timestamp(),
             change_type: VersionChangeType::Update,
             description: format!("Switched to version {}", version.0),
         });
@@ -254,15 +256,18 @@ impl CodeVersionManager {
 
         self.current_version = target_version;
 
+        let from_version = self.history.last().map(|h| h.version).ok_or_else(|| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: "History is empty".to_string(),
+                current: "empty_history".to_string(),
+                expected: "non_empty_history".to_string(),
+            })
+        })?;
+
         self.history.push(VersionHistory {
             version: target_version,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            change_type: VersionChangeType::Rollback {
-                from: CodeVersion::new(self.history.last().unwrap().version.0),
-            },
+            timestamp: get_current_timestamp(),
+            change_type: VersionChangeType::Rollback { from: from_version },
             description: format!("Rolled back to version {}", target_version.0),
         });
 
@@ -271,25 +276,21 @@ impl CodeVersionManager {
 
     /// 禁用指定版本
     pub fn disable_version(&mut self, version: CodeVersion) -> Result<(), VmError> {
-        let code = self.code_store.get_mut(&version).ok_or_else(|| VmError::Core(vm_core::CoreError::InvalidState {
-            message: format!("Version {} does not exist", version.0),
-            current: "version_missing".to_string(),
-            expected: "version_exists".to_string(),
-        }))?;
+        let code = self.code_store.get_mut(&version).ok_or_else(|| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Version {} does not exist", version.0),
+                current: "version_missing".to_string(),
+                expected: "version_exists".to_string(),
+            })
+        })?;
 
-        let code = Arc::make_mut(code).ok_or_else(|| VmError::Core(vm_core::CoreError::Internal {
-            message: "Cannot modify shared code".to_string(),
-            module: "hot_reload".to_string(),
-        }))?;
+        let code = Arc::make_mut(code);
 
         code.disable();
 
         self.history.push(VersionHistory {
             version,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            timestamp: get_current_timestamp(),
             change_type: VersionChangeType::Disable,
             description: format!("Disabled version {}", version.0),
         });
@@ -299,24 +300,21 @@ impl CodeVersionManager {
 
     /// 启用指定版本
     pub fn enable_version(&mut self, version: CodeVersion) -> Result<(), VmError> {
-        let code = self.code_store.get_mut(&version).ok_or_else(|| VmError::InvalidOperation {
-            operation: "enable_version".to_string(),
-            reason: format!("Version {} does not exist", version.0),
+        let code = self.code_store.get_mut(&version).ok_or_else(|| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Version {} does not exist", version.0),
+                current: "version_missing".to_string(),
+                expected: "version_exists".to_string(),
+            })
         })?;
 
-        let code = Arc::make_mut(code).ok_or_else(|| VmError::InvalidOperation {
-            operation: "enable_version".to_string(),
-            reason: "Cannot modify shared code".to_string(),
-        })?;
+        let code = Arc::make_mut(code);
 
         code.enable();
 
         self.history.push(VersionHistory {
             version,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            timestamp: get_current_timestamp(),
             change_type: VersionChangeType::Enable,
             description: format!("Enabled version {}", version.0),
         });
@@ -327,7 +325,11 @@ impl CodeVersionManager {
     /// 清理旧版本
     fn cleanup_old_versions(&mut self) {
         while self.code_store.len() > self.config.max_versions {
-            let oldest_version = *self.code_store.keys().min().unwrap();
+            let oldest_version = *self
+                .code_store
+                .keys()
+                .min()
+                .expect("code_store should not be empty when cleanup_old_versions is called");
             self.code_store.remove(&oldest_version);
         }
     }
@@ -362,43 +364,72 @@ impl ThreadSafeCodeVersionManager {
         }
     }
 
+    /// Acquire read lock with proper error handling
+    fn read_lock(&self) -> Result<std::sync::RwLockReadGuard<'_, CodeVersionManager>, VmError> {
+        self.inner.read().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Failed to acquire read lock: {}", e),
+                current: "lock_poisoned".to_string(),
+                expected: "valid_lock".to_string(),
+            })
+        })
+    }
+
+    /// Acquire write lock with proper error handling
+    fn write_lock(&self) -> Result<std::sync::RwLockWriteGuard<'_, CodeVersionManager>, VmError> {
+        self.inner.write().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Failed to acquire write lock: {}", e),
+                current: "lock_poisoned".to_string(),
+                expected: "valid_lock".to_string(),
+            })
+        })
+    }
+
     pub fn register_version(&self, code: CompiledCodeBlock) -> Result<CodeVersion, VmError> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.write_lock()?;
         inner.register_version(code)
     }
 
     pub fn get_current(&self) -> Option<Arc<CompiledCodeBlock>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.read_lock().ok()?;
         inner.get_current()
     }
 
     pub fn get_version(&self, version: CodeVersion) -> Option<Arc<CompiledCodeBlock>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.read_lock().ok()?;
         inner.get_version(version)
     }
 
     pub fn find_by_hash(&self, ir_hash: u64) -> Option<Arc<CompiledCodeBlock>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.read_lock().ok()?;
         inner.find_by_hash(ir_hash)
     }
 
     pub fn switch_version(&self, version: CodeVersion) -> Result<(), VmError> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.write_lock()?;
         inner.switch_version(version)
     }
 
     pub fn rollback(&self) -> Result<CodeVersion, VmError> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.write_lock()?;
         inner.rollback()
     }
 
     pub fn current_version(&self) -> CodeVersion {
-        let inner = self.inner.read().unwrap();
+        let inner = self.read_lock().unwrap_or_else(|e| {
+            panic!("Failed to acquire read lock for current_version - this may indicate a poisoned lock: {}", e)
+        });
         inner.current_version()
     }
 
     pub fn history(&self) -> Vec<VersionHistory> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.read_lock().unwrap_or_else(|e| {
+            panic!(
+                "Failed to acquire read lock for history - this may indicate a poisoned lock: {}",
+                e
+            )
+        });
         inner.history().to_vec()
     }
 }
@@ -412,14 +443,12 @@ mod tests {
         let config = HotReloadConfig::default();
         let mut manager = CodeVersionManager::new(config);
 
-        let code1 = CompiledCodeBlock::new(
-            CodeVersion::new(1),
-            0x12345678,
-            vec![0x90, 0x90, 0xC3],
-            0,
-        );
+        let code1 =
+            CompiledCodeBlock::new(CodeVersion::new(1), 0x12345678, vec![0x90, 0x90, 0xC3], 0);
 
-        let version = manager.register_version(code1).unwrap();
+        let version = manager
+            .register_version(code1)
+            .expect("Failed to register version 1 in test_code_version_manager");
         assert_eq!(version, CodeVersion::new(1));
         assert_eq!(manager.current_version(), CodeVersion::new(1));
     }
@@ -429,12 +458,8 @@ mod tests {
         let config = HotReloadConfig::default();
         let mut manager = CodeVersionManager::new(config);
 
-        let code1 = CompiledCodeBlock::new(
-            CodeVersion::new(1),
-            0x12345678,
-            vec![0x90, 0x90, 0xC3],
-            0,
-        );
+        let code1 =
+            CompiledCodeBlock::new(CodeVersion::new(1), 0x12345678, vec![0x90, 0x90, 0xC3], 0);
         let code2 = CompiledCodeBlock::new(
             CodeVersion::new(2),
             0x87654321,
@@ -442,13 +467,21 @@ mod tests {
             0,
         );
 
-        manager.register_version(code1).unwrap();
-        manager.register_version(code2).unwrap();
+        manager
+            .register_version(code1)
+            .expect("Failed to register version 1 in test_version_switch");
+        manager
+            .register_version(code2)
+            .expect("Failed to register version 2 in test_version_switch");
 
-        manager.switch_version(CodeVersion::new(1)).unwrap();
+        manager
+            .switch_version(CodeVersion::new(1))
+            .expect("Failed to switch to version 1 in test_version_switch");
         assert_eq!(manager.current_version(), CodeVersion::new(1));
 
-        manager.switch_version(CodeVersion::new(2)).unwrap();
+        manager
+            .switch_version(CodeVersion::new(2))
+            .expect("Failed to switch to version 2 in test_version_switch");
         assert_eq!(manager.current_version(), CodeVersion::new(2));
     }
 
@@ -457,12 +490,8 @@ mod tests {
         let config = HotReloadConfig::default();
         let mut manager = CodeVersionManager::new(config);
 
-        let code1 = CompiledCodeBlock::new(
-            CodeVersion::new(1),
-            0x12345678,
-            vec![0x90, 0x90, 0xC3],
-            0,
-        );
+        let code1 =
+            CompiledCodeBlock::new(CodeVersion::new(1), 0x12345678, vec![0x90, 0x90, 0xC3], 0);
         let code2 = CompiledCodeBlock::new(
             CodeVersion::new(2),
             0x87654321,
@@ -470,10 +499,16 @@ mod tests {
             0,
         );
 
-        manager.register_version(code1).unwrap();
-        manager.register_version(code2).unwrap();
+        manager
+            .register_version(code1)
+            .expect("Failed to register version 1 in test_version_rollback");
+        manager
+            .register_version(code2)
+            .expect("Failed to register version 2 in test_version_rollback");
 
-        manager.rollback().unwrap();
+        manager
+            .rollback()
+            .expect("Failed to rollback in test_version_rollback");
         assert_eq!(manager.current_version(), CodeVersion::new(1));
     }
 
@@ -482,17 +517,20 @@ mod tests {
         let config = HotReloadConfig::default();
         let mut manager = CodeVersionManager::new(config);
 
-        let code1 = CompiledCodeBlock::new(
-            CodeVersion::new(1),
-            0x12345678,
-            vec![0x90, 0x90, 0xC3],
-            0,
-        );
+        let code1 =
+            CompiledCodeBlock::new(CodeVersion::new(1), 0x12345678, vec![0x90, 0x90, 0xC3], 0);
 
-        manager.register_version(code1).unwrap();
+        manager
+            .register_version(code1)
+            .expect("Failed to register version 1 in test_find_by_hash");
 
         let found = manager.find_by_hash(0x12345678);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().ir_hash, 0x12345678);
+        assert_eq!(
+            found
+                .expect("Expected to find code block with hash 0x12345678 in test_find_by_hash")
+                .ir_hash,
+            0x12345678
+        );
     }
 }

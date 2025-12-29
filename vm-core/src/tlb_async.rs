@@ -123,15 +123,23 @@ impl AsyncSimpleTlb {
             entries: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+
+    /// Acquire the lock with proper error handling.
+    ///
+    /// Returns a guard for the entries HashMap, or an error if the lock is poisoned.
+    fn lock_entries(&self) -> Result<std::sync::MutexGuard<HashMap<VirtPageKey, TlbEntry>>, VmError> {
+        self.entries.lock().map_err(|_| VmError::Memory(crate::MemoryError::PageTableError {
+            message: "TLB lock is poisoned".to_string(),
+            level: None,
+        }))
+    }
 }
 
 #[async_trait]
 impl AsyncTranslationLookasideBuffer for AsyncSimpleTlb {
     async fn translate(&mut self, va: u64, access: AccessType) -> Result<u64, VmError> {
         let entry = self
-            .entries
-            .lock()
-            .unwrap()
+            .lock_entries()?
             .get(&VirtPageKey::from(va))
             .cloned();
 
@@ -157,24 +165,22 @@ impl AsyncTranslationLookasideBuffer for AsyncSimpleTlb {
 
     async fn update(&mut self, va: u64, entry: TlbEntry) -> Result<(), VmError> {
         let key = VirtPageKey::new(entry.guest_addr, entry.asid);
-        self.entries.lock().unwrap().insert(key, entry);
+        self.lock_entries()?.insert(key, entry);
         Ok(())
     }
 
     async fn flush(&mut self, va: u64) -> Result<(), VmError> {
-        self.entries.lock().unwrap().remove(&VirtPageKey::from(va));
+        self.lock_entries()?.remove(&VirtPageKey::from(va));
         Ok(())
     }
 
     async fn flush_all(&mut self) -> Result<(), VmError> {
-        self.entries.lock().unwrap().clear();
+        self.lock_entries()?.clear();
         Ok(())
     }
 
     async fn flush_asid(&mut self, asid: u16) -> Result<(), VmError> {
-        self.entries
-            .lock()
-            .unwrap()
+        self.lock_entries()?
             .retain(|key, _| key.asid != asid);
         Ok(())
     }
@@ -183,9 +189,7 @@ impl AsyncTranslationLookasideBuffer for AsyncSimpleTlb {
         let start_key = VirtPageKey::from(start_va);
         let end_key = VirtPageKey::from(end_va);
 
-        self.entries
-            .lock()
-            .unwrap()
+        self.lock_entries()?
             .retain(|key, _| key.va < start_key.va || key.va > end_key.va);
 
         Ok(())
@@ -218,10 +222,10 @@ mod tests {
         };
 
         // Update the TLB with the entry.
-        tlb.update(va, entry).await.unwrap();
+        tlb.update(va, entry).await.expect("Failed to update TLB");
 
         // Translate the virtual address.
-        let pa = tlb.translate(va, AccessType::Read).await.unwrap();
+        let pa = tlb.translate(va, AccessType::Read).await.expect("Failed to translate address");
 
         // Verify the translation result.
         assert_eq!(pa, 0x56789000);
@@ -242,10 +246,10 @@ mod tests {
         };
 
         // Update the TLB with the entry.
-        tlb.update(va, entry).await.unwrap();
+        tlb.update(va, entry).await.expect("Failed to update TLB");
 
         // Flush the entry.
-        tlb.flush(va).await.unwrap();
+        tlb.flush(va).await.expect("Failed to flush TLB entry");
 
         // Attempt to translate the virtual address.
         let result = tlb.translate(va, AccessType::Read).await;
@@ -274,11 +278,11 @@ mod tests {
                 flags: 0x00000003, // Read/Write permissions.
                 asid,
             };
-            tlb.update(va, entry).await.unwrap();
+            tlb.update(va, entry).await.expect("Failed to update TLB");
         }
 
         // Flush all entries.
-        tlb.flush_all().await.unwrap();
+        tlb.flush_all().await.expect("Failed to flush all TLB entries");
 
         // Attempt to translate the virtual addresses.
         for (va, _, _) in entries {

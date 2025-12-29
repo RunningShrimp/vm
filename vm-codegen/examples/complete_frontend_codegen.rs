@@ -3,7 +3,6 @@
 //! 这个示例展示如何使用前端代码生成器生成ARM64和RISC-V前端代码，
 //! 减少不同架构前端之间的重复代码。
 
-use std::collections::HashMap;
 use std::fs;
 
 // 指令规范
@@ -139,13 +138,12 @@ impl Default for {}Decoder {{
     fn generate_decode_impl(&self, instruction_set: &InstructionSet) -> String {
         let arch_upper = self.arch_name.to_uppercase();
         let mut compressed_check = String::new();
-        
+
         if self.has_compressed {
-            compressed_check = format!(
-                r#"
+            compressed_check = r#"
         // 检查压缩指令
         // 压缩指令的bits [1:0] != 11
-        if (insn & 0x3) != 0x3 {{
+        if (insn & 0x3) != 0x3 {
             // 这是一个16位压缩指令
             let op = (insn >> 13) & 0x7;
             let rd_rs1 = (insn >> 7) & 0x1F;
@@ -153,17 +151,20 @@ impl Default for {}Decoder {{
             
             // 处理压缩指令
             // 目前，我们将其视为常规指令
-        }}"#
-            );
+        }"#
+            .to_string();
         }
 
         let mut opcode_matches = String::new();
         let mut instruction_handlers = String::new();
-        
+
         for spec in &instruction_set.instructions {
             let opcode = (spec.pattern & 0x7f) as u8;
-            opcode_matches.push_str(&format!("\n            0x{:02x} => \"{}\",", opcode, spec.mnemonic));
-            
+            opcode_matches.push_str(&format!(
+                "\n            0x{:02x} => \"{}\",",
+                opcode, spec.mnemonic
+            ));
+
             instruction_handlers.push_str(&format!(
                 r#"
             0x{:02x} => {{
@@ -245,7 +246,7 @@ impl Default for {}Decoder {{
     /// 生成完整的前端代码
     fn generate_frontend_code(&self, instruction_set: &InstructionSet) -> String {
         let mut code = String::new();
-        
+
         // 添加文件头
         code.push_str(&format!(
             r#"//! # vm-frontend-{} - {} 前端解码器
@@ -272,21 +273,25 @@ use std::collections::HashMap;
             self.arch_name.to_uppercase(),
             self.arch_name.to_uppercase()
         ));
-        
+
         // 添加指令结构体
         code.push_str(&self.generate_instruction_struct());
-        
+
         // 添加解码器结构体
         code.push_str(&self.generate_decoder_struct());
-        
+
         // 添加解码实现
         code.push_str(&self.generate_decode_impl(instruction_set));
-        
+
         code
     }
 
     /// 保存生成的代码到文件
-    fn save_to_file(&self, instruction_set: &InstructionSet, filename: &str) -> Result<(), std::io::Error> {
+    fn save_to_file(
+        &self,
+        instruction_set: &InstructionSet,
+        filename: &str,
+    ) -> Result<(), std::io::Error> {
         let code = self.generate_frontend_code(instruction_set);
         fs::write(filename, code)
     }
@@ -294,7 +299,7 @@ use std::collections::HashMap;
 
 fn create_arm64_instruction_set() -> InstructionSet {
     let mut arm64_set = InstructionSet::new("ARM64");
-    
+
     // 添加ARM64指令
     arm64_set.add_instruction(InstructionSpec {
         mnemonic: "ADD_IMM".to_string(),
@@ -305,9 +310,10 @@ fn create_arm64_instruction_set() -> InstructionSet {
                 let imm12 = (insn >> 10) & 0xFFF;
                 let rn = (insn >> 5) & 0x1F;
                 let rd = insn & 0x1F;
-                // 处理ADD_IMM指令"#.to_string(),
+                // 处理ADD_IMM指令"#
+            .to_string(),
     });
-    
+
     arm64_set.add_instruction(InstructionSpec {
         mnemonic: "MOVZ".to_string(),
         description: "Move wide with zero".to_string(),
@@ -316,9 +322,10 @@ fn create_arm64_instruction_set() -> InstructionSet {
         handler_code: r#"let hw = (insn >> 21) & 3;
                 let imm16 = (insn >> 5) & 0xFFFF;
                 let rd = insn & 0x1F;
-                // 处理MOVZ指令"#.to_string(),
+                // 处理MOVZ指令"#
+            .to_string(),
     });
-    
+
     arm64_set.add_instruction(InstructionSpec {
         mnemonic: "B".to_string(),
         description: "Branch unconditionally".to_string(),
@@ -326,9 +333,10 @@ fn create_arm64_instruction_set() -> InstructionSet {
         pattern: 0x14000000,
         handler_code: r#"let imm26 = insn & 0x03FFFFFF;
                 let offset = ((imm26 << 6) as i32 >> 6) as i64 * 4;
-                // 处理B指令"#.to_string(),
+                // 处理B指令"#
+            .to_string(),
     });
-    
+
     arm64_set.add_instruction(InstructionSpec {
         mnemonic: "RET".to_string(),
         description: "Return from subroutine".to_string(),
@@ -336,13 +344,13 @@ fn create_arm64_instruction_set() -> InstructionSet {
         pattern: 0xD65F0000,
         handler_code: r#"// 处理RET指令"#.to_string(),
     });
-    
+
     arm64_set
 }
 
 fn create_riscv_instruction_set() -> InstructionSet {
     let mut riscv_set = InstructionSet::new("RISC-V");
-    
+
     // 添加RISC-V指令
     riscv_set.add_instruction(InstructionSpec {
         mnemonic: "LUI".to_string(),
@@ -351,9 +359,10 @@ fn create_riscv_instruction_set() -> InstructionSet {
         pattern: 0x37,
         handler_code: r#"let imm = ((insn & 0xfffff000) as i32) as i64;
                 let rd = ((insn >> 7) & 0x1f) as u32;
-                // 处理LUI指令"#.to_string(),
+                // 处理LUI指令"#
+            .to_string(),
     });
-    
+
     riscv_set.add_instruction(InstructionSpec {
         mnemonic: "ADDI".to_string(),
         description: "Add immediate".to_string(),
@@ -362,9 +371,10 @@ fn create_riscv_instruction_set() -> InstructionSet {
         handler_code: r#"let imm = ((insn as i32) >> 20) as i64;
                 let rs1 = ((insn >> 15) & 0x1f) as u32;
                 let rd = ((insn >> 7) & 0x1f) as u32;
-                // 处理ADDI指令"#.to_string(),
+                // 处理ADDI指令"#
+            .to_string(),
     });
-    
+
     riscv_set.add_instruction(InstructionSpec {
         mnemonic: "JAL".to_string(),
         description: "Jump and link".to_string(),
@@ -376,9 +386,10 @@ fn create_riscv_instruction_set() -> InstructionSet {
                     | (((i >> 21) & 0x3ff) << 1)
                     | (((i >> 20) & 0x1) << 11)
                     | (((i >> 12) & 0xff) << 12);
-                // 处理JAL指令"#.to_string(),
+                // 处理JAL指令"#
+            .to_string(),
     });
-    
+
     riscv_set.add_instruction(InstructionSpec {
         mnemonic: "ECALL".to_string(),
         description: "Environment call".to_string(),
@@ -386,7 +397,7 @@ fn create_riscv_instruction_set() -> InstructionSet {
         pattern: 0x73,
         handler_code: r#"// 处理ECALL指令"#.to_string(),
     });
-    
+
     riscv_set
 }
 
@@ -394,25 +405,29 @@ fn main() {
     // 创建ARM64前端代码生成器
     let arm64_generator = FrontendCodeGenerator::new("ARM64", 4, false);
     let arm64_instruction_set = create_arm64_instruction_set();
-    
+
     // 生成ARM64前端代码
-    if let Err(e) = arm64_generator.save_to_file(&arm64_instruction_set, "arm64_frontend_generated.rs") {
+    if let Err(e) =
+        arm64_generator.save_to_file(&arm64_instruction_set, "arm64_frontend_generated.rs")
+    {
         eprintln!("Failed to generate ARM64 frontend: {}", e);
     } else {
         println!("Successfully generated ARM64 frontend code");
     }
-    
+
     // 创建RISC-V前端代码生成器
     let riscv_generator = FrontendCodeGenerator::new("RISC-V", 4, true);
     let riscv_instruction_set = create_riscv_instruction_set();
-    
+
     // 生成RISC-V前端代码
-    if let Err(e) = riscv_generator.save_to_file(&riscv_instruction_set, "riscv_frontend_generated.rs") {
+    if let Err(e) =
+        riscv_generator.save_to_file(&riscv_instruction_set, "riscv_frontend_generated.rs")
+    {
         eprintln!("Failed to generate RISC-V frontend: {}", e);
     } else {
         println!("Successfully generated RISC-V frontend code");
     }
-    
+
     // 比较生成的代码，展示重复代码的减少
     println!("\n=== 代码生成完成 ===");
     println!("生成的ARM64前端代码: arm64_frontend_generated.rs");

@@ -544,7 +544,7 @@ mod tests {
         let mut state = AmxState::new();
         state.configure_tile(0, 4, 4, 1); // 4x4 INT8 tile
 
-        let tile = state.get_tile(0).unwrap();
+        let tile = state.get_tile(0).expect("Tile 0 should be configured");
         assert_eq!(tile.rows(), 4);
         assert_eq!(tile.cols(), 4);
         assert_eq!(tile.element_size(), 1);

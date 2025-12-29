@@ -8,7 +8,8 @@ vm-core = { path = "../vm-core" }
 vm-service = { path = "../vm-service" }
 vm-osal = { path = "../vm-osal" }
 vm-device = { path = "../vm-device" } # For HardwareDetector if needed
-tokio = { version = "1", features = ["full"] }
+# vm-cli uses: macros (tokio::main), rt-multi-thread (for async main)
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 env_logger = "0.11"
-log = "0.4"
+log = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

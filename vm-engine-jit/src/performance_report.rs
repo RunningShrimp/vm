@@ -282,16 +282,34 @@ impl PerformanceReportGenerator {
             report_stats: Arc::new(Mutex::new(ReportStatistics::default())),
         }
     }
-    
+
+    /// Helper method to safely acquire performance history lock
+    fn lock_performance_history(&self) -> Result<std::sync::MutexGuard<VecDeque<PerformanceSnapshot>>, String> {
+        self.performance_history.lock()
+            .map_err(|e| format!("Failed to acquire performance history lock: {}", e))
+    }
+
+    /// Helper method to safely acquire optimization records lock
+    fn lock_optimization_records(&self) -> Result<std::sync::MutexGuard<Vec<OptimizationRecord>>, String> {
+        self.optimization_records.lock()
+            .map_err(|e| format!("Failed to acquire optimization records lock: {}", e))
+    }
+
+    /// Helper method to safely acquire report stats lock
+    fn lock_report_stats(&self) -> Result<std::sync::MutexGuard<ReportStatistics>, String> {
+        self.report_stats.lock()
+            .map_err(|e| format!("Failed to acquire report stats lock: {}", e))
+    }
+
     /// 记录性能快照
-    pub fn record_performance_snapshot(&self, snapshot: PerformanceSnapshot) {
-        let mut history = self.performance_history.lock().unwrap();
+    pub fn record_performance_snapshot(&self, snapshot: PerformanceSnapshot) -> Result<(), String> {
+        let mut history = self.lock_performance_history()?;
         history.push_back(snapshot);
-        
+
         // 保持数据保留期限
         let retention_duration = Duration::from_secs(self.config.data_retention_days as u64 * 24 * 60 * 60);
         let now = Instant::now();
-        
+
         while let Some(front) = history.front() {
             if let Ok(front_time) = std::time::SystemTime::from_str(&front.timestamp, "%Y-%m-%d %H:%M:%S")
                 .and_then(|st| st.duration_since(std::time::UNIX_EPOCH)) {
@@ -305,17 +323,18 @@ impl PerformanceReportGenerator {
                 break;
             }
         }
+        Ok(())
     }
-    
+
     /// 记录优化结果
-    pub fn record_optimization_result(&self, record: OptimizationRecord) {
-        let mut records = self.optimization_records.lock().unwrap();
+    pub fn record_optimization_result(&self, record: OptimizationRecord) -> Result<(), String> {
+        let mut records = self.lock_optimization_records()?;
         records.push(record);
-        
+
         // 保持数据保留期限
         let retention_duration = Duration::from_secs(self.config.data_retention_days as u64 * 24 * 60 * 60);
         let now = Instant::now();
-        
+
         while let Some(front) = records.front() {
             if let Ok(front_time) = std::time::SystemTime::from_str(&front.timestamp, "%Y-%m-%d %H:%M:%S")
                 .and_then(|st| st.duration_since(std::time::UNIX_EPOCH)) {
@@ -329,13 +348,14 @@ impl PerformanceReportGenerator {
                 break;
             }
         }
+        Ok(())
     }
     
     /// 生成性能报告
     pub fn generate_performance_report(&self) -> Result<String, String> {
-        let history = self.performance_history.lock().unwrap();
-        let records = self.optimization_records.lock().unwrap();
-        
+        let history = self.lock_performance_history()?;
+        let records = self.lock_optimization_records()?;
+
         if history.is_empty() {
             return Err("No performance data available".to_string());
         }
@@ -356,10 +376,10 @@ impl PerformanceReportGenerator {
             ReportFormat::Csv => self.generate_csv_report(&metrics, &analysis, &trends)?,
             ReportFormat::Text => self.generate_text_report(&metrics, &analysis, &trends)?,
         };
-        
+
         // 更新统计
-        self.update_report_stats(&report);
-        
+        self.update_report_stats(&report)?;
+
         // 保存报告
         self.save_report(&report)?;
         
@@ -791,16 +811,18 @@ Trend Analysis:
     }
     
     /// 更新报告统计
-    fn update_report_stats(&self, report: &str) {
-        let mut stats = self.report_stats.lock().unwrap();
+    fn update_report_stats(&self, report: &str) -> Result<(), String> {
+        let mut stats = self.lock_report_stats()?;
         stats.total_reports += 1;
         stats.last_report_time = Some(chrono::Utc::now().to_rfc3339());
         stats.avg_report_size_bytes = (stats.avg_report_size_bytes * (stats.total_reports - 1) as f64 + report.len() as f64) / stats.total_reports as f64;
+        Ok(())
     }
-    
+
     /// 获取报告统计
-    pub fn report_statistics(&self) -> ReportStatistics {
-        self.report_stats.lock().unwrap().clone()
+    pub fn report_statistics(&self) -> Result<ReportStatistics, String> {
+        let stats = self.lock_report_stats()?;
+        Ok(stats.clone())
     }
 }
 

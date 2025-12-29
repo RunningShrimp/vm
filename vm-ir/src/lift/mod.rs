@@ -29,11 +29,11 @@
 //! // 解码指令
 //! let decoder = create_decoder(ISA::X86_64);
 //! let bytes = vec![0x90]; // NOP
-//! let (instr, _) = decoder.decode(&bytes).unwrap();
+//! let (instr, _) = decoder.decode(&bytes).expect("valid instruction bytes");
 //!
 //! // 提升为语义
 //! let semantics = create_semantics(ISA::X86_64);
-//! let ir = semantics.lift(&instr, &mut ctx).unwrap();
+//! let ir = semantics.lift(&instr, &mut ctx).expect("valid instruction");
 //!
 //! println!("Generated IR:\n{}", ir);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -47,17 +47,8 @@ use vm_core::VmError;
 pub mod decoder;
 pub mod semantics;
 
-// TODO: These modules need to be migrated or implemented in vm-ir if they are needed
-// pub mod arm64_semantics;
-// pub mod inkwell_integration;
-// pub mod ir_gen;
-// pub mod llvm_integration;
-// pub mod optimizer;
-// pub mod riscv64_semantics;
-
 // Re-export commonly used types
 pub use decoder::{ISA, Instruction, InstructionDecoder, OperandType, create_decoder};
-// pub use ir_gen::{BasicBlock, IRBuilder, IROptimizer, LLVMFunction};
 pub use semantics::{FlagsState, Semantics, X86_64Semantics, create_semantics};
 
 /// 指令抬升上下文

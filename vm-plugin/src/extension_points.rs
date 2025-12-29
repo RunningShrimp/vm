@@ -28,8 +28,14 @@ impl ExtensionPointManager {
     /// 注册扩展点
     pub fn register_extension_point(&mut self, extension_point: Box<dyn ExtensionPoint>) -> Result<(), VmError> {
         let name = extension_point.name().to_string();
-        let mut points = self.extension_points.write().unwrap();
-        
+        let mut points = self.extension_points.write().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Extension points lock is poisoned: {:?}", e),
+                current: "poisoned".to_string(),
+                expected: "unlocked".to_string(),
+            })
+        })?;
+
         if points.contains_key(&name) {
             return Err(VmError::Core(vm_core::CoreError::InvalidState {
                 message: format!("Extension point {} already registered", name),
@@ -37,21 +43,27 @@ impl ExtensionPointManager {
                 expected: "not_registered".to_string(),
             }));
         }
-        
+
         points.insert(name.clone(), extension_point);
-        
+
         // 更新统计
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Extension point stats lock is poisoned: {:?}", e),
+                current: "poisoned".to_string(),
+                expected: "unlocked".to_string(),
+            })
+        })?;
         stats.registered_points += 1;
         stats.points_by_type.insert(extension_point.extension_type(), 1);
-        
+
         tracing::info!("Registered extension point: {}", name);
         Ok(())
     }
 
     /// 获取扩展点
     pub fn get_extension_point(&self, name: &str) -> Option<Box<dyn ExtensionPoint>> {
-        let points = self.extension_points.read().unwrap();
+        let points = self.extension_points.read().ok()?;
         // 注意：这里需要克隆，实际实现可能需要不同的方法
         points.get(name).map(|ep| ep.clone_box())
     }
@@ -62,15 +74,28 @@ impl ExtensionPointManager {
         name: &str,
         context: &ExtensionContext,
     ) -> Result<ExtensionResult, VmError> {
-        let points = self.extension_points.read().unwrap();
+        let points = self.extension_points.read().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Extension points lock is poisoned: {:?}", e),
+                current: "poisoned".to_string(),
+                expected: "unlocked".to_string(),
+            })
+        })?;
+
         if let Some(extension_point) = points.get(name) {
             // 更新调用统计
             {
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.stats.write().map_err(|e| {
+                    VmError::Core(vm_core::CoreError::InvalidState {
+                        message: format!("Extension point stats lock is poisoned: {:?}", e),
+                        current: "poisoned".to_string(),
+                        expected: "unlocked".to_string(),
+                    })
+                })?;
                 stats.total_calls += 1;
                 *stats.calls_by_point.entry(name.to_string()).or_insert(0) += 1;
             }
-            
+
             extension_point.execute(context).await
         } else {
             Err(VmError::Core(vm_core::CoreError::InvalidState {
@@ -83,13 +108,18 @@ impl ExtensionPointManager {
 
     /// 列出所有扩展点
     pub fn list_extension_points(&self) -> Vec<String> {
-        let points = self.extension_points.read().unwrap();
-        points.keys().cloned().collect()
+        self.extension_points
+            .read()
+            .map(|points| points.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// 获取扩展点统计信息
     pub fn get_stats(&self) -> ExtensionPointStats {
-        self.stats.read().unwrap().clone()
+        self.stats
+            .read()
+            .map(|stats| stats.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -785,15 +815,15 @@ mod tests {
     #[tokio::test]
     async fn test_extension_point_manager() {
         let mut manager = ExtensionPointManager::new();
-        
+
         // 注册扩展点
         let jit_ep = JitCompilerExtensionPoint::new();
-        manager.register_extension_point(Box::new(jit_ep)).unwrap();
-        
+        assert!(manager.register_extension_point(Box::new(jit_ep)).is_ok());
+
         // 列出扩展点
         let points = manager.list_extension_points();
         assert!(points.contains(&"jit.compiler".to_string()));
-        
+
         // 获取统计信息
         let stats = manager.get_stats();
         assert_eq!(stats.registered_points, 1);
@@ -802,20 +832,20 @@ mod tests {
     #[tokio::test]
     async fn test_extension_point_execution() {
         let mut manager = ExtensionPointManager::new();
-        
+
         // 注册扩展点
         let jit_ep = JitCompilerExtensionPoint::new();
-        manager.register_extension_point(Box::new(jit_ep)).unwrap();
-        
+        assert!(manager.register_extension_point(Box::new(jit_ep)).is_ok());
+
         // 创建上下文
         let mut context = ExtensionContext::new("jit_compilation".to_string());
         context.add_parameter("method_info".to_string(), ExtensionValue::String("test_method".to_string()));
         context.add_parameter("optimization_level".to_string(), ExtensionValue::Integer(2));
-        
+
         // 调用扩展点
-        let result = manager.call_extension_point("jit.compiler", &context).await.unwrap();
+        let result = manager.call_extension_point("jit.compiler", &context).await?;
         assert!(result.success);
-        
+
         // 检查统计信息
         let stats = manager.get_stats();
         assert_eq!(stats.total_calls, 1);

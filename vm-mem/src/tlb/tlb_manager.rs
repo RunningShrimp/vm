@@ -39,8 +39,8 @@ pub struct StandardTlbManager {
 impl StandardTlbManager {
     /// 创建一个新的 TLB 管理器，指定容量
     pub fn new(capacity: usize) -> Self {
-        let lru_capacity =
-            NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1).expect("Operation failed"));
+        let lru_capacity = NonZeroUsize::new(capacity.max(1))
+            .unwrap_or_else(|| unsafe { NonZeroUsize::new_unchecked(1) });
         Self {
             entries: HashMap::with_capacity(capacity),
             lru: LruCache::new(lru_capacity),
@@ -69,7 +69,7 @@ impl TlbManager for StandardTlbManager {
         // 首先检查全局页 (不受 ASID 影响)
         if let Some(entry) = self.global_entries.get(&addr.0) {
             self.hits += 1;
-            return Some(entry.clone());
+            return Some(*entry);
         }
 
         // 检查普通条目
@@ -77,7 +77,7 @@ impl TlbManager for StandardTlbManager {
         if let Some(entry) = self.entries.get(&key) {
             self.lru.get(&key);
             self.hits += 1;
-            return Some(entry.clone());
+            return Some(*entry);
         }
 
         self.misses += 1;
@@ -95,10 +95,11 @@ impl TlbManager for StandardTlbManager {
         let key = Self::make_key(entry.guest_addr, entry.asid);
 
         // LRU 驱逐: 如果已满且是新条目
-        if !self.entries.contains_key(&key) && self.entries.len() >= self.max_size {
-            if let Some((old_key, _)) = self.lru.pop_lru() {
-                self.entries.remove(&old_key);
-            }
+        if !self.entries.contains_key(&key)
+            && self.entries.len() >= self.max_size
+            && let Some((old_key, _)) = self.lru.pop_lru()
+        {
+            self.entries.remove(&old_key);
         }
 
         self.entries.insert(key, entry);
@@ -130,6 +131,7 @@ impl TlbManager for StandardTlbManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_core::GuestPhysAddr;
 
     #[test]
     fn test_tlb_lookup() {
@@ -146,7 +148,10 @@ mod tests {
 
         let result = tlb.lookup(GuestAddr(0x1000), 0, AccessType::Read);
         assert!(result.is_some());
-        assert_eq!(result.expect("Operation failed").phys_addr, GuestPhysAddr(0x2000));
+        assert_eq!(
+            result.expect("Operation failed").phys_addr,
+            GuestPhysAddr(0x2000)
+        );
         assert_eq!(tlb.stats().0, 1); // 1 hit
     }
 

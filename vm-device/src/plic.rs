@@ -152,10 +152,8 @@ impl Plic {
         }
 
         let source = source as usize;
-        if source > 0 && source <= self.num_sources {
-            if self.claimed[context] == Some(source) {
-                self.claimed[context] = None;
-            }
+        if source > 0 && source <= self.num_sources && self.claimed[context] == Some(source) {
+            self.claimed[context] = None;
         }
     }
 
@@ -163,7 +161,7 @@ impl Plic {
     pub fn read(&self, offset: u64, _size: u8) -> u64 {
         match offset {
             // 优先级寄存器 (0x000000 - 0x000FFF)
-            o if o >= offsets::PRIORITY_BASE && o < offsets::PENDING_BASE => {
+            o if (offsets::PRIORITY_BASE..offsets::PENDING_BASE).contains(&o) => {
                 let source = (o / 4) as usize;
                 if source <= self.num_sources {
                     self.priorities[source] as u64
@@ -172,7 +170,7 @@ impl Plic {
                 }
             }
             // 待处理寄存器 (0x001000 - 0x001FFF)
-            o if o >= offsets::PENDING_BASE && o < offsets::ENABLE_BASE => {
+            o if (offsets::PENDING_BASE..offsets::ENABLE_BASE).contains(&o) => {
                 let word_idx = ((o - offsets::PENDING_BASE) / 4) as usize;
                 let mut val = 0u32;
                 for i in 0..32 {
@@ -184,7 +182,7 @@ impl Plic {
                 val as u64
             }
             // 使能寄存器 (0x002000 - 0x1FFFFF)
-            o if o >= offsets::ENABLE_BASE && o < offsets::CONTEXT_BASE => {
+            o if (offsets::ENABLE_BASE..offsets::CONTEXT_BASE).contains(&o) => {
                 let context = ((o - offsets::ENABLE_BASE) / 0x80) as usize;
                 let word_idx = (((o - offsets::ENABLE_BASE) % 0x80) / 4) as usize;
 
@@ -228,18 +226,18 @@ impl Plic {
     pub fn write(&mut self, offset: u64, val: u64, _size: u8) {
         match offset {
             // 优先级寄存器
-            o if o >= offsets::PRIORITY_BASE && o < offsets::PENDING_BASE => {
+            o if (offsets::PRIORITY_BASE..offsets::PENDING_BASE).contains(&o) => {
                 let source = (o / 4) as usize;
                 if source <= self.num_sources {
                     self.priorities[source] = (val & 0x7) as u32; // 3-bit priority
                 }
             }
             // 待处理寄存器（只读）
-            o if o >= offsets::PENDING_BASE && o < offsets::ENABLE_BASE => {
+            o if (offsets::PENDING_BASE..offsets::ENABLE_BASE).contains(&o) => {
                 // 只读，忽略写入
             }
             // 使能寄存器
-            o if o >= offsets::ENABLE_BASE && o < offsets::CONTEXT_BASE => {
+            o if (offsets::ENABLE_BASE..offsets::CONTEXT_BASE).contains(&o) => {
                 let context = ((o - offsets::ENABLE_BASE) / 0x80) as usize;
                 let word_idx = (((o - offsets::ENABLE_BASE) % 0x80) / 4) as usize;
 
@@ -283,7 +281,7 @@ impl Plic {
     pub fn tick_internal(&mut self) {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_tick);
-        
+
         if elapsed.as_millis() >= self.tick_interval_ms as u128 {
             // 可以在这里实现定时中断逻辑
             // 例如：触发一个特定的中断源

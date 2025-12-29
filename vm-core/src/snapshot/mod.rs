@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub mod enhanced_snapshot;
+pub mod base;
 
 /// 快照基本信息
 ///
@@ -46,7 +46,7 @@ impl SnapshotMetadataManager {
         description: String,
         memory_dump_path: String,
     ) -> String {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = format_snapshot_id();
         let parent_id = self.current_snapshot.clone();
         let snapshot = Snapshot {
             id: id.clone(),
@@ -95,9 +95,18 @@ impl Default for SnapshotMetadataManager {
     }
 }
 
-// Re-export enhanced snapshot functionality
-#[cfg(feature = "enhanced-event-sourcing")]
-pub use enhanced_snapshot::{
-    SnapshotStore, FileSnapshotStore, SnapshotManager, SnapshotConfig,
-    SnapshotData, SnapshotMetadata as EnhancedSnapshotMetadata, SnapshotStats, SnapshotStoreBuilder
+// Re-export base snapshot functionality
+pub use base::{
+    BaseSnapshot, MemorySnapshot, MemoryState, SnapshotError, SnapshotFileManager,
+    SnapshotMetadata, VcpuSnapshot, VirtualMachineState, VmSnapshot,
 };
+
+/// Generate snapshot ID
+fn format_snapshot_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("{}-{}", uuid::Uuid::new_v4(), timestamp)
+}

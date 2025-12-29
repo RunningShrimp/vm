@@ -1,12 +1,12 @@
+use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU16, AtomicU64, AtomicBool, Ordering};
-use vm_core::{GuestAddr, VmResult, MMU};
-use serde::Serialize;
-use bincode;
+use vm_core::{GuestAddr, MMU, VmResult};
 
 /// SR-IOV (Single Root I/O Virtualization) support for network devices
-/// 
+///
 /// This module provides comprehensive SR-IOV functionality including:
 /// - Physical Function (PF) management
 /// - Virtual Function (VF) creation and management
@@ -14,7 +14,7 @@ use bincode;
 /// - VF configuration and state management
 /// - VF to PF communication
 /// - VF migration support
-
+///
 /// SR-IOV capability structure
 #[derive(Debug, Clone, Serialize)]
 pub struct SrIovCapability {
@@ -43,7 +43,7 @@ impl Default for SrIovCapability {
             total_vfs: 64,
             initial_vfs: 0,
             num_vfs: 0,
-            vf_device_id: 0x10fb, // Intel XL710 VF device ID
+            vf_device_id: 0x10fb,        // Intel XL710 VF device ID
             supported_link_speeds: 0x1f, // All speeds
             vf_offset: 0,
             vf_stride: 0x1000,
@@ -54,7 +54,7 @@ impl Default for SrIovCapability {
 }
 
 /// VF (Virtual Function) configuration
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct VfConfig {
     /// VF ID
     pub vf_id: u16,
@@ -104,7 +104,7 @@ impl Default for VfConfig {
 }
 
 /// VF link state
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum VfLinkState {
     /// Link is forced down
     Down,
@@ -115,12 +115,12 @@ pub enum VfLinkState {
 }
 
 /// VF memory region
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct VfMemoryRegion {
     /// Region type
     pub region_type: VfMemoryRegionType,
     /// Guest physical address
-    pub guest_addr: GuestAddr,
+    pub guest_addr: u64,
     /// Size in bytes
     pub size: u64,
     /// Host virtual address
@@ -130,7 +130,7 @@ pub struct VfMemoryRegion {
 }
 
 /// VF memory region type
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum VfMemoryRegionType {
     /// MMIO region
     Mmio,
@@ -272,36 +272,81 @@ impl SrIovManager {
         }
     }
 
+    // Helper methods for safe lock acquisition
+    fn lock_vfs(&self) -> VmResult<std::sync::MutexGuard<'_, HashMap<u16, VfConfig>>> {
+        self.vfs.lock().map_err(|_| {
+            vm_core::VmError::Memory(vm_core::MemoryError::PageTableError {
+                message: "SR-IOV VFs lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    fn lock_vf_stats(&self) -> VmResult<std::sync::MutexGuard<'_, HashMap<u16, VfStats>>> {
+        self.vf_stats.lock().map_err(|_| {
+            vm_core::VmError::Memory(vm_core::MemoryError::PageTableError {
+                message: "SR-IOV VF stats lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    fn lock_vf_migration(
+        &self,
+    ) -> VmResult<std::sync::MutexGuard<'_, HashMap<u16, VfMigrationState>>> {
+        self.vf_migration.lock().map_err(|_| {
+            vm_core::VmError::Memory(vm_core::MemoryError::PageTableError {
+                message: "SR-IOV VF migration lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    fn lock_mmu(&self) -> VmResult<std::sync::MutexGuard<'_, Box<dyn MMU>>> {
+        self.mmu.lock().map_err(|_| {
+            vm_core::VmError::Memory(vm_core::MemoryError::PageTableError {
+                message: "SR-IOV MMU lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// Initialize SR-IOV capability
     pub fn initialize(&mut self, capability: SrIovCapability) -> VmResult<()> {
         self.capability = capability;
-        
+
         // Initialize VF configurations
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         for vf_id in 0..self.capability.total_vfs {
-            let mut vf_config = VfConfig::default();
-            vf_config.vf_id = vf_id;
-            // Generate unique MAC address for each VF
-            vf_config.mac_address[5] = vf_id as u8;
+            let mut mac_address = VfConfig::default().mac_address;
+            mac_address[5] = vf_id as u8;
+            let vf_config = VfConfig {
+                vf_id,
+                mac_address,
+                ..Default::default()
+            };
             vfs.insert(vf_id, vf_config);
         }
 
         // Initialize VF statistics
-        let mut vf_stats = self.vf_stats.lock().unwrap();
+        let mut vf_stats = self.lock_vf_stats()?;
         for vf_id in 0..self.capability.total_vfs {
             vf_stats.insert(vf_id, VfStats::default());
         }
 
         // Initialize VF migration states
-        let mut vf_migration = self.vf_migration.lock().unwrap();
+        let mut vf_migration = self.lock_vf_migration()?;
         for vf_id in 0..self.capability.total_vfs {
-            vf_migration.insert(vf_id, VfMigrationState {
-                migrating: false,
-                phase: VfMigrationPhase::None,
-                migration_data: Vec::new(),
-                source_vf_id: None,
-                target_vf_id: None,
-            });
+            vf_migration.insert(
+                vf_id,
+                VfMigrationState {
+                    migrating: false,
+                    phase: VfMigrationPhase::None,
+                    migration_data: Vec::new(),
+                    source_vf_id: None,
+                    target_vf_id: None,
+                },
+            );
         }
 
         Ok(())
@@ -310,17 +355,22 @@ impl SrIovManager {
     /// Enable SR-IOV and create VFs
     pub fn enable_sriov(&mut self, num_vfs: u16) -> VmResult<()> {
         if num_vfs > self.capability.total_vfs {
-            return Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "num_vfs".to_string(),
-                value: num_vfs.to_string(),
-                message: format!("Requested {} VFs exceeds maximum of {}", num_vfs, self.capability.total_vfs)
-            }));
+            return Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "num_vfs".to_string(),
+                    value: num_vfs.to_string(),
+                    message: format!(
+                        "Requested {} VFs exceeds maximum of {}",
+                        num_vfs, self.capability.total_vfs
+                    ),
+                },
+            ));
         }
 
         self.capability.num_vfs = num_vfs;
 
         // Enable the specified number of VFs
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         for vf_id in 0..num_vfs {
             if let Some(vf_config) = vfs.get_mut(&vf_id) {
                 vf_config.enabled = true;
@@ -332,37 +382,50 @@ impl SrIovManager {
 
     /// Dynamically allocate a new VF ID
     pub fn allocate_vf_id(&self) -> u16 {
-        self.next_vf_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        self.next_vf_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Write VF configuration to guest memory
-    pub fn write_vf_config_to_memory(&self, vf_id: u16, guest_addr: vm_core::GuestAddr, size: usize) -> VmResult<()> {
-        let vfs = self.vfs.lock().unwrap();
+    pub fn write_vf_config_to_memory(
+        &self,
+        vf_id: u16,
+        guest_addr: vm_core::GuestAddr,
+        size: usize,
+    ) -> VmResult<()> {
+        let vfs = self.lock_vfs()?;
         let vf_config = vfs.get(&vf_id).ok_or_else(|| {
             vm_core::error::VmError::Core(vm_core::error::CoreError::Internal {
                 message: format!("VF {} not found", vf_id),
-                module: "sriov".to_string()
+                module: "sriov".to_string(),
             })
         })?;
 
         // Convert VF config to bytes
-        let config_bytes = bincode::serialize(vf_config).map_err(|_e| {
-            vm_core::error::VmError::Core(vm_core::error::CoreError::NotSupported {
-                feature: "bincode serialization".to_string(),
-                module: "sriov".to_string()
-            })
-        })?;
+        let config_bytes =
+            bincode::encode_to_vec(vf_config, bincode::config::standard()).map_err(|_e| {
+                vm_core::error::VmError::Core(vm_core::error::CoreError::NotSupported {
+                    feature: "bincode serialization".to_string(),
+                    module: "sriov".to_string(),
+                })
+            })?;
 
         // Ensure the buffer is not larger than the requested size
         if config_bytes.len() > size {
-            return Err(vm_core::error::VmError::Core(vm_core::error::CoreError::Internal {
-                message: format!("Buffer size too small: requested {}, needed {}", size, config_bytes.len()),
-                module: "sriov".to_string()
-            }));
+            return Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::Internal {
+                    message: format!(
+                        "Buffer size too small: requested {}, needed {}",
+                        size,
+                        config_bytes.len()
+                    ),
+                    module: "sriov".to_string(),
+                },
+            ));
         }
 
         // Use MMU to write the configuration to guest memory
-        let mut mmu = self.mmu.lock().unwrap();
+        let mut mmu = self.lock_mmu()?;
         mmu.write_bulk(guest_addr, &config_bytes)?;
 
         Ok(())
@@ -371,10 +434,12 @@ impl SrIovManager {
     /// Disable SR-IOV and remove VFs
     pub fn disable_sriov(&mut self) -> VmResult<()> {
         // Disable all VFs
-        let mut vfs = self.vfs.lock().unwrap();
-        for vf_config in vfs.values_mut() {
-            vf_config.enabled = false;
-        }
+        {
+            let mut vfs = self.lock_vfs()?;
+            for vf_config in vfs.values_mut() {
+                vf_config.enabled = false;
+            }
+        } // Drop the lock guard here
 
         self.capability.num_vfs = 0;
         Ok(())
@@ -382,161 +447,179 @@ impl SrIovManager {
 
     /// Get VF configuration
     pub fn get_vf_config(&self, vf_id: u16) -> VmResult<VfConfig> {
-        let vfs = self.vfs.lock().unwrap();
-        vfs.get(&vf_id)
-            .cloned()
-            .ok_or_else(|| vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
+        let vfs = self.lock_vfs()?;
+        vfs.get(&vf_id).cloned().ok_or_else(|| {
+            vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
                 name: "vf_id".to_string(),
                 value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+                message: format!("VF {} not found", vf_id),
+            })
+        })
     }
 
     /// Set VF configuration
     pub fn set_vf_config(&mut self, vf_id: u16, config: VfConfig) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             *vf_config = config;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Get VF statistics
     pub fn get_vf_stats(&self, vf_id: u16) -> VmResult<VfStats> {
-        let vf_stats = self.vf_stats.lock().unwrap();
-        vf_stats.get(&vf_id)
-            .cloned()
-            .ok_or_else(|| vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
+        let vf_stats = self.lock_vf_stats()?;
+        vf_stats.get(&vf_id).cloned().ok_or_else(|| {
+            vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
                 name: "vf_id".to_string(),
                 value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+                message: format!("VF {} not found", vf_id),
+            })
+        })
     }
 
     /// Reset VF statistics
     pub fn reset_vf_stats(&mut self, vf_id: u16) -> VmResult<()> {
-        let mut vf_stats = self.vf_stats.lock().unwrap();
+        let mut vf_stats = self.lock_vf_stats()?;
         if let Some(stats) = vf_stats.get_mut(&vf_id) {
             *stats = VfStats::default();
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Set VF MAC address
     pub fn set_vf_mac(&mut self, vf_id: u16, mac_address: [u8; 6]) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.mac_address = mac_address;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Set VF VLAN
     pub fn set_vf_vlan(&mut self, vf_id: u16, vlan_id: u16) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.vlan_id = vlan_id;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Set VF QoS priority
     pub fn set_vf_qos(&mut self, vf_id: u16, priority: u8) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.qos_priority = priority;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Set VF link state
     pub fn set_vf_link_state(&mut self, vf_id: u16, link_state: VfLinkState) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.link_state = link_state;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Set VF trust mode
     pub fn set_vf_trust(&mut self, vf_id: u16, trusted: bool) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.trusted = trusted;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Set VF spoof checking
     pub fn set_vf_spoof_check(&mut self, vf_id: u16, spoof_check: bool) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.spoof_check = spoof_check;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Set VF transmit rate
     pub fn set_vf_tx_rate(&mut self, vf_id: u16, min_rate: u32, max_rate: u32) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.min_tx_rate = min_rate;
             vf_config.max_tx_rate = max_rate;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
@@ -567,7 +650,7 @@ impl SrIovManager {
 
     /// Check if VF link is up
     pub fn is_vf_link_up(&self, vf_id: u16) -> VmResult<bool> {
-        let vfs = self.vfs.lock().unwrap();
+        let vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get(&vf_id) {
             match vf_config.link_state {
                 VfLinkState::Up => Ok(true),
@@ -575,145 +658,187 @@ impl SrIovManager {
                 VfLinkState::Auto => Ok(self.pf_link_state.load(Ordering::Acquire)),
             }
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Start VF migration
     pub fn start_vf_migration(&mut self, source_vf_id: u16, target_vf_id: u16) -> VmResult<()> {
-        let mut vf_migration = self.vf_migration.lock().unwrap();
-        
+        let mut vf_migration = self.lock_vf_migration()?;
+
         // Check if VFs exist
-        let vfs = self.vfs.lock().unwrap();
+        let vfs = self.lock_vfs()?;
         if !vfs.contains_key(&source_vf_id) || !vfs.contains_key(&target_vf_id) {
-            return Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "source_vf_id/target_vf_id".to_string(),
-                value: format!("{}/{}", source_vf_id, target_vf_id),
-                message: "Source or target VF not found".to_string()
-            }));
+            return Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "source_vf_id/target_vf_id".to_string(),
+                    value: format!("{}/{}", source_vf_id, target_vf_id),
+                    message: "Source or target VF not found".to_string(),
+                },
+            ));
         }
         drop(vfs);
-        
+
         // Check if migration is already in progress
-        if let Some(migration_state) = vf_migration.get(&source_vf_id) {
-            if migration_state.migrating {
-                return Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
+        if let Some(migration_state) = vf_migration.get(&source_vf_id)
+            && migration_state.migrating
+        {
+            return Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
                     name: "vf_id".to_string(),
                     value: source_vf_id.to_string(),
-                    message: "Migration already in progress".to_string()
-                }));
-            }
+                    message: "Migration already in progress".to_string(),
+                },
+            ));
         }
-        
+
         // Start migration
-        vf_migration.insert(source_vf_id, VfMigrationState {
-            migrating: true,
-            phase: VfMigrationPhase::PreCopy,
-            migration_data: Vec::new(),
-            source_vf_id: Some(source_vf_id),
-            target_vf_id: Some(target_vf_id),
-        });
-        
+        vf_migration.insert(
+            source_vf_id,
+            VfMigrationState {
+                migrating: true,
+                phase: VfMigrationPhase::PreCopy,
+                migration_data: Vec::new(),
+                source_vf_id: Some(source_vf_id),
+                target_vf_id: Some(target_vf_id),
+            },
+        );
+
         Ok(())
     }
 
     /// Get VF migration state
     pub fn get_vf_migration_state(&self, vf_id: u16) -> VmResult<VfMigrationState> {
-        let vf_migration = self.vf_migration.lock().unwrap();
-        vf_migration.get(&vf_id)
-            .cloned()
-            .ok_or_else(|| vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
+        let vf_migration = self.lock_vf_migration()?;
+        vf_migration.get(&vf_id).cloned().ok_or_else(|| {
+            vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
                 name: "vf_id".to_string(),
                 value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+                message: format!("VF {} not found", vf_id),
+            })
+        })
     }
 
     /// Complete VF migration
     pub fn complete_vf_migration(&mut self, vf_id: u16) -> VmResult<()> {
-        let mut vf_migration = self.vf_migration.lock().unwrap();
+        let mut vf_migration = self.lock_vf_migration()?;
         if let Some(migration_state) = vf_migration.get_mut(&vf_id) {
             migration_state.phase = VfMigrationPhase::Completed;
             migration_state.migrating = false;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Add VF memory region
     pub fn add_vf_memory_region(&mut self, vf_id: u16, region: VfMemoryRegion) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
             vf_config.memory_regions.push(region);
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Remove VF memory region
-    pub fn remove_vf_memory_region(&mut self, vf_id: u16, region_type: VfMemoryRegionType) -> VmResult<()> {
-        let mut vfs = self.vfs.lock().unwrap();
+    pub fn remove_vf_memory_region(
+        &mut self,
+        vf_id: u16,
+        region_type: VfMemoryRegionType,
+    ) -> VmResult<()> {
+        let mut vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get_mut(&vf_id) {
-            vf_config.memory_regions.retain(|r| r.region_type != region_type);
+            vf_config
+                .memory_regions
+                .retain(|r| r.region_type != region_type);
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Get VF memory regions
     pub fn get_vf_memory_regions(&self, vf_id: u16) -> VmResult<Vec<VfMemoryRegion>> {
-        let vfs = self.vfs.lock().unwrap();
+        let vfs = self.lock_vfs()?;
         if let Some(vf_config) = vfs.get(&vf_id) {
             Ok(vf_config.memory_regions.clone())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Update VF queue statistics
-    pub fn update_vf_queue_stats(&self, vf_id: u16, queue_id: u16, packets: u64, bytes: u64, errors: u64) -> VmResult<()> {
-        let mut vf_stats = self.vf_stats.lock().unwrap();
+    pub fn update_vf_queue_stats(
+        &self,
+        vf_id: u16,
+        queue_id: u16,
+        packets: u64,
+        bytes: u64,
+        errors: u64,
+    ) -> VmResult<()> {
+        let mut vf_stats = self.lock_vf_stats()?;
         if let Some(stats) = vf_stats.get_mut(&vf_id) {
-            let queue_stats = stats.queue_stats.entry(queue_id).or_insert_with(VfQueueStats::default);
+            let queue_stats = stats
+                .queue_stats
+                .entry(queue_id)
+                .or_insert_with(VfQueueStats::default);
             queue_stats.packets.fetch_add(packets, Ordering::Relaxed);
             queue_stats.bytes.fetch_add(bytes, Ordering::Relaxed);
             queue_stats.errors.fetch_add(errors, Ordering::Relaxed);
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Update VF RX statistics
-    pub fn update_vf_rx_stats(&self, vf_id: u16, packets: u64, bytes: u64, errors: u64, dropped: u64) -> VmResult<()> {
-        let mut vf_stats = self.vf_stats.lock().unwrap();
+    pub fn update_vf_rx_stats(
+        &self,
+        vf_id: u16,
+        packets: u64,
+        bytes: u64,
+        errors: u64,
+        dropped: u64,
+    ) -> VmResult<()> {
+        let mut vf_stats = self.lock_vf_stats()?;
         if let Some(stats) = vf_stats.get_mut(&vf_id) {
             stats.rx_packets.fetch_add(packets, Ordering::Relaxed);
             stats.rx_bytes.fetch_add(bytes, Ordering::Relaxed);
@@ -721,17 +846,26 @@ impl SrIovManager {
             stats.rx_dropped.fetch_add(dropped, Ordering::Relaxed);
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Update VF TX statistics
-    pub fn update_vf_tx_stats(&self, vf_id: u16, packets: u64, bytes: u64, errors: u64, dropped: u64) -> VmResult<()> {
-        let mut vf_stats = self.vf_stats.lock().unwrap();
+    pub fn update_vf_tx_stats(
+        &self,
+        vf_id: u16,
+        packets: u64,
+        bytes: u64,
+        errors: u64,
+        dropped: u64,
+    ) -> VmResult<()> {
+        let mut vf_stats = self.lock_vf_stats()?;
         if let Some(stats) = vf_stats.get_mut(&vf_id) {
             stats.tx_packets.fetch_add(packets, Ordering::Relaxed);
             stats.tx_bytes.fetch_add(bytes, Ordering::Relaxed);
@@ -739,26 +873,30 @@ impl SrIovManager {
             stats.tx_dropped.fetch_add(dropped, Ordering::Relaxed);
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
     /// Update VF interrupt statistics
     pub fn update_vf_interrupt_stats(&self, vf_id: u16, count: u64) -> VmResult<()> {
-        let mut vf_stats = self.vf_stats.lock().unwrap();
+        let mut vf_stats = self.lock_vf_stats()?;
         if let Some(stats) = vf_stats.get_mut(&vf_id) {
             stats.interrupts.fetch_add(count, Ordering::Relaxed);
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vf_id".to_string(),
-                value: vf_id.to_string(),
-                message: format!("VF {} not found", vf_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vf_id".to_string(),
+                    value: vf_id.to_string(),
+                    message: format!("VF {} not found", vf_id),
+                },
+            ))
         }
     }
 
@@ -769,23 +907,30 @@ impl SrIovManager {
 
     /// Get all enabled VFs
     pub fn get_enabled_vfs(&self) -> Vec<u16> {
-        let vfs = self.vfs.lock().unwrap();
-        vfs.iter()
-            .filter(|(_, config)| config.enabled)
-            .map(|(vf_id, _)| *vf_id)
-            .collect()
+        match self.lock_vfs() {
+            Ok(vfs) => vfs
+                .iter()
+                .filter(|(_, config)| config.enabled)
+                .map(|(vf_id, _)| *vf_id)
+                .collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Get all VF configurations
     pub fn get_all_vf_configs(&self) -> HashMap<u16, VfConfig> {
-        let vfs = self.vfs.lock().unwrap();
-        vfs.clone()
+        match self.lock_vfs() {
+            Ok(vfs) => vfs.clone(),
+            Err(_) => HashMap::new(),
+        }
     }
 
     /// Get all VF statistics
     pub fn get_all_vf_stats(&self) -> HashMap<u16, VfStats> {
-        let vf_stats = self.vf_stats.lock().unwrap();
-        vf_stats.clone()
+        match self.lock_vf_stats() {
+            Ok(vf_stats) => vf_stats.clone(),
+            Err(_) => HashMap::new(),
+        }
     }
 }
 
@@ -845,7 +990,7 @@ impl Default for SrIovPciConfig {
             vf_stride: 0x1000,
             vf_device_id: 0x10fb,
             supported_page_sizes: 0x55355, // 4K, 8K, 64K, 2M, 4M, 1G
-            system_page_size: 0x1000,     // 4K
+            system_page_size: 0x1000,      // 4K
             vf_bar0: 0,
             vf_bar1: 0,
             vf_bar2: 0,
@@ -914,45 +1059,51 @@ impl SrIovVirtualFunction {
             tx_queues: HashMap::new(),
         }
     }
-    
+
     /// Get PCI configuration
     pub fn pci_config(&self) -> &SrIovPciConfig {
         &self.pci_config
     }
-    
+
     /// Set PCI configuration
     pub fn set_pci_config(&mut self, pci_config: SrIovPciConfig) {
         self.pci_config = pci_config;
     }
-    
+
     /// Initialize the virtual function
     pub fn initialize(&mut self) -> VmResult<()> {
         // Initialize RX queues
         for queue_id in 0..self.config.num_rx_queues {
-            self.rx_queues.insert(queue_id, VfQueue {
+            self.rx_queues.insert(
                 queue_id,
-                size: 256,
-                enabled: false,
-                desc_addr: GuestAddr(0),
-            desc_size: 16,
-            avail_addr: GuestAddr(0),
-            used_addr: GuestAddr(0),
-                stats: VfQueueStats::default(),
-            });
+                VfQueue {
+                    queue_id,
+                    size: 256,
+                    enabled: false,
+                    desc_addr: GuestAddr(0),
+                    desc_size: 16,
+                    avail_addr: GuestAddr(0),
+                    used_addr: GuestAddr(0),
+                    stats: VfQueueStats::default(),
+                },
+            );
         }
 
         // Initialize TX queues
         for queue_id in 0..self.config.num_tx_queues {
-            self.tx_queues.insert(queue_id, VfQueue {
+            self.tx_queues.insert(
                 queue_id,
-                size: 256,
-                enabled: false,
-                desc_addr: GuestAddr(0),
-                desc_size: 16,
-                avail_addr: GuestAddr(0),
-                used_addr: GuestAddr(0),
-                stats: VfQueueStats::default(),
-            });
+                VfQueue {
+                    queue_id,
+                    size: 256,
+                    enabled: false,
+                    desc_addr: GuestAddr(0),
+                    desc_size: 16,
+                    avail_addr: GuestAddr(0),
+                    used_addr: GuestAddr(0),
+                    stats: VfQueueStats::default(),
+                },
+            );
         }
 
         // Initialize interrupt vectors
@@ -998,11 +1149,13 @@ impl SrIovVirtualFunction {
             queue.enabled = true;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "queue_id".to_string(),
-                value: queue_id.to_string(),
-                message: format!("RX queue {} not found", queue_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "queue_id".to_string(),
+                    value: queue_id.to_string(),
+                    message: format!("RX queue {} not found", queue_id),
+                },
+            ))
         }
     }
 
@@ -1012,11 +1165,13 @@ impl SrIovVirtualFunction {
             queue.enabled = true;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "queue_id".to_string(),
-                value: queue_id.to_string(),
-                message: format!("TX queue {} not found", queue_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "queue_id".to_string(),
+                    value: queue_id.to_string(),
+                    message: format!("TX queue {} not found", queue_id),
+                },
+            ))
         }
     }
 
@@ -1026,11 +1181,13 @@ impl SrIovVirtualFunction {
             queue.enabled = false;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "queue_id".to_string(),
-                value: queue_id.to_string(),
-                message: format!("RX queue {} not found", queue_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "queue_id".to_string(),
+                    value: queue_id.to_string(),
+                    message: format!("RX queue {} not found", queue_id),
+                },
+            ))
         }
     }
 
@@ -1040,56 +1197,91 @@ impl SrIovVirtualFunction {
             queue.enabled = false;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "queue_id".to_string(),
-                value: queue_id.to_string(),
-                message: format!("TX queue {} not found", queue_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "queue_id".to_string(),
+                    value: queue_id.to_string(),
+                    message: format!("TX queue {} not found", queue_id),
+                },
+            ))
         }
     }
 
     /// Set queue descriptor address
-    pub fn set_queue_desc_addr(&mut self, queue_id: u16, is_tx: bool, addr: GuestAddr) -> VmResult<()> {
-        let queues = if is_tx { &mut self.tx_queues } else { &mut self.rx_queues };
+    pub fn set_queue_desc_addr(
+        &mut self,
+        queue_id: u16,
+        is_tx: bool,
+        addr: GuestAddr,
+    ) -> VmResult<()> {
+        let queues = if is_tx {
+            &mut self.tx_queues
+        } else {
+            &mut self.rx_queues
+        };
         if let Some(queue) = queues.get_mut(&queue_id) {
             queue.desc_addr = addr;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "queue_id".to_string(),
-                value: queue_id.to_string(),
-                message: format!("Queue {} not found", queue_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "queue_id".to_string(),
+                    value: queue_id.to_string(),
+                    message: format!("Queue {} not found", queue_id),
+                },
+            ))
         }
     }
 
     /// Set queue available ring address
-    pub fn set_queue_avail_addr(&mut self, queue_id: u16, is_tx: bool, addr: GuestAddr) -> VmResult<()> {
-        let queues = if is_tx { &mut self.tx_queues } else { &mut self.rx_queues };
+    pub fn set_queue_avail_addr(
+        &mut self,
+        queue_id: u16,
+        is_tx: bool,
+        addr: GuestAddr,
+    ) -> VmResult<()> {
+        let queues = if is_tx {
+            &mut self.tx_queues
+        } else {
+            &mut self.rx_queues
+        };
         if let Some(queue) = queues.get_mut(&queue_id) {
             queue.avail_addr = addr;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "queue_id".to_string(),
-                value: queue_id.to_string(),
-                message: format!("Queue {} not found", queue_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "queue_id".to_string(),
+                    value: queue_id.to_string(),
+                    message: format!("Queue {} not found", queue_id),
+                },
+            ))
         }
     }
 
     /// Set queue used ring address
-    pub fn set_queue_used_addr(&mut self, queue_id: u16, is_tx: bool, addr: GuestAddr) -> VmResult<()> {
-        let queues = if is_tx { &mut self.tx_queues } else { &mut self.rx_queues };
+    pub fn set_queue_used_addr(
+        &mut self,
+        queue_id: u16,
+        is_tx: bool,
+        addr: GuestAddr,
+    ) -> VmResult<()> {
+        let queues = if is_tx {
+            &mut self.tx_queues
+        } else {
+            &mut self.rx_queues
+        };
         if let Some(queue) = queues.get_mut(&queue_id) {
             queue.used_addr = addr;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "queue_id".to_string(),
-                value: queue_id.to_string(),
-                message: format!("Queue {} not found", queue_id)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "queue_id".to_string(),
+                    value: queue_id.to_string(),
+                    message: format!("Queue {} not found", queue_id),
+                },
+            ))
         }
     }
 
@@ -1100,11 +1292,13 @@ impl SrIovVirtualFunction {
             self.stats.interrupts.fetch_add(1, Ordering::Relaxed);
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vector".to_string(),
-                value: vector.to_string(),
-                message: format!("Interrupt vector {} out of range", vector)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vector".to_string(),
+                    value: vector.to_string(),
+                    message: format!("Interrupt vector {} out of range", vector),
+                },
+            ))
         }
     }
 
@@ -1114,11 +1308,13 @@ impl SrIovVirtualFunction {
             self.interrupt_vectors[vector as usize] = false;
             Ok(())
         } else {
-            Err(vm_core::error::VmError::Core(vm_core::error::CoreError::InvalidParameter {
-                name: "vector".to_string(),
-                value: vector.to_string(),
-                message: format!("Interrupt vector {} out of range", vector)
-            }))
+            Err(vm_core::error::VmError::Core(
+                vm_core::error::CoreError::InvalidParameter {
+                    name: "vector".to_string(),
+                    value: vector.to_string(),
+                    message: format!("Interrupt vector {} out of range", vector),
+                },
+            ))
         }
     }
 

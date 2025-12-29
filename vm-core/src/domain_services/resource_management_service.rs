@@ -1,8 +1,218 @@
-//! Resource Management Domain Service
+//! # Resource Management Domain Service
 //!
 //! This service encapsulates business logic for resource management
 //! including resource constraint validation, allocation decisions,
 //! performance threshold management, and memory/CPU budget management.
+//!
+//! ## Domain Responsibilities
+//!
+//! The resource management service is responsible for:
+//!
+//! 1. **Resource Constraints**: Defining and enforcing resource usage limits
+//! 2. **Resource Allocation**: Allocating resources based on priority and availability
+//! 3. **Performance Thresholds**: Managing adaptive performance thresholds
+//! 4. **Budget Management**: Controlling optimization resource budgets
+//! 5. **GC Coordination**: Triggering garbage collection based on resource pressure
+//!
+//! ## DDD Patterns
+//!
+//! ### Domain Service Pattern
+//! This is a **Domain Service** because:
+//! - It coordinates resource allocation across multiple aggregates
+//! - It enforces cross-cutting resource constraints
+//! - It manages business rules for resource governance
+//!
+//! ### Domain Events Published
+//!
+//! - **`OptimizationEvent::ResourceConstraintViolation`**: Published when constraints are exceeded
+//! - **`OptimizationEvent::ResourceAllocated`**: Published when resources are allocated
+//! - **`OptimizationEvent::ResourceReleased`**: Published when resources are released
+//! - **`OptimizationEvent::PerformanceThresholdUpdated`**: Published when thresholds change
+//!
+//! ## Resource Types
+//!
+//! The service manages multiple resource types:
+//!
+//! | Resource | Description | Default Max | Units |
+//!|----------|-------------|-------------|-------|
+//! | **CPU** | Processor time | 100% | percent |
+//! | **Memory** | RAM usage | 2GB | bytes |
+//! | **Cache** | Cache space | 256MB | bytes |
+//! | **Storage** | Disk usage | Configurable | bytes |
+//! | **Network** | Bandwidth | Configurable | bps |
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Resource Allocation
+//!
+//! ```rust
+//! use crate::domain_services::resource_management_service::{
+//!     ResourceManagementDomainService, ResourceAllocationRequest,
+//!     ResourceType, ResourceManagementConfig
+//! };
+//!
+//! let config = ResourceManagementConfig::default();
+//! let service = ResourceManagementDomainService::new(config);
+//!
+//! let request = ResourceAllocationRequest {
+//!     resource_type: ResourceType::Memory,
+//!     amount: 1024 * 1024,  // 1MB
+//!     priority: 50,
+//!     purpose: "Code cache".to_string(),
+//!     timeout: None,
+//! };
+//!
+//! let result = service.allocate_resources(&request)?;
+//!
+//! if result.success {
+//!     println!("Allocated: {} bytes", result.allocated_amount);
+//!     println!("Allocation ID: {:?}", result.allocation_id);
+//! } else {
+//!     println!("Failed: {:?}", result.failure_reason);
+//! }
+//! ```
+//!
+//! ### Resource Constraints Validation
+//!
+//! ```rust
+//! let service = ResourceManagementDomainService::new(config);
+//!
+//! let violated = service.validate_resource_constraints()?;
+//!
+//! if !violated.is_empty() {
+//!     println!("Violated constraints:");
+//!     for resource_type in violated {
+//!         println!("  - {:?}", resource_type);
+//!     }
+//! }
+//! ```
+//!
+//! ### Performance Threshold Management
+//!
+//! ```rust
+//! let mut service = ResourceManagementDomainService::new(config);
+//!
+//! // Update thresholds based on current performance
+//! service.update_performance_thresholds(
+//!     ResourceType::Memory,
+//!     0.85,  // Current performance (0.0 to 1.0)
+//! )?;
+//! ```
+//!
+//! ### Budget Allocation
+//!
+//! ```rust
+//! let service = ResourceManagementDomainService::new(config);
+//!
+//! let budget = service.allocate_optimization_budget(
+//!     "compilation",  // operation type
+//!     75,            // priority
+//! )?;
+//!
+//! println!("CPU budget: {:?}", budget.get(&ResourceType::Cpu));
+//! println!("Memory budget: {:?}", budget.get(&ResourceType::Memory));
+//! ```
+//!
+//! ## Resource Allocation Strategies
+//!
+//! The service supports different budget allocation strategies:
+//!
+//! | Strategy | Description | Use Case |
+//!|----------|-------------|----------|
+//! | **Equal** | Equal distribution among operations | Fair sharing |
+//! | **PriorityBased** | Based on operation priority | Critical operations |
+//! | **PerformanceBased** | Based on current performance | Performance-aware |
+//! | **Adaptive** | Dynamic based on load and type | Variable workloads |
+//!
+//! ## Resource Thresholds
+//!
+//! ### Default Thresholds
+//!
+//! ```text
+//! Memory:
+//!   Warning:  80% (1.6GB)
+//!   Critical: 95% (1.9GB)
+//!   GC Trigger: 85%
+//!
+//! CPU:
+//!   Warning:  70% (70%)
+//!   Critical: 90% (90%)
+//!   Optimization Budget: 30%
+//!
+//! Cache:
+//!   Warning:  75% (192MB)
+//!   Critical: 90% (230MB)
+//!   Optimization Budget: 64MB
+//! ```
+//!
+//! ### Adaptive Thresholding
+//!
+//! When adaptive thresholding is enabled:
+//! - Performance below threshold → Relax requirements
+//! - Performance above threshold → Tighten requirements
+//!
+//! ```text
+//! if current_performance < threshold.min_performance {
+//!     threshold.min_performance *= 0.9;    // Relax by 10%
+//!     threshold.max_latency *= 1.1;         // Allow more latency
+//! } else if current_performance > threshold * 1.2 {
+//!     threshold.min_performance *= 1.05;   // Tighten by 5%
+//!     threshold.max_latency *= 0.95;        // Require less latency
+//! }
+//! ```
+//!
+//! ## Resource Lifecycle
+//!
+//! ```text
+//! ┌──────────────┐
+//! │   Request    │
+//! └──────┬───────┘
+//!        │
+//!        ▼
+//! ┌──────────────┐
+//! │ Validate     │
+//! │ Constraints  │
+//! └──────┬───────┘
+//!        │
+//!        ▼
+//! ┌──────────────┐
+//! │ Check        │
+//! │ Availability │
+//! └──────┬───────┘
+//!        │
+//!    ┌───┴───┐
+//!    ▼       ▼
+//! Available  Exhausted
+//!    │         │
+//!    ▼         ▼
+//! Allocate   Fail
+//!    │
+//!    ▼
+//! ┌──────────────┐
+//! │ Publish      │
+//! │ Event        │
+//! └──────────────┘
+//! ```
+//!
+//! ## GC Coordination
+//!
+//! The service coordinates garbage collection:
+//!
+//! ```rust
+//! let service = ResourceManagementDomainService::new(config);
+//!
+//! if service.should_trigger_gc() {
+//!     println!("Memory usage exceeds GC threshold");
+//!     // Trigger garbage collection
+//! }
+//! ```
+//!
+//! ## Integration with Aggregate Roots
+//!
+//! This service works with:
+//! - **`VirtualMachineAggregate`**: VM-wide resource management
+//! - **`OptimizationAggregate`**: Optimization resource budgets
+//! - **`CodeBlockAggregate`**: Code block resource usage
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -347,15 +557,23 @@ impl ResourceManagementDomainService {
             constraint.current_usage += allocated_amount;
         }
 
+        let allocation_id = if success {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| VmError::Core(crate::CoreError::Internal {
+                    message: format!("Failed to get system time: {}", e),
+                    module: "resource_management_service".to_string(),
+                }))?;
+            Some(format!("alloc_{}_{}", request.resource_type as u32, timestamp.as_nanos()))
+        } else {
+            None
+        };
+
         let result = ResourceAllocationResult {
             success,
             allocated_amount,
             remaining_amount: available_amount - allocated_amount,
-            allocation_id: if success { 
-                Some(format!("alloc_{}_{}", request.resource_type as u32, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())) 
-            } else { 
-                None 
-            },
+            allocation_id,
             failure_reason: if !success { 
                 Some(format!("Insufficient resources: requested {}, available {}", request.amount, available_amount)) 
             } else { 
@@ -541,7 +759,8 @@ mod tests {
         let service = ResourceManagementDomainService::new(config);
         
         // Initially no constraints should be violated
-        let violated = service.validate_resource_constraints().unwrap();
+        let violated = service.validate_resource_constraints()
+            .expect("validate_resource_constraints should not fail in test");
         assert!(violated.is_empty());
     }
 
@@ -558,7 +777,8 @@ mod tests {
             timeout: None,
         };
         
-        let result = service.allocate_resources(&request).unwrap();
+        let result = service.allocate_resources(&request)
+            .expect("allocate_resources should not fail in test");
         assert!(result.success);
         assert_eq!(result.allocated_amount, 1024 * 1024);
         assert!(result.allocation_id.is_some());
@@ -578,7 +798,8 @@ mod tests {
             timeout: None,
         };
         
-        let result = service.allocate_resources(&request).unwrap();
+        let result = service.allocate_resources(&request)
+            .expect("allocate_resources should not fail in test");
         assert!(!result.success);
         assert!(result.failure_reason.is_some());
     }
@@ -600,7 +821,8 @@ mod tests {
             timeout: None,
         };
         
-        service.allocate_resources(&request).unwrap();
+        service.allocate_resources(&request)
+            .expect("allocate_resources should not fail in test");
         assert!(service.should_trigger_gc());
     }
 
@@ -609,7 +831,8 @@ mod tests {
         let config = ResourceManagementConfig::default();
         let service = ResourceManagementDomainService::new(config);
         
-        let allocation = service.allocate_optimization_budget("compilation", 75).unwrap();
+        let allocation = service.allocate_optimization_budget("compilation", 75)
+            .expect("allocate_optimization_budget should not fail in test");
         
         assert!(allocation.contains_key(&ResourceType::Cpu));
         assert!(allocation.contains_key(&ResourceType::Memory));

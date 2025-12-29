@@ -56,7 +56,8 @@ impl InlineCacheStats {
         if self.monomorphic_hits + self.monomorphic_misses == 0 {
             0.0
         } else {
-            self.monomorphic_to_polymorphic as f64 / (self.monomorphic_hits + self.monomorphic_misses) as f64
+            self.monomorphic_to_polymorphic as f64
+                / (self.monomorphic_hits + self.monomorphic_misses) as f64
         }
     }
 

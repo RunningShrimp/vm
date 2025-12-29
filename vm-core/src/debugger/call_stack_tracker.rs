@@ -3,13 +3,14 @@
 //! This module provides comprehensive call stack tracking including
 //! function entry/exit, stack frame reconstruction, and local variable inspection.
 
+#![cfg(feature = "debug")]
+
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
 use crate::{GuestAddr, VmError, VmResult};
 
 /// Stack frame information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackFrame {
     /// Frame ID
@@ -39,7 +40,6 @@ pub struct StackFrame {
 }
 
 /// Local variable information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalVariable {
     /// Variable name
@@ -160,7 +160,6 @@ pub enum StackErrorType {
 }
 
 /// Call stack configuration
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallStackConfig {
     /// Maximum stack depth to track
@@ -177,7 +176,6 @@ pub struct CallStackConfig {
     pub max_stack_size: usize,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 /// Statistics for call stack
 #[derive(Debug, Clone)]
 pub struct CallStackStats {
@@ -210,7 +208,6 @@ impl Default for CallStackConfig {
 }
 
 /// Enhanced call stack tracker
-#[cfg(feature = "enhanced-debugging")]
 pub struct CallStackTracker {
     /// Configuration
     config: CallStackConfig,
@@ -241,8 +238,111 @@ struct StackLimits {
     max_sp: GuestAddr,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 impl CallStackTracker {
+    /// Helper method to lock stack for reading
+    fn lock_stack(&self) -> Result<std::sync::RwLockReadGuard<'_, VecDeque<StackFrame>>, VmError> {
+        self.stack.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire stack read lock: {}", e),
+            operation: "lock_stack_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock stack for writing
+    fn lock_stack_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, VecDeque<StackFrame>>, VmError> {
+        self.stack.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire stack write lock: {}", e),
+            operation: "lock_stack_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock frames_by_id for reading
+    fn lock_frames(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<u64, StackFrame>>, VmError> {
+        self.frames_by_id.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire frames read lock: {}", e),
+            operation: "lock_frames_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock frames_by_id for writing
+    fn lock_frames_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<u64, StackFrame>>, VmError> {
+        self.frames_by_id.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire frames write lock: {}", e),
+            operation: "lock_frames_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock events for reading
+    fn lock_events(&self) -> Result<std::sync::RwLockReadGuard<'_, Vec<CallStackEvent>>, VmError> {
+        self.events.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire events read lock: {}", e),
+            operation: "lock_events_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock events for writing
+    fn lock_events_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, Vec<CallStackEvent>>, VmError> {
+        self.events.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire events write lock: {}", e),
+            operation: "lock_events_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock stack_pointer for reading
+    fn lock_stack_pointer(&self) -> Result<std::sync::RwLockReadGuard<'_, GuestAddr>, VmError> {
+        self.stack_pointer.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire stack_pointer read lock: {}", e),
+            operation: "lock_stack_pointer_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock stack_pointer for writing
+    fn lock_stack_pointer_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, GuestAddr>, VmError> {
+        self.stack_pointer.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire stack_pointer write lock: {}", e),
+            operation: "lock_stack_pointer_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock frame_pointer for reading
+    fn lock_frame_pointer(&self) -> Result<std::sync::RwLockReadGuard<'_, Option<GuestAddr>>, VmError> {
+        self.frame_pointer.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire frame_pointer read lock: {}", e),
+            operation: "lock_frame_pointer_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock frame_pointer for writing
+    fn lock_frame_pointer_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, Option<GuestAddr>>, VmError> {
+        self.frame_pointer.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire frame_pointer write lock: {}", e),
+            operation: "lock_frame_pointer_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock next_frame_id for writing
+    fn lock_next_frame_id_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, u64>, VmError> {
+        self.next_frame_id.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire next_frame_id write lock: {}", e),
+            operation: "lock_next_frame_id_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock stack_limits for reading
+    fn lock_stack_limits(&self) -> Result<std::sync::RwLockReadGuard<'_, StackLimits>, VmError> {
+        self.stack_limits.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire stack_limits read lock: {}", e),
+            operation: "lock_stack_limits_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock stack_limits for writing
+    fn lock_stack_limits_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, StackLimits>, VmError> {
+        self.stack_limits.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire stack_limits write lock: {}", e),
+            operation: "lock_stack_limits_write".to_string(),
+        })
+    }
+
     /// Create a new call stack tracker
     pub fn new(config: CallStackConfig, stack_base: GuestAddr) -> Self {
         Self {
@@ -271,7 +371,7 @@ impl CallStackTracker {
     ) -> VmResult<u64> {
         // Check stack depth
         {
-            let stack = self.stack.read().unwrap();
+            let stack = self.lock_stack()?;
             if stack.len() >= self.config.max_depth {
                 return Err(VmError::Core(crate::error::CoreError::InvalidState {
                     message: format!("Maximum stack depth {} exceeded", self.config.max_depth),
@@ -282,11 +382,11 @@ impl CallStackTracker {
         }
 
         // Get current stack and frame pointers
-        let current_sp = *self.stack_pointer.read().unwrap();
-        let current_fp = *self.frame_pointer.read().unwrap();
+        let current_sp = *self.lock_stack_pointer()?;
+        let current_fp = *self.lock_frame_pointer()?;
 
         // Generate frame ID
-        let mut next_id = self.next_frame_id.write().unwrap();
+        let mut next_id = self.lock_next_frame_id_mut()?;
         let frame_id = *next_id;
         *next_id += 1;
 
@@ -308,19 +408,19 @@ impl CallStackTracker {
 
         // Add to stack
         {
-            let mut stack = self.stack.write().unwrap();
+            let mut stack = self.lock_stack_mut()?;
             stack.push_front(frame.clone());
         }
 
         // Add to frames by ID
         {
-            let mut frames_by_id = self.frames_by_id.write().unwrap();
+            let mut frames_by_id = self.lock_frames_mut()?;
             frames_by_id.insert(frame_id, frame);
         }
 
         // Record event
         {
-            let mut events = self.events.write().unwrap();
+            let mut events = self.lock_events_mut()?;
             events.push(CallStackEvent::FunctionCall {
                 frame_id,
                 function_address,
@@ -343,7 +443,7 @@ impl CallStackTracker {
         return_value: Option<VariableValue>,
     ) -> VmResult<StackFrame> {
         // Remove frame from stack
-        let mut stack = self.stack.write().unwrap();
+        let mut stack = self.lock_stack_mut()?;
         let frame = if let Some((index, frame)) = stack.iter()
             .enumerate()
             .find(|(_, f)| f.id == frame_id) {
@@ -360,23 +460,23 @@ impl CallStackTracker {
 
         // Update stack pointer to previous frame
         if let Some(prev_frame) = stack.front() {
-            *self.stack_pointer.write().unwrap() = prev_frame.stack_pointer;
-            *self.frame_pointer.write().unwrap() = prev_frame.frame_pointer;
+            *self.lock_stack_pointer_mut()? = prev_frame.stack_pointer;
+            *self.lock_frame_pointer_mut()? = prev_frame.frame_pointer;
         } else {
             // No more frames, reset to base
-            *self.stack_pointer.write().unwrap() = self.stack_base;
-            *self.frame_pointer.write().unwrap() = None;
+            *self.lock_stack_pointer_mut()? = self.stack_base;
+            *self.lock_frame_pointer_mut()? = None;
         }
 
         // Remove from frames by ID
         {
-            let mut frames_by_id = self.frames_by_id.write().unwrap();
+            let mut frames_by_id = self.lock_frames_mut()?;
             frames_by_id.remove(&frame_id);
         }
 
         // Record event
         {
-            let mut events = self.events.write().unwrap();
+            let mut events = self.lock_events_mut()?;
             events.push(CallStackEvent::FunctionReturn {
                 frame_id,
                 return_value,
@@ -394,7 +494,7 @@ impl CallStackTracker {
         exception_type: String,
         exception_address: GuestAddr,
     ) -> VmResult<()> {
-        let mut events = self.events.write().unwrap();
+        let mut events = self.lock_events_mut()?;
         events.push(CallStackEvent::Exception {
             frame_id,
             exception_type,
@@ -407,31 +507,39 @@ impl CallStackTracker {
 
     /// Get current call stack
     pub fn get_call_stack(&self) -> Vec<StackFrame> {
-        let stack = self.stack.read().unwrap();
-        stack.iter().cloned().collect()
+        match self.lock_stack() {
+            Ok(stack) => stack.iter().cloned().collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Get current stack depth
     pub fn get_stack_depth(&self) -> usize {
-        let stack = self.stack.read().unwrap();
-        stack.len()
+        match self.lock_stack() {
+            Ok(stack) => stack.len(),
+            Err(_) => 0,
+        }
     }
 
     /// Get frame by ID
     pub fn get_frame(&self, frame_id: u64) -> Option<StackFrame> {
-        let frames_by_id = self.frames_by_id.read().unwrap();
-        frames_by_id.get(&frame_id).cloned()
+        match self.lock_frames() {
+            Ok(frames_by_id) => frames_by_id.get(&frame_id).cloned(),
+            Err(_) => None,
+        }
     }
 
     /// Get top frame (current execution context)
     pub fn get_top_frame(&self) -> Option<StackFrame> {
-        let stack = self.stack.read().unwrap();
-        stack.front().cloned()
+        match self.lock_stack() {
+            Ok(stack) => stack.front().cloned(),
+            Err(_) => None,
+        }
     }
 
     /// Update instruction pointer for current frame
     pub fn update_instruction_pointer(&self, ip: GuestAddr) -> VmResult<()> {
-        let mut stack = self.stack.write().unwrap();
+        let mut stack = self.lock_stack_mut()?;
         if let Some(frame) = stack.front_mut() {
             frame.instruction_pointer = ip;
             Ok(())
@@ -448,8 +556,8 @@ impl CallStackTracker {
     pub fn update_stack_pointer(&self, sp: GuestAddr) -> VmResult<()> {
         // Check for stack overflow/underflow
         if self.config.overflow_detection {
-            let mut limits = self.stack_limits.write().unwrap();
-            
+            let mut limits = self.lock_stack_limits_mut()?;
+
             if sp < limits.min_sp {
                 limits.min_sp = sp;
             }
@@ -466,7 +574,7 @@ impl CallStackTracker {
 
             if stack_usage > self.config.max_stack_size as u64 {
                 return Err(VmError::Core(crate::error::CoreError::InvalidState {
-                    message: format!("Stack overflow: usage {} exceeds maximum {}", 
+                    message: format!("Stack overflow: usage {} exceeds maximum {}",
                         stack_usage, self.config.max_stack_size),
                     current: format!("{}", stack_usage),
                     expected: format!("<= {}", self.config.max_stack_size),
@@ -474,7 +582,7 @@ impl CallStackTracker {
             }
         }
 
-        *self.stack_pointer.write().unwrap() = sp;
+        *self.lock_stack_pointer_mut()? = sp;
         Ok(())
     }
 
@@ -486,7 +594,7 @@ impl CallStackTracker {
         location: VariableLocation,
         scope: VariableScope,
     ) -> VmResult<()> {
-        let mut stack = self.stack.read().unwrap();
+        let mut stack = self.lock_stack_mut()?;
         if let Some(frame) = stack.front_mut() {
             frame.local_variables.insert(name.clone(), LocalVariable {
                 name,
@@ -512,7 +620,7 @@ impl CallStackTracker {
         name: &str,
         value: VariableValue,
     ) -> VmResult<()> {
-        let mut frames_by_id = self.frames_by_id.write().unwrap();
+        let mut frames_by_id = self.lock_frames_mut()?;
         if let Some(frame) = frames_by_id.get_mut(&frame_id) {
             if let Some(variable) = frame.local_variables.get_mut(name) {
                 variable.value = Some(value);
@@ -539,7 +647,7 @@ impl CallStackTracker {
         frame_id: u64,
         name: &str,
     ) -> VmResult<Option<VariableValue>> {
-        let frames_by_id = self.frames_by_id.read().unwrap();
+        let frames_by_id = self.lock_frames()?;
         if let Some(frame) = frames_by_id.get(&frame_id) {
             Ok(frame.local_variables.get(name).and_then(|v| v.value.clone()))
         } else {
@@ -553,45 +661,61 @@ impl CallStackTracker {
 
     /// Get call stack events
     pub fn get_events(&self) -> Vec<CallStackEvent> {
-        let events = self.events.read().unwrap();
-        events.clone()
+        match self.lock_events() {
+            Ok(events) => events.clone(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Clear call stack events
     pub fn clear_events(&self) {
-        let mut events = self.events.write().unwrap();
-        events.clear();
+        if let Ok(mut events) = self.lock_events_mut() {
+            events.clear();
+        }
     }
 
     /// Get call stack statistics
     pub fn get_statistics(&self) -> CallStackStatistics {
-        let stack = self.stack.read().unwrap();
-        let events = self.events.read().unwrap();
-        let limits = self.stack_limits.read().unwrap();
+        let (stack, events, limits, stack_pointer) = match (
+            self.lock_stack(),
+            self.lock_events(),
+            self.lock_stack_limits(),
+            self.lock_stack_pointer(),
+        ) {
+            (Ok(stack), Ok(events), Ok(limits), Ok(stack_pointer)) => {
+                (Some(stack), Some(events), Some(limits), Some(*stack_pointer))
+            }
+            _ => (None, None, None, None),
+        };
 
         let mut function_calls = 0;
         let mut function_returns = 0;
         let mut exceptions = 0;
         let mut stack_errors = 0;
 
-        for event in events.iter() {
-            match event {
-                CallStackEvent::FunctionCall { .. } => function_calls += 1,
-                CallStackEvent::FunctionReturn { .. } => function_returns += 1,
-                CallStackEvent::Exception { .. } => exceptions += 1,
-                CallStackEvent::StackError { .. } => stack_errors += 1,
+        if let Some(ref events) = events {
+            for event in events.iter() {
+                match event {
+                    CallStackEvent::FunctionCall { .. } => function_calls += 1,
+                    CallStackEvent::FunctionReturn { .. } => function_returns += 1,
+                    CallStackEvent::Exception { .. } => exceptions += 1,
+                    CallStackEvent::StackError { .. } => stack_errors += 1,
+                }
             }
         }
 
-        let current_stack_usage = if *self.stack_pointer.read().unwrap() >= self.stack_base {
-            *self.stack_pointer.read().unwrap() - self.stack_base
-        } else {
-            self.stack_base - *self.stack_pointer.read().unwrap()
+        let current_stack_usage = match stack_pointer {
+            Some(sp) if sp >= self.stack_base => sp - self.stack_base,
+            Some(sp) => self.stack_base - sp,
+            None => 0,
         };
 
         CallStackStatistics {
-            current_depth: stack.len(),
-            max_depth_reached: limits.max_sp - limits.min_sp,
+            current_depth: stack.as_ref().map_or(0, |s| s.len()),
+            max_depth_reached: match (limits, stack_pointer) {
+                (Some(limits), Some(_sp)) => limits.max_sp - limits.min_sp,
+                _ => 0,
+            },
             current_stack_usage,
             max_stack_usage: self.config.max_stack_size,
             function_calls,
@@ -625,7 +749,7 @@ impl CallStackTracker {
         // For x86-64, typically RBP or RBP is used
         // For ARM64, x29 (FP) is used
         // For RISC-V, s0/fp is used
-        
+
         let fp = if let Some(&rbp) = registers.get("rbp") {
             Some(rbp as GuestAddr)
         } else if let Some(&fp) = registers.get("fp") {
@@ -636,12 +760,13 @@ impl CallStackTracker {
             None
         };
 
-        *self.frame_pointer.write().unwrap() = fp;
+        if let Ok(mut frame_pointer) = self.lock_frame_pointer_mut() {
+            *frame_pointer = fp;
+        }
     }
 }
 
 /// Call stack statistics
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallStackStatistics {
     /// Current stack depth
@@ -662,13 +787,9 @@ pub struct CallStackStatistics {
     pub stack_errors: u64,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 impl Default for crate::debugger::call_stack_tracker::CallStackTracker {
     fn default() -> Self {
-        #[cfg(feature = "enhanced-debugging")]
-        { Self::new(CallStackBuilder::default(), 0) }
-        #[cfg(not(feature = "enhanced-debugging"))]
-        { Self::new(crate::debugger::call_stack_tracker::CallStackConfig::default(), 0) }
+        Self::new(crate::debugger::call_stack_tracker::CallStackConfig::default(), 0)
     }
 }
 
@@ -701,9 +822,7 @@ mod tests {
 
     #[test]
     fn test_call_stack_tracker() {
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
-        let config = CallStackBuilder::default();        let config = CallStackConfig::default();
+        let config = CallStackConfig::default();
         let tracker = CallStackTracker::new(config, 0x80000000);
 
         // Record function call
@@ -712,28 +831,26 @@ mod tests {
             0x2000,
             vec![VariableValue::I32(42)],
             &HashMap::new(),
-        ).unwrap();
+        ).expect("Failed to record function call");
 
         assert_eq!(frame_id, 1);
         assert_eq!(tracker.get_stack_depth(), 1);
 
         // Check top frame
-        let top_frame = tracker.get_top_frame().unwrap();
+        let top_frame = tracker.get_top_frame().expect("No top frame");
         assert_eq!(top_frame.id, 1);
         assert_eq!(top_frame.function_address, 0x1000);
         assert_eq!(top_frame.return_address, 0x2000);
 
         // Record function return
-        let returned_frame = tracker.record_function_return(frame_id, Some(VariableValue::I32(100))).unwrap();
+        let returned_frame = tracker.record_function_return(frame_id, Some(VariableValue::I32(100))).expect("Failed to record function return");
         assert_eq!(returned_frame.id, 1);
         assert_eq!(tracker.get_stack_depth(), 0);
     }
 
     #[test]
     fn test_local_variables() {
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
-        let config = CallStackBuilder::default();        let config = CallStackConfig::default();
+        let config = CallStackConfig::default();
         let tracker = CallStackTracker::new(config, 0x80000000);
 
         let frame_id = tracker.record_function_call(
@@ -741,7 +858,7 @@ mod tests {
             0x2000,
             vec![VariableValue::I32(42)],
             &HashMap::new(),
-        ).unwrap();
+        ).expect("Failed to record function call");
 
         // Add local variable
         tracker.add_local_variable(
@@ -749,13 +866,13 @@ mod tests {
             "int".to_string(),
             VariableLocation::StackOffset { offset: -8 },
             VariableScope::Local,
-        ).unwrap();
+        ).expect("Failed to add local variable");
 
         // Update variable value
-        tracker.update_local_variable(frame_id, "local_var", VariableValue::I32(123)).unwrap();
+        tracker.update_local_variable(frame_id, "local_var", VariableValue::I32(123)).expect("Failed to update local variable");
 
         // Get variable value
-        let value = tracker.get_local_variable(frame_id, "local_var").unwrap();
+        let value = tracker.get_local_variable(frame_id, "local_var").expect("Failed to get local variable");
         assert!(value.is_some());
         match value.unwrap() {
             VariableValue::I32(v) => assert_eq!(v, 123),

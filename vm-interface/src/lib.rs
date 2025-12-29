@@ -31,6 +31,19 @@ pub type SubscriptionId = u64;
 /// 任务ID类型
 pub type TaskId = u64;
 
+// ============================================================================
+// 类型别名定义
+// ============================================================================
+
+/// 配置监听器类型
+pub type ConfigListener = Box<dyn Fn(&str, &ConfigItem) + Send + Sync>;
+
+/// 状态事件回调类型
+pub type StateEventCallback<S, E> = Box<dyn Fn(&S, &E) + Send + Sync>;
+
+/// VM事件监听器类型
+pub type VmEventListener = Box<dyn Fn(&VmEvent) + Send + Sync>;
+
 /// 任务状态
 #[derive(Debug, Clone)]
 pub enum TaskStatus {
@@ -177,7 +190,7 @@ pub trait Observable {
     /// 订阅状态变化
     fn subscribe(
         &mut self,
-        callback: Box<dyn Fn(&Self::State, &Self::Event) + Send + Sync>,
+        callback: StateEventCallback<Self::State, Self::Event>,
     ) -> SubscriptionId;
 
     /// 取消订阅
@@ -290,8 +303,16 @@ pub trait MemoryManager: VmComponent + Configurable {
     ) -> Result<u64, VmError>;
 
     /// 异步内存操作
-    fn read_memory_async(&self, addr: GuestAddr, size: usize) -> impl std::future::Future<Output = Result<Vec<u8>, VmError>> + Send;
-    fn write_memory_async(&mut self, addr: GuestAddr, data: Vec<u8>) -> impl std::future::Future<Output = Result<(), VmError>> + Send;
+    fn read_memory_async(
+        &self,
+        addr: GuestAddr,
+        size: usize,
+    ) -> impl std::future::Future<Output = Result<Vec<u8>, VmError>> + Send;
+    fn write_memory_async(
+        &mut self,
+        addr: GuestAddr,
+        data: Vec<u8>,
+    ) -> impl std::future::Future<Output = Result<(), VmError>> + Send;
 }
 
 /// 缓存管理接口

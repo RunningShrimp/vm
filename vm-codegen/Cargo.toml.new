@@ -1,0 +1,32 @@
+[package]
+name = "vm-codegen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+bincode = { version = "1.0", features = ["serde"] }
+miniz_oxide = { version = "0.7", features = ["serde"] }
+
+[[example]]
+name = "arm64_instructions"
+path = "examples/arm64_instructions.rs"
+
+[[example]]
+name = "riscv_instructions"
+path = "examples/riscv_instructions.rs"
+ENDOFTOML'
+
+# 移动旧文件并重命名新文件
+mv /Users/wangbiao/Desktop/project/vm/vm-codegen/Cargo.toml /Users/wangbiao/Desktop/project/vm/vm-codegen/Cargo.toml.old 2>/dev/null || true
+mv /Users/wangbiao/Desktop/project/vm/vm-codegen/Cargo.toml.new /Users/wangbiao/Desktop/project/vm/vm-codegen/Cargo.toml
+
+echo "已更新Cargo.toml"

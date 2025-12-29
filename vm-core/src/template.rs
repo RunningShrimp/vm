@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::string::String;
 
+use uuid::Uuid;
+
+/// 虚拟机模板
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VmTemplate {
     pub id: String,
@@ -9,15 +13,10 @@ pub struct VmTemplate {
     pub base_snapshot_id: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// 模板管理器
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct TemplateManager {
     pub templates: HashMap<String, VmTemplate>,
-}
-
-impl Default for TemplateManager {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl TemplateManager {
@@ -33,7 +32,7 @@ impl TemplateManager {
         description: String,
         base_snapshot_id: String,
     ) -> String {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = Uuid::new_v4().to_string();
         let template = VmTemplate {
             id: id.clone(),
             name,

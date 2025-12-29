@@ -1,62 +1,147 @@
 [workspace]
 members = [
- "vm-common",
- "vm-codegen",
- "vm-core",
- "vm-interface",
- "vm-ir",
- "vm-mem",
- "vm-frontend-arm64",
- "vm-frontend-x86_64",
- "vm-frontend-riscv64",
- "vm-engine-interpreter",
- "vm-engine-jit",
- "vm-accel",
- "vm-device",
- "vm-simd",
- "vm-osal",
- "vm-passthrough",
- "vm-boot",
- "vm-cli",
- "vm-service",
- "vm-monitor",
- "vm-adaptive",       
- "vm-gpu",         
- "vm-debug",
- "vm-runtime",
- "vm-plugin",
- "vm-cross-arch",
-  "vm-encoding",
-  "vm-register",
-  "vm-memory-access",
-  "vm-instruction-patterns",
-  "vm-optimization",
-  "vm-error",
-  "vm-validation",
-  "vm-resource",
-  "vm-cross-arch-integration-tests",
- "vm-stress-test-runner",
- "vm-perf-regression-detector",
- "async-executor",
- "coroutine-scheduler",
- "perf-bench",
- "tiered-compiler",
- "parallel-jit",
- "gc-optimizer",
- "memory-optimizer",
- 
- "ml-guided-compiler",
- "pgo-optimizer",
- "security-sandbox",
- "syscall-compat",
- "distributed-executor",
- "vm-desktop",
+    # Core
+    "vm-core",
+    "vm-foundation",
+    "vm-common",
+
+    # Cross-architecture
+#     "vm-cross-arch",
+    "vm-cross-arch-support",
+    "vm-ir",
+    "vm-frontend",
+
+    # Memory
+    "vm-mem",
+
+    # Devices
+    "vm-device",
+    "vm-accel",
+
+    # Execution engines
+    "vm-engine-jit",
+    "vm-engine-interpreter",
+
+    # Optimizers
+    "vm-optimizers",
+
+    # Executors
+    "vm-executors",
+
+    # Runtime
+    "vm-runtime",
+    "vm-boot",
+
+    # Services
+    "vm-service",
+    "vm-interface",
+
+    # GPU
+    "vm-gpu",
+
+    # Platform
+    "vm-platform",
+    "vm-smmu",
+    "vm-passthrough",
+
+    # Other
+    "vm-plugin",
+    "vm-simd",
+    "vm-osal",
+
+    # Testing and benchmarking
+    "vm-cross-arch-integration-tests",
+    "vm-perf-regression-detector",
+    
+    # Additional packages
+    "vm-codegen",
+    "vm-cli",
+    "vm-monitor",
+    "vm-adaptive",
+    "vm-debug",
+    "vm-desktop",
+    
+    # External compatibility
+    "security-sandbox",
+    "syscall-compat",
+
+    # Benchmark suites
+    "perf-bench",
+    "tiered-compiler",
+    "parallel-jit",
+    "benches",
 ]
 resolver = "2"
 
 [workspace.metadata.docs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[workspace.dependencies]
+# Error handling
+thiserror = "2.0.18"
+anyhow = "1.0"
+
+# Async runtime
+tokio = { version = "1.48", features = ["sync", "rt-multi-thread", "macros", "time", "io-util"] }
+tokio-uring = { version = "0.5" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_with = "3.0"
+bincode = "2.0.1"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Concurrency
+parking_lot = "0.12"
+futures = "0.3"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.19", features = ["v4", "serde"] }
+
+# Random
+rand = "0.8"
+
+# Async utilities
+async-trait = "0.1"
+
+# CPU utilities
+num_cpus = "1.16"
+raw-cpuid = { version = "11" }
+
+# System libraries
+libc = "0.2"
+
+# GPU/Graphics
+wgpu = "27"
+winit = "0.30"
+pollster = "0.4"
+
+# Networking
+smoltcp = { version = "0.12" }
+
+# Compression
+miniz_oxide = "0.7"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "json", "uuid"] }
+
+# Platform-specific
+kvm-ioctls = { version = "0.24" }
+kvm-bindings = { version = "0.14" }
+vfio-bindings = "0.6"
+windows = { version = "0.62", features = ["Win32_System_Hypervisor"] }
+
+# Dev dependencies
+tokio-test = "0.4"
+criterion = "0.5"
 
 [workspace.package]
 version = "0.1.0"
@@ -88,7 +173,6 @@ overflow-checks = true
 lto = false
 incremental = true
 codegen-units = 256
-panic = "unwind"
 
 [profile.bench]
 opt-level = 3
@@ -98,7 +182,6 @@ overflow-checks = false
 lto = "thin"
 incremental = false
 codegen-units = 1
-panic = "unwind"
 
 [profile.release]
 opt-level = 3

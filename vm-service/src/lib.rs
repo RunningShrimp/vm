@@ -1,16 +1,27 @@
-pub mod device_service;
+// Core modules (always present)
 pub mod vm_service;
 
-use log::{info};
-use std::sync::{Arc, Mutex};
-use tracing::{info as tinfo};
+// Conditional features module
+#[cfg(feature = "devices")]
+pub mod device_service;
 
-use crate::device_service::DeviceService;
-use crate::vm_service::VirtualMachineService;
+// Feature-based re-exports (consolidated)
+pub use vm_service::{IrqPolicy, TrapHandler, VirtualMachineService as CoreVmService};
+
+#[cfg(feature = "devices")]
+pub use device_service::DeviceService;
+
+#[cfg(feature = "smmu")]
+pub use vm_smmu::{SmmuConfig, SmmuStats};
+
+use log::info;
+use std::sync::{Arc, Mutex};
+use tracing::info as tinfo;
+
 use vm_core::vm_state::VirtualMachineState;
 use vm_core::{VmConfig, VmError};
+use vm_engine_interpreter::Interpreter;
 use vm_ir::IRBlock;
-use vm_engine_interpreter::{Interpreter, ExecInterruptAction};
 use vm_mem::SoftMmu;
 
 /// VmService - 薄包装层
@@ -21,8 +32,8 @@ pub struct VmService {
     pub vm_state: Arc<Mutex<VirtualMachineState<IRBlock>>>,
     /// 虚拟机服务（包含所有业务逻辑）
     vm_service: VirtualMachineService<IRBlock>,
-    /// 设备服务（处理所有设备相关业务逻辑）
-    #[allow(dead_code)]
+    /// 设备服务（处理所有设备相关业务逻辑）- 需要 devices feature
+    #[cfg(feature = "devices")]
     device_service: DeviceService,
     /// 解释器（保留用于向后兼容，将来通过 vm.vcpus 管理）
     interpreter: Interpreter,
@@ -42,17 +53,9 @@ impl VmService {
 
         // Create MMU
         let mmu = SoftMmu::new(config.memory_size, false);
-        let vm_state: VirtualMachineState<IRBlock> = VirtualMachineState::new(config.clone(), Box::new(mmu));
+        let vm_state: VirtualMachineState<IRBlock> =
+            VirtualMachineState::new(config.clone(), Box::new(mmu));
         let mmu_arc = vm_state.mmu.clone();
-
-        // 初始化设备服务
-        let mut device_service = DeviceService::new();
-        device_service.init_gpu(gpu_backend)?;
-        device_service
-            .initialize_devices(&config, mmu_arc.clone())
-            .await?;
-        device_service.map_devices().await?;
-        device_service.start_polling()?;
 
         // Initialize Decoder and Interpreter
         // Currently hardcoded for RISC-V 64
@@ -65,23 +68,54 @@ impl VmService {
         let vm_state_arc = Arc::new(Mutex::new(vm_state.clone()));
         let vm_service = VirtualMachineService::new(vm_state);
 
+        // 初始化设备服务（仅当 devices feature 启用时）
+        #[cfg(feature = "devices")]
+        let device_service = Self::init_device_service(gpu_backend, &config, mmu_arc).await?;
+
         // JIT support has been removed
 
-        Ok(Self {
+        let result = Self {
             vm_state: vm_state_arc,
             vm_service,
+            #[cfg(feature = "devices")]
             device_service,
             interpreter,
-        })
+        };
+
+        Ok(result)
+    }
+
+    #[cfg(feature = "devices")]
+    async fn init_device_service(
+        gpu_backend: Option<String>,
+        config: &VmConfig,
+        mmu_arc: Arc<SoftMmu>,
+    ) -> Result<DeviceService, VmError> {
+        let mut ds = DeviceService::new();
+        ds.init_gpu(gpu_backend)?;
+        ds.initialize_devices(config, mmu_arc.clone()).await?;
+        ds.map_devices().await?;
+        ds.start_polling()?;
+        Ok(ds)
     }
 
     pub fn load_kernel(&mut self, path: &str, addr: u64) -> Result<(), VmError> {
         info!("Loading kernel from {} to {:#x}", path, addr);
-        self.vm_service.load_kernel_file(path, vm_core::GuestAddr(addr))
+        self.vm_service
+            .load_kernel_file(path, vm_core::GuestAddr(addr))
     }
 
     pub fn load_test_program(&mut self, code_base: u64) -> Result<(), VmError> {
-        use vm_frontend_riscv64::api::*;
+        #[cfg(feature = "frontend")]
+        Self::encode_test_program();
+
+        self.vm_service
+            .load_test_program(vm_core::GuestAddr(code_base))
+    }
+
+    #[cfg(feature = "frontend")]
+    fn encode_test_program() {
+        use vm_frontend::riscv64::api::*;
 
         let data_base: u64 = 0x100;
 
@@ -97,8 +131,6 @@ impl VmService {
             encode_addi(6, 0, 2),                 // li x6, 2
             encode_jal(0, 0),                     // j . (halt)
         ];
-
-        self.vm_service.load_test_program(vm_core::GuestAddr(code_base))
     }
 
     pub fn run(&mut self, start_pc: u64) -> Result<(), VmError> {
@@ -109,17 +141,11 @@ impl VmService {
         self.vm_service.configure_tlb_from_env()
     }
 
-    pub fn set_trap_handler(
-        &mut self,
-        h: Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>,
-    ) {
+    pub fn set_trap_handler(&mut self, h: TrapHandler) {
         self.vm_service.set_trap_handler(h);
     }
 
-    pub fn set_irq_policy(
-        &mut self,
-        p: Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>,
-    ) {
+    pub fn set_irq_policy(&mut self, p: IrqPolicy) {
         self.vm_service.set_irq_policy(p);
     }
 
@@ -141,23 +167,36 @@ impl VmService {
     }
 
     pub async fn run_async(&mut self, start_pc: u64) -> Result<(), VmError> {
-        self.vm_service.run_async(vm_core::GuestAddr(start_pc)).await
+        self.vm_service
+            .run_async(vm_core::GuestAddr(start_pc))
+            .await
     }
 
     pub fn create_snapshot(
         &mut self,
         name: String,
-        description: String,
+        _description: String,
     ) -> Result<String, VmError> {
-        self.vm_service.create_snapshot(name, description)
+        // Snapshot functionality temporarily disabled
+        log::warn!("Snapshot functionality temporarily disabled: {}", name);
+        Err(VmError::Core(vm_core::CoreError::NotImplemented {
+            feature: "create_snapshot".to_string(),
+            module: "vm-service".to_string(),
+        }))
     }
 
     pub fn restore_snapshot(&mut self, id: &str) -> Result<(), VmError> {
-        self.vm_service.restore_snapshot(id)
+        // Snapshot functionality temporarily disabled
+        log::warn!("Snapshot restore temporarily disabled: {}", id);
+        Err(VmError::Core(vm_core::CoreError::NotImplemented {
+            feature: "restore_snapshot".to_string(),
+            module: "vm-service".to_string(),
+        }))
     }
 
-    pub fn list_snapshots(&self) -> Result<Vec<vm_core::snapshot::Snapshot>, VmError> {
-        self.vm_service.list_snapshots()
+    pub fn list_snapshots(&self) -> Result<Vec<String>, VmError> {
+        // Snapshot functionality temporarily disabled
+        Ok(vec![])
     }
 
     pub fn create_template(
@@ -170,7 +209,7 @@ impl VmService {
             .create_template(name, description, base_snapshot_id)
     }
 
-    pub fn list_templates(&self) -> Result<Vec<vm_core::template::VmTemplate>, VmError> {
+    pub fn list_templates(&self) -> Result<Vec<String>, VmError> {
         self.vm_service.list_templates()
     }
 

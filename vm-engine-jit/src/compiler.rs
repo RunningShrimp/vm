@@ -3,7 +3,7 @@
 //! 定义了JIT编译器的抽象接口和默认实现，负责将IR块编译为优化的中间表示。
 
 use std::collections::HashMap;
-use vm_core::{VmError, GuestAddr};
+use vm_core::{GuestAddr, VmError};
 use vm_ir::{IRBlock, IROp};
 
 /// JIT编译器接口
@@ -47,19 +47,19 @@ pub trait JITCompiler: Send + Sync {
     /// - 寄存器分配失败
     /// - 代码生成错误
     fn compile(&mut self, block: &IRBlock) -> Result<CompiledIRBlock, VmError>;
-    
+
     /// 获取编译器名称
     ///
     /// # 返回
     /// 编译器名称字符串
     fn name(&self) -> &str;
-    
+
     /// 获取编译器版本
     ///
     /// # 返回
     /// 编译器版本字符串
     fn version(&self) -> &str;
-    
+
     /// 设置编译选项
     ///
     /// 设置编译器的配置选项，如优化级别、调试信息等。
@@ -76,7 +76,7 @@ pub trait JITCompiler: Send + Sync {
     /// - `debug_info`: 是否生成调试信息
     /// - `inline_threshold`: 内联阈值
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError>;
-    
+
     /// 获取编译选项
     ///
     /// 获取指定选项的当前值。
@@ -381,11 +381,18 @@ impl JITCompiler for DefaultJITCompiler {
             exit_blocks: vec![0],
         });
 
+        let compilation_timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| {
+                VmError::Core(vm_core::CoreError::Internal {
+                    message: format!("Failed to get compilation timestamp: {}", e),
+                    module: "DefaultJITCompiler".to_string(),
+                })
+            })?
+            .as_secs();
+
         let metadata = CompilationMetadata {
-            compilation_timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            compilation_timestamp,
             compiler_version: self.version.clone(),
             compilation_options: self.options.clone(),
             optimization_stats: OptimizationStats::default(),
@@ -395,7 +402,10 @@ impl JITCompiler for DefaultJITCompiler {
             start_pc: block.start_pc,
             ops: compiled_ops.clone(),
             register_info,
-            code: compiled_ops.iter().flat_map(|op| self.generate_machine_code(op)).collect::<Vec<u8>>(),
+            code: compiled_ops
+                .iter()
+                .flat_map(|op| self.generate_machine_code(op))
+                .collect::<Vec<u8>>(),
             stats: CompilationStats {
                 compilation_time_ns: start_time.elapsed().as_nanos() as u64,
                 optimization_time_ns: 0,
@@ -433,8 +443,8 @@ impl DefaultJITCompiler {
         // 简化实现，实际应该根据目标架构生成对应的机器码
         match &op.op {
             IROp::MovImm { .. } => vec![0xB8, 0x2A, 0x00, 0x00, 0x00], // mov eax, 42
-            IROp::Add { .. } => vec![0x01, 0xD8], // add ebx, eax
-            _ => vec![0x90], // nop
+            IROp::Add { .. } => vec![0x01, 0xD8],                      // add ebx, eax
+            _ => vec![0x90],                                           // nop
         }
     }
 }

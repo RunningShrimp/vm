@@ -3,6 +3,8 @@
 //! This module provides a file-backed event store for persistent event storage,
 //! suitable for development, testing, and single-node deployments.
 
+#[cfg(feature = "enhanced-event-sourcing")]
+
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
@@ -17,8 +19,10 @@ use bincode;
 use crate::event_store::{EventStore, StoredEvent, VmResult};
 use crate::error::{VmError, CoreError};
 
-/// File-based event store configuration
 #[cfg(feature = "enhanced-event-sourcing")]
+{
+
+/// File-based event store configuration
 #[derive(Debug, Clone)]
 pub struct FileEventStoreConfig {
     /// Base directory for event storage
@@ -35,7 +39,6 @@ pub struct FileEventStoreConfig {
     pub buffer_size: usize,
 }
 
-#[cfg(feature = "enhanced-event-sourcing")]
 impl Default for FileEventStoreConfig {
     fn default() -> Self {
         Self {
@@ -86,7 +89,6 @@ struct EventIndexEntry {
 }
 
 /// Event file
-#[cfg(feature = "enhanced-event-sourcing")]
 #[derive(Debug)]
 pub struct FileEventStoreFile {
     /// File path
@@ -102,7 +104,6 @@ pub struct FileEventStoreFile {
 }
 
 /// File event store statistics
-#[cfg(feature = "enhanced-event-sourcing")]
 #[derive(Debug, Default)]
 pub struct FileEventStoreStats {
     /// Total events stored
@@ -128,10 +129,9 @@ pub struct FileEventStoreStats {
 }
 
 /// File-based event store implementation
-/// 
+///
 /// This provides persistent event storage using files as the backend.
 /// Each VM gets its own set of files with rotation based on size.
-#[cfg(feature = "enhanced-event-sourcing")]
 pub struct FileEventStore {
     config: FileEventStoreConfig,
     /// Cache of open file handles
@@ -142,7 +142,6 @@ pub struct FileEventStore {
     file_metadata: Arc<RwLock<HashMap<String, Vec<EventFileMetadata>>>>,
 }
 
-#[cfg(feature = "enhanced-event-sourcing")]
 impl FileEventStore {
     /// Create a new file-based event store with the given configuration
     pub async fn new(config: FileEventStoreConfig) -> VmResult<Self> {
@@ -762,12 +761,10 @@ impl EventStore for FileEventStore {
 }
 
 /// File event store builder for easier configuration
-#[cfg(feature = "enhanced-event-sourcing")]
 pub struct FileEventStoreBuilder {
     config: FileEventStoreConfig,
 }
 
-#[cfg(feature = "enhanced-event-sourcing")]
 impl FileEventStoreBuilder {
     /// Create a new builder with default configuration
     pub fn new() -> Self {
@@ -832,19 +829,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_event_store_creation() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = match TempDir::new() {
+            Ok(dir) => dir,
+            Err(e) => panic!("Failed to create temp dir: {}", e),
+        };
         let config = FileEventStoreConfig {
             base_dir: temp_dir.path().to_path_buf(),
             ..Default::default()
         };
 
-        let store = FileEventStore::new(config).await.unwrap();
+        let store = match FileEventStore::new(config).await {
+            Ok(store) => store,
+            Err(e) => panic!("Failed to create FileEventStore: {:?}", e),
+        };
         assert_eq!(store.config.base_dir, temp_dir.path());
     }
 
     #[test]
     fn test_file_event_store_builder() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = match TempDir::new() {
+            Ok(dir) => dir,
+            Err(e) => panic!("Failed to create temp dir: {}", e),
+        };
         let builder = FileEventStoreBuilder::new()
             .base_dir(temp_dir.path())
             .enable_compression(true)
@@ -868,22 +874,34 @@ mod tests {
         };
 
         let original_data = b"Hello, file-based event store!";
-        let compressed = store.compress_event_data(original_data).unwrap();
-        let decompressed = store.decompress_event_data(&compressed).unwrap();
+        let compressed = match store.compress_event_data(original_data) {
+            Ok(data) => data,
+            Err(e) => panic!("Failed to compress data: {:?}", e),
+        };
+        let decompressed = match store.decompress_event_data(&compressed) {
+            Ok(data) => data,
+            Err(e) => panic!("Failed to decompress data: {:?}", e),
+        };
 
         assert_eq!(original_data, decompressed.as_slice());
     }
 
     #[tokio::test]
     async fn test_store_and_retrieve_events() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = match TempDir::new() {
+            Ok(dir) => dir,
+            Err(e) => panic!("Failed to create temp dir: {}", e),
+        };
         let config = FileEventStoreConfig {
             base_dir: temp_dir.path().to_path_buf(),
             enable_compression: false, // Disable for easier testing
             ..Default::default()
         };
 
-        let store = FileEventStore::new(config).await.unwrap();
+        let store = match FileEventStore::new(config).await {
+            Ok(store) => store,
+            Err(e) => panic!("Failed to create FileEventStore: {:?}", e),
+        };
         let vm_id = "test_vm";
 
         // Create test events
@@ -907,10 +925,15 @@ mod tests {
         ];
 
         // Store events
-        store.store_events(vm_id, events.clone()).await.unwrap();
+        if let Err(e) = store.store_events(vm_id, events.clone()).await {
+            panic!("Failed to store events: {:?}", e);
+        }
 
         // Retrieve events
-        let retrieved = store.get_events(vm_id, 1).await.unwrap();
+        let retrieved = match store.get_events(vm_id, 1).await {
+            Ok(events) => events,
+            Err(e) => panic!("Failed to retrieve events: {:?}", e),
+        };
         assert_eq!(retrieved.len(), 2);
         assert_eq!(retrieved[0].sequence_number, 1);
         assert_eq!(retrieved[1].sequence_number, 2);

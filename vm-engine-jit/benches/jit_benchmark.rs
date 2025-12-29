@@ -1,9 +1,9 @@
 //! JIT 性能基准测试
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use vm_core::{GuestAddr, GuestArch};
-use vm_engine_jit::{core::IRBlock, JITCompilationConfig, JITEngine, JITExecutionStats};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+use vm_core::{GuestAddr, GuestArch};
+use vm_engine_jit::{JITCompilationConfig, JITEngine, JITExecutionStats, core::IRBlock};
 
 fn create_test_ir_block(instruction_count: usize) -> IRBlock {
     let mut instructions = Vec::with_capacity(instruction_count);
@@ -24,9 +24,7 @@ fn create_test_ir_block(instruction_count: usize) -> IRBlock {
         });
     }
 
-    instructions.push(vm_engine_jit::core::IRInstruction::Return {
-        value: 0,
-    });
+    instructions.push(vm_engine_jit::core::IRInstruction::Return { value: 0 });
 
     IRBlock { instructions }
 }
@@ -51,8 +49,11 @@ fn bench_jit_compilation(c: &mut Criterion) {
 }
 
 fn bench_tlb_lookup(c: &mut Criterion) {
-    use vm_mem::{MultiLevelTlb, tlb::{TlbEntry, TlbConfig}, GuestPhysAddr};
     use vm_core::AccessType;
+    use vm_mem::{
+        GuestPhysAddr, MultiLevelTlb,
+        tlb::{TlbConfig, TlbEntry},
+    };
 
     let mut group = c.benchmark_group("tlb_lookup");
     group.measurement_time(Duration::from_secs(10));
@@ -142,18 +143,15 @@ fn bench_memory_operations(c: &mut Criterion) {
     let memory = vec![0u8; 16 * 1024 * 1024];
     let memory_arc = std::sync::Arc::new(std::sync::Mutex::new(memory));
 
-    let mut mmu = SoftwareMmu::new(
-        vm_mem::mmu::MmuArch::RiscVSv39,
-        {
-            let memory_clone = std::sync::Arc::clone(&memory_arc);
-            move |addr: GuestAddr, size: usize| -> Result<Vec<u8>, vm_core::VmError> {
-                let mem = memory_clone.lock().unwrap();
-                let start = addr.0 as usize;
-                let end = (start + size).min(mem.len());
-                Ok(mem[start..end].to_vec())
-            }
-        },
-    );
+    let mut mmu = SoftwareMmu::new(vm_mem::mmu::MmuArch::RiscVSv39, {
+        let memory_clone = std::sync::Arc::clone(&memory_arc);
+        move |addr: GuestAddr, size: usize| -> Result<Vec<u8>, vm_core::VmError> {
+            let mem = memory_clone.lock().unwrap();
+            let start = addr.0 as usize;
+            let end = (start + size).min(mem.len());
+            Ok(mem[start..end].to_vec())
+        }
+    });
 
     group.bench_function("read_single", |b| {
         b.iter(|| {
@@ -185,7 +183,7 @@ fn bench_memory_operations(c: &mut Criterion) {
 }
 
 fn bench_gc_operations(c: &mut Criterion) {
-    use vm_runtime::{GcRuntime, GcConfig};
+    use vm_runtime::{GcConfig, GcRuntime};
 
     let mut group = c.benchmark_group("gc_operations");
     group.measurement_time(Duration::from_secs(10));

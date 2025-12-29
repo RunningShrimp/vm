@@ -5,10 +5,11 @@
 //! This module re-exports the domain events from the main domain_events module
 //! and adds additional events specific to domain services.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::collections::VecDeque;
 use std::time::SystemTime;
 use crate::domain_events::{DomainEventEnum as BaseDomainEventEnum, DomainEvent};
+use crate::error::{VmError, CoreError};
 
 /// Translation events for cross-architecture translation
 #[derive(Debug, Clone)]
@@ -559,7 +560,7 @@ impl InMemoryDomainEventBus {
             max_events: 1000,
         }
     }
-    
+
     /// Create a new in-memory event bus with custom max events
     pub fn with_max_events(max_events: usize) -> Self {
         Self {
@@ -568,22 +569,36 @@ impl InMemoryDomainEventBus {
             max_events,
         }
     }
-    
+
+    /// Helper: Lock events mutex
+    fn lock_events(&self) -> MutexGuard<VecDeque<DomainEventEnum>> {
+        self.events.lock().unwrap_or_else(|e| {
+            panic!("Mutex lock failed for events: {}", e);
+        })
+    }
+
+    /// Helper: Lock handlers mutex
+    fn lock_handlers(&self) -> MutexGuard<Vec<Arc<dyn DomainEventHandler>>> {
+        self.handlers.lock().unwrap_or_else(|e| {
+            panic!("Mutex lock failed for handlers: {}", e);
+        })
+    }
+
     /// Get all published events
     pub fn get_events(&self) -> Vec<DomainEventEnum> {
-        let events = self.events.lock().unwrap();
+        let events = self.lock_events();
         events.iter().cloned().collect()
     }
-    
+
     /// Clear all events
     pub fn clear_events(&self) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.lock_events();
         events.clear();
     }
-    
+
     /// Get the number of handlers
     pub fn handler_count(&self) -> usize {
-        let handlers = self.handlers.lock().unwrap();
+        let handlers = self.lock_handlers();
         handlers.len()
     }
 }
@@ -598,24 +613,24 @@ impl DomainEventBus for InMemoryDomainEventBus {
     fn publish(&self, event: DomainEventEnum) {
         // Store the event
         {
-            let mut events = self.events.lock().unwrap();
+            let mut events = self.lock_events();
             events.push_back(event.clone());
-            
+
             // Remove old events if we exceed the maximum
             while events.len() > self.max_events {
                 events.pop_front();
             }
         }
-        
+
         // Notify all handlers
-        let handlers = self.handlers.lock().unwrap();
+        let handlers = self.lock_handlers();
         for handler in handlers.iter() {
             handler.handle(&event);
         }
     }
-    
+
     fn subscribe(&self, handler: Arc<dyn DomainEventHandler>) {
-        let mut handlers = self.handlers.lock().unwrap();
+        let mut handlers = self.lock_handlers();
         handlers.push(handler);
     }
 }
@@ -633,22 +648,29 @@ impl MockDomainEventBus {
             events: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    
+
+    /// Helper: Lock events mutex
+    fn lock_events(&self) -> MutexGuard<Vec<DomainEventEnum>> {
+        self.events.lock().unwrap_or_else(|e| {
+            panic!("Mutex lock failed for events: {}", e);
+        })
+    }
+
     /// Get all published events
     pub fn published_events(&self) -> Vec<DomainEventEnum> {
-        let events = self.events.lock().unwrap();
+        let events = self.lock_events();
         events.clone()
     }
-    
+
     /// Clear all events
     pub fn clear(&self) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.lock_events();
         events.clear();
     }
-    
+
     /// Get the number of published events
     pub fn event_count(&self) -> usize {
-        let events = self.events.lock().unwrap();
+        let events = self.lock_events();
         events.len()
     }
 }
@@ -661,10 +683,10 @@ impl Default for MockDomainEventBus {
 
 impl DomainEventBus for MockDomainEventBus {
     fn publish(&self, event: DomainEventEnum) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.lock_events();
         events.push(event);
     }
-    
+
     fn subscribe(&self, _handler: Arc<dyn DomainEventHandler>) {
         // Mock implementation doesn't actually handle subscriptions
     }
@@ -683,22 +705,29 @@ impl CollectingEventHandler {
             events: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    
+
+    /// Helper: Lock events mutex
+    fn lock_events(&self) -> MutexGuard<Vec<DomainEventEnum>> {
+        self.events.lock().unwrap_or_else(|e| {
+            panic!("Mutex lock failed for events: {}", e);
+        })
+    }
+
     /// Get all collected events
     pub fn get_events(&self) -> Vec<DomainEventEnum> {
-        let events = self.events.lock().unwrap();
+        let events = self.lock_events();
         events.clone()
     }
-    
+
     /// Clear all collected events
     pub fn clear(&self) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.lock_events();
         events.clear();
     }
-    
+
     /// Get the number of collected events
     pub fn event_count(&self) -> usize {
-        let events = self.events.lock().unwrap();
+        let events = self.lock_events();
         events.len()
     }
 }
@@ -711,7 +740,7 @@ impl Default for CollectingEventHandler {
 
 impl DomainEventHandler for CollectingEventHandler {
     fn handle(&self, event: &DomainEventEnum) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.lock_events();
         events.push(event.clone());
     }
 }

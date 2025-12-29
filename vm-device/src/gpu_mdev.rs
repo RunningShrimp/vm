@@ -39,17 +39,17 @@ impl GpuMdev {
             created: false,
         }
     }
-    
+
     /// 获取父设备地址
     pub fn parent_address(&self) -> &PciAddress {
         &self.parent_address
     }
-    
+
     /// 获取类型ID
     pub fn type_id(&self) -> &str {
         &self.type_id
     }
-    
+
     /// 获取mdev UUID
     pub fn mdev_uuid(&self) -> Option<&String> {
         self.mdev_uuid.as_ref()

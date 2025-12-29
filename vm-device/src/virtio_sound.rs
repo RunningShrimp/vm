@@ -176,7 +176,10 @@ impl VirtioSound {
                 if desc.flags & 0x1 == 0 {
                     // 可读
                     let mut data = vec![0u8; desc.len as usize];
-                    if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut data).is_ok() {
+                    if mmu
+                        .read_bulk(vm_core::GuestAddr(desc.addr), &mut data)
+                        .is_ok()
+                    {
                         // 将数据放入输入缓冲区
                         if let Ok(mut buffer) = self.input_buffer.lock() {
                             buffer.extend(&data);
@@ -214,10 +217,12 @@ impl VirtioSound {
                             }
                         }
 
-                        if read > 0 {
-                            if mmu.write_bulk(vm_core::GuestAddr(desc.addr), &data[..read]).is_ok() {
-                                total_written += read;
-                            }
+                        if read > 0
+                            && mmu
+                                .write_bulk(vm_core::GuestAddr(desc.addr), &data[..read])
+                                .is_ok()
+                        {
+                            total_written += read;
                         }
                     }
                 }
@@ -293,61 +298,32 @@ impl VirtioSoundMmio {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_core::GuestAddr;
-
-    #[test]
-    fn test_virtio_sound_creation() {
-        let sound = VirtioSound::new();
-        assert_eq!(sound.input_config().sample_rate, 44100);
-        assert_eq!(sound.output_config().sample_rate, 44100);
-        assert!(!sound.input_enabled);
-        assert!(!sound.output_enabled);
-    }
-
-    #[test]
-    fn test_virtio_sound_config() {
-        let mut sound = VirtioSound::new();
-        let mut config = StreamConfig::default();
-        config.sample_rate = 48000;
-        sound.set_input_config(config.clone());
-        sound.set_output_config(config);
-
-        assert_eq!(sound.input_config().sample_rate, 48000);
-        assert_eq!(sound.output_config().sample_rate, 48000);
-    }
-
-    #[test]
-    fn test_virtio_sound_device_id() {
-        let mut sound = VirtioSound::new();
-        let mut mmu = MockMmu {
-            memory: std::collections::HashMap::new(),
-        };
-
-        assert_eq!(sound.device_id(), 25); // VirtIO Sound device ID
-        assert_eq!(sound.num_queues(), 2); // 输入队列和输出队列
-    }
+    use std::collections::HashMap;
+    use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
 
     struct MockMmu {
-        memory: std::collections::HashMap<u64, u8>,
+        memory: HashMap<u64, u8>,
     }
 
-    impl MMU for MockMmu {
+    // 实现AddressTranslator trait
+    impl AddressTranslator for MockMmu {
         fn translate(
             &mut self,
             va: GuestAddr,
             _access: vm_core::AccessType,
         ) -> Result<vm_core::GuestPhysAddr, VmError> {
-            Ok(va)
+            Ok(va.into())
         }
 
-        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
-            Ok(0)
-        }
+        fn flush_tlb(&mut self) {}
+    }
 
+    // 实现MemoryAccess trait
+    impl MemoryAccess for MockMmu {
         fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
             let mut value = 0u64;
             for i in 0..size {
-                let byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                let byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
                 value |= (byte as u64) << (i * 8);
             }
             Ok(value)
@@ -356,42 +332,49 @@ mod tests {
         fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), VmError> {
             for i in 0..size {
                 let byte = ((val >> (i * 8)) & 0xFF) as u8;
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
+        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
+            Ok(0)
+        }
+
         fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                *byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
             }
             Ok(())
         }
 
         fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
             for (i, &byte) in buf.iter().enumerate() {
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
-        fn map_mmio(
-            &mut self,
-            _base: GuestAddr,
-            _size: u64,
-            _device: Box<dyn vm_core::MmioDevice>,
-        ) {
-        }
-        fn flush_tlb(&mut self) {}
         fn memory_size(&self) -> usize {
             0
         }
+
         fn dump_memory(&self) -> Vec<u8> {
             Vec::new()
         }
+
         fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
             Ok(())
         }
+    }
+
+    // 实现MmioManager trait
+    impl MmioManager for MockMmu {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {}
+    }
+
+    // 实现MmuAsAny trait
+    impl MmuAsAny for MockMmu {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }

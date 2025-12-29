@@ -158,125 +158,133 @@ impl AdaptiveThresholdManager {
         }
     }
 
+    /// Helper function to safely acquire a mutex lock
+    fn lock_mutex<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<T>, VmError> {
+        mutex.lock().map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: format!("Mutex lock poisoned: {}", e),
+            function_addr: None,
+        }))
+    }
+
     /// 记录代码块执行
     pub fn record_block_execution(&self, addr: GuestAddr, execution_time: Duration) -> Result<(), VmError> {
         let now = Instant::now();
-        
+
         {
-            let mut stats = self.block_stats.lock().unwrap();
+            let mut stats = Self::lock_mutex(&self.block_stats)?;
             let entry = stats.entry(addr).or_default();
-            
+
             entry.execution_count += 1;
             entry.total_execution_time += execution_time;
             entry.last_execution = now.elapsed();
         }
-        
+
         // 检查是否需要调整阈值
         self.check_and_adjust_threshold()?;
-        
+
         Ok(())
     }
 
     /// 记录代码块编译
     pub fn record_block_compilation(&self, addr: GuestAddr, compilation_time: Duration) -> Result<(), VmError> {
         {
-            let mut stats = self.block_stats.lock().unwrap();
+            let mut stats = Self::lock_mutex(&self.block_stats)?;
             let entry = stats.entry(addr).or_default();
-            
+
             entry.is_compiled = true;
             entry.compilation_time = compilation_time;
         }
-        
+
         // 检查是否需要调整阈值
         self.check_and_adjust_threshold()?;
-        
+
         Ok(())
     }
 
     /// 检查并调整阈值
     fn check_and_adjust_threshold(&self) -> Result<(), VmError> {
         let now = Instant::now();
-        let last_adjustment = *self.last_adjustment.lock().unwrap();
-        
+        let last_adjustment = *Self::lock_mutex(&self.last_adjustment)?;
+
         // 如果距离上次调整时间不足调整窗口，跳过调整
         if now.duration_since(last_adjustment) < self.config.adjustment_window {
             return Ok(());
         }
-        
+
         // 计算当前性能指标
         let current_metrics = self.calculate_current_metrics()?;
-        
+
         // 保存性能指标到历史
         {
-            let mut history = self.metrics_history.lock().unwrap();
+            let mut history = Self::lock_mutex(&self.metrics_history)?;
             history.push_back(current_metrics.clone());
-            
+
             // 保持历史记录在配置的大小范围内
             while history.len() > self.config.history_size {
                 history.pop_front();
             }
         }
-        
+
         // 计算调整建议
         let adjustment_suggestion = self.calculate_adjustment_suggestion(&current_metrics)?;
-        
+
         // 应用调整
         if adjustment_suggestion.should_adjust {
             self.apply_threshold_adjustment(adjustment_suggestion, current_metrics)?;
         }
-        
+
         Ok(())
     }
 
     /// 计算当前性能指标
     fn calculate_current_metrics(&self) -> Result<PerformanceMetrics, VmError> {
-        let stats = self.block_stats.lock().unwrap();
-        
+        let stats = Self::lock_mutex(&self.block_stats)?;
+
         if stats.is_empty() {
             return Ok(PerformanceMetrics::default());
         }
-        
+
         let mut total_execution_time = Duration::ZERO;
         let mut total_execution_count = 0u64;
         let mut total_compilation_time = Duration::ZERO;
         let mut compiled_blocks = 0u64;
         let total_blocks = stats.len() as u64;
-        
+
         for (_, block_stat) in stats.iter() {
             total_execution_time += block_stat.total_execution_time;
             total_execution_count += block_stat.execution_count;
-            
+
             if block_stat.is_compiled {
                 total_compilation_time += block_stat.compilation_time;
                 compiled_blocks += 1;
             }
         }
-        
+
         let average_execution_time = if total_execution_count > 0 {
             total_execution_time / total_execution_count as u32
         } else {
             Duration::ZERO
         };
-        
+
         let cache_hit_rate = if total_blocks > 0 {
             compiled_blocks as f64 / total_blocks as f64
         } else {
             0.0
         };
-        
+
         let execution_speed = if average_execution_time.as_micros() > 0 {
             1_000_000.0 / average_execution_time.as_micros() as f64
         } else {
             0.0
         };
-        
+
         // 计算编译收益（简化计算）
         let compilation_benefit = if total_compilation_time.as_micros() > 0 {
             (total_execution_time.as_micros() as f64 / total_compilation_time.as_micros() as f64) * cache_hit_rate
         } else {
             1.0
         };
-        
+
         Ok(PerformanceMetrics {
             average_execution_time,
             compilation_time: total_compilation_time,
@@ -289,23 +297,30 @@ impl AdaptiveThresholdManager {
 
     /// 估算内存使用量
     fn estimate_memory_usage(&self) -> u64 {
-        let stats = self.block_stats.lock().unwrap();
-        let compiled_blocks = stats.values()
-            .filter(|s| s.is_compiled)
-            .count();
-        
-        // 假设每个编译后的代码块占用10KB内存
-        (compiled_blocks * 10 * 1024) as u64
+        match Self::lock_mutex(&self.block_stats) {
+            Ok(stats) => {
+                let compiled_blocks = stats.values()
+                    .filter(|s| s.is_compiled)
+                    .count();
+
+                // 假设每个编译后的代码块占用10KB内存
+                (compiled_blocks * 10 * 1024) as u64
+            }
+            Err(_) => {
+                // If lock is poisoned, assume 0 memory usage
+                0
+            }
+        }
     }
 
     /// 计算调整建议
     fn calculate_adjustment_suggestion(&self, metrics: &PerformanceMetrics) -> Result<ThresholdAdjustmentSuggestion, VmError> {
-        let baseline = self.performance_baseline.lock().unwrap();
-        let current_threshold = *self.current_threshold.lock().unwrap();
-        
+        let baseline = Self::lock_mutex(&self.performance_baseline)?;
+        let current_threshold = *Self::lock_mutex(&self.current_threshold)?;
+
         // 计算性能评分
         let performance_score = self.calculate_performance_score(metrics, &baseline);
-        
+
         // 计算调整方向和幅度
         let (adjustment_direction, adjustment_factor) = if performance_score > 1.1 {
             // 性能良好，可以降低阈值以编译更多代码
@@ -317,7 +332,7 @@ impl AdaptiveThresholdManager {
             // 性能正常，不调整
             (AdjustmentDirection::None, 0.0)
         };
-        
+
         // 计算建议的新阈值
         let suggested_threshold = match adjustment_direction {
             AdjustmentDirection::Increase => {
@@ -330,7 +345,7 @@ impl AdaptiveThresholdManager {
             }
             AdjustmentDirection::None => current_threshold,
         };
-        
+
         let should_adjust = suggested_threshold != current_threshold;
         let reason = if should_adjust {
             match adjustment_direction {
@@ -345,7 +360,7 @@ impl AdaptiveThresholdManager {
         } else {
             "性能正常，无需调整".to_string()
         };
-        
+
         Ok(ThresholdAdjustmentSuggestion {
             should_adjust,
             suggested_threshold,
@@ -393,18 +408,18 @@ impl AdaptiveThresholdManager {
 
     /// 应用阈值调整
     fn apply_threshold_adjustment(&self, suggestion: ThresholdAdjustmentSuggestion, metrics: PerformanceMetrics) -> Result<(), VmError> {
-        let old_threshold = *self.current_threshold.lock().unwrap();
-        
+        let old_threshold = *Self::lock_mutex(&self.current_threshold)?;
+
         {
-            let mut current_threshold = self.current_threshold.lock().unwrap();
+            let mut current_threshold = Self::lock_mutex(&self.current_threshold)?;
             *current_threshold = suggestion.suggested_threshold;
         }
-        
+
         {
-            let mut last_adjustment = self.last_adjustment.lock().unwrap();
+            let mut last_adjustment = Self::lock_mutex(&self.last_adjustment)?;
             *last_adjustment = Instant::now();
         }
-        
+
         // 记录调整历史
         let adjustment_history = ThresholdAdjustmentHistory {
             timestamp: Duration::from_millis(Instant::now().elapsed().as_millis() as u64),
@@ -414,41 +429,43 @@ impl AdaptiveThresholdManager {
             metrics,
             adjustment_score: suggestion.performance_score,
         };
-        
+
         {
-            let mut history = self.adjustment_history.lock().unwrap();
+            let mut history = Self::lock_mutex(&self.adjustment_history)?;
             history.push_back(adjustment_history);
-            
+
             // 保持历史记录在配置的大小范围内
             while history.len() > self.config.history_size {
                 history.pop_front();
             }
         }
-        
+
         Ok(())
     }
 
     /// 获取当前编译阈值
     pub fn get_current_threshold(&self) -> u64 {
-        *self.current_threshold.lock().unwrap()
+        Self::lock_mutex(&self.current_threshold)
+            .map(|guard| *guard)
+            .unwrap_or(100) // Return default threshold if lock fails
     }
 
     /// 手动设置编译阈值
     pub fn set_threshold(&self, threshold: u64) -> Result<(), VmError> {
         if threshold < self.config.min_compilation_threshold || threshold > self.config.max_compilation_threshold {
-            return Err(VmError::Execution(vm_core::ExecutionError::JitError { 
+            return Err(VmError::Execution(vm_core::ExecutionError::JitError {
                 message: format!("阈值 {} 超出范围 [{}, {}]", threshold, self.config.min_compilation_threshold, self.config.max_compilation_threshold),
                 function_addr: None,
             }));
         }
-        
-        let old_threshold = *self.current_threshold.lock().unwrap();
-        
+
+        let old_threshold = *Self::lock_mutex(&self.current_threshold)?;
+
         {
-            let mut current_threshold = self.current_threshold.lock().unwrap();
+            let mut current_threshold = Self::lock_mutex(&self.current_threshold)?;
             *current_threshold = threshold;
         }
-        
+
         // 记录手动调整历史
         let adjustment_history = ThresholdAdjustmentHistory {
             timestamp: Duration::from_millis(Instant::now().elapsed().as_millis() as u64),
@@ -458,12 +475,12 @@ impl AdaptiveThresholdManager {
             metrics: self.calculate_current_metrics()?,
             adjustment_score: 0.0,
         };
-        
+
         {
-            let mut history = self.adjustment_history.lock().unwrap();
+            let mut history = Self::lock_mutex(&self.adjustment_history)?;
             history.push_back(adjustment_history);
         }
-        
+
         Ok(())
     }
 
@@ -474,21 +491,23 @@ impl AdaptiveThresholdManager {
 
     /// 设置性能基线
     pub fn set_performance_baseline(&self, baseline: PerformanceMetrics) -> Result<(), VmError> {
-        let mut current_baseline = self.performance_baseline.lock().unwrap();
+        let mut current_baseline = Self::lock_mutex(&self.performance_baseline)?;
         *current_baseline = baseline;
         Ok(())
     }
 
     /// 获取调整历史
     pub fn get_adjustment_history(&self) -> Vec<ThresholdAdjustmentHistory> {
-        let history = self.adjustment_history.lock().unwrap();
-        history.iter().cloned().collect()
+        Self::lock_mutex(&self.adjustment_history)
+            .map(|history| history.iter().cloned().collect())
+            .unwrap_or_default() // Return empty vec if lock fails
     }
 
     /// 获取性能指标历史
     pub fn get_metrics_history(&self) -> Vec<PerformanceMetrics> {
-        let history = self.metrics_history.lock().unwrap();
-        history.iter().cloned().collect()
+        Self::lock_mutex(&self.metrics_history)
+            .map(|history| history.iter().cloned().collect())
+            .unwrap_or_default() // Return empty vec if lock fails
     }
 
     /// 生成自适应调整报告
@@ -588,15 +607,15 @@ impl AdaptiveThresholdManager {
         
         // 更新历史数据
         {
-            let mut adjustment_history = self.adjustment_history.lock().unwrap();
+            let mut adjustment_history = Self::lock_mutex(&self.adjustment_history)?;
             *adjustment_history = VecDeque::from(data.adjustment_history);
         }
-        
+
         {
-            let mut metrics_history = self.metrics_history.lock().unwrap();
+            let mut metrics_history = Self::lock_mutex(&self.metrics_history)?;
             *metrics_history = VecDeque::from(data.metrics_history);
         }
-        
+
         Ok(())
     }
 }

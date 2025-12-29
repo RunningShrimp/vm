@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use vm_core::{GuestAddr, VmError};
 use vm_ir::IRBlock;
 use crate::core::{JITEngine, JITConfig};
+use crate::common::error::{JITResult, JITErrorBuilder};
 
 use crate::optimizer::IROptimizer;
 use crate::compiler::JITCompiler;
@@ -59,6 +60,13 @@ impl CompilationQueue {
         }
     }
 
+    /// 安全地获取队列锁
+    fn lock_queue(&self) -> JITResult<std::sync::MutexGuard<VecDeque<CompilationTask>>> {
+        self.queue.lock().map_err(|e| {
+            JITErrorBuilder::concurrency(format!("Failed to acquire queue lock: {}", e))
+        })
+    }
+
     /// 添加编译任务
     pub fn push_task(&self, ir_block: IRBlock, priority: TaskPriority) -> u64 {
         let task_id = self.next_task_id.fetch_add(1, Ordering::SeqCst) as u64;
@@ -69,18 +77,24 @@ impl CompilationQueue {
             callback: None,
         };
 
-        let mut queue = self.queue.lock().unwrap();
-        
+        let mut queue = match self.lock_queue() {
+            Ok(q) => q,
+            Err(_) => {
+                log::error!("Failed to acquire queue lock in push_task");
+                return task_id;
+            }
+        };
+
         // 按优先级插入
         let insert_pos = queue.binary_search_by(|existing| {
             existing.priority.cmp(&task.priority).reverse()
         }).unwrap_or_else(|pos| pos);
-        
+
         queue.insert(insert_pos, task);
-        
+
         // 通知等待的线程
         self.not_empty.notify_one();
-        
+
         task_id
     }
 
@@ -97,35 +111,53 @@ impl CompilationQueue {
             callback: Some(Box::new(callback)),
         };
 
-        let mut queue = self.queue.lock().unwrap();
-        
+        let mut queue = match self.lock_queue() {
+            Ok(q) => q,
+            Err(_) => {
+                log::error!("Failed to acquire queue lock in push_task_with_callback");
+                return task_id;
+            }
+        };
+
         // 按优先级插入
         let insert_pos = queue.binary_search_by(|existing| {
             existing.priority.cmp(&task.priority).reverse()
         }).unwrap_or_else(|pos| pos);
-        
+
         queue.insert(insert_pos, task);
-        
+
         // 通知等待的线程
         self.not_empty.notify_one();
-        
+
         task_id
     }
 
     /// 获取下一个任务
     pub fn pop_task(&self) -> Option<CompilationTask> {
-        let mut queue = self.queue.lock().unwrap();
-        
+        let mut queue = match self.lock_queue() {
+            Ok(q) => q,
+            Err(_) => {
+                log::error!("Failed to acquire queue lock in pop_task");
+                return None;
+            }
+        };
+
         // 等待任务或停止信号
         while queue.is_empty() && !self.stop_flag.load(Ordering::SeqCst) {
-            queue = self.not_empty.wait(queue).unwrap();
+            queue = match self.not_empty.wait(queue) {
+                Ok(q) => q,
+                Err(_) => {
+                    log::error!("Failed to wait on condition variable in pop_task");
+                    return None;
+                }
+            };
         }
-        
+
         // 如果收到停止信号且队列为空，返回None
         if queue.is_empty() && self.stop_flag.load(Ordering::SeqCst) {
             return None;
         }
-        
+
         queue.pop_front()
     }
 
@@ -137,8 +169,13 @@ impl CompilationQueue {
 
     /// 获取队列大小
     pub fn size(&self) -> usize {
-        let queue = self.queue.lock().unwrap();
-        queue.len()
+        match self.lock_queue() {
+            Ok(queue) => queue.len(),
+            Err(_) => {
+                log::error!("Failed to acquire queue lock in size");
+                0
+            }
+        }
     }
 }
 
@@ -247,7 +284,7 @@ impl MultithreadedJITCompiler {
     pub fn new(jit_engine: Arc<JITEngine>, num_workers: usize) -> Self {
         let queue = Arc::new(CompilationQueue::new());
         let mut workers = Vec::with_capacity(num_workers);
-        
+
         // 创建工作线程
         for i in 0..num_workers {
             workers.push(CompilationWorker::new(
@@ -256,7 +293,7 @@ impl MultithreadedJITCompiler {
                 i,
             ));
         }
-        
+
         Self {
             queue,
             workers,
@@ -265,17 +302,27 @@ impl MultithreadedJITCompiler {
         }
     }
 
+    /// 安全地获取统计信息锁
+    fn lock_stats(&self) -> JITResult<std::sync::MutexGuard<CompilationStats>> {
+        self.stats.lock().map_err(|e| {
+            JITErrorBuilder::concurrency(format!("Failed to acquire stats lock: {}", e))
+        })
+    }
+
     /// 异步编译IR块
     pub fn compile_async(&self, ir_block: IRBlock, priority: TaskPriority) -> u64 {
         let task_id = self.queue.push_task(ir_block, priority);
-        
+
         // 更新统计信息
         {
-            let mut stats = self.stats.lock().unwrap();
-            stats.total_tasks += 1;
-            stats.current_queue_size = self.queue.size();
+            if let Ok(mut stats) = self.lock_stats() {
+                stats.total_tasks += 1;
+                stats.current_queue_size = self.queue.size();
+            } else {
+                log::error!("Failed to acquire stats lock in compile_async");
+            }
         }
-        
+
         task_id
     }
 
@@ -285,33 +332,45 @@ impl MultithreadedJITCompiler {
         F: FnOnce(Result<Vec<u8>, VmError>) + Send + 'static,
     {
         let task_id = self.queue.push_task_with_callback(ir_block, priority, callback);
-        
+
         // 更新统计信息
         {
-            let mut stats = self.stats.lock().unwrap();
-            stats.total_tasks += 1;
-            stats.current_queue_size = self.queue.size();
+            if let Ok(mut stats) = self.lock_stats() {
+                stats.total_tasks += 1;
+                stats.current_queue_size = self.queue.size();
+            } else {
+                log::error!("Failed to acquire stats lock in compile_async_with_callback");
+            }
         }
-        
+
         task_id
     }
 
     /// 同步编译IR块
     pub fn compile_sync(&self, ir_block: IRBlock) -> Result<Vec<u8>, VmError> {
         let (result_sender, result_receiver) = std::sync::mpsc::channel();
-        
+
         // 添加任务并等待结果
         self.compile_async_with_callback(ir_block, TaskPriority::High, move |result| {
             let _ = result_sender.send(result);
         });
-        
+
         // 等待编译完成
-        result_receiver.recv().unwrap()
+        result_receiver.recv().map_err(|_| {
+            JITErrorBuilder::concurrency("Failed to receive compilation result")
+        })
     }
 
     /// 获取编译统计信息
     pub fn get_stats(&self) -> CompilationStats {
-        let stats = self.stats.lock().unwrap();
+        let stats = match self.lock_stats() {
+            Ok(s) => s,
+            Err(_) => {
+                log::error!("Failed to acquire stats lock in get_stats");
+                return CompilationStats::default();
+            }
+        };
+
         CompilationStats {
             total_tasks: stats.total_tasks,
             successful_tasks: stats.successful_tasks,
@@ -324,28 +383,30 @@ impl MultithreadedJITCompiler {
 
     /// 更新编译统计信息
     pub fn update_stats(&self, success: bool, compilation_time_ns: u64) {
-        let mut stats = self.stats.lock().unwrap();
-        
-        if success {
-            stats.successful_tasks += 1;
+        if let Ok(mut stats) = self.lock_stats() {
+            if success {
+                stats.successful_tasks += 1;
+            } else {
+                stats.failed_tasks += 1;
+            }
+
+            // 更新平均编译时间
+            let total_completed = stats.successful_tasks + stats.failed_tasks;
+            if total_completed > 0 {
+                stats.avg_compilation_time_ns =
+                    (stats.avg_compilation_time_ns * (total_completed - 1) + compilation_time_ns) / total_completed;
+            }
+
+            stats.current_queue_size = self.queue.size();
         } else {
-            stats.failed_tasks += 1;
+            log::error!("Failed to acquire stats lock in update_stats");
         }
-        
-        // 更新平均编译时间
-        let total_completed = stats.successful_tasks + stats.failed_tasks;
-        if total_completed > 0 {
-            stats.avg_compilation_time_ns = 
-                (stats.avg_compilation_time_ns * (total_completed - 1) + compilation_time_ns) / total_completed;
-        }
-        
-        stats.current_queue_size = self.queue.size();
     }
 
     /// 调整工作线程数量
     pub fn adjust_workers(&mut self, new_num_workers: usize) {
         let current_num_workers = self.workers.len();
-        
+
         if new_num_workers > current_num_workers {
             // 增加工作线程
             for i in current_num_workers..new_num_workers {
@@ -363,11 +424,14 @@ impl MultithreadedJITCompiler {
                 }
             }
         }
-        
+
         // 更新统计信息
         {
-            let mut stats = self.stats.lock().unwrap();
-            stats.active_workers = self.workers.len();
+            if let Ok(mut stats) = self.lock_stats() {
+                stats.active_workers = self.workers.len();
+            } else {
+                log::error!("Failed to acquire stats lock in adjust_workers");
+            }
         }
     }
 }
@@ -408,7 +472,7 @@ mod tests {
         assert_eq!(queue.size(), 1);
         
         // 获取任务
-        let task = queue.pop_task().unwrap();
+        let task = queue.pop_task().expect("Expected a task in the queue");
         assert_eq!(task.id, task_id);
         assert_eq!(task.priority, TaskPriority::High);
         
@@ -432,15 +496,15 @@ mod tests {
         let normal_id = queue.push_task(ir_block.clone(), TaskPriority::Normal);
         
         // 验证任务按优先级排序
-        let task1 = queue.pop_task().unwrap();
+        let task1 = queue.pop_task().expect("Expected high priority task");
         assert_eq!(task1.id, high_id);
         assert_eq!(task1.priority, TaskPriority::High);
-        
-        let task2 = queue.pop_task().unwrap();
+
+        let task2 = queue.pop_task().expect("Expected normal priority task");
         assert_eq!(task2.id, normal_id);
         assert_eq!(task2.priority, TaskPriority::Normal);
-        
-        let task3 = queue.pop_task().unwrap();
+
+        let task3 = queue.pop_task().expect("Expected low priority task");
         assert_eq!(task3.id, low_id);
         assert_eq!(task3.priority, TaskPriority::Low);
     }

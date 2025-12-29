@@ -411,7 +411,7 @@ impl EnhancedGdbServer {
         debugger_config: UnifiedDebuggerConfig,
     ) -> VmResult<Self> {
         let debugger = Arc::new(UnifiedDebugger::new(debugger_config)?);
-        
+
         Ok(Self {
             config,
             debugger,
@@ -422,23 +422,77 @@ impl EnhancedGdbServer {
         })
     }
 
+    /// Helper: Lock running for reading
+    fn lock_running(&self) -> VmResult<std::sync::RwLockReadGuard<'_, bool>> {
+        self.running.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on running".to_string(),
+            operation: "lock_running".to_string(),
+        })
+    }
+
+    /// Helper: Lock running for writing
+    fn lock_running_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, bool>> {
+        self.running.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on running".to_string(),
+            operation: "lock_running_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock connections for reading
+    fn lock_connections(&self) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<String, GdbConnection>>> {
+        self.connections.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on connections".to_string(),
+            operation: "lock_connections".to_string(),
+        })
+    }
+
+    /// Helper: Lock connections for writing
+    fn lock_connections_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<String, GdbConnection>>> {
+        self.connections.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on connections".to_string(),
+            operation: "lock_connections_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock listener for reading
+    fn lock_listener(&self) -> VmResult<std::sync::RwLockReadGuard<'_, Option<TcpListener>>> {
+        self.listener.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on listener".to_string(),
+            operation: "lock_listener".to_string(),
+        })
+    }
+
+    /// Helper: Lock listener for writing
+    fn lock_listener_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, Option<TcpListener>>> {
+        self.listener.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on listener".to_string(),
+            operation: "lock_listener_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock next_connection_id for writing
+    fn lock_next_connection_id_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, u64>> {
+        self.next_connection_id.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on next_connection_id".to_string(),
+            operation: "lock_next_connection_id_mut".to_string(),
+        })
+    }
+
     /// Start the GDB server
     pub fn start(&self) -> VmResult<()> {
         // Create TCP listener
         let listener = TcpListener::bind(format!("0.0.0.0:{}", self.config.port))
-            .map_err(|e| VmError::Core(crate::error::CoreError::IoError {
-                message: format!("Failed to bind to port {}: {}", self.config.port, e),
-            }))?;
+            .map_err(|e| VmError::Io(format!("Failed to bind to port {}: {}", self.config.port, e)))?;
 
         // Store listener
         {
-            let mut listener_ref = self.listener.write().unwrap();
+            let mut listener_ref = self.lock_listener_mut()?;
             *listener_ref = Some(listener);
         }
 
         // Set running state
         {
-            let mut running = self.running.write().unwrap();
+            let mut running = self.lock_running_mut()?;
             *running = true;
         }
 
@@ -462,13 +516,13 @@ impl EnhancedGdbServer {
     pub fn stop(&self) -> VmResult<()> {
         // Set running state to false
         {
-            let mut running = self.running.write().unwrap();
+            let mut running = self.lock_running_mut()?;
             *running = false;
         }
 
         // Close all connections
         {
-            let mut connections = self.connections.write().unwrap();
+            let mut connections = self.lock_connections_mut()?;
             for (_, connection) in connections.iter() {
                 let _ = connection.stream.shutdown(std::net::Shutdown::Both);
             }
@@ -477,7 +531,7 @@ impl EnhancedGdbServer {
 
         // Close listener
         {
-            let mut listener = self.listener.write().unwrap();
+            let mut listener = self.lock_listener_mut()?;
             if let Some(ref listener) = *listener {
                 drop(listener);
             }
@@ -496,8 +550,18 @@ impl EnhancedGdbServer {
 
     /// Accept incoming connections
     fn accept_connections(&self) {
-        while *self.running.read().unwrap() {
-            if let Some(ref listener) = *self.listener.read().unwrap() {
+        let running = match self.lock_running() {
+            Ok(r) => *r,
+            Err(_) => return,
+        };
+
+        while running {
+            let listener_opt = match self.lock_listener() {
+                Ok(l) => l.clone(),
+                Err(_) => break,
+            };
+
+            if let Some(ref listener) = listener_opt {
                 match listener.accept() {
                     Ok((stream, addr)) => {
                         if self.config.verbose {
@@ -506,7 +570,10 @@ impl EnhancedGdbServer {
 
                         // Check connection limit
                         {
-                            let connections = self.connections.read().unwrap();
+                            let connections = match self.lock_connections() {
+                                Ok(c) => c,
+                                Err(_) => continue,
+                            };
                             if connections.len() >= self.config.max_connections {
                                 if self.config.verbose {
                                     println!("Connection limit reached, rejecting connection from {}", addr);
@@ -517,7 +584,10 @@ impl EnhancedGdbServer {
                         }
 
                         // Create connection
-                        let connection_id = self.generate_connection_id();
+                        let connection_id = match self.generate_connection_id() {
+                            Ok(id) => id,
+                            Err(_) => continue,
+                        };
                         let connection = GdbConnection {
                             id: connection_id.clone(),
                             stream,
@@ -530,8 +600,11 @@ impl EnhancedGdbServer {
 
                         // Add to connections
                         {
-                            let mut connections = self.connections.write().unwrap();
-                            connections.insert(connection_id, connection);
+                            if let Ok(mut connections) = self.connections.write() {
+                                connections.insert(connection_id.clone(), connection);
+                            } else {
+                                continue;
+                            }
                         }
 
                         // Handle connection
@@ -557,7 +630,10 @@ impl EnhancedGdbServer {
     fn handle_connection(&self, connection_id: String) {
         // Get connection
         let connection = {
-            let connections = self.connections.read().unwrap();
+            let connections = match self.lock_connections() {
+                Ok(c) => c,
+                Err(_) => return,
+            };
             connections.get(&connection_id).cloned()
         };
 
@@ -574,7 +650,12 @@ impl EnhancedGdbServer {
             conn.state = GdbConnectionState::Waiting;
 
             // Handle commands
-            while *self.running.read().unwrap() && conn.state != GdbConnectionState::Closed {
+            let running = match self.lock_running() {
+                Ok(r) => *r,
+                Err(_) => false,
+            };
+
+            while running && conn.state != GdbConnectionState::Closed {
                 match self.receive_packet(&mut conn) {
                     Ok(Some(packet)) => {
                         if self.config.enable_packet_logging {
@@ -606,8 +687,7 @@ impl EnhancedGdbServer {
             }
 
             // Remove connection
-            {
-                let mut connections = self.connections.write().unwrap();
+            if let Ok(mut connections) = self.connections.write() {
                 connections.remove(&connection_id);
             }
 
@@ -1184,20 +1264,18 @@ impl EnhancedGdbServer {
                     }
                 }
                 Err(e) => {
-                    return Err(VmError::Core(crate::error::CoreError::IoError {
-                        message: format!("Error reading from GDB: {}", e),
-                    }));
+                    return Err(VmError::Io(format!("Error reading from GDB: {}", e)));
                 }
             }
         }
     }
 
     /// Generate a unique connection ID
-    fn generate_connection_id(&self) -> String {
-        let mut next_id = self.next_connection_id.write().unwrap();
+    fn generate_connection_id(&self) -> VmResult<String> {
+        let mut next_id = self.lock_next_connection_id_mut()?;
         let id = format!("conn_{}", *next_id);
         *next_id += 1;
-        id
+        Ok(id)
     }
 }
 
@@ -1209,7 +1287,7 @@ mod tests {
     fn test_gdb_server_creation() {
         let config = EnhancedGdbServerConfig::default();
         let debugger_config = UnifiedDebuggerConfig::default();
-        
+
         let server = EnhancedGdbServer::new(config, debugger_config);
         assert!(server.is_ok());
     }
@@ -1219,33 +1297,33 @@ mod tests {
         let server = EnhancedGdbServer::new(
             EnhancedGdbServerConfig::default(),
             UnifiedDebuggerConfig::default(),
-        ).unwrap();
+        ).expect("Failed to create GDB server");
 
         // Test query command
-        let query_cmd = server.parse_command("qSupported").unwrap();
+        let query_cmd = server.parse_command("qSupported").expect("Failed to parse query command");
         match query_cmd {
             GdbCommand::Query(query) => assert_eq!(query, "Supported"),
             _ => panic!("Expected query command"),
         }
 
         // Test continue command
-        let continue_cmd = server.parse_command("c").unwrap();
+        let continue_cmd = server.parse_command("c").expect("Failed to parse continue command");
         match continue_cmd {
-            GdbCommand::Continue { signal: None } => assert!(signal.is_none()),
+            GdbCommand::Continue { signal } => assert!(signal.is_none()),
             _ => panic!("Expected continue command"),
         }
 
         // Test step command
-        let step_cmd = server.parse_command("s").unwrap();
+        let step_cmd = server.parse_command("s").expect("Failed to parse step command");
         match step_cmd {
-            GdbCommand::Step { signal: None } => assert!(signal.is_none()),
+            GdbCommand::Step { signal } => assert!(signal.is_none()),
             _ => panic!("Expected step command"),
         }
 
         // Test memory read command
-        let read_mem_cmd = server.parse_command("m1000,10").unwrap();
+        let read_mem_cmd = server.parse_command("m1000,10").expect("Failed to parse memory read command");
         match read_mem_cmd {
-            GdbCommand::ReadMemory { address: 0x1000, length: 10 } => {
+            GdbCommand::ReadMemory { address, length } => {
                 assert_eq!(address, 0x1000);
                 assert_eq!(length, 10);
             }

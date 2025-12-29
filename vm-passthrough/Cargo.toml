@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
-log = "0.4"
-thiserror = "2.0"
+log = { workspace = true }
+thiserror = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = ["Win32_Devices_DeviceAndDriverInstallation"] }

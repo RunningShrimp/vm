@@ -1,0 +1,266 @@
+warning: associated function `acquire_task_queue` is never used
+   --> vm-engine-jit/src/core.rs:265:8
+    |
+249 | impl JITEngine {
+    | -------------- associated function in this implementation
+...
+265 |     fn acquire_task_queue(task_queue: &PriorityTaskQueue) -> Result<std::sync::MutexGuard<'_, std::collections::BinaryHeap<(std::cm...
+    |        ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `try_lock_entries_with_timeout` is never used
+  --> vm-engine-jit/src/inline_cache.rs:52:8
+   |
+28 | impl InlineCache {
+   | ---------------- method in this implementation
+...
+52 |     fn try_lock_entries_with_timeout(
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-engine-jit/src/core.rs:265:62
+    |
+265 | ...e) -> Result<std::sync::MutexGuard<'_, std::collections::BinaryHeap<(std::cmp::Reverse<u32>, CompilationTask)>>, VmError> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+    = note: `-W clippy::type-complexity` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::type_complexity)]`
+
+warning: method `try_get_allocator` is never used
+   --> vm-mem/src/memory/numa_allocator.rs:394:8
+    |
+375 | impl GlobalNumaAllocator {
+    | ------------------------ method in this implementation
+...
+394 |     fn try_get_allocator(&self) -> Result<&NumaAllocator, String> {
+    |        ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `lock_inner_mut` is never used
+   --> vm-mem/src/tlb/unified_tlb.rs:436:8
+    |
+420 | impl ConcurrentTlb {
+    | ------------------ method in this implementation
+...
+436 |     fn lock_inner_mut(&self) -> Result<std::sync::MutexGuard<'_, crate::ConcurrentTlbManager>, MemoryError> {
+    |        ^^^^^^^^^^^^^^
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-mem/src/optimization/advanced/prefetch.rs:316:41
+    |
+316 |     fn lock_translation_cache(&self) -> Result<std::sync::MutexGuard<'_, HashMap<(GuestAddr, u16), TranslationResult>>, VmError> {
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+    = note: `-W clippy::type-complexity` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::type_complexity)]`
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-mem/src/optimization/advanced/batch.rs:211:10
+    |
+211 |     ) -> Result<std::sync::MutexGuard<'_, HashMap<(GuestAddr, u16), TranslationCacheEntry>>, VmError>
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-mem/src/tlb/tlb_flush.rs:678:34
+    |
+678 |     fn lock_page_stats(&self) -> Result<std::sync::MutexGuard<'_, HashMap<(GuestAddr, u16), PageStats>>, VmError> {
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+warning: `vm-engine-jit` (lib) generated 3 warnings
+warning: `vm-mem` (lib) generated 5 warnings
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-device/src/io_multiplexing.rs:167:38
+    |
+167 |     fn lock_handlers_write(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>> {
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+    = note: `-W clippy::type-complexity` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::type_complexity)]`
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-device/src/io_multiplexing.rs:175:37
+    |
+175 |     fn lock_handlers_read(&self) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>> {
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+warning: `vm-device` (lib) generated 2 warnings
+warning: method `lock_block_cache` is never used
+  --> vm-cross-arch/src/translation_impl.rs:58:8
+   |
+48 | impl ArchTranslator {
+   | ------------------- method in this implementation
+...
+58 |     fn lock_block_cache(&self) -> Result<std::sync::MutexGuard<'_, CrossArchBlockCache>, TranslationError> {
+   |        ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-cross-arch` (lib) generated 1 warning
+   Compiling vm-desktop v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-desktop)
+    Checking tauri v2.9.5
+warning: unused import: `crate::CrossArchTestConfig`
+  --> vm-cross-arch-integration-tests/src/cross_arch_integration_tests_part3.rs:13:5
+   |
+13 | use crate::CrossArchTestConfig;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-cross-arch-integration-tests` (lib) generated 1 warning (run `cargo clippy --fix --lib -p vm-cross-arch-integration-tests` to apply 1 suggestion)
+    Checking vm-perf-regression-detector v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-perf-regression-detector)
+warning: vm-codegen@0.1.0: Skip codegen examples (set VM_CODEGEN_GEN=1 to enable)
+    Checking vm-memory-access v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-memory-access)
+warning: this `impl` can be derived
+  --> vm-resource/src/lib.rs:25:1
+   |
+25 | / impl Default for ResourceState {
+26 | |     fn default() -> Self {
+27 | |         ResourceState::Uninitialized
+28 | |     }
+29 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#derivable_impls
+   = note: `-W clippy::derivable-impls` implied by `-W clippy::all`
+   = help: to override `-W clippy::all` add `#[allow(clippy::derivable_impls)]`
+help: replace the manual implementation with a derive attribute and mark the default variant
+   |
+14 + #[derive(Default)]
+15 | pub enum ResourceState {
+16 ~     #[default]
+17 ~     Uninitialized,
+   |
+
+warning: `vm-resource` (lib) generated 1 warning (run `cargo clippy --fix --lib -p vm-resource` to apply 1 suggestion)
+    Checking vm-instruction-patterns v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-instruction-patterns)
+    Checking vm-register v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-register)
+warning: implementation of inherent method `to_string(&self) -> String` for type `ValidationError`
+   --> vm-validation/src/lib.rs:129:5
+    |
+129 | /     pub fn to_string(&self) -> String {
+130 | |         format!("{}: {}", self.code, self.message)
+131 | |     }
+    | |_____^
+    |
+    = help: implement trait `Display` for type `ValidationError` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#inherent_to_string
+    = note: `-W clippy::inherent-to-string` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::inherent_to_string)]`
+
+warning: implementation of inherent method `to_string(&self) -> String` for type `ValidationWarning`
+   --> vm-validation/src/lib.rs:184:5
+    |
+184 | /     pub fn to_string(&self) -> String {
+185 | |         format!("{}: {}", self.code, self.message)
+186 | |     }
+    | |_____^
+    |
+    = help: implement trait `Display` for type `ValidationWarning` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#inherent_to_string
+
+warning: the borrowed expression implements the required traits
+   --> vm-validation/src/lib.rs:445:21
+    |
+445 |                     &self.max_id.to_string(),
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `self.max_id.to_string()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_borrows_for_generic_args
+    = note: `-W clippy::needless-borrows-for-generic-args` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::needless_borrows_for_generic_args)]`
+
+warning: manual implementation of `.is_multiple_of()`
+   --> vm-validation/src/lib.rs:494:20
+    |
+494 |                 if value % alignment != 0 {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!value.is_multiple_of(alignment)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_is_multiple_of
+    = note: `-W clippy::manual-is-multiple-of` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::manual_is_multiple_of)]`
+
+    Checking syscall-compat v0.1.0 (/Users/wangbiao/Desktop/project/vm/syscall-compat)
+warning: `vm-validation` (lib) generated 4 warnings (run `cargo clippy --fix --lib -p vm-validation` to apply 2 suggestions)
+warning: this `impl` can be derived
+   --> vm-instruction-patterns/src/lib.rs:223:1
+    |
+223 | / impl Default for InstructionFlags {
+224 | |     fn default() -> Self {
+225 | |         Self {
+226 | |             sets_flags: false,
+...   |
+236 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#derivable_impls
+    = note: `-W clippy::derivable-impls` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::derivable_impls)]`
+help: replace the manual implementation with a derive attribute
+    |
+212 + #[derive(Default)]
+213 | pub struct InstructionFlags {
+    |
+
+warning: you should consider adding a `Default` implementation for `DefaultPatternMatcher`
+   --> vm-instruction-patterns/src/lib.rs:413:5
+    |
+413 | /     pub fn new() -> Self {
+414 | |         Self {
+415 | |             patterns: HashMap::new(),
+416 | |             category_index: HashMap::new(),
+...   |
+419 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#new_without_default
+    = note: `-W clippy::new-without-default` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::new_without_default)]`
+help: try adding this
+    |
+412 + impl Default for DefaultPatternMatcher {
+413 +     fn default() -> Self {
+414 +         Self::new()
+415 +     }
+416 + }
+    |
+
+warning: use of `or_insert_with` to construct default value
+   --> vm-instruction-patterns/src/lib.rs:426:45
+    |
+426 |         self.patterns.entry(opcode.clone()).or_insert_with(Vec::new).push(pattern.clone());
+    |                                             ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `or_default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_or_default
+    = note: `-W clippy::unwrap-or-default` implied by `-W clippy::all`
+    = help: to override `-W clippy::all` add `#[allow(clippy::unwrap_or_default)]`
+
+warning: use of `or_insert_with` to construct default value
+   --> vm-instruction-patterns/src/lib.rs:429:53
+    |
+429 |         self.category_index.entry(pattern.category).or_insert_with(Vec::new).push(opcode.clone());
+    |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `or_default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_or_default
+
+warning: use of `or_insert_with` to construct default value
+   --> vm-instruction-patterns/src/lib.rs:433:49
+    |
+433 |             self.architecture_index.entry(arch).or_insert_with(Vec::new).push(opcode.clone());
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `or_default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_or_default
+
+warning: `vm-instruction-patterns` (lib) generated 5 warnings (run `cargo clippy --fix --lib -p vm-instruction-patterns` to apply 5 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.26s
+warning: the following packages contain code that will be rejected by a future version of Rust: sqlx-core v0.6.3
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`

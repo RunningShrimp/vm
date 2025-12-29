@@ -4,6 +4,20 @@
 
 use crate::{GuestAddr, VmError};
 use std::collections::HashMap;
+use vm_core::error::MemoryError;
+
+/// Type alias for translation function to reduce complexity
+type TranslateFn = Box<dyn Fn(GuestAddr, u16) -> Result<(GuestAddr, u64), VmError> + Send + Sync>;
+
+/// Type alias for write function to reduce complexity
+type WriteFn = Box<dyn Fn(GuestAddr, &[u8]) -> Result<(), VmError> + Send + Sync>;
+
+/// Type alias for translation cache to reduce complexity
+type TranslationCacheType = HashMap<(GuestAddr, u16), TranslationCacheEntry>;
+
+/// Type alias for translation cache guard to reduce complexity
+type TranslationCacheGuard<'a> = std::sync::MutexGuard<'a, TranslationCacheType>;
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -47,10 +61,7 @@ pub enum BatchResult {
         success: bool,
     },
     /// 预取结果
-    Prefetch {
-        gva: GuestAddr,
-        success: bool,
-    },
+    Prefetch { gva: GuestAddr, success: bool },
 }
 
 /// 地址翻译缓存条目
@@ -158,21 +169,16 @@ pub struct BatchMmuProcessor {
     /// 统计信息
     stats: Arc<Mutex<BatchStats>>,
     /// 地址翻译函数
-    translate_fn: Box<dyn Fn(GuestAddr, u16) -> Result<(GuestAddr, u64), VmError> + Send + Sync>,
+    translate_fn: TranslateFn,
     /// 内存读取函数
     read_fn: Box<dyn Fn(GuestAddr, usize) -> Result<Vec<u8>, VmError> + Send + Sync>,
     /// 内存写入函数
-    write_fn: Box<dyn Fn(GuestAddr, &[u8]) -> Result<(), VmError> + Send + Sync>,
+    write_fn: WriteFn,
 }
 
 impl BatchMmuProcessor {
     /// 创建新的批量处理器
-    pub fn new<F1, F2, F3>(
-        config: BatchConfig,
-        translate_fn: F1,
-        read_fn: F2,
-        write_fn: F3,
-    ) -> Self
+    pub fn new<F1, F2, F3>(config: BatchConfig, translate_fn: F1, read_fn: F2, write_fn: F3) -> Self
     where
         F1: Fn(GuestAddr, u16) -> Result<(GuestAddr, u64), VmError> + Send + Sync + 'static,
         F2: Fn(GuestAddr, usize) -> Result<Vec<u8>, VmError> + Send + Sync + 'static,
@@ -188,14 +194,31 @@ impl BatchMmuProcessor {
         }
     }
 
+    /// Helper method to lock stats with error handling
+    fn lock_stats(&self) -> Result<std::sync::MutexGuard<'_, BatchStats>, VmError> {
+        self.stats.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire stats lock".to_string(),
+            })
+        })
+    }
+
+    /// Helper method to lock translation_cache with error handling
+    fn lock_translation_cache(&self) -> Result<TranslationCacheGuard<'_>, VmError> {
+        self.translation_cache.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire translation cache lock".to_string(),
+            })
+        })
+    }
+
     /// 处理批量请求
     pub fn process_batch(&self, requests: &[BatchRequest]) -> Vec<BatchResult> {
         let start_time = Instant::now();
         let mut results = Vec::with_capacity(requests.len());
 
         // 更新统计信息
-        {
-            let mut stats = self.stats.lock().unwrap();
+        if let Ok(mut stats) = self.lock_stats() {
             stats.total_batches += 1;
             stats.total_requests += requests.len() as u64;
             stats.update_avg_batch_size();
@@ -211,9 +234,7 @@ impl BatchMmuProcessor {
         // 处理每个请求
         for request in processed_requests {
             let result = match request {
-                BatchRequest::Read { gva, size, asid } => {
-                    self.handle_read_request(gva, size, asid)
-                }
+                BatchRequest::Read { gva, size, asid } => self.handle_read_request(gva, size, asid),
                 BatchRequest::Write { gva, data, asid } => {
                     self.handle_write_request(gva, data.clone(), asid)
                 }
@@ -225,8 +246,7 @@ impl BatchMmuProcessor {
         }
 
         // 更新处理时间统计
-        {
-            let mut stats = self.stats.lock().unwrap();
+        if let Ok(mut stats) = self.lock_stats() {
             stats.total_time_ns += start_time.elapsed().as_nanos() as u64;
             stats.update_avg_time_ns();
         }
@@ -258,29 +278,27 @@ impl BatchMmuProcessor {
                     // 跨页，分两次读取
                     let first_size = (page_size - page_offset) as usize;
                     let second_size = size - first_size;
-                    
+
                     match (self.read_fn)(gpa, first_size) {
                         Ok(first_data) => {
                             let next_gva = GuestAddr((gva.0 & !(page_size - 1)) + page_size);
                             match self.translate_address_cached(next_gva, asid) {
-                                Ok((next_gpa, _)) => {
-                                    match (self.read_fn)(next_gpa, second_size) {
-                                        Ok(second_data) => {
-                                            let mut data = first_data;
-                                            data.extend_from_slice(&second_data);
-                                            BatchResult::Read {
-                                                gva,
-                                                data,
-                                                success: true,
-                                            }
-                                        }
-                                        Err(_) => BatchResult::Read {
+                                Ok((next_gpa, _)) => match (self.read_fn)(next_gpa, second_size) {
+                                    Ok(second_data) => {
+                                        let mut data = first_data;
+                                        data.extend_from_slice(&second_data);
+                                        BatchResult::Read {
                                             gva,
-                                            data: vec![0; size],
-                                            success: false,
-                                        },
+                                            data,
+                                            success: true,
+                                        }
                                     }
-                                }
+                                    Err(_) => BatchResult::Read {
+                                        gva,
+                                        data: vec![0; size],
+                                        success: false,
+                                    },
+                                },
                                 Err(_) => BatchResult::Read {
                                     gva,
                                     data: vec![0; size],
@@ -329,13 +347,16 @@ impl BatchMmuProcessor {
                     // 跨页，分两次写入
                     let first_size = (page_size - page_offset) as usize;
                     let second_size = size - first_size;
-                    
+
                     match (self.write_fn)(gpa, &data[..first_size]) {
                         Ok(()) => {
                             let next_gva = GuestAddr((gva.0 & !(page_size - 1)) + page_size);
                             match self.translate_address_cached(next_gva, asid) {
                                 Ok((next_gpa, _)) => {
-                                    match (self.write_fn)(next_gpa, &data[first_size..first_size + second_size]) {
+                                    match (self.write_fn)(
+                                        next_gpa,
+                                        &data[first_size..first_size + second_size],
+                                    ) {
                                         Ok(()) => BatchResult::Write {
                                             gva,
                                             size,
@@ -376,8 +397,8 @@ impl BatchMmuProcessor {
         // 预取就是提前进行地址翻译并缓存结果
         let page_size = 4096; // 假设4KB页
         let page_base = gva.0 & !(page_size - 1);
-        let page_count = (size + page_size as usize - 1) / page_size as usize;
-        
+        let page_count = size.div_ceil(page_size as usize);
+
         let mut success = true;
         for i in 0..page_count {
             let current_gva = GuestAddr(page_base + i as u64 * page_size);
@@ -386,102 +407,109 @@ impl BatchMmuProcessor {
                 break;
             }
         }
-        
+
         BatchResult::Prefetch { gva, success }
     }
 
     /// 使用缓存的地址翻译
-    fn translate_address_cached(&self, gva: GuestAddr, asid: u16) -> Result<(GuestAddr, u64), VmError> {
+    fn translate_address_cached(
+        &self,
+        gva: GuestAddr,
+        asid: u16,
+    ) -> Result<(GuestAddr, u64), VmError> {
         let page_base = GuestAddr(gva.0 & !(4096 - 1)); // 页对齐
         let key = (page_base, asid);
-        
+
         // 检查缓存
         {
-            let cache = self.translation_cache.lock().unwrap();
+            let cache = self.lock_translation_cache()?;
             if let Some(entry) = cache.get(&key) {
                 // 更新统计信息
-                {
-                    let mut stats = self.stats.lock().unwrap();
+                if let Ok(mut stats) = self.lock_stats() {
                     stats.translation_cache_hits += 1;
                 }
                 return Ok((entry.gpa + (gva - entry.gva), entry.page_size));
             }
         }
-        
+
         // 缓存未命中，进行翻译
         let result = (self.translate_fn)(gva, asid)?;
-        
+
         // 更新缓存
         {
-            let mut cache = self.translation_cache.lock().unwrap();
-            
+            let mut cache = self.lock_translation_cache()?;
+
             // 如果缓存已满，清理最旧的条目
             if cache.len() >= self.config.translation_cache_size {
                 // 简单的LRU策略：找到最旧的条目并移除
-                if let Some(oldest_key) = cache.iter()
+                if let Some(oldest_key) = cache
+                    .iter()
                     .min_by_key(|(_, entry)| entry.last_access)
-                    .map(|(key, _)| *key) {
+                    .map(|(key, _)| *key)
+                {
                     cache.remove(&oldest_key);
                 }
             }
-            
+
             // 添加新条目
-            cache.insert(key, TranslationCacheEntry {
-                gva: page_base,
-                gpa: GuestAddr(result.0 & !(4096 - 1)),
-                page_size: result.1,
-                asid,
-                last_access: Instant::now(),
-                access_count: 1,
-            });
+            cache.insert(
+                key,
+                TranslationCacheEntry {
+                    gva: page_base,
+                    gpa: GuestAddr(result.0 & !(4096 - 1)),
+                    page_size: result.1,
+                    asid,
+                    last_access: Instant::now(),
+                    access_count: 1,
+                },
+            );
         }
-        
+
         // 更新统计信息
-        {
-            let mut stats = self.stats.lock().unwrap();
+        if let Ok(mut stats) = self.lock_stats() {
             stats.translation_cache_misses += 1;
         }
-        
+
         Ok(result)
     }
 
     /// 合并相邻的地址请求
     fn coalesce_requests(&self, requests: &[BatchRequest]) -> Vec<BatchRequest> {
         let mut coalesced = Vec::new();
-        
+
         for request in requests {
             match request {
                 BatchRequest::Read { gva, size, asid } => {
                     // 尝试与最后一个请求合并
-                    if let Some(last) = coalesced.last_mut() {
-                        if let BatchRequest::Read { 
-                            gva: last_gva, 
-                            size: last_size, 
-                            asid: last_asid 
-                        } = last {
-                            if *last_asid == *asid {
-                                let last_end = *last_gva + *last_size as u64;
-                                let current_start = *gva;
-                                
-                                // 检查是否可以合并
-                                if current_start >= last_end && 
-                                   (current_start - last_end) <= self.config.max_coalesce_distance as u64 {
-                                    // 合并请求
-                                    let new_size = (current_start - *last_gva) + *size as u64;
-                                    *last_size = new_size as usize;
-                                    
-                                    // 更新统计信息
-                                    {
-                                        let mut stats = self.stats.lock().unwrap();
-                                        stats.address_coalescing_count += 1;
-                                    }
-                                    
-                                    continue;
-                                }
+                    if let Some(last) = coalesced.last_mut()
+                        && let BatchRequest::Read {
+                            gva: last_gva,
+                            size: last_size,
+                            asid: last_asid,
+                        } = last
+                        && *last_asid == *asid
+                    {
+                        let last_end = *last_gva + *last_size as u64;
+                        let current_start = *gva;
+
+                        // 检查是否可以合并
+                        if current_start >= last_end
+                            && (current_start - last_end)
+                                <= self.config.max_coalesce_distance as u64
+                        {
+                            // 合并请求
+                            let new_size = (current_start - *last_gva) + *size as u64;
+                            *last_size = new_size as usize;
+
+                            // 更新统计信息
+                            if let Ok(mut stats) = self.lock_stats() {
+                                stats.address_coalescing_count += 1;
                             }
+
+                            continue;
                         }
                     }
-                    
+
                     // 无法合并，添加新请求
                     coalesced.push(request.clone());
                 }
@@ -491,25 +519,30 @@ impl BatchMmuProcessor {
                 }
             }
         }
-        
+
         coalesced
     }
 
     /// 获取统计信息
     pub fn get_stats(&self) -> BatchStats {
-        self.stats.lock().unwrap().clone()
+        match self.lock_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => BatchStats::default(),
+        }
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        let mut stats = self.stats.lock().unwrap();
-        *stats = BatchStats::default();
+        if let Ok(mut stats) = self.lock_stats() {
+            *stats = BatchStats::default();
+        }
     }
 
     /// 清理翻译缓存
     pub fn clear_translation_cache(&self) {
-        let mut cache = self.translation_cache.lock().unwrap();
-        cache.clear();
+        if let Ok(mut cache) = self.lock_translation_cache() {
+            cache.clear();
+        }
     }
 }
 
@@ -521,7 +554,7 @@ mod tests {
         Ok((gva + 0x1000_0000, 4096)) // 简单的地址转换
     }
 
-    fn mock_read_fn(gpa: GuestAddr, size: usize) -> Result<Vec<u8>, VmError> {
+    fn mock_read_fn(_gpa: GuestAddr, size: usize) -> Result<Vec<u8>, VmError> {
         Ok(vec![0xAB; size]) // 返回固定数据
     }
 
@@ -532,13 +565,9 @@ mod tests {
     #[test]
     fn test_batch_processor_creation() {
         let config = BatchConfig::default();
-        let processor = BatchMmuProcessor::new(
-            config,
-            mock_translate_fn,
-            mock_read_fn,
-            mock_write_fn,
-        );
-        
+        let processor =
+            BatchMmuProcessor::new(config, mock_translate_fn, mock_read_fn, mock_write_fn);
+
         let stats = processor.get_stats();
         assert_eq!(stats.total_batches, 0);
     }
@@ -546,26 +575,30 @@ mod tests {
     #[test]
     fn test_simple_batch_processing() {
         let config = BatchConfig::default();
-        let processor = BatchMmuProcessor::new(
-            config,
-            mock_translate_fn,
-            mock_read_fn,
-            mock_write_fn,
-        );
-        
+        let processor =
+            BatchMmuProcessor::new(config, mock_translate_fn, mock_read_fn, mock_write_fn);
+
         let requests = vec![
-            BatchRequest::Read { gva: 0x1000, size: 4, asid: 0 },
-            BatchRequest::Write { gva: 0x2000, data: vec![1, 2, 3, 4], asid: 0 },
+            BatchRequest::Read {
+                gva: GuestAddr(0x1000),
+                size: 4,
+                asid: 0,
+            },
+            BatchRequest::Write {
+                gva: GuestAddr(0x2000),
+                data: vec![1, 2, 3, 4],
+                asid: 0,
+            },
         ];
-        
+
         let results = processor.process_batch(&requests);
         assert_eq!(results.len(), 2);
-        
+
         match &results[0] {
             BatchResult::Read { success, .. } => assert!(success),
             _ => panic!("Expected Read result"),
         }
-        
+
         match &results[1] {
             BatchResult::Write { success, .. } => assert!(success),
             _ => panic!("Expected Write result"),
@@ -579,21 +612,25 @@ mod tests {
             max_coalesce_distance: 16,
             ..Default::default()
         };
-        let processor = BatchMmuProcessor::new(
-            config,
-            mock_translate_fn,
-            mock_read_fn,
-            mock_write_fn,
-        );
-        
+        let processor =
+            BatchMmuProcessor::new(config, mock_translate_fn, mock_read_fn, mock_write_fn);
+
         let requests = vec![
-            BatchRequest::Read { gva: 0x1000, size: 4, asid: 0 },
-            BatchRequest::Read { gva: 0x1008, size: 4, asid: 0 }, // 可以合并
+            BatchRequest::Read {
+                gva: GuestAddr(0x1000),
+                size: 4,
+                asid: 0,
+            },
+            BatchRequest::Read {
+                gva: GuestAddr(0x1008),
+                size: 4,
+                asid: 0,
+            }, // 可以合并
         ];
-        
+
         let results = processor.process_batch(&requests);
-        assert_eq!(results.len(), 2); // 合并后应该只有一个请求
-        
+        assert_eq!(results.len(), 1); // 合并后应该只有一个请求
+
         let stats = processor.get_stats();
         assert_eq!(stats.address_coalescing_count, 1);
     }

@@ -4,13 +4,13 @@
 //! Manages the integration with vm-core and vm-service.
 
 use crate::ipc::{VmConfig, VmInstance, VmState};
+use log::info;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
-use std::path::PathBuf;
+use vm_core::{ExecMode, GuestArch as Arch, VmConfig as CoreVmConfig};
 use vm_service::VmService;
-use vm_core::{VmConfig as CoreVmConfig, GuestArch as Arch, ExecMode};
-use log::{info};
 
 /// Enhanced VM instance with actual service integration
 pub struct EnhancedVmInstance {
@@ -76,7 +76,7 @@ impl VmController {
             vcpu_count: config.cpu_count as usize,
             memory_size: (config.memory_mb * 1024 * 1024) as usize,
             exec_mode: ExecMode::Interpreter, // Default to interpreter
-            kernel_path: None, // Will be set separately
+            kernel_path: None,                // Will be set separately
             initrd_path: None,
         }
     }
@@ -84,7 +84,7 @@ impl VmController {
     /// Create a new VM configuration
     pub fn create_vm(&self, config: VmConfig) -> Result<VmInstance, String> {
         let core_config = self.gui_config_to_core(&config);
-        
+
         let vm = VmInstance {
             id: config.id.clone(),
             name: config.name.clone(),
@@ -106,11 +106,11 @@ impl VmController {
         if vms.contains_key(&vm.id) {
             return Err("VM already exists".to_string());
         }
-        
+
         let mut configs = self.vm_configs.lock().map_err(|e| e.to_string())?;
         configs.insert(vm.id.clone(), core_config);
         vms.insert(vm.id.clone(), enhanced_vm);
-        
+
         info!("Created VM: {} ({})", vm.name, vm.id);
         Ok(vm)
     }
@@ -140,7 +140,10 @@ impl VmController {
             let vms = self.vms.lock().map_err(|e| e.to_string())?;
             let vm = vms.get(id).ok_or("VM not found")?;
             if vm.instance.state != VmState::Stopped {
-                return Err(format!("VM is not in stopped state: {:?}", vm.instance.state));
+                return Err(format!(
+                    "VM is not in stopped state: {:?}",
+                    vm.instance.state
+                ));
             }
 
             // Check if kernel path is set
@@ -161,7 +164,8 @@ impl VmController {
         // Load kernel if path is set
         if let Some(ref kernel_path) = kernel_path {
             let kernel_path_str = kernel_path.to_string_lossy();
-            vm_service.load_kernel(&kernel_path_str, start_pc)
+            vm_service
+                .load_kernel(&kernel_path_str, start_pc)
                 .map_err(|e| format!("Failed to load kernel: {}", e))?;
         }
 
@@ -213,7 +217,7 @@ impl VmController {
         if let Some(service) = {
             let vms = self.vms.lock().map_err(|e| e.to_string())?;
             let vm = vms.get(id).ok_or("VM not found")?;
-            
+
             vm.service.clone()
         } {
             service.lock().map_err(|e| e.to_string())?.request_stop();
@@ -247,11 +251,11 @@ impl VmController {
         if let Some(service) = {
             let vms = self.vms.lock().map_err(|e| e.to_string())?;
             let vm = vms.get(id).ok_or("VM not found")?;
-            
+
             if vm.instance.state != VmState::Running {
                 return Err("VM is not running".to_string());
             }
-            
+
             vm.service.clone()
         } {
             service.lock().map_err(|e| e.to_string())?.request_pause();
@@ -275,11 +279,11 @@ impl VmController {
         if let Some(service) = {
             let vms = self.vms.lock().map_err(|e| e.to_string())?;
             let vm = vms.get(id).ok_or("VM not found")?;
-            
+
             if vm.instance.state != VmState::Paused {
                 return Err("VM is not paused".to_string());
             }
-            
+
             vm.service.clone()
         } {
             service.lock().map_err(|e| e.to_string())?.request_resume();
@@ -307,11 +311,11 @@ impl VmController {
         }
 
         vms.remove(id);
-        
+
         // Also remove from configs
         let mut configs = self.vm_configs.lock().map_err(|e| e.to_string())?;
         configs.remove(id);
-        
+
         info!("VM deleted: {}", id);
         Ok(())
     }
@@ -334,7 +338,7 @@ impl VmController {
         // Update core config
         let core_config = self.gui_config_to_core(&config);
         vm.config = core_config.clone();
-        
+
         // Update configs storage
         let mut configs = self.vm_configs.lock().map_err(|e| e.to_string())?;
         configs.insert(config.id.clone(), core_config);
@@ -344,7 +348,12 @@ impl VmController {
     }
 
     /// Create a snapshot of a running VM
-    pub async fn create_snapshot(&self, id: &str, name: String, description: String) -> Result<String, String> {
+    pub async fn create_snapshot(
+        &self,
+        id: &str,
+        name: String,
+        description: String,
+    ) -> Result<String, String> {
         let mut vms = self.vms.lock().map_err(|e| e.to_string())?;
 
         let vm = vms.get_mut(id).ok_or("VM not found")?;
@@ -353,9 +362,12 @@ impl VmController {
         }
 
         if let Some(ref mut service) = vm.service {
-            let snapshot_id = service.lock().map_err(|e| e.to_string())?.create_snapshot(name, description)
+            let snapshot_id = service
+                .lock()
+                .map_err(|e| e.to_string())?
+                .create_snapshot(name, description)
                 .map_err(|e| format!("Failed to create snapshot: {}", e))?;
-            
+
             info!("Snapshot created for VM {}: {}", id, snapshot_id);
             Ok(snapshot_id)
         } else {
@@ -368,11 +380,14 @@ impl VmController {
         let mut vms = self.vms.lock().map_err(|e| e.to_string())?;
 
         let vm = vms.get_mut(id).ok_or("VM not found")?;
-        
+
         if let Some(ref mut service) = vm.service {
-            service.lock().map_err(|e| e.to_string())?.restore_snapshot(snapshot_id)
+            service
+                .lock()
+                .map_err(|e| e.to_string())?
+                .restore_snapshot(snapshot_id)
                 .map_err(|e| format!("Failed to restore snapshot: {}", e))?;
-            
+
             info!("Snapshot restored for VM {}: {}", id, snapshot_id);
             Ok(())
         } else {
@@ -381,13 +396,16 @@ impl VmController {
     }
 
     /// List snapshots for a VM
-    pub async fn list_snapshots(&self, id: &str) -> Result<Vec<vm_core::snapshot::Snapshot>, String> {
+    pub async fn list_snapshots(&self, id: &str) -> Result<Vec<String>, String> {
         let vms = self.vms.lock().map_err(|e| e.to_string())?;
 
         let vm = vms.get(id).ok_or("VM not found")?;
-        
+
         if let Some(ref service) = vm.service {
-            let snapshots = service.lock().map_err(|e| e.to_string())?.list_snapshots()
+            let snapshots = service
+                .lock()
+                .map_err(|e| e.to_string())?
+                .list_snapshots()
                 .map_err(|e| format!("Failed to list snapshots: {}", e))?;
             Ok(snapshots)
         } else {

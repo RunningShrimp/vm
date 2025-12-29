@@ -314,6 +314,16 @@ impl AdvancedPerformanceBenchmarker {
             global_stats: Arc::new(Mutex::new(GlobalBenchmarkStats::default())),
         }
     }
+
+    /// Helper method to acquire results lock with error handling
+    fn lock_results(&self) -> Result<std::sync::MutexGuard<HashMap<String, BenchmarkResult>>, String> {
+        self.results.lock().map_err(|e| format!("Failed to acquire results lock: {}", e))
+    }
+
+    /// Helper method to acquire global stats lock with error handling
+    fn lock_global_stats(&self) -> Result<std::sync::MutexGuard<GlobalBenchmarkStats>, String> {
+        self.global_stats.lock().map_err(|e| format!("Failed to acquire global stats lock: {}", e))
+    }
     
     /// 运行基准测试
     pub fn run_benchmark(&self, config: &BenchmarkConfig, test_case: IRBlock) -> BenchmarkResult {
@@ -404,8 +414,14 @@ impl AdvancedPerformanceBenchmarker {
         
         // 保存结果
         {
-            let mut results = self.results.lock().unwrap();
-            results.insert(config.name.clone(), result.clone());
+            match self.lock_results() {
+                Ok(mut results) => {
+                    results.insert(config.name.clone(), result.clone());
+                }
+                Err(e) => {
+                    log::error!("Failed to save results: {}", e);
+                }
+            }
         }
         
         // 更新全局统计
@@ -430,12 +446,12 @@ impl AdvancedPerformanceBenchmarker {
         if times.is_empty() {
             return (Duration::ZERO, Duration::ZERO, Duration::ZERO, Duration::ZERO, Duration::ZERO, Duration::ZERO, Duration::ZERO, 0.0);
         }
-        
+
         let total: Duration = times.iter().sum();
         let avg = total / times.len() as u32;
-        
-        let min = *times.iter().min().unwrap();
-        let max = *times.iter().max().unwrap();
+
+        let min = times.iter().min().copied().unwrap_or(Duration::ZERO);
+        let max = times.iter().max().copied().unwrap_or(Duration::ZERO);
         
         // 计算标准差
         let variance = times.iter()
@@ -520,48 +536,80 @@ impl AdvancedPerformanceBenchmarker {
     
     /// 更新全局统计
     fn update_global_stats(&self, result: &BenchmarkResult) {
-        let mut global_stats = self.global_stats.lock().unwrap();
-        
-        global_stats.total_tests += 1;
-        global_stats.total_execution_time += result.total_duration;
-        global_stats.total_compilation_time += result.compilation_stats.total_compilation_time;
-        
-        if let Some(ref memory_stats) = result.memory_stats {
-            global_stats.total_memory_usage += memory_stats.peak_memory;
+        match self.lock_global_stats() {
+            Ok(mut global_stats) => {
+                global_stats.total_tests += 1;
+                global_stats.total_execution_time += result.total_duration;
+                global_stats.total_compilation_time += result.compilation_stats.total_compilation_time;
+
+                if let Some(ref memory_stats) = result.memory_stats {
+                    global_stats.total_memory_usage += memory_stats.peak_memory;
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to update global stats: {}", e);
+            }
         }
     }
     
     /// 获取测试结果
     pub fn get_result(&self, name: &str) -> Option<BenchmarkResult> {
-        let results = self.results.lock().unwrap();
-        results.get(name).cloned()
+        match self.lock_results() {
+            Ok(results) => results.get(name).cloned(),
+            Err(e) => {
+                log::error!("Failed to get result: {}", e);
+                None
+            }
+        }
     }
     
     /// 获取所有测试结果
     pub fn get_all_results(&self) -> HashMap<String, BenchmarkResult> {
-        let results = self.results.lock().unwrap();
-        results.clone()
+        match self.lock_results() {
+            Ok(results) => results.clone(),
+            Err(e) => {
+                log::error!("Failed to get all results: {}", e);
+                HashMap::new()
+            }
+        }
     }
     
     /// 获取全局统计
     pub fn get_global_stats(&self) -> GlobalBenchmarkStats {
-        let global_stats = self.global_stats.lock().unwrap();
-        GlobalBenchmarkStats {
-            total_tests: global_stats.total_tests,
-            total_execution_time: global_stats.total_execution_time,
-            total_compilation_time: global_stats.total_compilation_time,
-            total_memory_usage: global_stats.total_memory_usage,
-            covered_pcs: global_stats.covered_pcs.clone(),
+        match self.lock_global_stats() {
+            Ok(global_stats) => GlobalBenchmarkStats {
+                total_tests: global_stats.total_tests,
+                total_execution_time: global_stats.total_execution_time,
+                total_compilation_time: global_stats.total_compilation_time,
+                total_memory_usage: global_stats.total_memory_usage,
+                covered_pcs: global_stats.covered_pcs.clone(),
+            },
+            Err(e) => {
+                log::error!("Failed to get global stats: {}", e);
+                GlobalBenchmarkStats::default()
+            }
         }
     }
     
     /// 清除所有结果
     pub fn clear_results(&self) {
-        let mut results = self.results.lock().unwrap();
-        results.clear();
-        
-        let mut global_stats = self.global_stats.lock().unwrap();
-        *global_stats = GlobalBenchmarkStats::default();
+        match self.lock_results() {
+            Ok(mut results) => {
+                results.clear();
+            }
+            Err(e) => {
+                log::error!("Failed to clear results: {}", e);
+            }
+        }
+
+        match self.lock_global_stats() {
+            Ok(mut global_stats) => {
+                *global_stats = GlobalBenchmarkStats::default();
+            }
+            Err(e) => {
+                log::error!("Failed to clear global stats: {}", e);
+            }
+        }
     }
     
     /// 运行预定义的基准测试套件

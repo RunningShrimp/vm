@@ -207,6 +207,24 @@ impl DynamicRecompilationManager {
         }
     }
 
+    /// Helper method to safely acquire JIT engine lock
+    fn lock_jit_engine(engine: &Arc<Mutex<JITEngine>>) -> Result<std::sync::MutexGuard<JITEngine>, VmError> {
+        engine.lock().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to acquire JIT engine lock: {}", e),
+            current: "Lock poisoned".to_string(),
+            expected: "Valid lock".to_string(),
+        }))
+    }
+
+    /// Helper method to safely acquire strategy manager lock
+    fn lock_strategy_manager(manager: &Arc<Mutex<AdaptiveOptimizationStrategyManager>>) -> Result<std::sync::MutexGuard<AdaptiveOptimizationStrategyManager>, VmError> {
+        manager.lock().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to acquire strategy manager lock: {}", e),
+            current: "Lock poisoned".to_string(),
+            expected: "Valid lock".to_string(),
+        }))
+    }
+
     /// 分析性能数据并决定是否需要重编译
     pub fn analyze_and_decide(&mut self, pc: GuestAddr, metrics: &PerformanceMetrics) -> Result<RecompilationDecision, VmError> {
         // 更新性能历史
@@ -267,7 +285,7 @@ impl DynamicRecompilationManager {
         
         // 获取当前优化策略
         let current_strategy = {
-            let strategy_manager = self.strategy_manager.lock().unwrap();
+            let strategy_manager = Self::lock_strategy_manager(&self.strategy_manager)?;
             strategy_manager.current_strategy()
         };
         
@@ -389,20 +407,20 @@ impl DynamicRecompilationManager {
         
         // 获取重编译前的性能指标
         let before_metrics = {
-            let engine = jit_engine.lock().unwrap();
+            let _engine = Self::lock_jit_engine(&jit_engine)?;
             // 简化实现：使用默认指标
             PerformanceMetrics::default()
         };
         
         // 应用新的优化策略
         {
-            let mut manager = strategy_manager.lock().unwrap();
+            let mut manager = Self::lock_strategy_manager(&strategy_manager)?;
             manager.apply_optimization_strategy(&mut ir_block)?;
         }
         
         // 重新编译
         let compiled_code: Vec<u8> = {
-            let mut engine = jit_engine.lock().unwrap();
+            let _engine = Self::lock_jit_engine(&jit_engine)?;
             // 简化实现：返回空代码
             Vec::new()
         };
@@ -411,7 +429,7 @@ impl DynamicRecompilationManager {
         
         // 获取重编译后的性能指标
         let after_metrics = {
-            let engine = jit_engine.lock().unwrap();
+            let _engine = Self::lock_jit_engine(&jit_engine)?;
             // 简化实现：使用默认指标
             PerformanceMetrics::default()
         };

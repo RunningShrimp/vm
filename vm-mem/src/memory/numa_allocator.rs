@@ -366,6 +366,12 @@ pub struct GlobalNumaAllocator {
     allocator: std::sync::OnceLock<NumaAllocator>,
 }
 
+impl Default for GlobalNumaAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlobalNumaAllocator {
     /// 创建全局NUMA分配器
     pub fn new() -> Self {
@@ -373,17 +379,26 @@ impl GlobalNumaAllocator {
             allocator: std::sync::OnceLock::new(),
         }
     }
-    
+
     /// 初始化全局分配器
     pub fn init(&self, nodes: Vec<NumaNodeInfo>, policy: NumaAllocPolicy) {
-        self.allocator.get_or_init(|| NumaAllocator::new(nodes, policy));
+        self.allocator
+            .get_or_init(|| NumaAllocator::new(nodes, policy));
     }
-    
+
     /// 获取全局分配器实例
-    fn get_allocator(&self) -> &NumaAllocator {
-        self.allocator.get().expect("GlobalNumaAllocator not initialized")
+    fn get_allocator(&self) -> Option<&NumaAllocator> {
+        self.allocator.get()
     }
-    
+
+    /// 获取全局分配器实例，返回错误
+    #[allow(dead_code)] // Reserved for future use when error handling is needed
+    fn try_get_allocator(&self) -> Result<&NumaAllocator, String> {
+        self.allocator
+            .get()
+            .ok_or_else(|| "GlobalNumaAllocator not initialized".to_string())
+    }
+
     /// 自动检测NUMA节点并初始化
     #[cfg(target_os = "linux")]
     pub fn auto_init(&self, policy: NumaAllocPolicy) -> Result<(), String> {
@@ -391,7 +406,7 @@ impl GlobalNumaAllocator {
         self.init(nodes, policy);
         Ok(())
     }
-    
+
     /// 检测系统NUMA节点
     #[cfg(target_os = "linux")]
     fn detect_numa_nodes(&self) -> Result<Vec<NumaNodeInfo>, String> {
@@ -405,14 +420,14 @@ impl GlobalNumaAllocator {
                     cpu_mask: (1 << libc::numa_num_configured_cpus()) - 1,
                 }]);
             }
-            
+
             let mut nodes = Vec::new();
             let max_node = libc::numa_max_node();
-            
+
             for node_id in 0..=max_node {
                 let node_mask = libc::numa_node_to_cpus(node_id);
                 let total_memory = self.get_node_memory(node_id);
-                
+
                 nodes.push(NumaNodeInfo {
                     node_id: node_id as usize,
                     total_memory,
@@ -420,11 +435,11 @@ impl GlobalNumaAllocator {
                     cpu_mask: node_mask,
                 });
             }
-            
+
             Ok(nodes)
         }
     }
-    
+
     /// 获取系统总内存
     #[cfg(target_os = "linux")]
     fn get_system_memory(&self) -> u64 {
@@ -437,7 +452,7 @@ impl GlobalNumaAllocator {
             }
         }
     }
-    
+
     /// 获取指定节点的内存
     #[cfg(target_os = "linux")]
     fn get_node_memory(&self, node_id: i32) -> u64 {
@@ -450,7 +465,7 @@ impl GlobalNumaAllocator {
             }
         }
     }
-    
+
     /// 自动检测NUMA节点并初始化（非Linux平台）
     #[cfg(not(target_os = "linux"))]
     pub fn auto_init(&self, policy: NumaAllocPolicy) -> Result<(), String> {
@@ -469,17 +484,22 @@ impl GlobalNumaAllocator {
 unsafe impl GlobalAlloc for GlobalNumaAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // 使用全局NUMA分配器进行分配
-        match self.get_allocator().allocate(layout) {
-            Ok(ptr) => ptr.as_ptr(),
-            Err(_) => std::ptr::null_mut(),
+        match self.get_allocator() {
+            Some(allocator) => match allocator.allocate(layout) {
+                Ok(ptr) => ptr.as_ptr(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            None => std::ptr::null_mut(),
         }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if !ptr.is_null() {
             // 使用全局NUMA分配器进行释放
-            if let Some(non_null_ptr) = std::ptr::NonNull::new(ptr) {
-                self.get_allocator().deallocate(non_null_ptr, layout.size());
+            if let Some(non_null_ptr) = std::ptr::NonNull::new(ptr)
+                && let Some(allocator) = self.get_allocator()
+            {
+                allocator.deallocate(non_null_ptr, layout.size());
             }
         }
     }
@@ -509,7 +529,7 @@ pub fn init_global_numa_allocator(policy: NumaAllocPolicy) -> Result<(), String>
 pub fn global_numa_stats() -> Option<&'static NumaAllocStats> {
     unsafe {
         if let Some(ref allocator) = GLOBAL_NUMA_ALLOCATOR {
-            Some(allocator.get_allocator().stats())
+            allocator.get_allocator().map(|a| a.stats())
         } else {
             None
         }
@@ -517,26 +537,26 @@ pub fn global_numa_stats() -> Option<&'static NumaAllocStats> {
 }
 
 /// 使用全局NUMA分配器的示例
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use vm_mem::{init_global_numa_allocator, NumaAllocPolicy};
-/// 
+///
 /// // 初始化全局NUMA分配器，使用本地分配策略
 /// init_global_numa_allocator(NumaAllocPolicy::Local).expect("Failed to initialize NUMA allocator");
-/// 
+///
 /// // 现在可以使用全局分配器进行内存分配
 /// // 实际使用时需要通过#[global_allocator]属性设置
 /// ```
-/// 
+///
 /// # Note
-/// 
+///
 /// 要使用全局NUMA分配器，需要在程序入口处添加：
 /// ```rust
 /// #[global_allocator]
 /// static GLOBAL_NUMA: vm_mem::GlobalNumaAllocator = vm_mem::GlobalNumaAllocator::new();
-/// 
+///
 /// fn main() {
 ///     vm_mem::init_global_numa_allocator(vm_mem::NumaAllocPolicy::Local)
 ///         .expect("Failed to initialize NUMA allocator");
@@ -579,7 +599,7 @@ mod tests {
         }];
 
         let allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Local);
-        let info = allocator.node_info(0).unwrap();
+        let info = allocator.node_info(0).expect("Node 0 should exist");
         assert_eq!(info.node_id, 0);
         assert_eq!(info.total_memory, 8 * 1024 * 1024 * 1024);
     }
@@ -600,6 +620,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")] // NUMA功能仅在Linux上可用
     fn test_memory_allocation_deallocation() {
         let nodes = vec![NumaNodeInfo {
             node_id: 0,
@@ -611,8 +632,10 @@ mod tests {
         let allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Local);
 
         // 测试小块分配
-        let layout = Layout::from_size_align(64, 8).unwrap();
-        let ptr = allocator.allocate(layout).unwrap();
+        let layout = Layout::from_size_align(64, 8).expect("Invalid layout");
+        let ptr = allocator
+            .allocate(layout)
+            .expect("Allocation should succeed");
         assert!(!ptr.as_ptr().is_null());
 
         // 验证统计信息
@@ -632,8 +655,10 @@ mod tests {
         allocator.deallocate(ptr, 64);
 
         // 测试大块分配
-        let layout = Layout::from_size_align(1024 * 1024, 4096).unwrap();
-        let ptr = allocator.allocate(layout).unwrap();
+        let layout = Layout::from_size_align(1024 * 1024, 4096).expect("Invalid layout");
+        let ptr = allocator
+            .allocate(layout)
+            .expect("Allocation should succeed");
         assert!(!ptr.as_ptr().is_null());
         allocator.deallocate(ptr, 1024 * 1024);
     }
@@ -659,7 +684,7 @@ mod tests {
         let allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Local);
 
         // 尝试分配超出可用内存的块
-        let layout = Layout::from_size_align(2048, 8).unwrap();
+        let layout = Layout::from_size_align(2048, 8).expect("Invalid layout");
         let result = allocator.allocate(layout);
 
         // 在测试环境中可能成功也可能失败，但不应该panic
@@ -675,6 +700,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")] // NUMA功能仅在Linux上可用
     fn test_invalid_node_allocation() {
         let nodes = vec![NumaNodeInfo {
             node_id: 0,
@@ -683,11 +709,11 @@ mod tests {
             cpu_mask: 0xFF,
         }];
 
-        let allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Bind(0));
+        let _allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Bind(0));
 
         // 绑定到不存在的节点
         let bind_allocator = NumaAllocator::new(vec![], NumaAllocPolicy::Bind(999));
-        let layout = Layout::from_size_align(64, 8).unwrap();
+        let layout = Layout::from_size_align(64, 8).expect("Invalid layout");
         let result = bind_allocator.allocate(layout);
         assert!(result.is_err());
     }
@@ -697,7 +723,7 @@ mod tests {
 #[cfg(test)]
 mod benchmarks {
     use super::*;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     /// 性能基准测试配置
     #[derive(Debug)]
@@ -747,7 +773,7 @@ mod benchmarks {
             for &size in &config.allocation_sizes {
                 // 预热
                 for _ in 0..config.warmup_iterations {
-                    let layout = Layout::from_size_align(size, 8).unwrap();
+                    let layout = Layout::from_size_align(size, 8).expect("Invalid layout");
                     if let Ok(ptr) = allocator.allocate(layout) {
                         allocator.deallocate(ptr, size);
                     }
@@ -758,7 +784,7 @@ mod benchmarks {
                 let mut successful_allocs = 0;
 
                 for _ in 0..config.iterations {
-                    let layout = Layout::from_size_align(size, 8).unwrap();
+                    let layout = Layout::from_size_align(size, 8).expect("Invalid layout");
                     if let Ok(ptr) = allocator.allocate(layout) {
                         allocator.deallocate(ptr, size);
                         successful_allocs += 1;
@@ -813,7 +839,7 @@ mod benchmarks {
         // 分配大量小块内存
         for i in 0..10000 {
             let size = 64 + (i % 10) * 64; // 64, 128, 192, ..., 640 bytes
-            let layout = Layout::from_size_align(size, 8).unwrap();
+            let layout = Layout::from_size_align(size, 8).expect("Invalid layout");
 
             match allocator.allocate(layout) {
                 Ok(ptr) => allocations.push((ptr, size)),
@@ -871,8 +897,10 @@ mod gc_integration_tests {
         let numa_allocator = NumaAllocator::new(nodes, NumaAllocPolicy::Local);
 
         // 测试NUMA分配器功能（模拟GC使用场景）
-        let layout = Layout::from_size_align(1024, 8).unwrap();
-        let ptr = numa_allocator.allocate(layout).unwrap();
+        let layout = Layout::from_size_align(1024, 8).expect("Invalid layout");
+        let ptr = numa_allocator
+            .allocate(layout)
+            .expect("Allocation should succeed");
         assert!(!ptr.as_ptr().is_null());
 
         // 释放内存
@@ -905,7 +933,7 @@ mod gc_integration_tests {
 
         // 第一轮：分配大量块
         for _ in 0..1000 {
-            let layout = Layout::from_size_align(block_size, 8).unwrap();
+            let layout = Layout::from_size_align(block_size, 8).expect("Invalid layout");
             match allocator.allocate(layout) {
                 Ok(ptr) => allocations.push(ptr),
                 Err(_) => break, // 内存不足时停止
@@ -924,7 +952,7 @@ mod gc_integration_tests {
 
         // 第三轮：重新分配（模拟对象重新分配）
         for _ in 0..to_free {
-            let layout = Layout::from_size_align(block_size, 8).unwrap();
+            let layout = Layout::from_size_align(block_size, 8).expect("Invalid layout");
             if let Ok(ptr) = allocator.allocate(layout) {
                 allocations.push(ptr);
             }

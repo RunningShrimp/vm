@@ -112,22 +112,24 @@ impl JITEngineIntegrationTest {
     /// 测试自适应优化策略
     fn test_adaptive_optimization_strategy(&self, ir_block: &IRBlock) -> Result<(), VmError> {
         println!("测试自适应优化策略...");
-        
+
         // 分析IR块并选择策略
         let strategy = {
-            let mut manager = self.strategy_manager.lock().unwrap();
+            let mut manager = self.strategy_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("StrategyManager lock poisoned".to_string()))?;
             manager.analyze_and_select_strategy(ir_block)?
         };
-        
+
         println!("选择的优化策略: {:?}", strategy);
-        
+
         // 应用优化策略
         {
-            let mut manager = self.strategy_manager.lock().unwrap();
+            let mut manager = self.strategy_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("StrategyManager lock poisoned".to_string()))?;
             let mut ir_block_clone = ir_block.clone();
             manager.apply_optimization_strategy(&mut ir_block_clone)?;
         }
-        
+
         println!("自适应优化策略测试完成");
         Ok(())
     }
@@ -135,7 +137,7 @@ impl JITEngineIntegrationTest {
     /// 测试动态重编译
     fn test_dynamic_recompilation(&self, ir_block: &IRBlock) -> Result<(), VmError> {
         println!("测试动态重编译...");
-        
+
         // 创建性能指标
         let metrics = PerformanceMetrics {
             execution_speed: 1000.0,
@@ -145,27 +147,30 @@ impl JITEngineIntegrationTest {
             compilation_benefit: 1.5,
             average_execution_time: Duration::from_micros(100),
         };
-        
+
         // 分析并决定是否需要重编译
         let decision = {
-            let mut manager = self.recompilation_manager.lock().unwrap();
+            let mut manager = self.recompilation_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("RecompilationManager lock poisoned".to_string()))?;
             manager.analyze_and_decide(0x1000, &metrics)?
         };
-        
+
         println!("重编译决策: {:?}", decision);
-        
+
         // 如果需要重编译，提交任务
         if decision.should_recompile {
-            let mut manager = self.recompilation_manager.lock().unwrap();
+            let mut manager = self.recompilation_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("RecompilationManager lock poisoned".to_string()))?;
             manager.submit_recompilation_task(decision, ir_block.clone())?;
         }
-        
+
         // 处理重编译队列
         {
-            let mut manager = self.recompilation_manager.lock().unwrap();
+            let mut manager = self.recompilation_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("RecompilationManager lock poisoned".to_string()))?;
             manager.process_recompilation_queue()?;
         }
-        
+
         println!("动态重编译测试完成");
         Ok(())
     }
@@ -173,23 +178,25 @@ impl JITEngineIntegrationTest {
     /// 测试代码热更新
     fn test_code_hot_update(&self, ir_block: &IRBlock) -> Result<(), VmError> {
         println!("测试代码热更新...");
-        
+
         // 创建测试代码
         let old_code = vec![0x90, 0x90, 0x90]; // NOP指令
         let new_code = vec![0x48, 0x89, 0xc0]; // MOV RAX, RAX
-        
+
         // 提交热更新任务
         {
-            let mut manager = self.hot_update_manager.lock().unwrap();
+            let mut manager = self.hot_update_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("HotUpdateManager lock poisoned".to_string()))?;
             manager.submit_hot_update(0x1000, old_code, new_code, "测试更新".to_string())?;
         }
-        
+
         // 处理热更新队列
         {
-            let mut manager = self.hot_update_manager.lock().unwrap();
+            let mut manager = self.hot_update_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("HotUpdateManager lock poisoned".to_string()))?;
             manager.process_update_queue()?;
         }
-        
+
         println!("代码热更新测试完成");
         Ok(())
     }
@@ -228,18 +235,19 @@ impl JITEngineIntegrationTest {
     /// 测试端到端工作流程
     fn test_end_to_end_workflow(&self, ir_block: &IRBlock) -> Result<(), VmError> {
         println!("测试端到端工作流程...");
-        
+
         // 1. 编译IR块
         let compiled_code = {
-            let mut engine = self.jit_engine.lock().unwrap();
+            let mut engine = self.jit_engine.lock()
+                .map_err(|_| VmError::LockPoisoned("JITEngine lock poisoned".to_string()))?;
             // 简化实现：返回空代码
             Vec::new()
         };
-        
+
         // 2. 执行代码并收集性能数据
         let execution_time = Duration::from_micros(100);
         let memory_usage = compiled_code.len() as u64;
-        
+
         // 3. 更新性能指标
         let metrics = PerformanceMetrics {
             execution_speed: 1000.0,
@@ -249,31 +257,35 @@ impl JITEngineIntegrationTest {
             compilation_benefit: 1.5,
             average_execution_time: Duration::from_micros(100),
         };
-        
+
         {
-            let mut manager = self.strategy_manager.lock().unwrap();
+            let mut manager = self.strategy_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("StrategyManager lock poisoned".to_string()))?;
             manager.update_performance_metrics(metrics.clone());
         }
-        
+
         // 4. 检查是否需要重编译
         let decision = {
-            let mut manager = self.recompilation_manager.lock().unwrap();
+            let mut manager = self.recompilation_manager.lock()
+                .map_err(|_| VmError::LockPoisoned("RecompilationManager lock poisoned".to_string()))?;
             manager.analyze_and_decide(0x1000, &metrics)?
         };
-        
+
         // 5. 如果需要，执行重编译和热更新
         if decision.should_recompile {
             println!("触发重编译和热更新...");
-            
+
             // 提交重编译任务
             {
-                let mut manager = self.recompilation_manager.lock().unwrap();
+                let mut manager = self.recompilation_manager.lock()
+                    .map_err(|_| VmError::LockPoisoned("RecompilationManager lock poisoned".to_string()))?;
                 manager.submit_recompilation_task(decision, ir_block.clone())?;
             }
-            
+
             // 提交热更新任务
             {
-                let mut manager = self.hot_update_manager.lock().unwrap();
+                let mut manager = self.hot_update_manager.lock()
+                    .map_err(|_| VmError::LockPoisoned("HotUpdateManager lock poisoned".to_string()))?;
                 manager.submit_hot_update(
                     0x1000,
                     compiled_code.clone(),
@@ -282,7 +294,7 @@ impl JITEngineIntegrationTest {
                 )?;
             }
         }
-        
+
         println!("端到端工作流程测试完成");
         Ok(())
     }

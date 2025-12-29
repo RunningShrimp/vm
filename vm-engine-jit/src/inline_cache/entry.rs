@@ -40,7 +40,7 @@ impl MonomorphicCache {
     }
 
     pub fn is_expired(&self, timeout_ms: u64) -> bool {
-        self.last_access.elapsed().as_millis() > timeout_ms as i128
+        self.last_access.elapsed().as_millis() > timeout_ms as u128
     }
 }
 
@@ -82,7 +82,7 @@ impl PolymorphicCache {
     }
 
     pub fn is_expired(&self, timeout_ms: u64) -> bool {
-        self.last_access.elapsed().as_millis() > timeout_ms as i128
+        self.last_access.elapsed().as_millis() > timeout_ms as u128
     }
 }
 

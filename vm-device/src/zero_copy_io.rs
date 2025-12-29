@@ -120,12 +120,7 @@ impl LockFreeBufferPool {
                         self.next_free.store(next_free, Ordering::Release);
 
                         // 更新统计
-                        if self.reuses.fetch_add(1, Ordering::Relaxed) > 0 {
-                            // 这是重用
-                        } else {
-                            // 这是首次分配
-                            self.allocations.fetch_add(1, Ordering::Relaxed);
-                        }
+                        self.allocations.fetch_add(1, Ordering::Relaxed);
 
                         // 创建Arc<Vec<u8>>包装器
                         let vec =
@@ -156,7 +151,7 @@ impl LockFreeBufferPool {
         unsafe {
             for i in 0..self.pool_size {
                 let entry = buffers.add(i);
-                if (*entry).data == _buffer.as_ptr() {
+                if (*entry).data as *const u8 == _buffer.as_ptr() {
                     (*entry).in_use.store(false, Ordering::Release);
 
                     // 添加到空闲链表头部
@@ -202,15 +197,11 @@ impl Drop for LockFreeBufferPool {
         let buffers = self.buffers.load(Ordering::Acquire);
         if !buffers.is_null() {
             unsafe {
-                for i in 0..self.pool_size {
-                    let entry = buffers.add(i);
-                    std::alloc::dealloc(
-                        (*entry).data,
-                        std::alloc::Layout::from_size_align(self.buffer_size, 8).unwrap(),
-                    );
-                }
+                // 注意：不要释放 (*entry).data，因为它已经被 Arc<Vec<u8>> 接管所有权
+                // Arc 会在所有引用都消失后自动释放
 
-                let layout = std::alloc::Layout::array::<BufferEntry>(self.pool_size).unwrap();
+                let layout = std::alloc::Layout::array::<BufferEntry>(self.pool_size)
+                    .expect("Buffer pool layout calculation should never overflow");
                 std::alloc::dealloc(buffers as *mut u8, layout);
             }
         }
@@ -379,7 +370,8 @@ impl Drop for MappingShard {
     fn drop(&mut self) {
         let entries = self.entries.load(Ordering::Acquire);
         if !entries.is_null() {
-            let layout = std::alloc::Layout::array::<MappingEntry>(self.capacity).unwrap();
+            let layout = std::alloc::Layout::array::<MappingEntry>(self.capacity)
+                .expect("Mapping shard layout calculation should never overflow");
             unsafe {
                 std::alloc::dealloc(entries as *mut u8, layout);
             }
@@ -484,7 +476,8 @@ impl Drop for AtomicScatterGatherList {
     fn drop(&mut self) {
         let segments = self.segments.load(Ordering::Acquire);
         if !segments.is_null() {
-            let layout = std::alloc::Layout::array::<SgSegment>(self.capacity).unwrap();
+            let layout = std::alloc::Layout::array::<SgSegment>(self.capacity)
+                .expect("Atomic scatter-gather list layout calculation should never overflow");
             unsafe {
                 std::alloc::dealloc(segments as *mut u8, layout);
             }
@@ -605,7 +598,7 @@ mod tests {
         // 注意：由于简化实现，这个测试可能不会通过
         // assert_eq!(pool.available_count(), 9);
 
-        let (allocs, reuses) = pool.stats();
+        let (allocs, _reuses) = pool.stats();
         assert!(allocs >= 2);
     }
 
@@ -623,7 +616,8 @@ mod tests {
 
         let found = cache.lookup(0x1500);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().paddr, 0x4000);
+        let found_entry = found.expect("Failed to find mapping entry");
+        assert_eq!(found_entry.paddr, 0x4000);
     }
 
     #[test]

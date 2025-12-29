@@ -1,8 +1,137 @@
-//! Adaptive Optimization Domain Service
+//! # Adaptive Optimization Domain Service
 //!
 //! This service encapsulates business logic for adaptive optimization
 //! including hotspot detection, performance profiling, tiered compilation,
 //! and dynamic recompilation decisions.
+//!
+//! ## Domain Responsibilities
+//!
+//! The adaptive optimization service is responsible for:
+//!
+//! 1. **Hotspot Detection**: Identifying frequently executed code regions
+//!    that benefit from optimization
+//! 2. **Performance Profiling**: Collecting and analyzing execution metrics
+//! 3. **Strategy Selection**: Choosing appropriate optimization strategies
+//!    based on runtime behavior
+//! 4. **Tiered Compilation**: Managing multiple optimization levels
+//! 5. **Dynamic Recompilation**: Re-optimizing code based on feedback
+//!
+//! ## DDD Patterns
+//!
+//! ### Domain Service Pattern
+//! This is a **Domain Service** because:
+//! - It coordinates between multiple aggregates (code blocks, execution contexts)
+//! - It encapsulates complex business logic (adaptive strategy selection)
+//! - It's stateless - all state is passed as parameters or stored in aggregates
+//!
+//! ### Domain Events Published
+//!
+//! - **`OptimizationEvent::HotspotsDetected`**: Published when hotspots are identified
+//! - **`OptimizationEvent::StrategySelected`**: Published when an optimization strategy is chosen
+//! - **`OptimizationEvent::ResourceConstraintViolation`**: Published when resource constraints are exceeded
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Hotspot Detection
+//!
+//! ```rust
+//! use crate::domain_services::adaptive_optimization_service::{
+//!     AdaptiveOptimizationDomainService, HotspotConfig
+//! };
+//!
+//! let config = HotspotConfig::default();
+//! let service = AdaptiveOptimizationDomainService::new(config);
+//!
+//! let hotspots = service.detect_hotspots(&performance_profile)?;
+//!
+//! for hotspot in hotspots {
+//!     println!("Hotspot at 0x{:x}: score={}, executions={}",
+//!         hotspot.address,
+//!         hotspot.hotness_score,
+//!         hotspot.execution_count
+//!     );
+//! }
+//! ```
+//!
+//! ### Strategy Selection with Resource Awareness
+//!
+//! ```rust
+//! let service = AdaptiveOptimizationDomainService::new(config);
+//!
+//! let strategy = service.select_optimization_strategy(
+//!     &hotspots,
+//!     &resource_utilization,
+//! )?;
+//!
+//! match strategy {
+//!     OptimizationStrategy::Aggressive => {
+//!         println!("Using aggressive optimization");
+//!     }
+//!     OptimizationStrategy::Balanced => {
+//!         println!("Using balanced optimization");
+//!     }
+//!     OptimizationStrategy::Conservative => {
+//!         println!("Using conservative optimization");
+//!     }
+//! }
+//! ```
+//!
+//! ### Performance Profiling
+//!
+//! ```rust
+//! use std::collections::HashMap;
+//! use std::time::Instant;
+//!
+//! let mut profile = PerformanceProfile {
+//!     execution_history: HashMap::new(),
+//!     performance_by_level: HashMap::new(),
+//!     resource_utilization: ResourceUtilization::default(),
+//! };
+//!
+//! // Record execution data
+//! profile.record_execution(
+//!     0x1000,  // address
+//!     Duration::from_micros(100),  // duration
+//!     1024,    // memory usage
+//!     2,       // optimization level
+//! );
+//! ```
+//!
+//! ## Hotspot Detection Algorithm
+//!
+//! The service uses a multi-factor hotspot detection algorithm:
+//!
+//! 1. **Execution Frequency**: Code blocks executed above a threshold
+//! 2. **Temporal Locality**: Recent execution patterns
+//! 3. **Performance Trends**: Improving, stable, or degrading performance
+//! 4. **Resource Utilization**: CPU, memory, and cache pressure
+//!
+//! Hotness score calculation:
+//!
+//! ```text
+//! hotness_score = (execution_count / max_executions) * 0.4
+//!              + (recency_factor) * 0.3
+//!              + (cache_hit_rate) * 0.2
+//!              + (performance_trend) * 0.1
+//! ```
+//!
+//! ## Strategy Selection Logic
+//!
+//! Strategy selection considers:
+//!
+//! | Factor | Aggressive | Balanced | Conservative |
+//! |--------|-----------|----------|--------------|
+//! | Hotspot Count | High | Medium | Low |
+//! | CPU Usage | Low | Medium | High |
+//! | Memory Usage | Low | Medium | High |
+//! | Cache Pressure | Low | Medium | High |
+//!
+//! ## Integration with Aggregate Roots
+//!
+//! This service works with:
+//! - **`VirtualMachineAggregate`**: VM-level optimization decisions
+//! - **`CodeBlockAggregate`**: Code block-specific optimizations
+//! - **`ExecutionContext`**: Runtime behavior analysis
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -188,7 +317,9 @@ impl AdaptiveOptimizationDomainService {
             
             if hotness_score >= self.config.hotness_threshold {
                 let performance_trend = self.analyze_performance_trend(history);
-                let last_execution = history.last().unwrap().timestamp;
+                let last_execution = history.last()
+                    .map(|dp| dp.timestamp)
+                    .unwrap_or_else(|| std::time::SystemTime::now());
 
                 hotspots.push(Hotspot {
                     address,
@@ -202,7 +333,7 @@ impl AdaptiveOptimizationDomainService {
         }
 
         // Sort by hotness score (descending)
-        hotspots.sort_by(|a, b| b.hotness_score.partial_cmp(&a.hotness_score).unwrap());
+        hotspots.sort_by(|a, b| b.hotness_score.partial_cmp(&a.hotness_score).unwrap_or(std::cmp::Ordering::Equal));
         
         // Limit to max_hotspots
         hotspots.truncate(self.config.max_hotspots);
@@ -371,7 +502,7 @@ mod tests {
         
         profile.execution_history.insert(address, history);
 
-        let hotspots = service.detect_hotspots(&profile).unwrap();
+        let hotspots = service.detect_hotspots(&profile).expect("Failed to detect hotspots");
         assert_eq!(hotspots.len(), 1);
         assert_eq!(hotspots[0].address, address);
         assert_eq!(hotspots[0].execution_count, 1500);
@@ -382,7 +513,7 @@ mod tests {
     fn test_optimization_strategy_selection() {
         let config = AdaptiveOptimizationConfig::default();
         let service = AdaptiveOptimizationDomainService::new(config);
-        
+
         let profile = PerformanceProfile {
             execution_history: HashMap::new(),
             performance_by_level: HashMap::new(),
@@ -394,7 +525,7 @@ mod tests {
         };
 
         // Test with no hotspots
-        let strategy = service.determine_optimization_strategy(&[], &profile).unwrap();
+        let strategy = service.determine_optimization_strategy(&[], &profile).expect("Failed to determine strategy");
         assert_eq!(strategy, OptimizationStrategy::StandardJit);
 
         // Test with hotspots but no degradation
@@ -406,15 +537,15 @@ mod tests {
             last_execution: Instant::now(),
             performance_trend: PerformanceTrend::Stable,
         }];
-        
-        let strategy = service.determine_optimization_strategy(&hotspots, &profile).unwrap();
+
+        let strategy = service.determine_optimization_strategy(&hotspots, &profile).expect("Failed to determine strategy");
         assert_eq!(strategy, OptimizationStrategy::Hybrid);
 
         // Test with performance degradation
         let mut degrading_hotspots = hotspots;
         degrading_hotspots[0].performance_trend = PerformanceTrend::Degrading;
-        
-        let strategy = service.determine_optimization_strategy(&degrading_hotspots, &profile).unwrap();
+
+        let strategy = service.determine_optimization_strategy(&degrading_hotspots, &profile).expect("Failed to determine strategy");
         assert_eq!(strategy, OptimizationStrategy::DynamicRecompilation);
     }
 

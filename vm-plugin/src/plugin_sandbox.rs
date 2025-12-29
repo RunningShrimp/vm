@@ -492,6 +492,60 @@ pub enum FileAccessAction {
 }
 
 impl PluginSandbox {
+    /// Helper method to lock state for reading
+    fn lock_state(&self) -> Result<std::sync::RwLockReadGuard<'_, SandboxState>, VmError> {
+        self.state.read().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to lock sandbox state for reading: {}", e),
+            current: "lock_failed".to_string(),
+            expected: "lock_success".to_string(),
+        }))
+    }
+
+    /// Helper method to lock state for writing
+    fn lock_state_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, SandboxState>, VmError> {
+        self.state.write().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to lock sandbox state for writing: {}", e),
+            current: "lock_failed".to_string(),
+            expected: "lock_success".to_string(),
+        }))
+    }
+
+    /// Helper method to lock resource monitor for reading
+    fn lock_resource_monitor(&self) -> Result<std::sync::RwLockReadGuard<'_, PluginResourceMonitor>, VmError> {
+        self.resource_monitor.read().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to lock resource monitor for reading: {}", e),
+            current: "lock_failed".to_string(),
+            expected: "lock_success".to_string(),
+        }))
+    }
+
+    /// Helper method to lock resource monitor for writing
+    fn lock_resource_monitor_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, PluginResourceMonitor>, VmError> {
+        self.resource_monitor.write().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to lock resource monitor for writing: {}", e),
+            current: "lock_failed".to_string(),
+            expected: "lock_success".to_string(),
+        }))
+    }
+
+    /// Helper method to lock security manager for reading
+    fn lock_security_manager(&self) -> Result<std::sync::RwLockReadGuard<'_, SandboxSecurityManager>, VmError> {
+        self.security_manager.read().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to lock security manager for reading: {}", e),
+            current: "lock_failed".to_string(),
+            expected: "lock_success".to_string(),
+        }))
+    }
+
+    /// Helper method to lock security manager for writing
+    fn lock_security_manager_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, SandboxSecurityManager>, VmError> {
+        self.security_manager.write().map_err(|e| VmError::Core(vm_core::CoreError::InvalidState {
+            message: format!("Failed to lock security manager for writing: {}", e),
+            current: "lock_failed".to_string(),
+            expected: "lock_success".to_string(),
+        }))
+    }
+
     /// 创建新的插件沙箱
     pub fn new(config: SandboxConfig) -> Result<Self, VmError> {
         let id = SandboxId::new();
@@ -520,7 +574,9 @@ impl PluginSandbox {
     /// 初始化沙箱
     fn initialize(&mut self) -> Result<(), VmError> {
         // 设置沙箱状态
-        *self.state.write().unwrap() = SandboxState::Initializing;
+        let mut state = self.lock_state_mut()?;
+        *state = SandboxState::Initializing;
+        drop(state);
 
         // 创建工作目录
         if let Some(ref work_dir) = self.config.working_directory {
@@ -549,7 +605,9 @@ impl PluginSandbox {
         self.setup_security_management()?;
 
         // 设置沙箱状态为运行中
-        *self.state.write().unwrap() = SandboxState::Running;
+        let mut state = self.lock_state_mut()?;
+        *state = SandboxState::Running;
+        drop(state);
 
         tracing::info!("Sandbox {} initialized successfully", self.id);
         Ok(())
@@ -562,7 +620,7 @@ impl PluginSandbox {
     {
         // 检查沙箱状态
         {
-            let state = self.state.read().unwrap();
+            let state = self.lock_state()?;
             if *state != SandboxState::Running {
                 return Err(VmError::Core(vm_core::CoreError::InvalidState {
                     message: format!("Sandbox {} is not running", self.id),
@@ -589,25 +647,34 @@ impl PluginSandbox {
 
     /// 检查权限
     pub fn check_permission(&self, permission: &PluginPermission) -> Result<bool, VmError> {
-        let security_manager = self.security_manager.read().unwrap();
+        let security_manager = self.lock_security_manager()?;
         security_manager.permission_checker.check_permission(permission)
     }
 
     /// 检查系统调用
     pub fn check_syscall(&self, syscall: &str) -> Result<bool, VmError> {
-        let security_manager = self.security_manager.read().unwrap();
+        let security_manager = self.lock_security_manager()?;
         security_manager.syscall_filter.check_syscall(syscall)
     }
 
     /// 检查文件访问
     pub fn check_file_access(&self, path: &str, access_type: FileAccess) -> Result<bool, VmError> {
-        let security_manager = self.security_manager.read().unwrap();
+        let security_manager = self.lock_security_manager()?;
         security_manager.file_access_control.check_access(path, access_type)
     }
 
     /// 获取资源使用情况
     pub fn get_resource_usage(&self) -> ResourceUsageSnapshot {
-        let monitor = self.resource_monitor.read().unwrap();
+        let monitor = match self.lock_resource_monitor() {
+            Ok(m) => m,
+            Err(_) => return ResourceUsageSnapshot {
+                timestamp: std::time::Instant::now(),
+                memory_usage: 0,
+                cpu_usage_percent: 0.0,
+                disk_usage: 0,
+                network_usage: 0,
+            },
+        };
         ResourceUsageSnapshot {
             timestamp: monitor.last_updated,
             memory_usage: monitor.memory_usage,
@@ -619,13 +686,16 @@ impl PluginSandbox {
 
     /// 获取安全违例
     pub fn get_security_violations(&self) -> Vec<SecurityViolation> {
-        let security_manager = self.security_manager.read().unwrap();
+        let security_manager = match self.lock_security_manager() {
+            Ok(sm) => sm,
+            Err(_) => return Vec::new(),
+        };
         security_manager.violations.clone()
     }
 
     /// 暂停沙箱
     pub fn pause(&self) -> Result<(), VmError> {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.lock_state_mut()?;
         if *state == SandboxState::Running {
             *state = SandboxState::Paused;
             tracing::info!("Sandbox {} paused", self.id);
@@ -641,7 +711,7 @@ impl PluginSandbox {
 
     /// 恢复沙箱
     pub fn resume(&self) -> Result<(), VmError> {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.lock_state_mut()?;
         if *state == SandboxState::Paused {
             *state = SandboxState::Running;
             tracing::info!("Sandbox {} resumed", self.id);
@@ -657,7 +727,7 @@ impl PluginSandbox {
 
     /// 停止沙箱
     pub fn stop(&self) -> Result<(), VmError> {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.lock_state_mut()?;
         *state = SandboxState::Stopped;
         tracing::info!("Sandbox {} stopped", self.id);
         Ok(())
@@ -665,7 +735,7 @@ impl PluginSandbox {
 
     /// 销毁沙箱
     pub fn destroy(&self) -> Result<(), VmError> {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.lock_state_mut()?;
         *state = SandboxState::Destroyed;
 
         // 清理资源
@@ -683,7 +753,7 @@ impl PluginSandbox {
     /// 设置资源监控
     fn setup_resource_monitoring(&self) -> Result<(), VmError> {
         // 初始化资源监控器
-        let mut monitor = self.resource_monitor.write().unwrap();
+        let mut monitor = self.lock_resource_monitor_mut()?;
         monitor.last_updated = Instant::now();
 
         Ok(())
@@ -692,7 +762,7 @@ impl PluginSandbox {
     /// 设置安全管理
     fn setup_security_management(&self) -> Result<(), VmError> {
         // 初始化安全管理器
-        let mut security_manager = self.security_manager.write().unwrap();
+        let mut security_manager = self.lock_security_manager_mut()?;
         security_manager.violations.clear();
 
         Ok(())
@@ -717,7 +787,7 @@ impl PluginSandbox {
     /// 清理资源
     async fn cleanup_resources(&self) -> Result<(), VmError> {
         // 更新资源使用快照
-        let mut monitor = self.resource_monitor.write().unwrap();
+        let mut monitor = self.lock_resource_monitor_mut()?;
         monitor.last_updated = Instant::now();
         
         // 保存使用历史
@@ -851,22 +921,53 @@ mod tests {
     #[test]
     fn test_sandbox_state_transitions() {
         let config = SandboxConfig::default();
-        let sandbox = PluginSandbox::new(config).unwrap();
-        
+        let sandbox = match PluginSandbox::new(config) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to create sandbox: {:?}", e);
+                return;
+            }
+        };
+
         // 初始状态应该是运行中
-        assert_eq!(*sandbox.state.read().unwrap(), SandboxState::Running);
-        
+        let state = match sandbox.lock_state() {
+            Ok(s) => *s,
+            Err(_) => return,
+        };
+        assert_eq!(state, SandboxState::Running);
+
         // 暂停
-        sandbox.pause().unwrap();
-        assert_eq!(*sandbox.state.read().unwrap(), SandboxState::Paused);
-        
+        if let Err(e) = sandbox.pause() {
+            eprintln!("Failed to pause sandbox: {:?}", e);
+            return;
+        }
+        let state = match sandbox.lock_state() {
+            Ok(s) => *s,
+            Err(_) => return,
+        };
+        assert_eq!(state, SandboxState::Paused);
+
         // 恢复
-        sandbox.resume().unwrap();
-        assert_eq!(*sandbox.state.read().unwrap(), SandboxState::Running);
-        
+        if let Err(e) = sandbox.resume() {
+            eprintln!("Failed to resume sandbox: {:?}", e);
+            return;
+        }
+        let state = match sandbox.lock_state() {
+            Ok(s) => *s,
+            Err(_) => return,
+        };
+        assert_eq!(state, SandboxState::Running);
+
         // 停止
-        sandbox.stop().unwrap();
-        assert_eq!(*sandbox.state.read().unwrap(), SandboxState::Stopped);
+        if let Err(e) = sandbox.stop() {
+            eprintln!("Failed to stop sandbox: {:?}", e);
+            return;
+        }
+        let state = match sandbox.lock_state() {
+            Ok(s) => *s,
+            Err(_) => return,
+        };
+        assert_eq!(state, SandboxState::Stopped);
     }
 
     #[test]

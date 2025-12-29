@@ -955,7 +955,7 @@ impl JITPerformanceAnalyzer {
         }
 
         let mut sorted_times = times.to_vec();
-        sorted_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let min_ms = sorted_times[0];
         let max_ms = sorted_times[sorted_times.len() - 1];
@@ -1140,7 +1140,9 @@ impl JITPerformanceAnalyzer {
             return Err("No data available for cache size analysis".to_string());
         }
 
-        let current_size_mb = history.last().unwrap().cache_stats.size_bytes as f64 / (1024.0 * 1024.0);
+        let last = history.last()
+            .ok_or_else(|| "Failed to get last history entry".to_string())?;
+        let current_size_mb = last.cache_stats.size_bytes as f64 / (1024.0 * 1024.0);
         let recommended_size_mb = current_size_mb * 1.2; // 简单建议增加20%
         let expected_improvement = 15.0; // 预期15%性能提升
 
@@ -1195,7 +1197,8 @@ impl JITPerformanceAnalyzer {
 
         // 计算内存分布
         let distribution = if !history.is_empty() {
-            let last = history.last().unwrap();
+            let last = history.last()
+                .ok_or_else(|| "Failed to get last history entry for distribution".to_string())?;
             let total = last.memory_stats.total_memory_bytes as f64;
             
             let code_ratio = if total > 0.0 {
@@ -1239,7 +1242,8 @@ impl JITPerformanceAnalyzer {
 
         // 内存碎片分析
         let fragmentation_analysis = if !history.is_empty() {
-            let last = history.last().unwrap();
+            let last = history.last()
+                .ok_or_else(|| "Failed to get last history entry for fragmentation".to_string())?;
             FragmentationAnalysis {
                 external_fragmentation: last.memory_stats.fragmentation_ratio * 0.7,
                 internal_fragmentation: last.memory_stats.fragmentation_ratio * 0.3,

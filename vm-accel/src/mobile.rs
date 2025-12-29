@@ -233,18 +233,17 @@ impl MobileOptimizer {
                 _ => "",
             };
 
-            if !extension_name.is_empty() {
-                if let Some(ext) = self.extension_detector.find_extension(extension_name) {
-                    if ext.is_available() {
-                        log::info!("  - {}: enabled", extension_name);
-                        let features = ext.get_features();
-                        log::info!(
-                            "    - Supports AI inference: {}",
-                            features.supports_ai_inference
-                        );
-                        log::info!("    - Max vector width: {} bits", features.max_vector_width);
-                    }
-                }
+            if !extension_name.is_empty()
+                && let Some(ext) = self.extension_detector.find_extension(extension_name)
+                && ext.is_available()
+            {
+                log::info!("  - {}: enabled", extension_name);
+                let features = ext.get_features();
+                log::info!(
+                    "    - Supports AI inference: {}",
+                    features.supports_ai_inference
+                );
+                log::info!("    - Max vector width: {} bits", features.max_vector_width);
             }
         }
     }

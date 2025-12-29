@@ -13,8 +13,8 @@
 
 use parking_lot::RwLock;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 网络数据包
 #[derive(Clone, Debug)]
@@ -596,7 +596,7 @@ mod tests {
         let data = vec![42u8; 4096];
         assert!(block.write_blocks(0, data.clone()));
 
-        let read_data = block.read_blocks(0, 1).unwrap();
+        let read_data = block.read_blocks(0, 1).expect("Failed to read blocks");
         assert_eq!(read_data, data);
 
         let stats = block.get_stats();

@@ -1,0 +1,17 @@
+[package]
+name = "vm-cross-arch-support"
+version = "0.1.0"
+edition = "2024"
+description = "Consolidated cross-architecture support utilities for VM translation"
+
+[dependencies]
+vm-foundation = { path = "../vm-foundation" }
+vm-ir = { path = "../vm-ir" }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+log = { workspace = true }
+static_assertions = "1.1"
+
+[features]
+default = ["std"]
+std = []

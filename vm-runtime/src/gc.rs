@@ -1,16 +1,19 @@
 //! Garbage Collector Runtime for VM
 //!
 //! Provides garbage collection functionality integrated with the VM runtime.
-//! This module consolidates GC functionality from vm-boot and gc-optimizer.
+//! This module consolidates GC functionality from vm-boot and vm-optimizers.
 
 use parking_lot::RwLock;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Instant;
 
-/// Re-export gc-optimizer types
-pub use gc_optimizer::{
-    AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcStats,
-    LockFreeWriteBarrier, OptimizedGc, ParallelMarker, WriteBarrierType,
+/// Re-export vm-optimizers GC types
+pub use vm_optimizers::gc::{
+    AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcStats, LockFreeWriteBarrier,
+    OptimizedGc, ParallelMarker, WriteBarrierType,
 };
 
 /// GC runtime manager
@@ -65,21 +68,25 @@ impl GcRuntime {
         let stats = self.gc.get_stats();
         let total_allocs = stats.alloc_stats.total_allocs;
         let bytes_used = stats.alloc_stats.bytes_used;
-        
+
         let trigger_threshold = 10000u64;
-        
-        if total_allocs >= trigger_threshold {
-            if let Ok(_) = self.gc.collect_minor(bytes_used) {
-                let mut runtime_stats = self.stats.write();
-                runtime_stats.total_collections += 1;
-                runtime_stats.last_collection_time = Some(Instant::now());
-                return true;
-            }
+
+        if total_allocs >= trigger_threshold && self.gc.collect_minor(bytes_used).is_ok() {
+            let mut runtime_stats = self.stats.write();
+            runtime_stats.total_collections += 1;
+            runtime_stats.last_collection_time = Some(Instant::now());
+            return true;
         }
         false
     }
 
-    pub fn update_cache_stats(&self, total_entries: usize, hot_entries: usize, cold_entries: usize, hit_rate: f64) {
+    pub fn update_cache_stats(
+        &self,
+        total_entries: usize,
+        hot_entries: usize,
+        cold_entries: usize,
+        hit_rate: f64,
+    ) {
         let mut stats = self.stats.write();
         stats.total_entries = total_entries;
         stats.hot_entries = hot_entries;
@@ -91,7 +98,7 @@ impl GcRuntime {
         if !self.is_enabled() {
             return;
         }
-        
+
         let stats = self.gc.get_stats();
         let _ = self.gc.collect_major(stats.alloc_stats.bytes_used);
     }
@@ -123,12 +130,12 @@ mod tests {
     #[test]
     fn test_gc_runtime_enabled() {
         let gc_runtime = GcRuntime::new(4, 10_000, WriteBarrierType::Atomic);
-        
+
         assert!(gc_runtime.is_enabled());
-        
+
         gc_runtime.set_enabled(false);
         assert!(!gc_runtime.is_enabled());
-        
+
         gc_runtime.set_enabled(true);
         assert!(gc_runtime.is_enabled());
     }
@@ -136,9 +143,9 @@ mod tests {
     #[test]
     fn test_gc_runtime_disabled_no_collection() {
         let gc_runtime = GcRuntime::new(4, 10_000, WriteBarrierType::Atomic);
-        
+
         gc_runtime.set_enabled(false);
-        
+
         let result = gc_runtime.check_and_run_gc_step();
         assert!(!result);
     }
@@ -146,9 +153,9 @@ mod tests {
     #[test]
     fn test_cache_stats_update() {
         let gc_runtime = GcRuntime::new(4, 10_000, WriteBarrierType::Atomic);
-        
+
         gc_runtime.update_cache_stats(100, 80, 20, 0.95);
-        
+
         let stats = gc_runtime.get_runtime_stats();
         assert_eq!(stats.total_entries, 100);
         assert_eq!(stats.hot_entries, 80);

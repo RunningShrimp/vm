@@ -82,22 +82,26 @@ impl JITEngineBenchmarkSuite {
             // 测量编译时间
             let start_time = Instant::now();
             {
-                let mut engine = self.jit_engine.lock().unwrap();
+                let mut engine = self.jit_engine.lock().map_err(|_| {
+                    VmError::InvalidState("JIT引擎互斥锁被污染".to_string())
+                })?;
                 // 简化实现：模拟编译
                 std::thread::sleep(Duration::from_micros(size as u64));
             }
             let compilation_time = start_time.elapsed();
-            
+
             compilation_times.push(compilation_time);
-            
+
             println!("  大小: {}, 编译时间: {:?}", size, compilation_time);
         }
-        
+
         // 计算统计信息
         let total_time: Duration = compilation_times.iter().sum();
         let average_time = total_time / compilation_times.len() as u32;
-        let min_time = compilation_times.iter().min().unwrap();
-        let max_time = compilation_times.iter().max().unwrap();
+        let min_time = *compilation_times.iter().min()
+            .ok_or_else(|| VmError::InvalidState("编译时间列表为空，无法计算最小值".to_string()))?;
+        let max_time = *compilation_times.iter().max()
+            .ok_or_else(|| VmError::InvalidState("编译时间列表为空，无法计算最大值".to_string()))?;
         
         // 存储结果
         let result = BenchmarkResult {
@@ -185,24 +189,28 @@ impl JITEngineBenchmarkSuite {
             // 测量内存使用
             let memory_before = self.get_memory_usage();
             {
-                let mut engine = self.jit_engine.lock().unwrap();
+                let mut engine = self.jit_engine.lock().map_err(|_| {
+                    VmError::InvalidState("JIT引擎互斥锁被污染".to_string())
+                })?;
                 // 简化实现：模拟内存分配
                 let _compiled_code = vec![0u8; size * 10];
                 std::hint::black_box(&_compiled_code);
             }
             let memory_after = self.get_memory_usage();
-            
+
             let memory_usage = memory_after.saturating_sub(memory_before);
             memory_usages.push(memory_usage);
-            
+
             println!("  大小: {}, 内存使用: {} bytes", size, memory_usage);
         }
-        
+
         // 计算统计信息
         let total_memory: u64 = memory_usages.iter().sum();
         let average_memory = total_memory / memory_usages.len() as u64;
-        let min_memory = memory_usages.iter().min().unwrap();
-        let max_memory = memory_usages.iter().max().unwrap();
+        let min_memory = *memory_usages.iter().min()
+            .ok_or_else(|| VmError::InvalidState("内存使用列表为空，无法计算最小值".to_string()))?;
+        let max_memory = *memory_usages.iter().max()
+            .ok_or_else(|| VmError::InvalidState("内存使用列表为空，无法计算最大值".to_string()))?;
         
         // 存储结果
         let result = BenchmarkResult {
@@ -348,9 +356,11 @@ impl JITEngineBenchmarkSuite {
                     })
                 })
                 .collect();
-            
+
             for handle in handles {
-                handle.join().unwrap();
+                handle.join().map_err(|_| {
+                    VmError::InvalidState("线程执行时发生panic".to_string())
+                })?;
             }
             
             let execution_time = start_time.elapsed();

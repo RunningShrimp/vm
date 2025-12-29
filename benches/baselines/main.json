@@ -1,0 +1,126 @@
+{
+  "cross_arch_x86_64_to_arm64": {
+    "value": 1.55,
+    "unit": "ms",
+    "description": "Cross-architecture translation overhead",
+    "date": "2025-12-28"
+  },
+  "cross_arch_x86_64_to_riscv64": {
+    "value": 1.75,
+    "unit": "ms",
+    "description": "Cross-architecture translation overhead",
+    "date": "2025-12-28"
+  },
+  "jit_compile_tier1": {
+    "value": 0.15,
+    "unit": "ms",
+    "description": "Tier 1 JIT compilation time",
+    "code_size_bytes": 512,
+    "date": "2025-12-28"
+  },
+  "jit_compile_tier2": {
+    "value": 0.85,
+    "unit": "ms",
+    "description": "Tier 2 JIT compilation time",
+    "code_size_bytes": 2048,
+    "date": "2025-12-28"
+  },
+  "jit_optimization": {
+    "value": 1.2,
+    "unit": "ms",
+    "description": "JIT optimization pass time",
+    "date": "2025-12-28"
+  },
+  "gc_pause_small": {
+    "value": 2.5,
+    "unit": "ms",
+    "description": "GC pause time for small heap (<100MB)",
+    "date": "2025-12-28"
+  },
+  "gc_pause_large": {
+    "value": 15.8,
+    "unit": "ms",
+    "description": "GC pause time for large heap (>500MB)",
+    "date": "2025-12-28"
+  },
+  "gc_throughput": {
+    "value": 850,
+    "unit": "MB/s",
+    "description": "GC throughput (memory processed per second)",
+    "date": "2025-12-28"
+  },
+  "memory_allocation_small": {
+    "value": 0.05,
+    "unit": "ms",
+    "description": "Small memory allocation time (<1KB)",
+    "date": "2025-12-28"
+  },
+  "memory_allocation_large": {
+    "value": 0.25,
+    "unit": "ms",
+    "description": "Large memory allocation time (>1MB)",
+    "date": "2025-12-28"
+  },
+  "tlb_hit_rate": {
+    "value": 95.0,
+    "unit": "percent",
+    "description": "TLB cache hit rate",
+    "date": "2025-12-28"
+  },
+  "tlb_lookup_time": {
+    "value": 0.02,
+    "unit": "ms",
+    "description": "Average TLB lookup time",
+    "date": "2025-12-28"
+  },
+  "async_task_spawn": {
+    "value": 0.01,
+    "unit": "ms",
+    "description": "Async task spawn overhead",
+    "date": "2025-12-28"
+  },
+  "async_await": {
+    "value": 0.03,
+    "unit": "ms",
+    "description": "Async await overhead",
+    "date": "2025-12-28"
+  },
+  "lock_contention_low": {
+    "value": 0.05,
+    "unit": "ms",
+    "description": "Lock acquisition time (low contention)",
+    "date": "2025-12-28"
+  },
+  "lock_contention_high": {
+    "value": 0.50,
+    "unit": "ms",
+    "description": "Lock acquisition time (high contention)",
+    "date": "2025-12-28"
+  },
+  "vm_instruction_execution": {
+    "value": 0.1,
+    "unit": "ms",
+    "description": "Average instruction execution time",
+    "instructions_per_second": 10000000,
+    "date": "2025-12-28"
+  },
+  "snapshot_create": {
+    "value": 125.0,
+    "unit": "ms",
+    "description": "Snapshot creation time (for 100MB state)",
+    "date": "2025-12-28"
+  },
+  "snapshot_restore": {
+    "value": 95.0,
+    "unit": "ms",
+    "description": "Snapshot restore time (for 100MB state)",
+    "date": "2025-12-28"
+  },
+  "notes": [
+    "These are initial baseline measurements",
+    "Values will be updated automatically after each benchmark run",
+    "Regressions beyond 10% will trigger alerts",
+    "Improvements beyond 5% will be noted",
+    "Last updated: 2025-12-28"
+  ]
+}

@@ -1,0 +1,15 @@
+[package]
+name = "vm-frontend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
+vm-mem = { path = "../vm-mem", optional = true }
+vm-accel = { path = "../vm-accel", optional = true }
+
+[features]
+default = []
+# All architectures enabled (recommended)
+all = ["vm-mem", "vm-accel"]

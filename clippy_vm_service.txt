@@ -1,0 +1,160 @@
+    Checking vm-service v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-service)
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> vm-service/src/vm_service/execution.rs:33:9
+   |
+33 |         Option<Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+   = note: `-D clippy::type-complexity` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> vm-service/src/vm_service/execution.rs:35:21
+   |
+35 |     pub irq_policy: Option<Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: redundant closure
+  --> vm-service/src/vm_service/kernel_loader.rs:35:18
+   |
+35 |         .map_err(|e| VmError::from(e))?;
+   |                  ^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the associated function itself: `VmError::from`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#redundant_closure
+   = note: `-D clippy::redundant-closure` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::redundant_closure)]`
+
+error: useless conversion to the same type: `vm_core::CoreVmError`
+  --> vm-service/src/vm_service/kernel_loader.rs:35:22
+   |
+35 |         .map_err(|e| VmError::from(e))?;
+   |                      ^^^^^^^^^^^^^^^^ help: consider removing `VmError::from()`: `e`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#useless_conversion
+   = note: `-D clippy::useless-conversion` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::useless_conversion)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> vm-service/src/vm_service.rs:40:9
+   |
+40 |         Option<Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> vm-service/src/vm_service.rs:42:17
+   |
+42 |     irq_policy: Option<Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: this `MutexGuard` is held across an await point
+   --> vm-service/src/vm_service.rs:254:17
+    |
+254 | /                 self.state.lock().map_err(|_| {
+255 | |                     VmError::Core(vm_core::CoreError::Internal {
+256 | |                         message: "Failed to acquire state lock".to_string(),
+257 | |                         module: "VirtualMachineService".to_string(),
+258 | |                     })
+259 | |                 })?.clone()
+    | |___________________^
+    |
+    = help: consider using an async-aware `Mutex` type or ensuring the `MutexGuard` is dropped before calling `await`
+note: these are all the await points this lock is held through
+   --> vm-service/src/vm_service.rs:263:11
+    |
+263 |         ).await
+    |           ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_lock
+    = note: `-D clippy::await-holding-lock` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::await_holding_lock)]`
+
+error: this `MutexGuard` is held across an await point
+   --> vm-service/src/vm_service.rs:279:17
+    |
+279 | /                 self.state.lock().map_err(|_| {
+280 | |                     VmError::Core(vm_core::CoreError::Internal {
+281 | |                         message: "Failed to acquire state lock".to_string(),
+282 | |                         module: "VirtualMachineService".to_string(),
+283 | |                     })
+284 | |                 })?.clone()
+    | |___________________^
+    |
+    = help: consider using an async-aware `Mutex` type or ensuring the `MutexGuard` is dropped before calling `await`
+note: these are all the await points this lock is held through
+   --> vm-service/src/vm_service.rs:287:11
+    |
+287 |         ).await
+    |           ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_lock
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-service/src/vm_service.rs:415:12
+    |
+415 |         h: Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>,
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-service/src/vm_service.rs:529:9
+    |
+529 |         cfg.cold_threshold = min;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `vm_engine_jit::AdaptiveThresholdConfig { cold_threshold: min, hot_threshold: max, ..Default::default() }` and removing relevant reassignments
+   --> vm-service/src/vm_service.rs:528:9
+    |
+528 |         let mut cfg = AdaptiveThresholdConfig::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+    = note: `-D clippy::field-reassign-with-default` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: this `MutexGuard` is held across an await point
+   --> vm-service/src/vm_service.rs:628:13
+    |
+628 |         let state = self.state.lock().map_err(|_| {
+    |             ^^^^^
+    |
+    = help: consider using an async-aware `Mutex` type or ensuring the `MutexGuard` is dropped before calling `await`
+note: these are all the await points this lock is held through
+   --> vm-service/src/vm_service.rs:683:75
+    |
+683 |         run_async(&ctx, start_pc, base_mmu, debug, vcpu_count, exec_mode).await
+    |                                                                           ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_lock
+
+error: usage of an `Arc` that is not `Send` and `Sync`
+   --> vm-service/src/vm_service.rs:660:18
+    |
+660 |               Some(Arc::new(vm_runtime::CoroutineScheduler::new().map_err(|e| {
+    |  __________________^
+661 | |                 VmError::Core(vm_core::CoreError::Internal {
+662 | |                     message: format!("Failed to create coroutine scheduler: {}", e),
+663 | |                     module: "VirtualMachineService".to_string(),
+664 | |                 })
+665 | |             })?))
+    | |________________^
+    |
+    = note: `Arc<CoroutineScheduler>` is not `Send` and `Sync` as `CoroutineScheduler` is not `Sync`
+    = help: if the `Arc` will not be used across threads replace it with an `Rc`
+    = help: otherwise make `CoroutineScheduler` `Send` and `Sync` or consider a wrapper type such as `Mutex`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#arc_with_non_send_sync
+    = note: `-D clippy::arc-with-non-send-sync` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::arc_with_non_send_sync)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> vm-service/src/lib.rs:114:12
+    |
+114 |         h: Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>,
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: could not compile `vm-service` (lib) due to 13 previous errors

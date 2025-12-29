@@ -7,33 +7,39 @@ edition = "2024"
 path = "src/lib.rs"
 
 [features]
-default = ["async-io", "smoltcp", "std"]
+default = ["std"]
 std = []
-async-io = []
-io_uring = ["tokio-uring"]
+# Network stack support (using smoltcp)
 smoltcp = ["dep:smoltcp"]
-simple-devices = []
+# SMMU support (IOMMU for device DMA)
+smmu = ["dep:vm-smmu", "vm-accel/smmu"]
 
 [dependencies]
 vm-core = { path = "../vm-core" }
 vm-osal = { path = "../vm-osal" }
 vm-passthrough = { path = "../vm-passthrough" }
 vm-mem = { path = "../vm-mem" }
-bincode = "1.3"
-serde = { version = "1.0", features = ["derive"] }
-wgpu = "27"
-winit = "0.30"
-pollster = "0.4"
-log = "0.4"
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-parking_lot = "0.12.5"
-uuid = { version = "1", features = ["v4"] }
-libc = "0.2"
-smoltcp = { version = "0.12", optional = true }
+vm-accel = { path = "../vm-accel", optional = true }
+vm-smmu = { path = "../vm-smmu", optional = true }
+bincode = { workspace = true }
+serde = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+pollster = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+# vm-device uses: sync (Mutex, mpsc, oneshot, Semaphore), rt-multi-thread (tokio::spawn), fs (File), io-util (AsyncReadExt, AsyncSeekExt, AsyncWriteExt), time (sleep), macros (tokio::test)
+tokio = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+libc = { workspace = true }
+smoltcp = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
 
 # Platform-specific dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
-tokio-uring = { version = "0.5", optional = true }
+tokio-uring = { workspace = true, optional = true }
 # vfio-ioctls = "0.4"  # Temporarily disabled due to dependency conflicts with kvm-ioctls
-vfio-bindings = "0.6"
+vfio-bindings = { workspace = true }

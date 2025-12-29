@@ -98,7 +98,10 @@ mod tests {
         }
 
         for handle in handles {
-            handle.join().unwrap();
+            match handle.join() {
+                Ok(_) => {},
+                Err(_) => panic!("Thread panicked"),
+            }
         }
 
         assert_eq!(counter.get(), 1000);
@@ -121,13 +124,31 @@ mod tests {
     fn test_lockfree_queue_basic() {
         let queue: LockFreeQueue<i32> = LockFreeQueue::new();
 
-        queue.push(1).unwrap();
-        queue.push(2).unwrap();
-        queue.push(3).unwrap();
+        if let Err(e) = queue.push(1) {
+            panic!("Failed to push to queue: {:?}", e);
+        }
+        if let Err(e) = queue.push(2) {
+            panic!("Failed to push to queue: {:?}", e);
+        }
+        if let Err(e) = queue.push(3) {
+            panic!("Failed to push to queue: {:?}", e);
+        }
 
-        assert_eq!(queue.pop().unwrap(), 1);
-        assert_eq!(queue.pop().unwrap(), 2);
-        assert_eq!(queue.pop().unwrap(), 3);
+        match queue.pop() {
+            Ok(Some(val)) => assert_eq!(val, 1),
+            Ok(None) => panic!("Expected value, got None"),
+            Err(e) => panic!("Failed to pop from queue: {:?}", e),
+        }
+        match queue.pop() {
+            Ok(Some(val)) => assert_eq!(val, 2),
+            Ok(None) => panic!("Expected value, got None"),
+            Err(e) => panic!("Failed to pop from queue: {:?}", e),
+        }
+        match queue.pop() {
+            Ok(Some(val)) => assert_eq!(val, 3),
+            Ok(None) => panic!("Expected value, got None"),
+            Err(e) => panic!("Failed to pop from queue: {:?}", e),
+        }
         assert!(queue.try_pop().is_none());
     }
 
@@ -141,9 +162,15 @@ mod tests {
         assert!(map.get(&1).is_none());
 
         // 测试插入
-        map.insert(1, "one").unwrap();
-        map.insert(2, "two").unwrap();
-        map.insert(3, "three").unwrap();
+        if let Err(e) = map.insert(1, "one") {
+            panic!("Failed to insert into hashmap: {:?}", e);
+        }
+        if let Err(e) = map.insert(2, "two") {
+            panic!("Failed to insert into hashmap: {:?}", e);
+        }
+        if let Err(e) = map.insert(3, "three") {
+            panic!("Failed to insert into hashmap: {:?}", e);
+        }
 
         assert!(!map.is_empty());
         assert_eq!(map.len(), 3);

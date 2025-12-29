@@ -1,8 +1,152 @@
-//! Cache Management Domain Service
+//! # Cache Management Domain Service
 //!
 //! This service encapsulates business logic for cache management
 //! including cache replacement strategies, promotion/demotion logic,
 //! prefetch strategies, and cache sizing policies.
+//!
+//! ## Domain Responsibilities
+//!
+//! The cache management service is responsible for:
+//!
+//! 1. **Cache Hierarchy Management**: Managing multi-tier cache hierarchies (L1, L2, L3)
+//! 2. **Replacement Policies**: Implementing various cache replacement strategies
+//! 3. **Promotion/Demotion**: Managing data movement between cache tiers
+//! 4. **Prefetching**: Predicting and prefetching likely-to-be-accessed data
+//! 5. **Cache Sizing**: Dynamically adjusting cache sizes based on workload
+//! 6. **Statistics Collection**: Tracking cache performance metrics
+//!
+//! ## DDD Patterns
+//!
+//! ### Domain Service Pattern
+//! This is a **Domain Service** because:
+//! - It manages complex caching strategies that span multiple aggregates
+//! - It coordinates cache operations across different system components
+//! - It encapsulates business logic for cache optimization policies
+//!
+//! ### Domain Events Published
+//!
+//! - **`OptimizationEvent::CacheHit`**: Published on cache hit
+//! - **`OptimizationEvent::CacheMiss`**: Published on cache miss
+//! - **`OptimizationEvent::CachePut`**: Published when entry is added to cache
+//! - **`OptimizationEvent::CacheEviction`**: Published when entry is evicted
+//! - **`OptimizationEvent::CachePromotion`**: Published when entry is promoted to higher tier
+//! - **`OptimizationEvent::CachePrefetch`**: Published when prefetch is performed
+//!
+//! ## Cache Hierarchy
+//!
+//! The service supports multi-tier cache hierarchies:
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────┐
+//! │                   L1 Cache                       │
+//! │  Smallest, Fastest (1-32 KB)                    │
+//! │  Latency: 1-4 cycles                            │
+//! └─────────────────────────────────────────────────┘
+//!                    │
+//!                    ▼ Promote/Demote
+//! ┌─────────────────────────────────────────────────┐
+//! │                   L2 Cache                       │
+//! │  Medium size (128-512 KB)                       │
+//! │  Latency: 5-12 cycles                           │
+//! └─────────────────────────────────────────────────┘
+//!                    │
+//!                    ▼ Promote/Demote
+//! ┌─────────────────────────────────────────────────┐
+//! │                   L3 Cache                       │
+//! │  Largest (2-32 MB)                              │
+//! │  Latency: 20-60 cycles                          │
+//! └─────────────────────────────────────────────────┘
+//! ```
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Cache Operations
+//!
+//! ```rust
+//! use crate::domain_services::cache_management_service::{
+//!     CacheManagementDomainService, CachePolicy, CacheConfig
+//! };
+//!
+//! let config = CacheConfig {
+//!     capacity: 1024 * 1024,  // 1MB
+//!     policy: CachePolicy::LRU,
+//!     tier: CacheTier::L2,
+//! };
+//!
+//! let service = CacheManagementDomainService::new(config);
+//!
+//! // Insert data
+//! service.put(0x1000, vec![0x01, 0x02, 0x03])?;
+//!
+//! // Get data
+//! let data = service.get(0x1000)?;
+//! ```
+//!
+//! ### Multi-Tier Cache Management
+//!
+//! ```rust
+//! let l1_config = CacheConfig {
+//!     capacity: 32 * 1024,  // 32KB
+//!     policy: CachePolicy::LRU,
+//!     tier: CacheTier::L1,
+//! };
+//!
+//! let l2_config = CacheConfig {
+//!     capacity: 512 * 1024,  // 512KB
+//!     policy: CachePolicy::LFU,
+//!     tier: CacheTier::L2,
+//! };
+//!
+//! let l1_cache = CacheManagementDomainService::new(l1_config);
+//! let l2_cache = CacheManagementDomainService::new(l2_config);
+//!
+//! // Automatic promotion/demotion
+//! let data = l1_cache.get_or_promote(0x1000, &l2_cache)?;
+//! ```
+//!
+//! ### Prefetching
+//!
+//! ```rust
+//! // Detect access pattern
+//! let pattern = service.detect_pattern(&access_history)?;
+//!
+//! // Prefetch based on pattern
+//! service.prefetch(&pattern)?;
+//! ```
+//!
+//! ## Cache Replacement Policies
+//!
+//! | Policy | Description | Use Case |
+//! |--------|-------------|----------|
+//! | **LRU** | Least Recently Used | General-purpose workloads |
+//! | **LFU** | Least Frequently Used | Stable access patterns |
+//! | **FIFO** | First In First Out | Simple workloads |
+//! | **Adaptive** | Dynamic policy selection | Variable workloads |
+//! | **Random** | Random replacement | Uniform access patterns |
+//!
+//! ## Cache Performance Metrics
+//!
+//! The service tracks:
+//!
+//! - **Hit Rate**: `hits / total_accesses`
+//! - **Miss Rate**: `misses / total_accesses`
+//! - **Eviction Rate**: `evictions / total_accesses`
+//! - **Average Access Time**: Mean time for cache operations
+//! - **Promotion/Demotion Counts**: Tier movement statistics
+//!
+//! ## Prefetching Strategies
+//!
+//! 1. **Sequential**: Detect sequential access patterns
+//! 2. **Strided**: Detect fixed-stride patterns
+//! 3. **Spatial**: Prefetch adjacent cache lines
+//! 4. **Adaptive**: Learn and adapt to workload patterns
+//!
+//! ## Integration with Aggregate Roots
+//!
+//! This service works with:
+//! - **`VirtualMachineAggregate`**: VM-wide cache management
+//! - **`CodeBlockAggregate`**: Code block caching
+//! - **`TranslationCacheAggregate`**: Translation result caching
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -302,26 +446,34 @@ impl CacheManagementDomainService {
 
         // Search from L1 to L3
         for tier in &self.config.tiers {
-            if let Some(entry) = self.cache_tiers.get_mut(&tier.name).unwrap().get_mut(&key) {
+            let cache_tier = match self.cache_tiers.get_mut(&tier.name) {
+                Some(tier) => tier,
+                None => continue,
+            };
+
+            if let Some(entry) = cache_tier.get_mut(&key) {
                 // Update access metadata
                 entry.access_count += 1;
                 entry.last_access = std::time::Instant::now();
 
                 // Update LRU order
-                let lru_order = self.lru_order.get_mut(&tier.name).unwrap();
-                if let Some(pos) = lru_order.iter().position(|&k| k == key) {
-                    lru_order.remove(pos);
+                if let Some(lru_order) = self.lru_order.get_mut(&tier.name) {
+                    if let Some(pos) = lru_order.iter().position(|&k| k == key) {
+                        lru_order.remove(pos);
+                    }
+                    lru_order.push_back(key);
                 }
-                lru_order.push_back(key);
 
                 // Update access frequencies
-                let frequencies = self.access_frequencies.get_mut(&tier.name).unwrap();
-                *frequencies.entry(key).or_insert(0) += 1;
+                if let Some(frequencies) = self.access_frequencies.get_mut(&tier.name) {
+                    *frequencies.entry(key).or_insert(0) += 1;
+                }
 
                 // Update statistics
-                let stats = self.statistics.get_mut(&tier.name).unwrap();
-                stats.total_accesses += 1;
-                stats.hits += 1;
+                if let Some(stats) = self.statistics.get_mut(&tier.name) {
+                    stats.total_accesses += 1;
+                    stats.hits += 1;
+                }
 
                 // Promote to higher tier if needed
                 if tier.name != "L1" && self.should_promote(entry, tier) {
@@ -338,9 +490,10 @@ impl CacheManagementDomainService {
                 return Ok(Some(entry.data.clone()));
             } else {
                 // Update statistics for miss
-                let stats = self.statistics.get_mut(&tier.name).unwrap();
-                stats.total_accesses += 1;
-                stats.misses += 1;
+                if let Some(stats) = self.statistics.get_mut(&tier.name) {
+                    stats.total_accesses += 1;
+                    stats.misses += 1;
+                }
             }
         }
 
@@ -453,7 +606,10 @@ impl CacheManagementDomainService {
                 },
                 PrefetchStrategy::Adaptive => {
                     // Adaptive prefetching based on recent hit rates
-                    let stats = self.statistics.get(&tier.name).unwrap();
+                    let stats = match self.statistics.get(&tier.name) {
+                        Some(s) => s,
+                        None => continue,
+                    };
                     if stats.hit_rate() > 0.8 && pattern.confidence >= self.config.min_prefetch_confidence {
                         // High hit rate, be more aggressive with prefetching
                         for i in 1..=self.config.max_prefetch_distance {
@@ -554,8 +710,14 @@ impl CacheManagementDomainService {
         }
 
         // Get the entry
-        let entry = self.cache_tiers.get_mut(from_tier).unwrap()
-            .remove(&key)
+        let from_cache = self.cache_tiers.get_mut(from_tier)
+            .ok_or_else(|| VmError::Core(crate::CoreError::InvalidState {
+                message: format!("Tier not found: {}", from_tier),
+                current: format!("tier {}", from_tier),
+                expected: "existing tier".to_string(),
+            }))?;
+
+        let entry = from_cache.remove(&key)
             .ok_or_else(|| VmError::Core(crate::CoreError::InvalidState {
                 message: format!("Entry not found in tier: {}", from_tier),
                 current: format!("key {}", key),
@@ -563,14 +725,15 @@ impl CacheManagementDomainService {
             }))?;
 
         // Remove from LRU order
-        let lru_order = self.lru_order.get_mut(from_tier).unwrap();
-        if let Some(pos) = lru_order.iter().position(|&k| k == key) {
-            lru_order.remove(pos);
+        if let Some(lru_order) = self.lru_order.get_mut(from_tier) {
+            if let Some(pos) = lru_order.iter().position(|&k| k == key) {
+                lru_order.remove(pos);
+            }
         }
 
         // Get the target tier
         let target_tier = &self.config.tiers[tier_index - 1];
-        
+
         // Make sure it fits in the target tier
         if !self.can_fit_in_tier(&entry, &target_tier.name) {
             // Evict from target tier if needed
@@ -581,8 +744,9 @@ impl CacheManagementDomainService {
         self.put_in_tier(entry, &target_tier.name)?;
 
         // Update statistics
-        let stats = self.statistics.get_mut(from_tier).unwrap();
-        stats.promotions += 1;
+        if let Some(stats) = self.statistics.get_mut(from_tier) {
+            stats.promotions += 1;
+        }
 
         // Publish promotion event
         self.publish_optimization_event(OptimizationEvent::CachePromotion {
@@ -596,9 +760,11 @@ impl CacheManagementDomainService {
 
     /// Check if an entry fits in a tier
     fn can_fit_in_tier(&self, entry: &CacheEntry, tier_name: &str) -> bool {
-        let _tier_config = self.config.tiers.iter()
-            .find(|t| t.name == tier_name)
-            .unwrap();
+        let tier_config = match self.config.tiers.iter()
+            .find(|t| t.name == tier_name) {
+                Some(config) => config,
+                None => return false,
+            };
 
         let current_usage = self.get_tier_usage(tier_name);
         current_usage + entry.size <= tier_config.capacity
@@ -606,9 +772,13 @@ impl CacheManagementDomainService {
 
     /// Put an entry in a specific tier
     fn put_in_tier(&mut self, entry: CacheEntry, tier_name: &str) -> VmResult<()> {
-        let _tier_config = self.config.tiers.iter()
-            .find(|t| t.name == tier_name)
-            .unwrap();
+        let _tier_config = match self.config.tiers.iter()
+            .find(|t| t.name == tier_name) {
+                Some(config) => config,
+                None => return Err(VmError::Core(crate::CoreError::InvalidConfig {
+                    message: format!("Tier not found: {}", tier_name),
+                })),
+            };
 
         // Evict if needed
         if !self.can_fit_in_tier(&entry, tier_name) {
@@ -616,47 +786,79 @@ impl CacheManagementDomainService {
         }
 
         // Insert entry
-        self.cache_tiers.get_mut(tier_name).unwrap().insert(entry.key, entry.clone());
-        
+        let cache = self.cache_tiers.get_mut(tier_name)
+            .ok_or_else(|| VmError::Core(crate::CoreError::InvalidState {
+                message: format!("Tier not found: {}", tier_name),
+                current: format!("tier {}", tier_name),
+                expected: "existing tier".to_string(),
+            }))?;
+        cache.insert(entry.key, entry.clone());
+
         // Update LRU order
-        self.lru_order.get_mut(tier_name).unwrap().push_back(entry.key);
-        
+        if let Some(lru_order) = self.lru_order.get_mut(tier_name) {
+            lru_order.push_back(entry.key);
+        }
+
         // Update access frequencies
-        self.access_frequencies.get_mut(tier_name).unwrap().insert(entry.key, 1);
+        if let Some(frequencies) = self.access_frequencies.get_mut(tier_name) {
+            frequencies.insert(entry.key, 1);
+        }
 
         Ok(())
     }
 
     /// Evict entries from a tier to make space
     fn evict_from_tier(&mut self, tier_name: &str, needed_space: usize) -> VmResult<()> {
-        let _tier_config = self.config.tiers.iter()
-            .find(|t| t.name == tier_name)
-            .unwrap();
+        let tier_config = match self.config.tiers.iter()
+            .find(|t| t.name == tier_name) {
+                Some(config) => config,
+                None => return Err(VmError::Core(crate::CoreError::InvalidConfig {
+                    message: format!("Tier not found: {}", tier_name),
+                })),
+            };
+
+        let cache = self.cache_tiers.get_mut(tier_name)
+            .ok_or_else(|| VmError::Core(crate::CoreError::InvalidState {
+                message: format!("Tier not found: {}", tier_name),
+                current: format!("tier {}", tier_name),
+                expected: "existing tier".to_string(),
+            }))?;
+
+        let lru_order = self.lru_order.get_mut(tier_name)
+            .ok_or_else(|| VmError::Core(crate::CoreError::InvalidState {
+                message: format!("LRU order not found for tier: {}", tier_name),
+                current: format!("tier {}", tier_name),
+                expected: "existing LRU order".to_string(),
+            }))?;
 
         let mut freed_space = 0;
-        let cache = self.cache_tiers.get_mut(tier_name).unwrap();
-        let lru_order = self.lru_order.get_mut(tier_name).unwrap();
 
         while freed_space < needed_space && !lru_order.is_empty() {
             let key_to_evict = match tier_config.policy {
                 CachePolicy::LRU => lru_order.front().cloned(),
                 CachePolicy::LFU => {
-                    let frequencies = self.access_frequencies.get(tier_name).unwrap();
-                    frequencies.iter()
-                        .min_by_key(|(_, &count)| count)
-                        .map(|(&key, _)| key)
+                    let frequencies = self.access_frequencies.get(tier_name);
+                    match frequencies {
+                        Some(freqs) => freqs.iter()
+                            .min_by_key(|(_, &count)| count)
+                            .map(|(&key, _)| key),
+                        None => lru_order.front().cloned(),
+                    }
                 },
                 CachePolicy::FIFO => lru_order.front().cloned(),
                 CachePolicy::Adaptive => {
                     // Use a combination of LRU and LFU
-                    let frequencies = self.access_frequencies.get(tier_name).unwrap();
-                    lru_order.iter()
-                        .min_by_key(|&key| {
-                            let freq = frequencies.get(key).unwrap_or(&1);
-                            // Lower score means higher eviction priority
-                            *freq as f64 / (cache.get(key).map(|e| e.priority).unwrap_or(1) as f64 + 1.0)
-                        })
-                        .cloned()
+                    let frequencies = self.access_frequencies.get(tier_name);
+                    match frequencies {
+                        Some(freqs) => lru_order.iter()
+                            .min_by_key(|&key| {
+                                let freq = freqs.get(key).unwrap_or(&1);
+                                // Lower score means higher eviction priority
+                                *freq as f64 / (cache.get(key).map(|e| e.priority).unwrap_or(1) as f64 + 1.0)
+                            })
+                            .cloned(),
+                        None => lru_order.front().cloned(),
+                    }
                 },
                 CachePolicy::Random => {
                     let keys: Vec<u64> = cache.keys().cloned().collect();
@@ -671,19 +873,22 @@ impl CacheManagementDomainService {
             if let Some(key) = key_to_evict {
                 if let Some(entry) = cache.remove(&key) {
                     freed_space += entry.size;
-                    
+
                     // Remove from LRU order
                     if let Some(pos) = lru_order.iter().position(|&k| k == key) {
                         lru_order.remove(pos);
                     }
-                    
+
                     // Remove from access frequencies
-                    self.access_frequencies.get_mut(tier_name).unwrap().remove(&key);
-                    
+                    if let Some(frequencies) = self.access_frequencies.get_mut(tier_name) {
+                        frequencies.remove(&key);
+                    }
+
                     // Update statistics
-                    let stats = self.statistics.get_mut(tier_name).unwrap();
-                    stats.evictions += 1;
-                    
+                    if let Some(stats) = self.statistics.get_mut(tier_name) {
+                        stats.evictions += 1;
+                    }
+
                     // Publish eviction event
                     self.publish_optimization_event(OptimizationEvent::CacheEviction {
                         tier: tier_name.to_string(),
@@ -706,10 +911,12 @@ impl CacheManagementDomainService {
 
     /// Get current usage of a tier
     fn get_tier_usage(&self, tier_name: &str) -> usize {
-        self.cache_tiers.get(tier_name).unwrap()
-            .values()
-            .map(|entry| entry.size)
-            .sum()
+        match self.cache_tiers.get(tier_name) {
+            Some(tier) => tier.values()
+                .map(|entry| entry.size)
+                .sum(),
+            None => 0,
+        }
     }
 
     /// Detect access pattern for a given key
@@ -730,7 +937,10 @@ impl CacheManagementDomainService {
     /// Check if a key should be prefetched
     fn should_prefetch(&self, key: u64, tier_name: &str) -> bool {
         // Check if the key is already cached
-        !self.cache_tiers.get(tier_name).unwrap().contains_key(&key)
+        match self.cache_tiers.get(tier_name) {
+            Some(tier) => !tier.contains_key(&key),
+            None => true,
+        }
     }
 
     /// Create a pipeline configuration from the cache management config
@@ -772,12 +982,12 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5];
         
         // Put data in cache
-        service.put(key, data.clone(), 50).unwrap();
-        
+        service.put(key, data.clone(), 50).expect("Failed to put data in cache");
+
         // Get data from cache
-        let result = service.get(key).unwrap();
+        let result = service.get(key).expect("Failed to get data from cache");
         assert!(result.is_some());
-        assert_eq!(result.unwrap(), data);
+        assert_eq!(result.expect("Expected data to be present"), data);
     }
 
     #[test]
@@ -788,7 +998,7 @@ mod tests {
         let key = 0x1000;
         
         // Get data that doesn't exist
-        let result = service.get(key).unwrap();
+        let result = service.get(key).expect("Failed to get data from cache");
         assert!(result.is_none());
     }
 
@@ -801,17 +1011,17 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5];
         
         // Put data in cache
-        service.put(key, data.clone(), 50).unwrap();
-        
+        service.put(key, data.clone(), 50).expect("Failed to put data in cache");
+
         // Get data from cache (hit)
-        service.get(key).unwrap();
-        
+        service.get(key).expect("Failed to get data from cache");
+
         // Get non-existent data (miss)
-        service.get(0x2000).unwrap();
-        
+        service.get(0x2000).expect("Failed to get data from cache");
+
         // Check statistics
         let stats = service.get_statistics();
-        let l1_stats = stats.get("L1").unwrap();
+        let l1_stats = stats.get("L1").expect("L1 stats should exist");
         assert_eq!(l1_stats.total_accesses, 2);
         assert_eq!(l1_stats.hits, 1);
         assert_eq!(l1_stats.misses, 1);
@@ -826,7 +1036,7 @@ mod tests {
         let base_key = 0x1000;
         
         // Prefetch based on access pattern
-        let prefetched = service.prefetch(base_key).unwrap();
+        let prefetched = service.prefetch(base_key).expect("Failed to prefetch");
         
         // Should prefetch some keys based on the detected pattern
         assert!(!prefetched.is_empty());
@@ -838,12 +1048,12 @@ mod tests {
         let mut service = CacheManagementDomainService::new(config);
         
         // Resize L1 tier
-        service.resize_tier("L1", 64 * 1024).unwrap();
+        service.resize_tier("L1", 64 * 1024).expect("Failed to resize tier");
         
         // Check that the tier was resized
         let tier_config = service.config.tiers.iter()
             .find(|t| t.name == "L1")
-            .unwrap();
+            .expect("L1 tier should exist");
         assert_eq!(tier_config.capacity, 64 * 1024);
     }
 }

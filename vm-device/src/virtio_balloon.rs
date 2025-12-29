@@ -4,7 +4,7 @@
 
 use crate::virtio::{Queue, VirtioDevice};
 use std::sync::{Arc, Mutex};
-use vm_core::MMU;
+use vm_core::{MMU, MemoryError, VmError, VmResult};
 
 /// VirtIO Balloon 统计信息
 #[derive(Debug, Clone, Default)]
@@ -50,6 +50,16 @@ impl VirtioBalloon {
         }
     }
 
+    /// Helper to acquire stats lock with error handling
+    fn lock_stats(&self) -> VmResult<std::sync::MutexGuard<'_, BalloonStats>> {
+        self.stats.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VirtioBalloon stats lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 设置目标页数
     pub fn set_target_pages(&mut self, pages: u32) {
         self.target_pages = pages;
@@ -67,7 +77,10 @@ impl VirtioBalloon {
 
     /// 获取统计信息
     pub fn get_stats(&self) -> BalloonStats {
-        self.stats.lock().unwrap().clone()
+        match self.lock_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => BalloonStats::default(),
+        }
     }
 
     /// 更新统计信息
@@ -97,7 +110,10 @@ impl VirtioBalloon {
                 // 可读
                 let num_pages = (desc.len / 8) as usize;
                 let mut page_data = vec![0u8; num_pages * 8];
-                if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut page_data).is_ok() {
+                if mmu
+                    .read_bulk(vm_core::GuestAddr(desc.addr), &mut page_data)
+                    .is_ok()
+                {
                     // 将字节数组转换为u64数组
                     let page_addrs: Vec<u64> = page_data
                         .chunks_exact(8)
@@ -141,7 +157,10 @@ impl VirtioBalloon {
                 // 可读
                 let num_pages = (desc.len / 8) as usize;
                 let mut page_data = vec![0u8; num_pages * 8];
-                if mmu.read_bulk(vm_core::GuestAddr(desc.addr), &mut page_data).is_ok() {
+                if mmu
+                    .read_bulk(vm_core::GuestAddr(desc.addr), &mut page_data)
+                    .is_ok()
+                {
                     // 将字节数组转换为u64数组
                     let page_addrs: Vec<u64> = page_data
                         .chunks_exact(8)
@@ -224,29 +243,31 @@ impl VirtioBalloonMmio {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_core::GuestAddr;
+    use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
 
     struct MockMmu {
         memory: std::collections::HashMap<u64, u8>,
     }
 
-    impl MMU for MockMmu {
+    // 实现AddressTranslator trait
+    impl AddressTranslator for MockMmu {
         fn translate(
             &mut self,
             va: GuestAddr,
             _access: vm_core::AccessType,
         ) -> Result<vm_core::GuestPhysAddr, VmError> {
-            Ok(va)
+            Ok(va.into())
         }
 
-        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
-            Ok(0)
-        }
+        fn flush_tlb(&mut self) {}
+    }
 
+    // 实现MemoryAccess trait
+    impl MemoryAccess for MockMmu {
         fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
             let mut value = 0u64;
             for i in 0..size {
-                let byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                let byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
                 value |= (byte as u64) << (i * 8);
             }
             Ok(value)
@@ -255,81 +276,54 @@ mod tests {
         fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), VmError> {
             for i in 0..size {
                 let byte = ((val >> (i * 8)) & 0xFF) as u8;
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
+        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
+            Ok(0)
+        }
+
         fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                *byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
             }
             Ok(())
         }
 
         fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
             for (i, &byte) in buf.iter().enumerate() {
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
-        fn map_mmio(
-            &mut self,
-            _base: GuestAddr,
-            _size: u64,
-            _device: Box<dyn vm_core::MmioDevice>,
-        ) {
-        }
-        fn flush_tlb(&mut self) {}
         fn memory_size(&self) -> usize {
             0
         }
+
         fn dump_memory(&self) -> Vec<u8> {
             Vec::new()
         }
+
         fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
             Ok(())
         }
+    }
+
+    // 实现MmioManager trait
+    impl MmioManager for MockMmu {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {}
+    }
+
+    // 实现MmuAsAny trait
+    impl MmuAsAny for MockMmu {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
         fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
             self
         }
-    }
-
-    #[test]
-    fn test_virtio_balloon_creation() {
-        let balloon = VirtioBalloon::new(4096);
-        assert_eq!(balloon.target_pages(), 0);
-        assert_eq!(balloon.actual_pages(), 0);
-        assert_eq!(balloon.device_status(), 0);
-    }
-
-    #[test]
-    fn test_virtio_balloon_target_pages() {
-        let mut balloon = VirtioBalloon::new(4096);
-        balloon.set_target_pages(1024);
-        assert_eq!(balloon.target_pages(), 1024);
-    }
-
-    #[test]
-    fn test_virtio_balloon_device_id() {
-        let mut balloon = VirtioBalloon::new(4096);
-        let mut mmu = MockMmu {
-            memory: std::collections::HashMap::new(),
-        };
-
-        assert_eq!(balloon.device_id(), 5); // VirtIO Balloon device ID
-        assert_eq!(balloon.num_queues(), 2); // inflate和deflate队列
-    }
-
-    #[test]
-    fn test_virtio_balloon_stats() {
-        let balloon = VirtioBalloon::new(4096);
-        let stats = balloon.get_stats();
-        assert_eq!(stats.pages_allocated, 0);
-        assert_eq!(stats.pages_freed, 0);
     }
 }

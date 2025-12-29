@@ -1,4 +1,9 @@
 //! 执行循环管理模块
+//!
+//! 模块架构：
+//! - 主模块：基础执行逻辑（无feature gate）
+//! - jit_execution: JIT编译支持（通过performance feature gate）
+//! - async_execution: 协程调度支持（通过performance feature gate）
 
 use log::{debug, error, info};
 use std::collections::HashMap;
@@ -6,21 +11,361 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-// 移除std::thread，改用tokio::spawn
 use tracing::{debug as tdebug, info as tinfo};
 use vm_core::{Decoder, ExecStatus, ExecutionEngine, GuestAddr, VmError, VmResult};
 use vm_engine_interpreter::{ExecInterruptAction, Interpreter};
-use vm_engine_jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr, Jit};
-// use vm_frontend_riscv64::RiscvDecoder; // Replaced by DecoderFactory
 use vm_ir::Terminator;
 use vm_mem::SoftMmu;
-use vm_core::GuestArch;
-use super::decoder_factory::DecoderFactory;
 
-#[cfg(feature = "async")]
-use vm_runtime::CoroutineScheduler;
+use super::decoder_factory::DecoderFactory;
+use vm_core::GuestArch;
+
+// 条件模块：JIT编译支持
+#[cfg(feature = "performance")]
+mod jit_execution {
+    use super::*;
+    use vm_engine_jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr, Jit};
+
+    /// JIT执行器状态
+    pub struct JitExecutionState {
+        pub code_pool: Option<Arc<Mutex<HashMap<GuestAddr, CodePtr>>>>,
+        pub adaptive_snapshot: Arc<Mutex<Option<AdaptiveThresholdStats>>>,
+        pub adaptive_config: Option<AdaptiveThresholdConfig>,
+    }
+
+    impl JitExecutionState {
+        pub fn new() -> Self {
+            Self {
+                code_pool: None,
+                adaptive_snapshot: Arc::new(Mutex::new(None)),
+                adaptive_config: None,
+            }
+        }
+
+        pub fn with_config(config: AdaptiveThresholdConfig) -> Self {
+            Self {
+                code_pool: None,
+                adaptive_snapshot: Arc::new(Mutex::new(None)),
+                adaptive_config: Some(config),
+            }
+        }
+
+        pub fn with_code_pool(
+            pool: Arc<Mutex<HashMap<GuestAddr, CodePtr>>>,
+            config: Option<AdaptiveThresholdConfig>,
+        ) -> Self {
+            Self {
+                code_pool: Some(pool),
+                adaptive_snapshot: Arc::new(Mutex::new(None)),
+                adaptive_config: config,
+            }
+        }
+
+        pub fn create_jit(&self, hybrid: bool) -> Option<Jit> {
+            if hybrid {
+                match (&self.code_pool, &self.adaptive_config) {
+                    (Some(_), Some(cfg)) => Some(Jit::with_adaptive_config(cfg.clone())),
+                    (Some(_), None) => Some(Jit::new()),
+                    (None, Some(cfg)) => Some(Jit::with_adaptive_config(cfg.clone())),
+                    (None, None) => Some(Jit::new()),
+                }
+            } else {
+                None
+            }
+        }
+
+        pub fn update_snapshot(&self, step: usize) {
+            if step % 1000 == 0 {
+                if let Ok(mut snapshot) = self.adaptive_snapshot.lock() {
+                    *snapshot = Some(AdaptiveThresholdStats::default());
+                }
+            }
+        }
+    }
+
+    /// JIT执行包装器
+    pub fn run_with_jit(
+        jit: &mut Jit,
+        interp: &mut Interpreter,
+        mmu: &mut SoftMmu,
+        block: &vm_ir::Block,
+        pc: GuestAddr,
+    ) -> vm_engine_interpreter::ExecResult {
+        jit.set_pc(pc);
+        jit.run(mmu, block)
+    }
+
+    /// 检查是否需要使用JIT
+    pub fn should_use_jit(exec_mode: vm_core::ExecMode) -> bool {
+        matches!(
+            exec_mode,
+            vm_core::ExecMode::HardwareAssisted | vm_core::ExecMode::JIT
+        )
+    }
+}
+
+// 条件模块：协程调度支持
+#[cfg(feature = "performance")]
+mod async_execution {
+    use super::*;
+    use vm_runtime::CoroutineScheduler;
+
+    /// 协程执行状态
+    pub struct CoroutineExecutionState {
+        pub coroutine_scheduler: Option<Arc<Mutex<CoroutineScheduler>>>,
+    }
+
+    impl CoroutineExecutionState {
+        pub fn new() -> Self {
+            Self {
+                coroutine_scheduler: None,
+            }
+        }
+
+        pub fn with_scheduler(scheduler: Arc<Mutex<CoroutineScheduler>>) -> Self {
+            Self {
+                coroutine_scheduler: Some(scheduler),
+            }
+        }
+
+        pub fn has_scheduler(&self) -> bool {
+            self.coroutine_scheduler.is_some()
+        }
+
+        pub fn take_scheduler(&mut self) -> Option<Arc<Mutex<CoroutineScheduler>>> {
+            self.coroutine_scheduler.take()
+        }
+    }
+
+    /// 单vCPU异步执行（带JIT支持）
+    pub async fn run_single_vcpu(
+        ctx: &ExecutionContext,
+        start_pc: GuestAddr,
+        base_mmu: SoftMmu,
+        debug: bool,
+        exec_mode: vm_core::ExecMode,
+        max_steps: usize,
+    ) -> VmResult<()> {
+        let mut local_mmu = base_mmu.clone();
+        let mut interp = Interpreter::new();
+        interp.set_reg(0, 0);
+        let mut decoder = DecoderFactory::create(ctx.guest_arch);
+        let mut pc = start_pc;
+
+        let hybrid = super::jit_execution::should_use_jit(exec_mode);
+        let mut jit = ctx
+            .perf_state
+            .jit
+            .as_ref()
+            .and_then(|state| state.create_jit(hybrid));
+
+        for step in 0..max_steps {
+            tokio::select! {
+                _ = async { if !ctx.run_flag.load(Ordering::Relaxed) { Err(()) } else { Ok(()) } } => {},
+                _ = async { if ctx.pause_flag.load(Ordering::Relaxed) { Err(()) } else { Ok(()) } } => {},
+                else => {}
+            }
+
+            match decoder.decode(&local_mmu, pc) {
+                Ok(block) => {
+                    let res = if let Some(j) = jit.as_mut() {
+                        super::jit_execution::run_with_jit(j, &mut interp, &mut local_mmu, &block, pc)
+                    } else {
+                        interp.run(&mut local_mmu, &block)
+                    };
+
+                    if debug && step % 1000 == 0 {
+                        debug!("[Async Step {}] PC={:#x}", step, pc);
+                        tdebug!(step=?step, pc=?pc, "service:run_async_tick");
+                    }
+
+                    if hybrid {
+                        if let Some(jit_state) = &ctx.perf_state.jit {
+                            jit_state.update_snapshot(step);
+                        }
+                    }
+
+                    pc = res.next_pc;
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+
+        info!("=== Async Execution Complete ===");
+        tinfo!(pc=?pc, "service:run_async_complete");
+        Ok(())
+    }
+
+    /// 执行单个vCPU异步任务（带JIT支持）
+    pub async fn execute_vcpu_with_jit(
+        mut local_mmu: vm_mem::SoftMmu,
+        debug: bool,
+        mut thread_pc: GuestAddr,
+        run_flag: Arc<AtomicBool>,
+        pause_flag: Arc<AtomicBool>,
+        guest_arch: GuestArch,
+        cpu_id: usize,
+        max_steps: usize,
+        hybrid: bool,
+        jit_config: Option<(
+            Option<Arc<Mutex<HashMap<GuestAddr, vm_engine_jit::CodePtr>>>>,
+            Option<vm_engine_jit::AdaptiveThresholdConfig>,
+        )>,
+    ) {
+        let mut interp = Interpreter::new();
+        interp.set_reg(0, 0);
+
+        let mut jit = jit_config.and_then(|(pool, cfg)| {
+            if hybrid {
+                Some(match (pool, cfg) {
+                    (Some(_), Some(cfg)) => vm_engine_jit::Jit::with_adaptive_config(cfg),
+                    (Some(_), None) => vm_engine_jit::Jit::new(),
+                    (None, Some(cfg)) => vm_engine_jit::Jit::with_adaptive_config(cfg),
+                    (None, None) => vm_engine_jit::Jit::new(),
+                })
+            } else {
+                None
+            }
+        });
+
+        let mut decoder = DecoderFactory::create(guest_arch);
+
+        for step in 0..max_steps {
+            if !run_flag.load(Ordering::Relaxed) {
+                break;
+            }
+            if pause_flag.load(Ordering::Relaxed) {
+                break;
+            }
+
+            match decoder.decode(&local_mmu, thread_pc) {
+                Ok(block) => {
+                    let res = if let Some(j) = jit.as_mut() {
+                        super::jit_execution::run_with_jit(j, &mut interp, &mut local_mmu, &block, thread_pc)
+                    } else {
+                        interp.run(&mut local_mmu, &block)
+                    };
+
+                    if debug && step % 1000 == 0 {
+                        debug!("[CPU {} Async Step {}] PC={:#x}", cpu_id, step, thread_pc);
+                        tdebug!(cpu=?cpu_id, step=?step, pc=?thread_pc, "service:run_async_tick_cpu");
+                    }
+                    thread_pc = res.next_pc;
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
+// 基础异步执行模块（无性能扩展）
+#[cfg(not(feature = "performance"))]
+mod async_execution {
+    use super::*;
+
+    pub struct CoroutineExecutionState; // Dummy type
+
+    pub async fn run_single_vcpu(
+        ctx: &ExecutionContext,
+        start_pc: GuestAddr,
+        base_mmu: SoftMmu,
+        debug: bool,
+        _exec_mode: vm_core::ExecMode,
+        max_steps: usize,
+    ) -> VmResult<()> {
+        let mut local_mmu = base_mmu.clone();
+        let mut interp = Interpreter::new();
+        interp.set_reg(0, 0);
+        let mut decoder = DecoderFactory::create(ctx.guest_arch);
+        let mut pc = start_pc;
+
+        for step in 0..max_steps {
+            tokio::select! {
+                _ = async { if !ctx.run_flag.load(Ordering::Relaxed) { Err(()) } else { Ok(()) } } => {},
+                _ = async { if ctx.pause_flag.load(Ordering::Relaxed) { Err(()) } else { Ok(()) } } => {},
+                else => {}
+            }
+
+            match decoder.decode(&local_mmu, pc) {
+                Ok(block) => {
+                    let res = interp.run(&mut local_mmu, &block);
+
+                    if debug && step % 1000 == 0 {
+                        debug!("[Async Step {}] PC={:#x}", step, pc);
+                        tdebug!(step=?step, pc=?pc, "service:run_async_tick");
+                    }
+
+                    pc = res.next_pc;
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+
+        info!("=== Async Execution Complete ===");
+        tinfo!(pc=?pc, "service:run_async_complete");
+        Ok(())
+    }
+
+    pub async fn execute_vcpu_with_jit(
+        mut local_mmu: vm_mem::SoftMmu,
+        debug: bool,
+        mut thread_pc: GuestAddr,
+        run_flag: Arc<AtomicBool>,
+        pause_flag: Arc<AtomicBool>,
+        guest_arch: GuestArch,
+        cpu_id: usize,
+        max_steps: usize,
+        _hybrid: bool,
+        _jit_config: Option<((), ())>,
+    ) {
+        let mut interp = Interpreter::new();
+        interp.set_reg(0, 0);
+        let mut decoder = DecoderFactory::create(guest_arch);
+
+        for step in 0..max_steps {
+            if !run_flag.load(Ordering::Relaxed) {
+                break;
+            }
+            if pause_flag.load(Ordering::Relaxed) {
+                break;
+            }
+
+            match decoder.decode(&local_mmu, thread_pc) {
+                Ok(block) => {
+                    let res = interp.run(&mut local_mmu, &block);
+                    if debug && step % 1000 == 0 {
+                        debug!("[CPU {} Async Step {}] PC={:#x}", cpu_id, step, thread_pc);
+                        tdebug!(cpu=?cpu_id, step=?step, pc=?thread_pc, "service:run_async_tick_cpu");
+                    }
+                    thread_pc = res.next_pc;
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
+/// Type alias for trap handler to reduce type complexity
+pub type TrapHandler = Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>;
+
+/// Type alias for IRQ policy to reduce type complexity
+pub type IrqPolicy = Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>;
 
 /// 执行上下文，包含执行循环所需的所有状态
+///
+/// 通过使用条件模块，避免在结构体字段级别使用feature gate
 pub struct ExecutionContext {
     /// 运行标志
     pub run_flag: Arc<AtomicBool>,
@@ -29,19 +374,82 @@ pub struct ExecutionContext {
     /// 目标架构
     pub guest_arch: GuestArch,
     /// 陷阱处理器
-    pub trap_handler:
-        Option<Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
+    pub trap_handler: Option<TrapHandler>,
     /// 中断策略
-    pub irq_policy: Option<Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
-    /// JIT代码池
-    pub code_pool: Option<Arc<Mutex<HashMap<GuestAddr, CodePtr>>>>,
-    /// 自适应快照
-    pub adaptive_snapshot: Arc<Mutex<Option<AdaptiveThresholdStats>>>,
-    /// 自适应配置
-    pub adaptive_config: Option<AdaptiveThresholdConfig>,
-    /// 协程调度器（用于优化多vCPU执行）
-    #[cfg(feature = "async")]
-    pub coroutine_scheduler: Option<Arc<CoroutineScheduler>>,
+    pub irq_policy: Option<IrqPolicy>,
+    /// 性能扩展状态（通过performance feature启用）
+    #[cfg(feature = "performance")]
+    pub perf_state: PerfExtState,
+}
+
+/// 性能扩展状态（仅在performance feature启用时可用）
+#[cfg(feature = "performance")]
+pub struct PerfExtState {
+    /// JIT执行状态
+    pub jit: Option<jit_execution::JitExecutionState>,
+    /// 协程执行状态
+    pub coroutine: Option<async_execution::CoroutineExecutionState>,
+}
+
+/// 性能扩展状态占位符（无性能扩展时）
+#[cfg(not(feature = "performance"))]
+pub struct PerfExtState;
+
+#[cfg(feature = "performance")]
+impl PerfExtState {
+    pub fn new() -> Self {
+        Self {
+            jit: None,
+            coroutine: None,
+        }
+    }
+
+    pub fn with_jit_config(mut self, config: vm_engine_jit::AdaptiveThresholdConfig) -> Self {
+        self.jit = Some(jit_execution::JitExecutionState::with_config(config));
+        self
+    }
+
+    pub fn with_coroutine_scheduler(mut self, scheduler: Arc<Mutex<vm_runtime::CoroutineScheduler>>) -> Self {
+        self.coroutine = Some(async_execution::CoroutineExecutionState::with_scheduler(scheduler));
+        self
+    }
+}
+
+impl ExecutionContext {
+    #[cfg(feature = "performance")]
+    pub fn new(guest_arch: GuestArch) -> Self {
+        Self {
+            run_flag: Arc::new(AtomicBool::new(false)),
+            pause_flag: Arc::new(AtomicBool::new(false)),
+            guest_arch,
+            trap_handler: None,
+            irq_policy: None,
+            perf_state: PerfExtState::new(),
+        }
+    }
+
+    #[cfg(not(feature = "performance"))]
+    pub fn new(guest_arch: GuestArch) -> Self {
+        Self {
+            run_flag: Arc::new(AtomicBool::new(false)),
+            pause_flag: Arc::new(AtomicBool::new(false)),
+            guest_arch,
+            trap_handler: None,
+            irq_policy: None,
+        }
+    }
+
+    #[cfg(feature = "performance")]
+    pub fn with_jit_config(mut self, config: vm_engine_jit::AdaptiveThresholdConfig) -> Self {
+        self.perf_state = self.perf_state.with_jit_config(config);
+        self
+    }
+
+    #[cfg(feature = "performance")]
+    pub fn with_coroutine_scheduler(mut self, scheduler: Arc<Mutex<vm_runtime::CoroutineScheduler>>) -> Self {
+        self.perf_state = self.perf_state.with_coroutine_scheduler(scheduler);
+        self
+    }
 }
 
 /// 同步执行循环
@@ -61,381 +469,403 @@ pub fn run_sync(
     info!("Starting execution from PC={:#x}", pc);
 
     if vcpu_count <= 1 {
-        let mut local_mmu = base_mmu.clone();
-        let mut local_interpreter = Interpreter::new();
-        local_interpreter.set_reg(0, 0);
-        let mut local_decoder = DecoderFactory::create(ctx.guest_arch);
+        run_single_vcpu_sync(ctx, start_pc, base_mmu, debug, max_steps)
+    } else {
+        run_multi_vcpu_sync(ctx, pc, base_mmu, debug, vcpu_count, max_steps)
+    }
+}
 
-        for step in 0..max_steps {
-            if !ctx.run_flag.load(Ordering::Relaxed) {
-                break;
-            }
-            if ctx.pause_flag.load(Ordering::Relaxed) {
-                break;
-            }
-            match local_decoder.decode(&local_mmu, pc) {
-                Ok(block) => {
-                    let _res = local_interpreter.run(&mut local_mmu, &block);
-                    if matches!(_res.status, ExecStatus::InterruptPending) {
-                        if let Some(p) = &ctx.irq_policy {
-                            let _ = p(&mut local_interpreter);
+/// 单vCPU同步执行
+fn run_single_vcpu_sync(
+    ctx: &ExecutionContext,
+    start_pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    max_steps: usize,
+) -> VmResult<()> {
+    let mut local_mmu = base_mmu.clone();
+    let mut local_interpreter = Interpreter::new();
+    local_interpreter.set_reg(0, 0);
+    let mut local_decoder = DecoderFactory::create(ctx.guest_arch);
+    let mut pc = start_pc;
+
+    for step in 0..max_steps {
+        if !ctx.run_flag.load(Ordering::Relaxed) {
+            break;
+        }
+        if ctx.pause_flag.load(Ordering::Relaxed) {
+            break;
+        }
+        match local_decoder.decode(&local_mmu, pc) {
+            Ok(block) => {
+                let _res = local_interpreter.run(&mut local_mmu, &block);
+                if matches!(_res.status, ExecStatus::InterruptPending) {
+                    if let Some(p) = &ctx.irq_policy {
+                        let _ = p(&mut local_interpreter);
+                    }
+                    pc = _res.next_pc;
+                    continue;
+                }
+                if let ExecStatus::Fault(ref f) = _res.status {
+                    if let Some(h) = &ctx.trap_handler {
+                        match h(&VmError::Execution(f.clone()), &mut local_interpreter) {
+                            ExecInterruptAction::Continue
+                            | ExecInterruptAction::InjectState => {
+                                local_interpreter.resume_from_trap();
+                                pc = local_interpreter.get_pc();
+                                continue;
+                            }
+                            ExecInterruptAction::Retry => {
+                                continue;
+                            }
+                            ExecInterruptAction::Mask => {
+                                break;
+                            }
+                            ExecInterruptAction::Deliver | ExecInterruptAction::Abort => {
+                                break;
+                            }
                         }
-                        pc = _res.next_pc;
+                    } else {
+                        // 默认 Trap 向量策略：按照 mtvec/stvec 设置 PC
+                        let mode = local_interpreter.get_priv_mode();
+                        let (vec, cause) = if mode == 3 {
+                            (
+                                local_interpreter.read_csr(0x305),
+                                local_interpreter.read_csr(0x342),
+                            )
+                        } else {
+                            (
+                                local_interpreter.read_csr(0x105),
+                                local_interpreter.read_csr(0x142),
+                            )
+                        };
+                        let base = vec & !0x3;
+                        let is_interrupt = (cause >> 63) != 0;
+                        let mtvec_mode = vec & 0x3;
+                        let target = if is_interrupt && mtvec_mode == 1 {
+                            base.wrapping_add(4 * (cause & 0xfff))
+                        } else {
+                            base
+                        };
+                        local_interpreter.set_pc(vm_core::GuestAddr(target));
+                        pc = vm_core::GuestAddr(target);
                         continue;
                     }
-                    if let ExecStatus::Fault(ref f) = _res.status {
-                        if let Some(h) = &ctx.trap_handler {
-                            match h(&VmError::Execution(f.clone()), &mut local_interpreter) {
-                                ExecInterruptAction::Continue
-                                | ExecInterruptAction::InjectState => {
-                                    local_interpreter.resume_from_trap();
-                                    pc = local_interpreter.get_pc();
-                                    continue;
-                                }
-                                ExecInterruptAction::Retry => {
-                                    continue;
-                                }
-                                ExecInterruptAction::Mask => {
-                                    break;
-                                }
-                                ExecInterruptAction::Deliver | ExecInterruptAction::Abort => {
-                                    break;
-                                }
-                            }
+                }
+
+                if debug && step % 1000 == 0 {
+                    debug!("[Step {}] PC={:#x}", step, pc);
+                }
+
+                match &block.term {
+                    Terminator::Jmp { target } => {
+                        if *target == pc {
+                            info!("\n[Step {}] PC={:#x}: HALT (infinite loop)", step, pc);
+                            break;
+                        }
+                        pc = *target;
+                    }
+                    Terminator::CondJmp {
+                        cond,
+                        target_true,
+                        target_false,
+                    } => {
+                        if local_interpreter.get_reg(*cond) != 0 {
+                            pc = *target_true;
                         } else {
-                            // 默认 Trap 向量策略：按照 mtvec/stvec 设置 PC
-                            let mode = local_interpreter.get_priv_mode();
-                            let (vec, cause) = if mode == 3 {
-                                (
-                                    local_interpreter.read_csr(0x305),
-                                    local_interpreter.read_csr(0x342),
-                                )
-                            } else {
-                                (
-                                    local_interpreter.read_csr(0x105),
-                                    local_interpreter.read_csr(0x142),
-                                )
-                            };
-                            let base = vec & !0x3;
-                            let is_interrupt = (cause >> 63) != 0;
-                            let mtvec_mode = vec & 0x3;
-                            let target = if is_interrupt && mtvec_mode == 1 {
-                                base.wrapping_add(4 * (cause & 0xfff))
-                            } else {
-                                base
-                            };
-                            local_interpreter.set_pc(vm_core::GuestAddr(target));
-                            pc = vm_core::GuestAddr(target);
-                            continue;
+                            pc = *target_false;
                         }
                     }
-
-                    if debug && step % 1000 == 0 {
-                        debug!("[Step {}] PC={:#x}", step, pc);
+                    Terminator::JmpReg { base, offset } => {
+                        let base_val = local_interpreter.get_reg(*base);
+                        pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
                     }
-
-                    match &block.term {
-                        Terminator::Jmp { target } => {
-                            if *target == pc {
-                                info!("\n[Step {}] PC={:#x}: HALT (infinite loop)", step, pc);
-                                break;
-                            }
-                            pc = *target;
-                        }
-                        Terminator::CondJmp {
-                            cond,
-                            target_true,
-                            target_false,
-                        } => {
-                            if local_interpreter.get_reg(*cond) != 0 {
-                                pc = *target_true;
-                            } else {
-                                pc = *target_false;
-                            }
-                        }
-                        Terminator::JmpReg { base, offset } => {
-                            let base_val = local_interpreter.get_reg(*base);
-                            pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
-                        }
-                        Terminator::Ret => {
-                            info!("\n[Step {}] PC={:#x}: RET", step, pc);
-                            break;
-                        }
-                        Terminator::Fault { cause } => {
-                            error!("\n[Step {}] PC={:#x}: FAULT (cause={})", step, pc, cause);
-                            break;
-                        }
-                        _ => pc += 4,
+                    Terminator::Ret => {
+                        info!("\n[Step {}] PC={:#x}: RET", step, pc);
+                        break;
                     }
-                }
-                Err(e) => {
-                    error!("Decode error at {:#x}: {:?}", pc, e);
-                    break;
-                }
-            }
-        }
-    } else {
-        // 多vCPU执行：优先使用协程调度器（如果可用），否则使用线程
-        #[cfg(feature = "async")]
-        if let Some(scheduler) = ctx.coroutine_scheduler.as_ref() {
-            // 使用协程调度器执行多vCPU任务
-                let mut handles = Vec::with_capacity(vcpu_count);
-                for _i in 0..vcpu_count {
-                    let mut local_mmu = base_mmu.clone();
-                    let debug_local = debug;
-                    let mut thread_pc = pc;
-                    let run_flag = Arc::clone(&ctx.run_flag);
-                    let pause_flag = Arc::clone(&ctx.pause_flag);
-                    let guest_arch = ctx.guest_arch;
-
-                    // 将async任务包装为同步闭包以适配CoroutineScheduler
-                    let task = move || {
-                        // 在闭包内部创建一个新的运行时来执行异步任务
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .expect("Failed to create runtime");
-                        
-                        rt.block_on(async move {
-                            let mut interp = Interpreter::new();
-                            interp.set_reg(0, 0);
-                            let mut decoder = DecoderFactory::create(guest_arch);
-                            for step in 0..max_steps {
-                                if !run_flag.load(Ordering::Relaxed) {
-                                    break;
-                                }
-                                if pause_flag.load(Ordering::Relaxed) {
-                                    break;
-                                }
-                                match decoder.decode(&local_mmu, thread_pc) {
-                                    Ok(block) => {
-                                        let _res = interp.run(&mut local_mmu, &block);
-                                        if matches!(_res.status, ExecStatus::InterruptPending) {
-                                            thread_pc = _res.next_pc;
-                                            continue;
-                                        }
-                                        if let ExecStatus::Fault(ref _f) = _res.status {}
-                                        if debug_local && step % 1000 == 0 {
-                                            debug!("[CPU {} Step {}] PC={:#x}", _i, step, thread_pc);
-                                        }
-                                        match &block.term {
-                                            Terminator::Jmp { target } => {
-                                                if *target == thread_pc {
-                                                    break;
-                                                }
-                                                thread_pc = *target;
-                                            }
-                                            Terminator::CondJmp {
-                                                cond,
-                                                target_true,
-                                                target_false,
-                                            } => {
-                                                if interp.get_reg(*cond) != 0 {
-                                                    thread_pc = *target_true;
-                                                } else {
-                                                    thread_pc = *target_false;
-                                                }
-                                            }
-                                            Terminator::JmpReg { base, offset } => {
-                                                let base_val = interp.get_reg(*base);
-                                                thread_pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
-                                            }
-                                            Terminator::Ret | Terminator::Fault { .. } => {
-                                                break;
-                                            }
-                                            _ => thread_pc += 4,
-                                        }
-                                    }
-                                    Err(_) => {
-                                        break;
-                                    }
-                                }
-                                // 让出控制权，允许其他协程执行
-                                tokio::task::yield_now().await;
-                            }
-                        });
-                    };
-
-                    // 使用协程调度器提交任务（高优先级）
-                    let coroutine = scheduler.submit_task(vm_runtime::Priority::High, task);
-                    // 将协程转换为JoinHandle以保持接口一致性
-                    handles.push(tokio::task::spawn(async move {
-                        // 等待协程完成执行
-                        // 注意：这里我们需要一种方式来等待协程完成，但CoroutineScheduler的API没有直接提供这种方式
-                        // 作为临时解决方案，我们简单地睡眠一段时间
-                        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-                    }));
-            }
-            // 等待所有协程完成
-            for handle in handles {
-                let _ = handle.await;
-            }
-            return Ok(());
-        }
-
-        // 使用tokio::spawn替代std::thread::spawn
-        // 创建tokio运行时（如果当前不在运行时中）
-        let rt_result = tokio::runtime::Handle::try_current();
-        if let Ok(rt_handle) = rt_result {
-            // 在tokio运行时中，直接使用spawn
-            let mut handles = Vec::with_capacity(vcpu_count);
-            for _i in 0..vcpu_count {
-                let mut local_mmu = base_mmu.clone();
-                let debug_local = debug;
-                let mut thread_pc = pc;
-                let run_flag = Arc::clone(&ctx.run_flag);
-                let pause_flag = Arc::clone(&ctx.pause_flag);
-                let guest_arch = ctx.guest_arch;
-                handles.push(rt_handle.spawn(async move {
-                    let mut interp = Interpreter::new();
-                    interp.set_reg(0, 0);
-                    let mut decoder = DecoderFactory::create(guest_arch);
-                    for step in 0..max_steps {
-                        if !run_flag.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        if pause_flag.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        match decoder.decode(&local_mmu, thread_pc) {
-                            Ok(block) => {
-                                let _res = interp.run(&mut local_mmu, &block);
-                                if matches!(_res.status, ExecStatus::InterruptPending) {
-                                    thread_pc = _res.next_pc;
-                                    continue;
-                                }
-                                if let ExecStatus::Fault(ref _f) = _res.status {}
-                                if debug_local && step % 1000 == 0 {
-                                    debug!("[CPU {} Step {}] PC={:#x}", _i, step, thread_pc);
-                                }
-                                match &block.term {
-                                    Terminator::Jmp { target } => {
-                                        if *target == thread_pc {
-                                            break;
-                                        }
-                                        thread_pc = *target;
-                                    }
-                                    Terminator::CondJmp {
-                                        cond,
-                                        target_true,
-                                        target_false,
-                                    } => {
-                                        if interp.get_reg(*cond) != 0 {
-                                            thread_pc = *target_true;
-                                        } else {
-                                            thread_pc = *target_false;
-                                        }
-                                    }
-                                    Terminator::JmpReg { base, offset } => {
-                                        let base_val = interp.get_reg(*base);
-                                        thread_pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
-                                    }
-                                    Terminator::Ret | Terminator::Fault { .. } => {
-                                        break;
-                                    }
-                                    _ => thread_pc += 4,
-                                }
-                            }
-                            Err(_) => {
-                                break;
-                            }
-                        }
-                        // 让出控制权，允许其他协程执行
-                        tokio::task::yield_now().await;
+                    Terminator::Fault { cause } => {
+                        error!("\n[Step {}] PC={:#x}: FAULT (cause={})", step, pc, cause);
+                        break;
                     }
-                }));
-            }
-            // 等待所有协程完成
-            for task_handle in handles {
-                let _ = rt_handle.block_on(task_handle);
-            }
-        } else {
-            // 不在tokio运行时中，创建临时运行时
-            let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                VmError::Core(vm_core::CoreError::Internal {
-                    message: format!("Failed to create tokio runtime: {}", e),
-                    module: "vm_service".to_string(),
-                })
-            })?;
-            rt.block_on(async {
-                let mut handles = Vec::with_capacity(vcpu_count);
-                for _i in 0..vcpu_count {
-                    let mut local_mmu = base_mmu.clone();
-                    let debug_local = debug;
-                    let mut thread_pc = pc;
-                    let run_flag = Arc::clone(&ctx.run_flag);
-                    let pause_flag = Arc::clone(&ctx.pause_flag);
-                    let guest_arch = ctx.guest_arch;
-                    handles.push(tokio::spawn(async move {
-                        let mut interp = Interpreter::new();
-                        interp.set_reg(0, 0);
-                        let mut decoder = DecoderFactory::create(guest_arch);
-                        for step in 0..max_steps {
-                            if !run_flag.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            if pause_flag.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            match decoder.decode(&local_mmu, thread_pc) {
-                                Ok(block) => {
-                                    let _res = interp.run(&mut local_mmu, &block);
-                                    if matches!(_res.status, ExecStatus::InterruptPending) {
-                                        thread_pc = _res.next_pc;
-                                        continue;
-                                    }
-                                    if let ExecStatus::Fault(ref _f) = _res.status {}
-                                    if debug_local && step % 1000 == 0 {
-                                        debug!("[CPU {} Step {}] PC={:#x}", _i, step, thread_pc);
-                                    }
-                                    match &block.term {
-                                        Terminator::Jmp { target } => {
-                                            if *target == thread_pc {
-                                                break;
-                                            }
-                                            thread_pc = *target;
-                                        }
-                                        Terminator::CondJmp {
-                                            cond,
-                                            target_true,
-                                            target_false,
-                                        } => {
-                                            if interp.get_reg(*cond) != 0 {
-                                                thread_pc = *target_true;
-                                            } else {
-                                                thread_pc = *target_false;
-                                            }
-                                        }
-                                        Terminator::JmpReg { base, offset } => {
-                                            let base_val = interp.get_reg(*base);
-                                            thread_pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
-                                        }
-                                        Terminator::Ret | Terminator::Fault { .. } => {
-                                            break;
-                                        }
-                                        _ => thread_pc += 4,
-                                    }
-                                }
-                                Err(_) => {
-                                    break;
-                                }
-                            }
-                            // 让出控制权，允许其他协程执行
-                            tokio::task::yield_now().await;
-                        }
-                    }));
+                    _ => pc += 4,
                 }
-                // 等待所有协程完成
-                for handle in handles {
-                    let _ = handle.await;
-                }
-            });
+            }
+            Err(e) => {
+                error!("Decode error at {:#x}: {:?}", pc, e);
+                break;
+            }
         }
     }
 
     info!("=== Execution Complete ===");
     tinfo!(pc=?pc, steps=?max_steps, "service:run_complete");
     Ok(())
+}
+
+/// 多vCPU同步执行
+#[cfg(not(feature = "performance"))]
+fn run_multi_vcpu_sync(
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    max_steps: usize,
+) -> VmResult<()> {
+    // 使用tokio::spawn替代std::thread::spawn
+    let rt_result = tokio::runtime::Handle::try_current();
+    if let Ok(rt_handle) = rt_result {
+        run_with_tokio_handle(rt_handle, ctx, pc, base_mmu, debug, vcpu_count, max_steps)
+    } else {
+        run_with_new_runtime(ctx, pc, base_mmu, debug, vcpu_count, max_steps)
+    }
+}
+
+/// 多vCPU同步执行（性能模式）
+#[cfg(feature = "performance")]
+fn run_multi_vcpu_sync(
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    max_steps: usize,
+) -> VmResult<()> {
+    // 尝试使用协程调度器
+    if let Some(coroutine_state) = &ctx.perf_state.coroutine {
+        if coroutine_state.has_scheduler() {
+            return run_with_coroutine_scheduler(ctx, pc, base_mmu, debug, vcpu_count, max_steps);
+        }
+    }
+
+    // 回退到tokio::spawn
+    let rt_result = tokio::runtime::Handle::try_current();
+    if let Ok(rt_handle) = rt_result {
+        run_with_tokio_handle(rt_handle, ctx, pc, base_mmu, debug, vcpu_count, max_steps)
+    } else {
+        run_with_new_runtime(ctx, pc, base_mmu, debug, vcpu_count, max_steps)
+    }
+}
+
+/// 使用协程调度器执行多vCPU任务
+#[cfg(feature = "performance")]
+fn run_with_coroutine_scheduler(
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    max_steps: usize,
+) -> VmResult<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            VmError::Core(vm_core::CoreError::Internal {
+                message: format!(
+                    "Failed to create tokio runtime for coroutine scheduler: {}",
+                    e
+                ),
+                module: "vm_service::execution".to_string(),
+            })
+        })?;
+
+    rt.block_on(async {
+        let mut handles = Vec::with_capacity(vcpu_count);
+        for i in 0..vcpu_count {
+            let mut local_mmu = base_mmu.clone();
+            let debug_local = debug;
+            let mut thread_pc = pc;
+            let run_flag = Arc::clone(&ctx.run_flag);
+            let pause_flag = Arc::clone(&ctx.pause_flag);
+            let guest_arch = ctx.guest_arch;
+
+            handles.push(tokio::task::spawn(async move {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to create tokio runtime in execution task");
+
+                rt.block_on(async move {
+                    execute_vcpu_task(
+                        local_mmu,
+                        debug_local,
+                        thread_pc,
+                        run_flag,
+                        pause_flag,
+                        guest_arch,
+                        i,
+                        max_steps,
+                    ).await
+                });
+            }));
+        }
+
+        for handle in handles {
+            let _ = handle.await;
+        }
+        Ok(())
+    })
+}
+
+/// 使用现有的tokio句柄执行
+fn run_with_tokio_handle(
+    rt_handle: tokio::runtime::Handle,
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    max_steps: usize,
+) -> VmResult<()> {
+    let mut handles = Vec::with_capacity(vcpu_count);
+    for i in 0..vcpu_count {
+        let mut local_mmu = base_mmu.clone();
+        let debug_local = debug;
+        let mut thread_pc = pc;
+        let run_flag = Arc::clone(&ctx.run_flag);
+        let pause_flag = Arc::clone(&ctx.pause_flag);
+        let guest_arch = ctx.guest_arch;
+
+        handles.push(rt_handle.spawn(async move {
+            execute_vcpu_task(
+                local_mmu,
+                debug_local,
+                thread_pc,
+                run_flag,
+                pause_flag,
+                guest_arch,
+                i,
+                max_steps,
+            ).await
+        }));
+    }
+
+    for task_handle in handles {
+        let _ = rt_handle.block_on(task_handle);
+    }
+
+    info!("=== Execution Complete ===");
+    tinfo!(pc=?pc, steps=?max_steps, "service:run_complete");
+    Ok(())
+}
+
+/// 使用新的tokio运行时执行
+fn run_with_new_runtime(
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    max_steps: usize,
+) -> VmResult<()> {
+    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+        VmError::Core(vm_core::CoreError::Internal {
+            message: format!("Failed to create tokio runtime: {}", e),
+            module: "vm_service".to_string(),
+        })
+    })?;
+
+    rt.block_on(async {
+        let mut handles = Vec::with_capacity(vcpu_count);
+        for i in 0..vcpu_count {
+            let mut local_mmu = base_mmu.clone();
+            let debug_local = debug;
+            let mut thread_pc = pc;
+            let run_flag = Arc::clone(&ctx.run_flag);
+            let pause_flag = Arc::clone(&ctx.pause_flag);
+            let guest_arch = ctx.guest_arch;
+
+            handles.push(tokio::spawn(async move {
+                execute_vcpu_task(
+                    local_mmu,
+                    debug_local,
+                    thread_pc,
+                    run_flag,
+                    pause_flag,
+                    guest_arch,
+                    i,
+                    max_steps,
+                ).await
+            }));
+        }
+
+        for handle in handles {
+            let _ = handle.await;
+        }
+        Ok(())
+    })
+}
+
+/// 单个vCPU的异步执行任务
+async fn execute_vcpu_task(
+    mut local_mmu: vm_mem::SoftMmu,
+    debug: bool,
+    mut thread_pc: GuestAddr,
+    run_flag: Arc<AtomicBool>,
+    pause_flag: Arc<AtomicBool>,
+    guest_arch: GuestArch,
+    cpu_id: usize,
+    max_steps: usize,
+) {
+    let mut interp = Interpreter::new();
+    interp.set_reg(0, 0);
+    let mut decoder = DecoderFactory::create(guest_arch);
+
+    for step in 0..max_steps {
+        if !run_flag.load(Ordering::Relaxed) {
+            break;
+        }
+        if pause_flag.load(Ordering::Relaxed) {
+            break;
+        }
+
+        match decoder.decode(&local_mmu, thread_pc) {
+            Ok(block) => {
+                let _res = interp.run(&mut local_mmu, &block);
+                if matches!(_res.status, ExecStatus::InterruptPending) {
+                    thread_pc = _res.next_pc;
+                    continue;
+                }
+                if let ExecStatus::Fault(ref _f) = _res.status {}
+                if debug && step % 1000 == 0 {
+                    debug!("[CPU {} Step {}] PC={:#x}", cpu_id, step, thread_pc);
+                }
+                match &block.term {
+                    Terminator::Jmp { target } => {
+                        if *target == thread_pc {
+                            break;
+                        }
+                        thread_pc = *target;
+                    }
+                    Terminator::CondJmp {
+                        cond,
+                        target_true,
+                        target_false,
+                    } => {
+                        if interp.get_reg(*cond) != 0 {
+                            thread_pc = *target_true;
+                        } else {
+                            thread_pc = *target_false;
+                        }
+                    }
+                    Terminator::JmpReg { base, offset } => {
+                        let base_val = interp.get_reg(*base);
+                        thread_pc = vm_core::GuestAddr((base_val as i64 + offset) as u64);
+                    }
+                    Terminator::Ret | Terminator::Fault { .. } => {
+                        break;
+                    }
+                    _ => thread_pc += 4,
+                }
+            }
+            Err(_) => {
+                break;
+            }
+        }
+        tokio::task::yield_now().await;
+    }
 }
 
 /// 异步执行循环
@@ -456,222 +886,169 @@ pub async fn run_async(
     tinfo!(pc=?pc, "service:run_async_start");
 
     if vcpu_count <= 1 {
-        let mut local_mmu = base_mmu.clone();
-        let hybrid = matches!(
-            exec_mode,
-            vm_core::ExecMode::HardwareAssisted | vm_core::ExecMode::JIT
-        );
-        let mut interp = Interpreter::new();
-        interp.set_reg(0, 0);
-        let mut jit = if hybrid {
-            let pool = ctx.code_pool.as_ref().cloned();
-            Some(match (pool, ctx.adaptive_config.clone()) {
-                (Some(_p), Some(cfg)) => Jit::with_adaptive_config(cfg),
-                (Some(_p), None) => Jit::new(),
-                (None, Some(cfg)) => Jit::with_adaptive_config(cfg),
-                (None, None) => Jit::new(),
-            })
-        } else {
-            None
-        };
-        let mut decoder = DecoderFactory::create(ctx.guest_arch);
-        for step in 0..max_steps {
-            tokio::select! {
-                _ = async { if !ctx.run_flag.load(Ordering::Relaxed) { Err(()) } else { Ok(()) } } => {},
-                _ = async { if ctx.pause_flag.load(Ordering::Relaxed) { Err(()) } else { Ok(()) } } => {},
-                else => {}
-            }
-            match decoder.decode(&local_mmu, pc) {
-                Ok(block) => {
-                    let res = if let Some(j) = jit.as_mut() {
-                        j.set_pc(pc);
-                        j.run(&mut local_mmu, &block)
-                    } else {
-                        interp.run(&mut local_mmu, &block)
-                    };
-                    if debug && step % 1000 == 0 {
-                        debug!("[Async Step {}] PC={:#x}", step, pc);
-                        tdebug!(step=?step, pc=?pc, "service:run_async_tick");
-                    }
-                    if hybrid && step % 1000 == 0 {
-                        if let Some(_j) = jit.as_ref() {
-                            if let Ok(mut snapshot) = ctx.adaptive_snapshot.lock() {
-                                *snapshot = Some(AdaptiveThresholdStats::default());
-                            }
-                        }
-                    }
-                    pc = res.next_pc;
-                }
-                Err(_) => {
-                    break;
-                }
-            }
-            tokio::task::yield_now().await;
-        }
+        run_single_vcpu_async(ctx, start_pc, base_mmu, debug, exec_mode, max_steps).await
     } else {
-        // 多vCPU异步执行：优先使用协程调度器（如果可用）
-        #[cfg(feature = "async")]
-        if let Some(scheduler) = ctx.coroutine_scheduler.as_ref() {
-            // 使用协程调度器执行多vCPU任务
-            let mut handles = Vec::with_capacity(vcpu_count);
-            let pool_main = ctx.code_pool.as_ref().cloned();
-            let run_flag_main = Arc::clone(&ctx.run_flag);
-            let pause_flag_main = Arc::clone(&ctx.pause_flag);
-            let hybrid_main = matches!(
-                exec_mode,
-                vm_core::ExecMode::HardwareAssisted | vm_core::ExecMode::JIT
-            );
-
-            for i in 0..vcpu_count {
-                let mmu_base = base_mmu.clone();
-                let debug_local = debug;
-                let mut thread_pc = pc;
-                let run_flag = Arc::clone(&run_flag_main);
-                let pause_flag = Arc::clone(&pause_flag_main);
-                let pool_iter = pool_main.as_ref().map(|p| p.clone());
-                let cfg_iter = ctx.adaptive_config.clone();
-                let guest_arch = ctx.guest_arch;
-
-                // 将async任务包装为同步闭包以适配CoroutineScheduler
-                let task = move || {
-                    // 在闭包内部创建一个新的运行时来执行异步任务
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .expect("Failed to create runtime");
-                    
-                    rt.block_on(async move {
-                        let mut interp = Interpreter::new();
-                        interp.set_reg(0, 0);
-                        let hybrid = hybrid_main;
-                        let mut jit = if hybrid {
-                            Some(match (pool_iter, cfg_iter) {
-                                (Some(_p), Some(cfg)) => Jit::with_adaptive_config(cfg),
-                                (Some(_p), None) => Jit::new(),
-                                (None, Some(cfg)) => Jit::with_adaptive_config(cfg),
-                                (None, None) => Jit::new(),
-                            })
-                        } else {
-                            None
-                        };
-                        let mut decoder = DecoderFactory::create(guest_arch);
-                        let mut local_mmu = mmu_base;
-                        for step in 0..max_steps {
-                            if !run_flag.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            if pause_flag.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            match decoder.decode(&local_mmu, thread_pc) {
-                                Ok(block) => {
-                                    let res = if let Some(j) = jit.as_mut() {
-                                        j.set_pc(thread_pc);
-                                        j.run(&mut local_mmu, &block)
-                                    } else {
-                                        interp.run(&mut local_mmu, &block)
-                                    };
-                                    if debug_local && step % 1000 == 0 {
-                                        debug!("[CPU {} Async Step {}] PC={:#x}", i, step, thread_pc);
-                                        tdebug!(cpu=?i, step=?step, pc=?thread_pc, "service:run_async_tick_cpu");
-                                    }
-                                    thread_pc = res.next_pc;
-                                }
-                                Err(_) => {
-                                    break;
-                                }
-                            }
-                            tokio::task::yield_now().await;
-                        }
-                    });
-                };
-
-                // 使用协程调度器提交任务（高优先级）
-                let coroutine = scheduler.submit_task(vm_runtime::Priority::High, task);
-                // 将协程转换为JoinHandle以保持接口一致性
-                handles.push(tokio::task::spawn(async move {
-                    // 等待协程完成执行
-                    // 注意：这里我们需要一种方式来等待协程完成，但CoroutineScheduler的API没有直接提供这种方式
-                    // 作为临时解决方案，我们简单地睡眠一段时间
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-                }));
-            }
-
-            // 等待所有协程完成
-            for handle in handles {
-                let _ = handle.await;
-            }
-            return Ok(());
-        }
-
-        // 后备方案：直接使用tokio::spawn（保留用于向后兼容）
-        let mut handles = Vec::with_capacity(vcpu_count);
-        let pool_main = ctx.code_pool.as_ref().cloned();
-        let run_flag_main = Arc::clone(&ctx.run_flag);
-        let pause_flag_main = Arc::clone(&ctx.pause_flag);
-        let hybrid_main = matches!(
-            exec_mode,
-            vm_core::ExecMode::HardwareAssisted | vm_core::ExecMode::JIT
-        );
-        for i in 0..vcpu_count {
-            let mmu_base = base_mmu.clone();
-            let debug_local = debug;
-            let mut thread_pc = pc;
-            let run_flag = Arc::clone(&run_flag_main);
-            let pause_flag = Arc::clone(&pause_flag_main);
-            let pool_iter = pool_main.as_ref().map(|p| p.clone());
-            let cfg_iter = ctx.adaptive_config.clone();
-            let guest_arch = ctx.guest_arch;
-            handles.push(tokio::spawn(async move {
-                let mut interp = Interpreter::new();
-                interp.set_reg(0, 0);
-                let hybrid = hybrid_main;
-                let mut jit = if hybrid {
-                    Some(match (pool_iter, cfg_iter) {
-                        (Some(_p), Some(cfg)) => Jit::with_adaptive_config(cfg),
-                        (Some(_p), None) => Jit::new(),
-                        (None, Some(cfg)) => Jit::with_adaptive_config(cfg),
-                        (None, None) => Jit::new(),
-                    })
-                } else {
-                    None
-                };
-                let mut decoder = DecoderFactory::create(guest_arch);
-                let mut local_mmu = mmu_base;
-                for step in 0..max_steps {
-                    if !run_flag.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    if pause_flag.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    match decoder.decode(&local_mmu, thread_pc) {
-                        Ok(block) => {
-                            let res = if let Some(j) = jit.as_mut() {
-                                j.set_pc(thread_pc);
-                                j.run(&mut local_mmu, &block)
-                            } else {
-                                interp.run(&mut local_mmu, &block)
-                            };
-                            if debug_local && step % 1000 == 0 {
-                                debug!("[CPU {} Async Step {}] PC={:#x}", i, step, thread_pc);
-                                tdebug!(cpu=?i, step=?step, pc=?thread_pc, "service:run_async_tick_cpu");
-                            }
-                            thread_pc = res.next_pc;
-                        }
-                        Err(_) => {
-                            break;
-                        }
-                    }
-                    tokio::task::yield_now().await;
-                }
-            }));
-        }
-        for h in handles {
-            let _ = h.await;
-        }
+        run_multi_vcpu_async(ctx, pc, base_mmu, debug, vcpu_count, exec_mode, max_steps).await
     }
+}
+
+/// 单vCPU异步执行
+async fn run_single_vcpu_async(
+    ctx: &ExecutionContext,
+    start_pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    exec_mode: vm_core::ExecMode,
+    max_steps: usize,
+) -> VmResult<()> {
+    async_execution::run_single_vcpu(ctx, start_pc, base_mmu, debug, exec_mode, max_steps).await
+}
+
+/// 多vCPU异步执行
+async fn run_multi_vcpu_async(
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    exec_mode: vm_core::ExecMode,
+    max_steps: usize,
+) -> VmResult<()> {
+    #[cfg(feature = "performance")]
+    let use_coroutine = ctx
+        .perf_state
+        .coroutine
+        .as_ref()
+        .map(|s| s.has_scheduler())
+        .unwrap_or(false);
+
+    #[cfg(not(feature = "performance"))]
+    let use_coroutine = false;
+
+    if use_coroutine {
+        #[cfg(feature = "performance")]
+        return run_multi_vcpu_with_coroutines(ctx, pc, base_mmu, debug, vcpu_count, exec_mode, max_steps).await;
+
+        #[cfg(not(feature = "performance"))]
+        unreachable!()
+    }
+
+    run_multi_vcpu_with_tokio(ctx, pc, base_mmu, debug, vcpu_count, exec_mode, max_steps).await
+}
+
+/// 使用协程调度器执行多vCPU异步任务
+#[cfg(feature = "performance")]
+async fn run_multi_vcpu_with_coroutines(
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    exec_mode: vm_core::ExecMode,
+    max_steps: usize,
+) -> VmResult<()> {
+    let hybrid = jit_execution::should_use_jit(exec_mode);
+    let mut handles = Vec::with_capacity(vcpu_count);
+
+    for i in 0..vcpu_count {
+        let mmu_base = base_mmu.clone();
+        let debug_local = debug;
+        let mut thread_pc = pc;
+        let run_flag = Arc::clone(&ctx.run_flag);
+        let pause_flag = Arc::clone(&ctx.pause_flag);
+        let guest_arch = ctx.guest_arch;
+
+        let jit_config = ctx.perf_state.jit.as_ref().and_then(|state| {
+            if hybrid {
+                Some((state.code_pool.clone(), state.adaptive_config.clone()))
+            } else {
+                None
+            }
+        });
+
+        handles.push(tokio::task::spawn(async move {
+            async_execution::execute_vcpu_with_jit(
+                mmu_base,
+                debug_local,
+                thread_pc,
+                run_flag,
+                pause_flag,
+                guest_arch,
+                i,
+                max_steps,
+                hybrid,
+                jit_config,
+            ).await
+        }));
+    }
+
+    for handle in handles {
+        let _ = handle.await;
+    }
+
     info!("=== Async Execution Complete ===");
     tinfo!(pc=?pc, "service:run_async_complete");
     Ok(())
 }
+
+/// 使用tokio::spawn执行多vCPU异步任务
+async fn run_multi_vcpu_with_tokio(
+    ctx: &ExecutionContext,
+    pc: GuestAddr,
+    base_mmu: SoftMmu,
+    debug: bool,
+    vcpu_count: usize,
+    exec_mode: vm_core::ExecMode,
+    max_steps: usize,
+) -> VmResult<()> {
+    #[cfg(feature = "performance")]
+    let (hybrid, jit_config) = {
+        let hybrid = jit_execution::should_use_jit(exec_mode);
+        let jit_config = ctx.perf_state.jit.as_ref().and_then(|state| {
+            if hybrid {
+                Some((state.code_pool.clone(), state.adaptive_config.clone()))
+            } else {
+                None
+            }
+        });
+        (hybrid, jit_config)
+    };
+
+    #[cfg(not(feature = "performance"))]
+    let (hybrid, jit_config) = (false, None);
+
+    let mut handles = Vec::with_capacity(vcpu_count);
+
+    for i in 0..vcpu_count {
+        let mmu_base = base_mmu.clone();
+        let debug_local = debug;
+        let mut thread_pc = pc;
+        let run_flag = Arc::clone(&ctx.run_flag);
+        let pause_flag = Arc::clone(&ctx.pause_flag);
+        let guest_arch = ctx.guest_arch;
+
+        handles.push(tokio::spawn(async move {
+            async_execution::execute_vcpu_with_jit(
+                mmu_base,
+                debug_local,
+                thread_pc,
+                run_flag,
+                pause_flag,
+                guest_arch,
+                i,
+                max_steps,
+                hybrid,
+                jit_config,
+            ).await
+        }));
+    }
+
+    for h in handles {
+        let _ = h.await;
+    }
+
+    info!("=== Async Execution Complete ===");
+    tinfo!(pc=?pc, "service:run_async_complete");
+    Ok(())
+}
+

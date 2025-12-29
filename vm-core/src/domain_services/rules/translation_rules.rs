@@ -107,13 +107,14 @@ impl TranslationBusinessRule for ArchitectureCompatibilityRule {
             // RISC-V 64 to x86-64 - supported with limitations
             (GuestArch::Riscv64, GuestArch::X86_64) => {
                 // Check if we can handle the limitations
-                if context.performance_requirements.min_throughput.is_some() && 
-                   context.performance_requirements.min_throughput.unwrap() > 500.0 {
-                    return Err(VmError::Core(crate::error::CoreError::InvalidState {
-                        message: "High throughput not supported for RISC-V 64 to x86-64 translation".to_string(),
-                        current: format!("min_throughput={:?}", context.performance_requirements.min_throughput),
-                        expected: "min_throughput<=500".to_string(),
-                    }));
+                if let Some(min_throughput) = context.performance_requirements.min_throughput {
+                    if min_throughput > 500.0 {
+                        return Err(VmError::Core(crate::error::CoreError::InvalidState {
+                            message: "High throughput not supported for RISC-V 64 to x86-64 translation".to_string(),
+                            current: format!("min_throughput={:?}", context.performance_requirements.min_throughput),
+                            expected: "min_throughput<=500".to_string(),
+                        }));
+                    }
                 }
                 Ok(())
             }

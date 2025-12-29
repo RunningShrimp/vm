@@ -1282,7 +1282,8 @@ mod tests {
             translation_cache_miss_rate: 0.25,
         };
         
-        let bottlenecks = service.analyze_cpu_bottlenecks(&profile).unwrap();
+        let bottlenecks = service.analyze_cpu_bottlenecks(&profile)
+            .expect("analyze_cpu_bottlenecks should not fail in test");
         assert!(!bottlenecks.is_empty());
         assert_eq!(bottlenecks.len(), 3); // High utilization, pipeline stalls, branch mispredictions
     }
@@ -1302,7 +1303,8 @@ mod tests {
             translation_cache_miss_rate: 0.15,
         };
         
-        let bottlenecks = service.analyze_memory_bottlenecks(&profile).unwrap();
+        let bottlenecks = service.analyze_memory_bottlenecks(&profile)
+            .expect("analyze_memory_bottlenecks should not fail in test");
         assert!(!bottlenecks.is_empty());
         assert_eq!(bottlenecks.len(), 3); // Cache misses, bandwidth saturation, high latency
     }
@@ -1334,7 +1336,7 @@ mod tests {
             &memory_bottlenecks,
             &[],
             &[],
-        ).unwrap();
+        ).expect("prioritize_bottlenecks should not fail in test");
         
         assert_eq!(prioritized.len(), 2);
         assert_eq!(prioritized[0].domain, OptimizationDomain::CPU); // Higher impact score
@@ -1362,7 +1364,7 @@ mod tests {
             &bottleneck_analysis,
             &optimization_goals,
             &constraints,
-        ).unwrap();
+        ).expect("recommend_optimization_strategies should not fail in test");
         
         // Should have recommendations even with empty bottlenecks
         assert!(!recommendations.recommendations.is_empty());
@@ -1402,7 +1404,8 @@ mod tests {
         
         let constraints = OptimizationConstraints::default();
         
-        let plan = service.create_unified_optimization_plan(&recommendations, &constraints).unwrap();
+        let plan = service.create_unified_optimization_plan(&recommendations, &constraints)
+            .expect("create_unified_optimization_plan should not fail in test");
         
         assert!(!plan.phases.is_empty());
         assert_eq!(plan.target_arch, GuestArch::X86_64);
@@ -1436,7 +1439,8 @@ mod tests {
             translation_cache_miss_rate: 0.1,
         };
         
-        let comparison = service.compare_performance_profiles(&baseline, &optimized).unwrap();
+        let comparison = service.compare_performance_profiles(&baseline, &optimized)
+            .expect("compare_performance_profiles should not fail in test");
         
         assert!(comparison.cpu_improvement > 0.0);
         assert!(comparison.memory_improvement > 0.0);

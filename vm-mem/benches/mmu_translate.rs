@@ -1,5 +1,5 @@
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use vm_core::{AccessType, MMU};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use vm_core::AccessType;
 use vm_mem::SoftMmu;
 
 /// 基准测试: Bare 模式地址翻译 (无 TLB 查找)
@@ -8,7 +8,7 @@ fn bench_translate_bare(c: &mut Criterion) {
 
     c.bench_function("translate_bare", |b| {
         b.iter(|| {
-            let va = black_box(0x1000_0000);
+            let va = std::hint::black_box(0x1000_0000);
             let _ = mmu
                 .translate(va, AccessType::Read)
                 .expect("Translate failed");
@@ -30,7 +30,7 @@ fn bench_memory_read(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             b.iter(|| {
-                let addr = black_box(0x1000);
+                let addr = std::hint::black_box(0x1000);
                 mmu.read(addr, size).expect("Memory read failed")
             })
         });
@@ -47,8 +47,8 @@ fn bench_memory_write(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             b.iter(|| {
-                let addr = black_box(0x1000);
-                let val = black_box(0xDEADBEEF_u64);
+                let addr = std::hint::black_box(0x1000);
+                let val = std::hint::black_box(0xDEADBEEF_u64);
                 mmu.write(addr, val, size).expect("Memory write failed")
             })
         });
@@ -63,7 +63,7 @@ fn bench_sequential_access(c: &mut Criterion) {
     c.bench_function("sequential_read_1k", |b| {
         b.iter(|| {
             for i in 0..1000 {
-                let addr = black_box(i * 8);
+                let addr = std::hint::black_box(i * 8);
                 let _ = mmu.read(addr, 8);
             }
         })
@@ -106,7 +106,7 @@ fn bench_tlb_performance(c: &mut Criterion) {
             |b, &num_pages| {
                 b.iter(|| {
                     for i in 0..*num_pages {
-                        let addr = black_box(i as u64 * page_size);
+                        let addr = std::hint::black_box(i as u64 * page_size);
                         let _ = mmu.translate(addr, AccessType::Read);
                     }
                 })

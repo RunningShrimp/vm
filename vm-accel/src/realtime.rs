@@ -93,12 +93,8 @@ impl PriorityInheritance {
             return Err("Invalid lock ID".to_string());
         }
 
-        if owners[lock_id].is_some() {
-            return Err(format!(
-                "Lock {} already held by task {}",
-                lock_id,
-                owners[lock_id].unwrap()
-            ));
+        if let Some(owner) = owners[lock_id] {
+            return Err(format!("Lock {} already held by task {}", lock_id, owner));
         }
 
         owners[lock_id] = Some(task_id as u32);
@@ -346,11 +342,12 @@ mod tests {
     fn test_priority_inheritance() {
         let pi = PriorityInheritance::new(10, 10);
 
-        pi.set_task_priority(0, RealtimePriority::Hard).unwrap();
-        pi.acquire_lock(0, 0).unwrap();
+        pi.set_task_priority(0, RealtimePriority::Hard)
+            .expect("Should set priority");
+        pi.acquire_lock(0, 0).expect("Should acquire lock");
         assert_eq!(pi.get_blocking_task(0), Some(0));
 
-        pi.release_lock(0, 0).unwrap();
+        pi.release_lock(0, 0).expect("Should release lock");
         assert_eq!(pi.get_blocking_task(0), None);
     }
 
@@ -376,7 +373,8 @@ mod tests {
         assert!(block.is_some());
         assert_eq!(pool.get_available_blocks(), 9);
 
-        pool.release_block(block.unwrap()).unwrap();
+        pool.release_block(block.expect("Should have block"))
+            .expect("Should release block");
         assert_eq!(pool.get_available_blocks(), 10);
     }
 
@@ -389,7 +387,7 @@ mod tests {
         prefetch.record_access(0x3000);
 
         let predictions = prefetch.get_predictions();
-        assert!(predictions.len() > 0);
+        assert!(!predictions.is_empty());
     }
 
     #[test]
@@ -398,10 +396,10 @@ mod tests {
 
         scheduler
             .schedule_realtime_task(1, RealtimePriority::Hard, 4)
-            .unwrap();
+            .expect("Should schedule task 1");
         scheduler
             .schedule_realtime_task(2, RealtimePriority::Critical, 5)
-            .unwrap();
+            .expect("Should schedule task 2");
 
         let tasks = scheduler.get_scheduled_tasks();
         assert_eq!(tasks.len(), 2);
@@ -422,12 +420,14 @@ mod tests {
     fn test_priority_lock_ordering() {
         let pi = PriorityInheritance::new(10, 10);
 
-        pi.set_task_priority(0, RealtimePriority::Soft).unwrap();
-        pi.set_task_priority(1, RealtimePriority::Hard).unwrap();
+        pi.set_task_priority(0, RealtimePriority::Soft)
+            .expect("Should set priority for task 0");
+        pi.set_task_priority(1, RealtimePriority::Hard)
+            .expect("Should set priority for task 1");
 
-        pi.acquire_lock(1, 0).unwrap();
+        pi.acquire_lock(1, 0).expect("Should acquire lock");
         assert_eq!(pi.get_blocking_task(0), Some(1));
 
-        pi.release_lock(1, 0).unwrap();
+        pi.release_lock(1, 0).expect("Should release lock");
     }
 }

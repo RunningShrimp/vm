@@ -9,18 +9,18 @@ path = "src/lib.rs"
 [dependencies]
 vm-common = { path = "../vm-common" }
 vm-core = { path = "../vm-core" }
-memmap2 = { version = "0.9", optional = true }
-libc = "0.2"
+libc = { workspace = true }
 lru = "0.16"
-parking_lot = "0.12.5"
+parking_lot = { workspace = true }
 dashmap = "6.1"
 crossbeam = "0.8"
-async-trait = { version = "0.1", optional = true }
-tokio = { version = "1.48", features = ["fs", "io-util", "sync"], optional = true }
-thiserror = "2.0"
+async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["fs"] }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.8"
+tokio = { workspace = true }
 
 [[bench]]
 name = "mmu_translate"
@@ -31,11 +31,12 @@ name = "tlb_optimized"
 harness = false
 
 [features]
-default = ["std", "tlb-basic"]
+default = ["std", "optimizations"]
 std = []
-async = ["tokio", "async-trait"]
-memmap = ["memmap2"]
-no_std = []
-tlb-basic = []
-tlb-optimized = []
-tlb-concurrent = []
+
+# Optimization features (merged: async, tlb)
+optimizations = ["tokio", "async-trait"]
+
+# Legacy feature aliases (deprecated, use "optimizations" instead)
+async = ["optimizations"]
+tlb = []

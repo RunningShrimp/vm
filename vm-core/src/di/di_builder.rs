@@ -12,6 +12,14 @@ use super::di_service_descriptor::{
     DIError, ServiceDescriptor, ServiceLifetime,
 };
 
+/// 将锁错误转换为 DIError
+fn lock_error(operation: &str) -> DIError {
+    DIError::DependencyResolutionFailed(format!(
+        "Failed to acquire lock for {}",
+        operation
+    ))
+}
+
 /// 容器构建器
 pub struct ContainerBuilder {
     /// 服务注册表
@@ -91,60 +99,76 @@ impl ContainerBuilder {
     
     /// 注册单例服务
     pub fn register_singleton<T: 'static + Send + Sync>(self) -> Self {
-        self.registry.register_singleton::<T>().unwrap();
+        if let Err(e) = self.registry.register_singleton::<T>() {
+            eprintln!("Failed to register singleton: {:?}", e);
+        }
         self
     }
-    
+
     /// 注册瞬态服务
     pub fn register_transient<T: 'static + Send + Sync>(self) -> Self {
-        self.registry.register_transient::<T>().unwrap();
+        if let Err(e) = self.registry.register_transient::<T>() {
+            eprintln!("Failed to register transient: {:?}", e);
+        }
         self
     }
-    
+
     /// 注册作用域服务
     pub fn register_scoped<T: 'static + Send + Sync>(self) -> Self {
-        self.registry.register_scoped::<T>().unwrap();
+        if let Err(e) = self.registry.register_scoped::<T>() {
+            eprintln!("Failed to register scoped: {:?}", e);
+        }
         self
     }
-    
+
     /// 注册服务实例
     pub fn register_instance<T: 'static + Send + Sync>(self, instance: T) -> Self {
-        self.registry.register_instance(instance).unwrap();
+        if let Err(e) = self.registry.register_instance(instance) {
+            eprintln!("Failed to register instance: {:?}", e);
+        }
         self
     }
-    
+
     /// 注册工厂函数
     pub fn register_factory<T: 'static + Send + Sync, F>(self, factory: F) -> Self
     where
         F: Fn(&dyn ServiceProvider) -> Result<T, DIError> + Send + Sync + 'static,
     {
-        self.registry.register_factory(factory).unwrap();
+        if let Err(e) = self.registry.register_factory(factory) {
+            eprintln!("Failed to register factory: {:?}", e);
+        }
         self
     }
-    
+
     /// 注册带依赖的服务
     pub fn register_with_dependencies<T: 'static + Send + Sync>(
         self,
         lifetime: ServiceLifetime,
         dependencies: Vec<TypeId>,
     ) -> Self {
-        self.registry.register_with_dependencies::<T>(lifetime, dependencies).unwrap();
+        if let Err(e) = self.registry.register_with_dependencies::<T>(lifetime, dependencies) {
+            eprintln!("Failed to register with dependencies: {:?}", e);
+        }
         self
     }
-    
+
     /// 注册命名服务
     pub fn register_named<T: 'static + Send + Sync>(
         self,
         name: &str,
         lifetime: ServiceLifetime,
     ) -> Self {
-        self.registry.register_named::<T>(name, lifetime).unwrap();
+        if let Err(e) = self.registry.register_named::<T>(name, lifetime) {
+            eprintln!("Failed to register named service: {:?}", e);
+        }
         self
     }
-    
+
     /// 将服务添加到分组
     pub fn add_to_group<T: 'static + Send + Sync>(self, group: &str) -> Self {
-        self.registry.add_to_group::<T>(group).unwrap();
+        if let Err(e) = self.registry.add_to_group::<T>(group) {
+            eprintln!("Failed to add to group: {:?}", e);
+        }
         self
     }
     
@@ -396,7 +420,7 @@ mod tests {
             .register_singleton::<String>()
             .register_transient::<i32>()
             .build()
-            .unwrap();
+            .expect("Failed to build container");
         
         assert!(container.is_registered::<String>());
         assert!(container.is_registered::<i32>());

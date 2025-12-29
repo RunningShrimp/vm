@@ -294,19 +294,19 @@ mod tests {
         };
         
         // Should stop due to time limit
-        assert!(!rule.should_continue_pipeline(&OptimizationStage::IrGeneration, &result, &config).unwrap());
-        
+        assert_eq!(rule.should_continue_pipeline(&OptimizationStage::IrGeneration, &result, &config), Ok(false));
+
         // Create a result that exceeds memory limit
         result.total_time_ms = 1000; // Within time limit
         result.peak_memory_usage_mb = 1000.0; // Exceeds default limit
-        
+
         // Should stop due to memory limit
-        assert!(!rule.should_continue_pipeline(&OptimizationStage::IrGeneration, &result, &config).unwrap());
-        
+        assert_eq!(rule.should_continue_pipeline(&OptimizationStage::IrGeneration, &result, &config), Ok(false));
+
         // Create a result within limits
         result.peak_memory_usage_mb = 100.0; // Within memory limit
-        
+
         // Should continue
-        assert!(rule.should_continue_pipeline(&OptimizationStage::IrGeneration, &result, &config).unwrap());
+        assert_eq!(rule.should_continue_pipeline(&OptimizationStage::IrGeneration, &result, &config), Ok(true));
     }
 }

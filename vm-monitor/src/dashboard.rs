@@ -116,7 +116,10 @@ impl DashboardServer {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // 实现WebSocket推送逻辑
         // 这里需要实际的WebSocket连接管理
-        tracing::debug!("Pushing metrics to WebSocket clients: {:?}", metrics.timestamp);
+        tracing::debug!(
+            "Pushing metrics to WebSocket clients: {:?}",
+            metrics.timestamp
+        );
         Ok(())
     }
 }
@@ -216,11 +219,20 @@ async fn performance_report_json_handler(
     match analyzer.generate_report_json().await {
         Ok(json) => {
             let body: axum::body::Body = json.into();
-            Response::builder()
+            match Response::builder()
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(body)
-                .unwrap()
-                .into_response()
+            {
+                Ok(response) => response.into_response(),
+                Err(_) => {
+                    let error = ErrorResponse {
+                        code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                        message: "Failed to build response".to_string(),
+                        timestamp: chrono::Utc::now(),
+                    };
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
+                }
+            }
         }
         Err(e) => {
             let error = ErrorResponse {
@@ -243,11 +255,20 @@ async fn performance_report_text_handler(
 ) -> impl IntoResponse {
     let report = analyzer.generate_report_text().await;
     let body: axum::body::Body = report.into();
-    Response::builder()
+    match Response::builder()
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(body)
-        .unwrap()
-        .into_response()
+    {
+        Ok(response) => response.into_response(),
+        Err(_) => {
+            let error = ErrorResponse {
+                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                message: "Failed to build response".to_string(),
+                timestamp: chrono::Utc::now(),
+            };
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
+        }
+    }
 }
 
 /// 获取告警列表
@@ -362,8 +383,10 @@ mod tests {
     #[tokio::test]
     async fn test_dashboard_server_creation() {
         let config = DashboardConfig::default();
-        let metrics_collector =
-            Arc::new(MetricsCollector::new(crate::MonitorConfig::default()).unwrap());
+        let metrics_collector = match MetricsCollector::new(crate::MonitorConfig::default()) {
+            Ok(mc) => Arc::new(mc),
+            Err(_) => panic!("Failed to create metrics collector"),
+        };
         let alert_manager = Arc::new(crate::AlertManager::new(crate::AlertThresholds::default()));
 
         let server = DashboardServer::new(config, metrics_collector, alert_manager);

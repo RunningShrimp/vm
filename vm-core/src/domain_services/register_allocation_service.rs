@@ -1,7 +1,198 @@
-//! Register allocation domain service
+//! # Register Allocation Domain Service
 //!
 //! This service manages complex business logic of register allocation,
 //! including live range analysis, register pressure analysis, and spill decisions.
+//!
+//! ## Domain Responsibilities
+//!
+//! The register allocation service is responsible for:
+//!
+//! 1. **Live Range Analysis**: Determining variable lifetimes and interference
+//! 2. **Register Pressure Analysis**: Identifying points of high register demand
+//! 3. **Allocation Algorithms**: Implementing various register allocation strategies
+//! 4. **Spill Decisions**: Determining when and what to spill to memory
+//! 5. **Architecture Support**: Handling architecture-specific register constraints
+//!
+//! ## DDD Patterns
+//!
+//! ### Domain Service Pattern
+//! This is a **Domain Service** because:
+//! - It performs complex analysis across multiple code blocks
+//! - It encapsulates sophisticated allocation algorithms
+//! - It coordinates between code generation and optimization
+//!
+//! ### Domain Events Published
+//!
+//! - **`OptimizationEvent::RegisterAllocationCompleted`**: Published when allocation completes
+//! - **`OptimizationEvent::RegisterPressureAnalysisCompleted`**: Published when pressure analysis completes
+//!
+//! ## Register Allocation Algorithms
+//!
+//! The service supports multiple allocation strategies:
+//!
+//! | Algorithm | Description | Complexity | Best For |
+//!-----------|-------------|------------|----------|
+//! | **Linear Scan** | Simple interval-based allocation | O(n log n) | Large programs with many temporaries |
+//! | **Graph Coloring** | Interference graph-based allocation | O(n²) | Optimal allocation, smaller programs |
+//! | **Iterative Coalescing** | Move elimination before coloring | O(n²) | Reducing register moves |
+//! | **Priority-Based** | Weighted allocation by importance | O(n log n) | Performance-critical code |
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Register Allocation
+//!
+//! ```rust
+//! use crate::domain_services::register_allocation_service::{
+//!     RegisterAllocationDomainService, RegisterAllocationStrategy,
+//!     Variable, Instruction
+//! };
+//! use crate::GuestArch;
+//!
+//! let service = RegisterAllocationDomainService::new();
+//!
+//! let variables = vec![
+//!     Variable {
+//!         id: "var1".to_string(),
+//!         var_type: "int".to_string(),
+//!         weight: 1.0,
+//!     },
+//! ];
+//!
+//! let instructions = vec![
+//!     Instruction {
+//!         id: 1,
+//!         opcode: "load".to_string(),
+//!         operands: vec!["var1".to_string()],
+//!     },
+//! ];
+//!
+//! let result = service.allocate_registers(
+//!     &variables,
+//!     &instructions,
+//!     GuestArch::X86_64,
+//!     RegisterAllocationStrategy::LinearScan,
+//! )?;
+//!
+//! println!("Registers used: {}", result.registers_used);
+//! println!("Spills generated: {}", result.spills_generated);
+//! println!("Allocation quality: {}", result.allocation_quality);
+//! ```
+//!
+//! ### Live Range Analysis
+//!
+//! ```rust
+//! let service = RegisterAllocationDomainService::new();
+//!
+//! let analysis = service.analyze_live_ranges(&variables, &instructions)?;
+//!
+//! println!("Max simultaneous variables: {}", analysis.max_simultaneous_variables);
+//!
+//! for range in &analysis.live_ranges {
+//!     println!("Variable {}: {} -> {}", range.variable_id, range.start, range.end);
+//! }
+//! ```
+//!
+//! ### Register Pressure Analysis
+//!
+//! ```rust
+//! let service = RegisterAllocationDomainService::new();
+//!
+//! let pressure_result = service.analyze_register_pressure(
+//!     &variables,
+//!     &instructions,
+//!     GuestArch::ARM64,
+//! )?;
+//!
+//! println!("Max pressure: {}", pressure_result.max_pressure);
+//! println!("Average pressure: {}", pressure_result.average_pressure);
+//!
+//! for hotspot in &pressure_result.pressure_hotspots {
+//!     println!("Hotspot at instruction {}: {}", hotspot.instruction_point, hotspot.pressure);
+//! }
+//! ```
+//!
+//! ## Live Range Analysis
+//!
+//! Live range analysis determines when variables are "live" (in use):
+//!
+//! ```text
+//! Instruction 1: a = 10         ← a becomes live
+//! Instruction 2: b = 20         ← b becomes live
+//! Instruction 3: c = a + b      ← a, b, c live
+//! Instruction 4: d = c * 2      ← b, c, d live (a dies)
+//! Instruction 5: return d       ← d live (b, c die)
+//! ```
+//!
+//! ### Interference Graph
+//!
+//! Variables that are simultaneously live interfere with each other:
+//!
+//! ```text
+//! a ─── b ─── c
+//! │     │     │
+//! └─── d ─────┘
+//!
+//! Nodes = variables
+//! Edges = interference (cannot be in same register)
+//! ```
+//!
+//! ## Register Pressure Analysis
+//!
+//! Register pressure identifies points where demand exceeds supply:
+//!
+//! ```text
+//! Pressure
+//!   8 │       ████
+//!   7 │     ████████
+//!   6 │   ████████████
+//!   5 │ ████████████████
+//!     └─────────────────→ Instructions
+//!       1 2 3 4 5 6 7 8
+//!
+//! Available registers: 6
+//! Threshold: 80% (4.8 registers)
+//! Hotspots: Instructions 5-8
+//! ```
+//!
+//! ## Architecture-Specific Registers
+//!
+//! ### x86_64 Registers
+//!
+//! | Type | Registers | Caller-Saved |
+//! |------|-----------|--------------|
+//! | General | rax, rcx, rdx, r8-r11 | Yes |
+//! | General | rbx, rsi, rdi, r12-r15 | No |
+//!
+//! ### ARM64 Registers
+//!
+//! | Type | Registers | Caller-Saved |
+//! |------|-----------|--------------|
+//! | General | x0-x18 | Yes |
+//! | General | x19-x28 | No |
+//!
+//! ### RISC-V Registers
+//!
+//! | Type | Registers | Caller-Saved |
+//! |------|-----------|--------------|
+//! | General | x1, x5-x7, x10-x17, x28-x31 | Yes |
+//! | General | x8-x9, x18-x27 | No |
+//!
+//! ## Spill Decisions
+//!
+//! When register pressure exceeds available registers, variables must be spilled:
+//!
+//! **Spill Cost Factors**:
+//! - **Frequency**: How often the variable is used
+//! - **Loop Depth**: Variables in inner loops are more expensive to spill
+//! - **Live Range Length**: Longer ranges may be better spill candidates
+//! - **Memory Access Cost**: Estimated cost of load/store operations
+//!
+//! ## Integration with Aggregate Roots
+//!
+//! This service works with:
+//! - **`CodeBlockAggregate`**: Code block-specific allocation
+//! - **`OptimizationAggregate`**: Optimization-phase allocation
+//! - **`TranslationAggregate`**: Target-specific register constraints
 
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
@@ -262,24 +453,26 @@ impl RegisterAllocationDomainService {
     /// Build interference graph from live ranges
     fn build_interference_graph(&self, live_ranges: &[LiveRange]) -> VmResult<InterferenceGraph> {
         let mut graph = HashMap::new();
-        
+
         // Initialize graph nodes
         for live_range in live_ranges {
             graph.insert(live_range.variable_id.clone(), HashSet::new());
         }
-        
+
         // Build edges between overlapping live ranges
         for (i, range1) in live_ranges.iter().enumerate() {
             for range2 in live_ranges.iter().skip(i + 1) {
                 if self.ranges_overlap(range1, range2) {
-                    graph.get_mut(&range1.variable_id).unwrap()
-                        .insert(range2.variable_id.clone());
-                    graph.get_mut(&range2.variable_id).unwrap()
-                        .insert(range1.variable_id.clone());
+                    if let Some(node) = graph.get_mut(&range1.variable_id) {
+                        node.insert(range2.variable_id.clone());
+                    }
+                    if let Some(node) = graph.get_mut(&range2.variable_id) {
+                        node.insert(range1.variable_id.clone());
+                    }
                 }
             }
         }
-        
+
         Ok(InterferenceGraph { graph })
     }
     
@@ -464,15 +657,15 @@ impl RegisterAllocationDomainService {
         let mut allocations = HashMap::new();
         let mut active_ranges = Vec::new();
         let mut register_pool = available_registers.to_vec();
-        
+
         // Sort live ranges by start point
         let mut sorted_ranges = live_range_analysis.live_ranges.clone();
         sorted_ranges.sort_by(|a, b| a.start.cmp(&b.start));
-        
+
         for live_range in sorted_ranges {
             // Remove expired ranges
             active_ranges.retain(|range| range.end >= live_range.start);
-            
+
             // Check if we have available registers
             if active_ranges.len() < register_pool.len() {
                 // Allocate register
@@ -484,23 +677,24 @@ impl RegisterAllocationDomainService {
                 let spill_index = active_ranges.iter()
                     .enumerate()
                     .max_by_key(|(_, range)| range.end)
-                    .map(|(index, _)| index)
-                    .unwrap();
-                
-                if active_ranges[spill_index].end > live_range.end {
-                    // Spill the active range
-                    let spilled_range = active_ranges.remove(spill_index);
-                    allocations.remove(&spilled_range.variable_id);
-                    
-                    // Allocate register to current range
-                    let register_index = active_ranges.len();
-                    allocations.insert(live_range.variable_id.clone(), register_pool[register_index].clone());
-                    active_ranges.push(live_range);
+                    .map(|(index, _)| index);
+
+                if let Some(idx) = spill_index {
+                    if active_ranges[idx].end > live_range.end {
+                        // Spill the active range
+                        let spilled_range = active_ranges.remove(idx);
+                        allocations.remove(&spilled_range.variable_id);
+
+                        // Allocate register to current range
+                        let register_index = active_ranges.len();
+                        allocations.insert(live_range.variable_id.clone(), register_pool[register_index].clone());
+                        active_ranges.push(live_range);
+                    }
+                    // Otherwise, current range will be spilled
                 }
-                // Otherwise, current range will be spilled
             }
         }
-        
+
         Ok(Allocation { allocations })
     }
     
@@ -582,38 +776,38 @@ impl RegisterAllocationDomainService {
     ) -> VmResult<Allocation> {
         let mut allocations = HashMap::new();
         let mut register_usage = HashMap::new();
-        
+
         // Initialize register usage
         for register in available_registers {
             register_usage.insert(register.name.clone(), 0.0);
         }
-        
+
         // Sort live ranges by weight (priority)
         let mut sorted_ranges = live_range_analysis.live_ranges.clone();
-        sorted_ranges.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap());
-        
+        sorted_ranges.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+
         for live_range in sorted_ranges {
             // Find register with lowest usage
             let mut best_register = None;
             let mut min_usage = f32::INFINITY;
-            
+
             for register in available_registers {
-                let usage = register_usage.get(&register.name).unwrap();
+                let usage = register_usage.get(&register.name).unwrap_or(&0.0);
                 if usage < &min_usage {
                     min_usage = *usage;
                     best_register = Some(register);
                 }
             }
-            
+
             if let Some(register) = best_register {
                 allocations.insert(live_range.variable_id.clone(), register.clone());
-                
+
                 // Update register usage based on live range length
-                let usage = register_usage.get_mut(&register.name).unwrap();
+                let usage = register_usage.get_mut(&register.name).unwrap_or(&mut 0.0);
                 *usage += (live_range.end - live_range.start) as f32 * live_range.weight;
             }
         }
-        
+
         Ok(Allocation { allocations })
     }
     
@@ -944,21 +1138,21 @@ mod tests {
     #[test]
     fn test_get_available_registers() {
         let service = RegisterAllocationDomainService::new();
-        
-        let x86_registers = service.get_available_registers(GuestArch::X86_64).unwrap();
+
+        let x86_registers = service.get_available_registers(GuestArch::X86_64).expect("Failed to get x86 registers");
         assert!(!x86_registers.is_empty());
-        
-        let arm_registers = service.get_available_registers(GuestArch::ARM64).unwrap();
+
+        let arm_registers = service.get_available_registers(GuestArch::ARM64).expect("Failed to get ARM registers");
         assert!(!arm_registers.is_empty());
-        
-        let riscv_registers = service.get_available_registers(GuestArch::RISCV64).unwrap();
+
+        let riscv_registers = service.get_available_registers(GuestArch::RISCV64).expect("Failed to get RISC-V registers");
         assert!(!riscv_registers.is_empty());
     }
-    
+
     #[test]
     fn test_compute_live_ranges() {
         let service = RegisterAllocationDomainService::new();
-        
+
         let variables = vec![
             Variable {
                 id: "var1".to_string(),
@@ -966,7 +1160,7 @@ mod tests {
                 weight: 1.0,
             },
         ];
-        
+
         let instructions = vec![
             Instruction {
                 id: 1,
@@ -979,8 +1173,8 @@ mod tests {
                 operands: vec!["var1".to_string(), "const".to_string()],
             },
         ];
-        
-        let live_ranges = service.compute_live_ranges(&variables, &instructions).unwrap();
+
+        let live_ranges = service.compute_live_ranges(&variables, &instructions).expect("Failed to compute live ranges");
         assert_eq!(live_ranges.len(), 1);
         assert_eq!(live_ranges[0].variable_id, "var1");
     }

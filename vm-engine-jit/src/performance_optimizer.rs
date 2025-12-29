@@ -2,14 +2,16 @@
 //!
 //! 整合了所有性能优化组件，提供统一的优化接口和配置管理。
 
+use crate::code_cache::{OptimizedCacheConfig, OptimizedCodeCache};
+use crate::core::{JITConfig, JITEngine};
+use crate::optimized_instruction_scheduler::{
+    OptimizedInstructionScheduler, OptimizedSchedulerConfig,
+};
+use crate::optimized_register_allocator::{OptimizedAllocatorConfig, OptimizedRegisterAllocator};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use vm_core::{GuestAddr, VmError};
 use vm_ir::IRBlock;
-use crate::core::{JITEngine, JITConfig};
-use crate::optimized_cache::{OptimizedCodeCache, OptimizedCacheConfig};
-use crate::optimized_register_allocator::{OptimizedRegisterAllocator, OptimizedAllocatorConfig};
-use crate::optimized_instruction_scheduler::{OptimizedInstructionScheduler, OptimizedSchedulerConfig};
 
 /// 性能优化配置
 #[derive(Debug, Clone)]
@@ -86,28 +88,42 @@ impl PerformanceOptimizer {
         }
     }
 
+    /// 辅助方法：获取统计数据的锁
+    fn acquire_stats(&self) -> Result<std::sync::MutexGuard<PerformanceOptimizationStats>, VmError> {
+        self.stats
+            .lock()
+            .map_err(|e| VmError::InternalError(format!("Failed to acquire stats lock: {}", e)))
+    }
+
+    /// 辅助方法：获取性能历史的锁
+    fn acquire_performance_history(&self) -> Result<std::sync::MutexGuard<Vec<f64>>, VmError> {
+        self.performance_history
+            .lock()
+            .map_err(|e| VmError::InternalError(format!("Failed to acquire performance history lock: {}", e)))
+    }
+
     /// 执行全面性能优化
     pub fn optimize_performance(&mut self, ir_block: &IRBlock) -> Result<(), VmError> {
         let start_time = Instant::now();
-        
+
         // 1. 缓存优化
         self.optimize_cache(ir_block)?;
-        
+
         // 2. 寄存器分配优化
         self.optimize_register_allocation(ir_block)?;
-        
+
         // 3. 指令调度优化
         self.optimize_instruction_scheduling(ir_block)?;
-        
+
         // 4. 自适应优化
         if self.config.enable_adaptive_optimization {
             self.adaptive_optimization(ir_block)?;
         }
-        
+
         // 更新统计
         let elapsed = start_time.elapsed().as_nanos() as u64;
         self.update_stats(elapsed);
-        
+
         Ok(())
     }
 
@@ -115,15 +131,15 @@ impl PerformanceOptimizer {
     fn optimize_cache(&mut self, ir_block: &IRBlock) -> Result<(), VmError> {
         // 分析缓存使用模式
         let cache_stats = self.analyze_cache_usage(ir_block)?;
-        
+
         // 根据使用模式调整缓存配置
         if cache_stats.hit_rate < self.config.optimization_threshold {
             self.adjust_cache_configuration(&cache_stats);
         }
-        
+
         // 预取热点代码
         self.prefetch_hot_code(ir_block);
-        
+
         Ok(())
     }
 
@@ -134,10 +150,10 @@ impl PerformanceOptimizer {
         let mut hit_count = 0;
         let mut spatial_locality = 0;
         let mut temporal_locality = 0;
-        
+
         for (i, instruction) in ir_block.ops.iter().enumerate() {
             access_count += 1;
-            
+
             // 检查空间局部性
             if i > 0 && self.is_memory_access(instruction) {
                 let prev_instruction = &ir_block.ops[i - 1];
@@ -145,23 +161,25 @@ impl PerformanceOptimizer {
                     spatial_locality += 1;
                 }
             }
-            
+
             // 检查时间局部性
             if i > 1 {
                 let recent_instructions = &ir_block.ops[i.saturating_sub(2)..i];
-                let same_registers = recent_instructions.iter()
+                let same_registers = recent_instructions
+                    .iter()
                     .any(|prev| self.shares_registers(instruction, prev));
                 if same_registers {
                     temporal_locality += 1;
                 }
             }
-            
+
             // 模拟缓存命中
-            if i % 4 == 0 { // 简化的缓存命中模型
+            if i % 4 == 0 {
+                // 简化的缓存命中模型
                 hit_count += 1;
             }
         }
-        
+
         Ok(CacheUsageStats {
             hit_rate: hit_count as f64 / access_count as f64,
             spatial_locality: spatial_locality as f64 / access_count as f64,
@@ -172,9 +190,9 @@ impl PerformanceOptimizer {
 
     /// 检查指令是否访问内存
     fn is_memory_access(&self, instruction: &vm_ir::IROp) -> bool {
-        matches!(instruction, 
-            vm_ir::IROp::Load { .. } | 
-            vm_ir::IROp::Store { .. }
+        matches!(
+            instruction,
+            vm_ir::IROp::Load { .. } | vm_ir::IROp::Store { .. }
         )
     }
 
@@ -186,20 +204,22 @@ impl PerformanceOptimizer {
     }
 
     /// 获取指令使用的寄存器
-    fn get_instruction_registers(&self, instruction: &vm_ir::IROp) -> std::collections::HashSet<u32> {
+    fn get_instruction_registers(
+        &self,
+        instruction: &vm_ir::IROp,
+    ) -> std::collections::HashSet<u32> {
         let mut registers = std::collections::HashSet::new();
-        
+
         match instruction {
-            vm_ir::IROp::Add { dst, src1, src2 } |
-            vm_ir::IROp::Sub { dst, src1, src2 } |
-            vm_ir::IROp::Mul { dst, src1, src2 } |
-            vm_ir::IROp::Div { dst, src1, src2 } => {
+            vm_ir::IROp::Add { dst, src1, src2 }
+            | vm_ir::IROp::Sub { dst, src1, src2 }
+            | vm_ir::IROp::Mul { dst, src1, src2 }
+            | vm_ir::IROp::Div { dst, src1, src2 } => {
                 registers.insert(*dst);
                 registers.insert(*src1);
                 registers.insert(*src2);
             }
-            vm_ir::IROp::Load { dst, .. } |
-            vm_ir::IROp::MovImm { dst, .. } => {
+            vm_ir::IROp::Load { dst, .. } | vm_ir::IROp::MovImm { dst, .. } => {
                 registers.insert(*dst);
             }
             vm_ir::IROp::Store { src, .. } => {
@@ -211,7 +231,7 @@ impl PerformanceOptimizer {
             }
             _ => {}
         }
-        
+
         registers
     }
 
@@ -225,13 +245,13 @@ impl PerformanceOptimizer {
                 // 空间局部性差，增加预取窗口
                 self.adjust_cache_prefetch_window(1.5);
             }
-            
+
             if stats.temporal_locality < 0.3 {
                 // 时间局部性差，调整缓存大小
                 self.adjust_cache_size(0.8);
             }
         }
-        
+
         if stats.temporal_locality < 0.3 {
             // 时间局部性差，调整缓存大小
         }
@@ -241,7 +261,7 @@ impl PerformanceOptimizer {
     fn prefetch_hot_code(&mut self, ir_block: &IRBlock) {
         // 识别热点代码块
         let hot_blocks = self.identify_hot_blocks(ir_block);
-        
+
         // 预取热点代码到缓存
         for block in hot_blocks {
             // 识别热点代码并预取
@@ -257,13 +277,13 @@ impl PerformanceOptimizer {
     fn identify_hot_blocks(&self, ir_block: &IRBlock) -> Vec<GuestAddr> {
         let mut hot_blocks = Vec::new();
         let mut access_frequency = std::collections::HashMap::new();
-        
+
         // 统计每个基本块的访问频率
         for instruction in &ir_block.ops {
             let block_addr = self.get_instruction_block_address(instruction);
             *access_frequency.entry(block_addr).or_insert(0) += 1;
         }
-        
+
         // 识别高频访问的块
         let threshold = ir_block.ops.len() as u32 / 10; // 前10%作为热点
         for (addr, &frequency) in &access_frequency {
@@ -271,7 +291,7 @@ impl PerformanceOptimizer {
                 hot_blocks.push(*addr);
             }
         }
-        
+
         hot_blocks
     }
 
@@ -279,12 +299,12 @@ impl PerformanceOptimizer {
     fn get_instruction_block_address(&self, instruction: &vm_ir::IROp) -> GuestAddr {
         // 简化实现：使用指令的PC地址
         match instruction {
-            vm_ir::IROp::Beq { target, .. } |
-            vm_ir::IROp::Bne { target, .. } |
-            vm_ir::IROp::Blt { target, .. } |
-            vm_ir::IROp::Bge { target, .. } |
-            vm_ir::IROp::Bltu { target, .. } |
-            vm_ir::IROp::Bgeu { target, .. } => *target,
+            vm_ir::IROp::Beq { target, .. }
+            | vm_ir::IROp::Bne { target, .. }
+            | vm_ir::IROp::Blt { target, .. }
+            | vm_ir::IROp::Bge { target, .. }
+            | vm_ir::IROp::Bltu { target, .. }
+            | vm_ir::IROp::Bgeu { target, .. } => *target,
             _ => 0, // 默认地址
         }
     }
@@ -293,18 +313,18 @@ impl PerformanceOptimizer {
     fn optimize_register_allocation(&mut self, ir_block: &IRBlock) -> Result<(), VmError> {
         // 分析寄存器使用模式
         let register_usage = self.analyze_register_usage(ir_block);
-        
+
         // 根据使用模式调整分配策略
         if register_usage.spill_frequency > 0.2 {
             // 溢出频率高，调整分配策略
             self.adjust_register_allocation_strategy(&register_usage);
         }
-        
+
         // 优化寄存器重命名
         if register_usage.reuse_opportunities > 0.3 {
             self.optimize_register_renaming(ir_block);
         }
-        
+
         Ok(())
     }
 
@@ -314,17 +334,17 @@ impl PerformanceOptimizer {
         let mut register_lifetimes = std::collections::HashMap::new();
         let mut spill_count = 0;
         let mut reuse_opportunities = 0;
-        
+
         for (i, instruction) in ir_block.ops.iter().enumerate() {
             let registers = self.get_instruction_registers(instruction);
             total_registers.extend(&registers);
-            
+
             // 更新寄存器生命周期
             for reg in &registers {
                 let lifetime = register_lifetimes.entry(*reg).or_insert((i, i));
                 lifetime.1 = i;
             }
-            
+
             // 检查重用机会
             if i > 0 {
                 let prev_registers = self.get_instruction_registers(&ir_block.ops[i - 1]);
@@ -332,17 +352,20 @@ impl PerformanceOptimizer {
                     reuse_opportunities += 1;
                 }
             }
-            
+
             // 简化的溢出检测
-            if total_registers.len() > 16 { // 假设有16个物理寄存器
+            if total_registers.len() > 16 {
+                // 假设有16个物理寄存器
                 spill_count += 1;
             }
         }
-        
-        let avg_lifetime = register_lifetimes.values()
+
+        let avg_lifetime = register_lifetimes
+            .values()
             .map(|(start, end)| end - start)
-            .sum::<usize>() as f64 / register_lifetimes.len() as f64;
-        
+            .sum::<usize>() as f64
+            / register_lifetimes.len() as f64;
+
         RegisterUsageStats {
             total_unique_registers: total_registers.len(),
             average_lifetime: avg_lifetime,
@@ -363,7 +386,7 @@ impl PerformanceOptimizer {
                 self.set_allocation_strategy(AllocationStrategy::Aggressive);
             }
         }
-        
+
         if usage.average_lifetime < 5.0 {
             // 生命周期短，优化重命名
             // 根据依赖图优化寄存器重命名
@@ -380,7 +403,7 @@ impl PerformanceOptimizer {
         pub fn rename_registers(&mut self, block: &mut IRBlock) -> Result<(), VmError> {
             let mut rename_map = HashMap::new();
             let mut next_virtual_reg = self.physical_regs.len();
-            
+
             for instruction in &mut block.instructions {
                 // 重命名源寄存器
                 for src_reg in instruction.get_source_regs_mut() {
@@ -390,7 +413,7 @@ impl PerformanceOptimizer {
                     }
                     *src_reg = rename_map[src_reg];
                 }
-                
+
                 // 重命名目标寄存器
                 if let Some(dst_reg) = instruction.get_dest_reg_mut() {
                     rename_map.insert(*dst_reg, next_virtual_reg);
@@ -398,7 +421,7 @@ impl PerformanceOptimizer {
                     next_virtual_reg += 1;
                 }
             }
-            
+
             Ok(())
         }
     }
@@ -407,18 +430,18 @@ impl PerformanceOptimizer {
     fn optimize_instruction_scheduling(&mut self, ir_block: &IRBlock) -> Result<(), VmError> {
         // 分析指令依赖关系
         let dependency_analysis = self.analyze_instruction_dependencies(ir_block);
-        
+
         // 根据依赖分析调整调度策略
         if dependency_analysis.critical_path_length > ir_block.ops.len() / 2 {
             // 关键路径较长，使用关键路径调度
             self.adjust_scheduling_strategy(&dependency_analysis);
         }
-        
+
         // 优化指令重排序
         if dependency_analysis.parallelism_opportunities > 0.4 {
             self.optimize_instruction_reordering(ir_block);
         }
-        
+
         Ok(())
     }
 
@@ -427,16 +450,16 @@ impl PerformanceOptimizer {
         let mut total_dependencies = 0;
         let mut critical_path_length = 0;
         let mut parallelism_opportunities = 0;
-        
+
         for (i, instruction) in ir_block.ops.iter().enumerate() {
             let dependencies = self.count_instruction_dependencies(ir_block, i);
             total_dependencies += dependencies;
-            
+
             // 简化的关键路径分析
             if dependencies > 2 {
                 critical_path_length += 1;
             }
-            
+
             // 检查并行执行机会
             if i > 0 && dependencies == 0 {
                 let prev_dependencies = self.count_instruction_dependencies(ir_block, i - 1);
@@ -445,7 +468,7 @@ impl PerformanceOptimizer {
                 }
             }
         }
-        
+
         DependencyAnalysisStats {
             total_dependencies,
             critical_path_length,
@@ -457,7 +480,7 @@ impl PerformanceOptimizer {
     fn count_instruction_dependencies(&self, ir_block: &IRBlock, index: usize) -> usize {
         let instruction = &ir_block.ops[index];
         let registers = self.get_instruction_registers(instruction);
-        
+
         let mut dependencies = 0;
         for prev_instruction in ir_block.ops.iter().take(index) {
             let prev_registers = self.get_instruction_registers(prev_instruction);
@@ -465,7 +488,7 @@ impl PerformanceOptimizer {
                 dependencies += 1;
             }
         }
-        
+
         dependencies
     }
 
@@ -481,7 +504,7 @@ impl PerformanceOptimizer {
                 self.set_scheduling_strategy(SchedulingStrategy::ComputeOptimized);
             }
         }
-        
+
         if analysis.parallelism_opportunities < 0.3 {
             // 并行机会少，优化依赖关系
             // 优化指令依赖关系
@@ -498,13 +521,13 @@ impl PerformanceOptimizer {
         pub fn reorder_instructions(&mut self, block: &mut IRBlock) -> Result<(), VmError> {
             // 构建依赖图
             let dependency_graph = self.build_dependency_graph(block)?;
-            
+
             // 使用拓扑排序重排序指令
             let sorted_instructions = self.topological_sort(&dependency_graph)?;
-            
+
             // 更新指令序列
             block.instructions = sorted_instructions;
-            
+
             Ok(())
         }
     }
@@ -512,28 +535,33 @@ impl PerformanceOptimizer {
     /// 自适应优化
     fn adaptive_optimization(&mut self, ir_block: &IRBlock) -> Result<(), VmError> {
         // 基于性能历史进行自适应优化
-        let performance_history = self.performance_history.lock().unwrap();
-        
+        let performance_history = self.acquire_performance_history()?;
+
         if performance_history.len() < 10 {
             return Ok(()); // 历史数据不足
         }
-        
+
         // 计算性能趋势
         let recent_performance = performance_history.iter().rev().take(5).sum::<f64>() / 5.0;
-        let historical_performance = performance_history.iter().sum::<f64>() / performance_history.len() as f64;
-        
+        let historical_performance =
+            performance_history.iter().sum::<f64>() / performance_history.len() as f64;
+
         let performance_trend = recent_performance - historical_performance;
-        
+
         if performance_trend < -self.config.optimization_threshold {
             // 性能下降，触发优化
             self.trigger_adaptive_optimization(ir_block, performance_trend)?;
         }
-        
+
         Ok(())
     }
 
     /// 触发自适应优化
-    fn trigger_adaptive_optimization(&mut self, ir_block: &IRBlock, performance_trend: f64) -> Result<(), VmError> {
+    fn trigger_adaptive_optimization(
+        &mut self,
+        ir_block: &IRBlock,
+        performance_trend: f64,
+    ) -> Result<(), VmError> {
         // 根据性能下降程度选择优化策略
         if performance_trend < -0.5 {
             // 严重性能下降，启用激进优化
@@ -542,7 +570,7 @@ impl PerformanceOptimizer {
             // 轻微性能下降，启用保守优化
             self.enable_conservative_optimization();
         }
-        
+
         Ok(())
     }
 
@@ -550,19 +578,22 @@ impl PerformanceOptimizer {
     fn enable_aggressive_optimization(&mut self) {
         // 增加优化级别
         // 实现激进优化策略
-        pub fn apply_aggressive_optimizations(&mut self, block: &mut IRBlock) -> Result<(), VmError> {
+        pub fn apply_aggressive_optimizations(
+            &mut self,
+            block: &mut IRBlock,
+        ) -> Result<(), VmError> {
             // 内联小函数
             self.inline_small_functions(block)?;
-            
+
             // 循环展开
             self.unroll_loops(block, 4)?;
-            
+
             // 常量传播
             self.propagate_constants(block)?;
-            
+
             // 死代码消除
             self.eliminate_dead_code(block)?;
-            
+
             Ok(())
         }
     }
@@ -571,53 +602,89 @@ impl PerformanceOptimizer {
     fn enable_conservative_optimization(&mut self) {
         // 减少优化级别以避免风险
         // 实现保守优化策略
-        pub fn apply_conservative_optimizations(&mut self, block: &mut IRBlock) -> Result<(), VmError> {
+        pub fn apply_conservative_optimizations(
+            &mut self,
+            block: &mut IRBlock,
+        ) -> Result<(), VmError> {
             // 只进行安全的优化
             self.eliminate_dead_code(block)?;
-            
+
             // 简单的常量折叠
             self.fold_constants(block)?;
-            
+
             Ok(())
         }
     }
 
     /// 更新优化统计
     fn update_stats(&mut self, elapsed_ns: u64) {
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = match self.acquire_stats() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to acquire stats lock: {}", e);
+                return;
+            }
+        };
+
         stats.total_optimizations += 1;
-        
+
         // 更新平均优化时间
-        let total_time = stats.avg_optimization_time_ns * (stats.total_optimizations - 1) + elapsed_ns;
+        let total_time =
+            stats.avg_optimization_time_ns * (stats.total_optimizations - 1) + elapsed_ns;
         stats.avg_optimization_time_ns = total_time / stats.total_optimizations;
-        
+
         // 模拟性能提升计算
-        stats.performance_improvement_percent = self.calculate_performance_improvement();
+        match self.calculate_performance_improvement_internal() {
+            improvement => stats.performance_improvement_percent = improvement,
+        }
     }
 
     /// 计算性能提升
     fn calculate_performance_improvement(&self) -> f64 {
-        let performance_history = self.performance_history.lock().unwrap();
-        
+        self.calculate_performance_improvement_internal()
+    }
+
+    /// 计算性能提升（内部实现）
+    fn calculate_performance_improvement_internal(&self) -> f64 {
+        let performance_history = match self.acquire_performance_history() {
+            Ok(history) => history,
+            Err(_) => return 0.0,
+        };
+
         if performance_history.len() < 2 {
             return 0.0;
         }
-        
+
         let initial_performance = performance_history[0];
-        let current_performance = *performance_history.last().unwrap();
-        
+        let current_performance = match performance_history.last() {
+            Some(&val) => val,
+            None => return 0.0,
+        };
+
         ((current_performance - initial_performance) / initial_performance) * 100.0
     }
 
     /// 获取优化统计
     pub fn get_stats(&self) -> PerformanceOptimizationStats {
-        self.stats.lock().unwrap().clone()
+        match self.acquire_stats() {
+            Ok(stats) => stats.clone(),
+            Err(e) => {
+                eprintln!("Failed to acquire stats lock in get_stats: {}", e);
+                PerformanceOptimizationStats::default()
+            }
+        }
     }
 
     /// 重置优化统计
     pub fn reset_stats(&self) {
-        let mut stats = self.stats.lock().unwrap();
-        *stats = PerformanceOptimizationStats::default();
+        match self.acquire_stats() {
+            Ok(mut stats) => {
+                *stats = PerformanceOptimizationStats::default();
+            }
+            Err(e) => {
+                eprintln!("Failed to acquire stats lock in reset_stats: {}", e);
+            }
+        }
     }
 }
 

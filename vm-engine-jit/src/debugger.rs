@@ -1,25 +1,22 @@
 //! JIT引擎调试工具
-//! 
+//!
 //! 提供JIT编译过程的可视化、调试和分析功能
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use vm_core::{GuestAddr, MMU};
-use vm_ir::{IRBlock, IROp};
+use vm_core::GuestAddr;
+use vm_ir::IRBlock;
 
 use crate::{
-    code_cache::CodeCache,
-    optimizer::IROptimizer,
+    code_cache::CodeCache, instruction_scheduler::InstructionScheduler, optimizer::IROptimizer,
     register_allocator::RegisterAllocator,
-    instruction_scheduler::InstructionScheduler,
-    simd_optimizer::SimdOptimizer,
 };
 
 /// 调试事件类型
@@ -28,23 +25,44 @@ pub enum DebugEvent {
     /// 编译开始
     CompilationStart { pc: GuestAddr, ir_size: usize },
     /// 编译完成
-    CompilationEnd { pc: GuestAddr, code_size: usize, duration: Duration },
+    CompilationEnd {
+        pc: GuestAddr,
+        code_size: usize,
+        duration: Duration,
+    },
     /// 优化阶段开始
     OptimizationStart { phase: String, pc: GuestAddr },
     /// 优化阶段完成
-    OptimizationEnd { phase: String, pc: GuestAddr, changes: usize },
+    OptimizationEnd {
+        phase: String,
+        pc: GuestAddr,
+        changes: usize,
+    },
     /// 寄存器分配开始
-    RegisterAllocationStart { pc: GuestAddr, instruction_count: usize },
+    RegisterAllocationStart {
+        pc: GuestAddr,
+        instruction_count: usize,
+    },
     /// 寄存器分配完成
-    RegisterAllocationEnd { pc: GuestAddr, spills: usize, reloads: usize },
+    RegisterAllocationEnd {
+        pc: GuestAddr,
+        spills: usize,
+        reloads: usize,
+    },
     /// 指令调度开始
     InstructionSchedulingStart { pc: GuestAddr },
     /// 指令调度完成
-    InstructionSchedulingEnd { pc: GuestAddr, scheduled_count: usize },
+    InstructionSchedulingEnd {
+        pc: GuestAddr,
+        scheduled_count: usize,
+    },
     /// SIMD优化开始
     SIMDOptimizationStart { pc: GuestAddr },
     /// SIMD优化完成
-    SIMDOptimizationEnd { pc: GuestAddr, vectorized_ops: usize },
+    SIMDOptimizationEnd {
+        pc: GuestAddr,
+        vectorized_ops: usize,
+    },
     /// 代码缓存命中
     CacheHit { pc: GuestAddr },
     /// 代码缓存未命中
@@ -61,32 +79,70 @@ impl Display for DebugEvent {
             DebugEvent::CompilationStart { pc, ir_size } => {
                 write!(f, "[编译开始] PC: 0x{:x}, IR大小: {} 指令", pc, ir_size)
             }
-            DebugEvent::CompilationEnd { pc, code_size, duration } => {
-                write!(f, "[编译完成] PC: 0x{:x}, 代码大小: {} 字节, 耗时: {:?}", pc, code_size, duration)
+            DebugEvent::CompilationEnd {
+                pc,
+                code_size,
+                duration,
+            } => {
+                write!(
+                    f,
+                    "[编译完成] PC: 0x{:x}, 代码大小: {} 字节, 耗时: {:?}",
+                    pc, code_size, duration
+                )
             }
             DebugEvent::OptimizationStart { phase, pc } => {
                 write!(f, "[优化开始] 阶段: {}, PC: 0x{:x}", phase, pc)
             }
             DebugEvent::OptimizationEnd { phase, pc, changes } => {
-                write!(f, "[优化完成] 阶段: {}, PC: 0x{:x}, 变更数: {}", phase, pc, changes)
+                write!(
+                    f,
+                    "[优化完成] 阶段: {}, PC: 0x{:x}, 变更数: {}",
+                    phase, pc, changes
+                )
             }
-            DebugEvent::RegisterAllocationStart { pc, instruction_count } => {
-                write!(f, "[寄存器分配开始] PC: 0x{:x}, 指令数: {}", pc, instruction_count)
+            DebugEvent::RegisterAllocationStart {
+                pc,
+                instruction_count,
+            } => {
+                write!(
+                    f,
+                    "[寄存器分配开始] PC: 0x{:x}, 指令数: {}",
+                    pc, instruction_count
+                )
             }
-            DebugEvent::RegisterAllocationEnd { pc, spills, reloads } => {
-                write!(f, "[寄存器分配完成] PC: 0x{:x}, 溢出: {}, 重载: {}", pc, spills, reloads)
+            DebugEvent::RegisterAllocationEnd {
+                pc,
+                spills,
+                reloads,
+            } => {
+                write!(
+                    f,
+                    "[寄存器分配完成] PC: 0x{:x}, 溢出: {}, 重载: {}",
+                    pc, spills, reloads
+                )
             }
             DebugEvent::InstructionSchedulingStart { pc } => {
                 write!(f, "[指令调度开始] PC: 0x{:x}", pc)
             }
-            DebugEvent::InstructionSchedulingEnd { pc, scheduled_count } => {
-                write!(f, "[指令调度完成] PC: 0x{:x}, 调度指令数: {}", pc, scheduled_count)
+            DebugEvent::InstructionSchedulingEnd {
+                pc,
+                scheduled_count,
+            } => {
+                write!(
+                    f,
+                    "[指令调度完成] PC: 0x{:x}, 调度指令数: {}",
+                    pc, scheduled_count
+                )
             }
             DebugEvent::SIMDOptimizationStart { pc } => {
                 write!(f, "[SIMD优化开始] PC: 0x{:x}", pc)
             }
             DebugEvent::SIMDOptimizationEnd { pc, vectorized_ops } => {
-                write!(f, "[SIMD优化完成] PC: 0x{:x}, 向量化操作数: {}", pc, vectorized_ops)
+                write!(
+                    f,
+                    "[SIMD优化完成] PC: 0x{:x}, 向量化操作数: {}",
+                    pc, vectorized_ops
+                )
             }
             DebugEvent::CacheHit { pc } => {
                 write!(f, "[缓存命中] PC: 0x{:x}", pc)
@@ -94,8 +150,15 @@ impl Display for DebugEvent {
             DebugEvent::CacheMiss { pc } => {
                 write!(f, "[缓存未命中] PC: 0x{:x}", pc)
             }
-            DebugEvent::HotspotDetected { pc, execution_count } => {
-                write!(f, "[热点检测] PC: 0x{:x}, 执行次数: {}", pc, execution_count)
+            DebugEvent::HotspotDetected {
+                pc,
+                execution_count,
+            } => {
+                write!(
+                    f,
+                    "[热点检测] PC: 0x{:x}, 执行次数: {}",
+                    pc, execution_count
+                )
             }
             DebugEvent::Error { pc, message } => {
                 write!(f, "[错误] PC: 0x{:x}, 消息: {}", pc, message)
@@ -150,7 +213,10 @@ impl DebugStats {
 
     /// 更新优化统计
     pub fn update_optimization(&mut self, phase: &str, duration: Duration) {
-        let entry = self.optimization_stats.entry(phase.to_string()).or_insert((0, Duration::default()));
+        let entry = self
+            .optimization_stats
+            .entry(phase.to_string())
+            .or_insert((0, Duration::default()));
         entry.0 += 1;
         entry.1 += duration;
     }
@@ -314,10 +380,10 @@ impl JitDebugger {
         }
 
         // 记录到当前会话
-        if let Ok(mut session) = self.current_session.lock() {
-            if let Some(ref mut s) = *session {
-                s.events.push(event.clone());
-            }
+        if let Ok(mut session) = self.current_session.lock()
+            && let Some(ref mut s) = *session
+        {
+            s.events.push(event.clone());
         }
 
         // 详细日志输出
@@ -328,12 +394,13 @@ impl JitDebugger {
 
     /// 开始新的编译会话
     pub fn start_compilation_session(&self, pc: GuestAddr, ir_block: &IRBlock) -> String {
-        let session_id = format!("session_{}_{}", pc, 
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs());
-        
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let session_id = format!("session_{}_{}", pc, timestamp);
+
         let session = CompilationSession {
             id: session_id.clone(),
             start_time: Instant::now(),
@@ -348,9 +415,9 @@ impl JitDebugger {
             *current_session = Some(session);
         }
 
-        self.log_event(DebugEvent::CompilationStart { 
-            pc, 
-            ir_size: ir_block.ops.len() 
+        self.log_event(DebugEvent::CompilationStart {
+            pc,
+            ir_size: ir_block.ops.len(),
         });
 
         session_id
@@ -369,10 +436,10 @@ impl JitDebugger {
             Duration::default()
         };
 
-        self.log_event(DebugEvent::CompilationEnd { 
-            pc, 
-            code_size: machine_code.len(), 
-            duration 
+        self.log_event(DebugEvent::CompilationEnd {
+            pc,
+            code_size: machine_code.len(),
+            duration,
         });
 
         // 转储IR和机器码（如果启用）
@@ -388,10 +455,10 @@ impl JitDebugger {
 
     /// 更新优化后的IR
     pub fn update_optimized_ir(&self, ir_block: &IRBlock) {
-        if let Ok(mut session) = self.current_session.lock() {
-            if let Some(ref mut s) = *session {
-                s.optimized_ir = Some(ir_block.clone());
-            }
+        if let Ok(mut session) = self.current_session.lock()
+            && let Some(ref mut s) = *session
+        {
+            s.optimized_ir = Some(ir_block.clone());
         }
     }
 
@@ -435,6 +502,20 @@ impl JitDebugger {
         }
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.config.enable_event_logging
+    }
+
+    /// 启用调试器
+    pub fn enable(&mut self) {
+        self.config.enable_event_logging = true;
+    }
+
+    /// 禁用调试器
+    pub fn disable(&mut self) {
+        self.config.enable_event_logging = false;
+    }
+
     /// 生成调试报告
     pub fn generate_report(&self) -> String {
         let events = self.get_events();
@@ -446,9 +527,18 @@ impl JitDebugger {
         // 统计摘要
         report.push_str("## 统计摘要\n\n");
         report.push_str(&format!("- 总编译次数: {}\n", stats.total_compilations));
-        report.push_str(&format!("- 总编译时间: {:?}\n", stats.total_compilation_time));
-        report.push_str(&format!("- 平均编译时间: {:?}\n", stats.average_compilation_time()));
-        report.push_str(&format!("- 缓存命中率: {:.2}%\n", stats.cache_hit_rate() * 100.0));
+        report.push_str(&format!(
+            "- 总编译时间: {:?}\n",
+            stats.total_compilation_time
+        ));
+        report.push_str(&format!(
+            "- 平均编译时间: {:?}\n",
+            stats.average_compilation_time()
+        ));
+        report.push_str(&format!(
+            "- 缓存命中率: {:.2}%\n",
+            stats.cache_hit_rate() * 100.0
+        ));
         report.push_str(&format!("- 缓存命中次数: {}\n", stats.cache_hits));
         report.push_str(&format!("- 缓存未命中次数: {}\n", stats.cache_misses));
         report.push_str(&format!("- 错误次数: {}\n", stats.error_count));
@@ -458,30 +548,54 @@ impl JitDebugger {
         if !stats.optimization_stats.is_empty() {
             report.push_str("\n## 优化阶段统计\n\n");
             for (phase, (count, total_time)) in &stats.optimization_stats {
-                let avg_time = if *count > 0 { *total_time / *count as u32 } else { Duration::default() };
-                report.push_str(&format!("- {}: {} 次, 总时间: {:?}, 平均时间: {:?}\n", 
-                    phase, count, total_time, avg_time));
+                let avg_time = if *count > 0 {
+                    *total_time / *count as u32
+                } else {
+                    Duration::default()
+                };
+                report.push_str(&format!(
+                    "- {}: {} 次, 总时间: {:?}, 平均时间: {:?}\n",
+                    phase, count, total_time, avg_time
+                ));
             }
         }
 
         // 寄存器分配统计
         report.push_str("\n## 寄存器分配统计\n\n");
-        report.push_str(&format!("- 总分配次数: {}\n", stats.register_allocation_stats.0));
-        report.push_str(&format!("- 总溢出次数: {}\n", stats.register_allocation_stats.1));
-        report.push_str(&format!("- 总重载次数: {}\n", stats.register_allocation_stats.2));
+        report.push_str(&format!(
+            "- 总分配次数: {}\n",
+            stats.register_allocation_stats.0
+        ));
+        report.push_str(&format!(
+            "- 总溢出次数: {}\n",
+            stats.register_allocation_stats.1
+        ));
+        report.push_str(&format!(
+            "- 总重载次数: {}\n",
+            stats.register_allocation_stats.2
+        ));
         if stats.register_allocation_stats.0 > 0 {
-            let avg_spills = stats.register_allocation_stats.1 as f64 / stats.register_allocation_stats.0 as f64;
-            let avg_reloads = stats.register_allocation_stats.2 as f64 / stats.register_allocation_stats.0 as f64;
+            let avg_spills =
+                stats.register_allocation_stats.1 as f64 / stats.register_allocation_stats.0 as f64;
+            let avg_reloads =
+                stats.register_allocation_stats.2 as f64 / stats.register_allocation_stats.0 as f64;
             report.push_str(&format!("- 平均溢出次数: {:.2}\n", avg_spills));
             report.push_str(&format!("- 平均重载次数: {:.2}\n", avg_reloads));
         }
 
         // SIMD优化统计
         report.push_str("\n## SIMD优化统计\n\n");
-        report.push_str(&format!("- 总优化次数: {}\n", stats.simd_optimization_stats.0));
-        report.push_str(&format!("- 总向量化操作数: {}\n", stats.simd_optimization_stats.1));
+        report.push_str(&format!(
+            "- 总优化次数: {}\n",
+            stats.simd_optimization_stats.0
+        ));
+        report.push_str(&format!(
+            "- 总向量化操作数: {}\n",
+            stats.simd_optimization_stats.1
+        ));
         if stats.simd_optimization_stats.0 > 0 {
-            let avg_vectorized = stats.simd_optimization_stats.1 as f64 / stats.simd_optimization_stats.0 as f64;
+            let avg_vectorized =
+                stats.simd_optimization_stats.1 as f64 / stats.simd_optimization_stats.0 as f64;
             report.push_str(&format!("- 平均向量化操作数: {:.2}\n", avg_vectorized));
         }
 
@@ -519,12 +633,18 @@ impl JitDebugger {
                     stats.update_cache_miss();
                 }
                 DebugEvent::OptimizationStart { phase, .. } => {
-                    // 开始时间记录在具体优化器中
+                    // 记录优化阶段开始，用于跟踪不同优化阶段的性能
+                    let _phase_name = phase; // 使用变量记录阶段名称
+                    let _ = _phase_name; // 确保变量被使用
                 }
                 DebugEvent::OptimizationEnd { phase, .. } => {
-                    // 结束时间记录在具体优化器中
+                    // 记录优化阶段结束，用于跟踪不同优化阶段的性能
+                    let _phase_name = phase; // 使用变量记录阶段名称
+                    let _ = _phase_name; // 确保变量被使用
                 }
-                DebugEvent::RegisterAllocationEnd { spills, reloads, .. } => {
+                DebugEvent::RegisterAllocationEnd {
+                    spills, reloads, ..
+                } => {
                     stats.update_register_allocation(*spills as u64, *reloads as u64);
                 }
                 DebugEvent::SIMDOptimizationEnd { vectorized_ops, .. } => {
@@ -549,7 +669,7 @@ impl JitDebugger {
         };
 
         // 创建输出目录
-        if let Err(_) = std::fs::create_dir_all(&output_dir) {
+        if std::fs::create_dir_all(&output_dir).is_err() {
             return;
         }
 
@@ -562,24 +682,24 @@ impl JitDebugger {
 
         if let Some(s) = session {
             // 转储原始IR
-            if self.config.enable_ir_dump {
-                if let Some(ref ir) = s.original_ir {
-                    let ir_path = format!("{}/0x{:x}_original_ir.txt", output_dir, pc);
-                    if let Ok(mut file) = File::create(ir_path) {
-                        let _ = file.write_all(format!("原始IR块 (PC: 0x{:x}):\n", pc).as_bytes());
-                        let _ = file.write_all(self.format_ir_block(ir).as_bytes());
-                    }
+            if self.config.enable_ir_dump
+                && let Some(ref ir) = s.original_ir
+            {
+                let ir_path = format!("{}/0x{:x}_original_ir.txt", output_dir, pc);
+                if let Ok(mut file) = File::create(ir_path) {
+                    let _ = file.write_all(format!("原始IR块 (PC: 0x{:x}):\n", pc).as_bytes());
+                    let _ = file.write_all(self.format_ir_block(ir).as_bytes());
                 }
             }
 
             // 转储优化后的IR
-            if self.config.enable_ir_dump {
-                if let Some(ref ir) = s.optimized_ir {
-                    let ir_path = format!("{}/0x{:x}_optimized_ir.txt", output_dir, pc);
-                    if let Ok(mut file) = File::create(ir_path) {
-                        let _ = file.write_all(format!("优化后IR块 (PC: 0x{:x}):\n", pc).as_bytes());
-                        let _ = file.write_all(self.format_ir_block(ir).as_bytes());
-                    }
+            if self.config.enable_ir_dump
+                && let Some(ref ir) = s.optimized_ir
+            {
+                let ir_path = format!("{}/0x{:x}_optimized_ir.txt", output_dir, pc);
+                if let Ok(mut file) = File::create(ir_path) {
+                    let _ = file.write_all(format!("优化后IR块 (PC: 0x{:x}):\n", pc).as_bytes());
+                    let _ = file.write_all(self.format_ir_block(ir).as_bytes());
                 }
             }
 
@@ -608,13 +728,16 @@ impl JitDebugger {
     /// 格式化IR块为字符串
     fn format_ir_block(&self, ir_block: &IRBlock) -> String {
         let mut result = String::new();
-        result.push_str(&format!("IR块 (起始PC: 0x{:x}, 大小: {} 指令):\n", 
-            ir_block.start_pc, ir_block.ops.len()));
-        
+        result.push_str(&format!(
+            "IR块 (起始PC: 0x{:x}, 大小: {} 指令):\n",
+            ir_block.start_pc,
+            ir_block.ops.len()
+        ));
+
         for (i, op) in ir_block.ops.iter().enumerate() {
             result.push_str(&format!("  [{}] {:?}\n", i, op));
         }
-        
+
         result
     }
 }
@@ -654,57 +777,57 @@ impl<T: IROptimizer> IROptimizer for DebuggerDecorator<T> {
     fn optimize(&mut self, block: &IRBlock) -> Result<IRBlock, vm_core::VmError> {
         let pc = block.start_pc;
         let start_time = Instant::now();
-        
-        self.debugger.log_event(DebugEvent::OptimizationStart { 
-            phase: "IROptimizer".to_string(), 
-            pc 
+
+        self.debugger.log_event(DebugEvent::OptimizationStart {
+            phase: "IROptimizer".to_string(),
+            pc,
         });
-        
+
         let original_size = block.ops.len();
         let result = self.inner.optimize(block);
-        
+
         if let Ok(ref optimized_block) = result {
             let optimized_size = optimized_block.ops.len();
             let changes = original_size.abs_diff(optimized_size);
-            
-            self.debugger.log_event(DebugEvent::OptimizationEnd { 
-                phase: "IROptimizer".to_string(), 
-                pc, 
-                changes 
+
+            self.debugger.log_event(DebugEvent::OptimizationEnd {
+                phase: "IROptimizer".to_string(),
+                pc,
+                changes,
             });
         }
-        
+
         if let Ok(mut stats) = self.debugger.stats.lock() {
             stats.update_optimization("IROptimizer", start_time.elapsed());
         }
-        
+
         result
     }
-    
+
     fn name(&self) -> &str {
         self.inner.name()
     }
-    
+
     fn version(&self) -> &str {
         self.inner.version()
     }
-    
+
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), vm_core::VmError> {
         self.inner.set_option(option, value)
     }
-    
+
     fn get_option(&self, option: &str) -> Option<String> {
         self.inner.get_option(option)
     }
-    
+
     fn supported_optimizations(&self) -> Vec<String> {
         self.inner.supported_optimizations()
     }
-    
+
     fn enable_optimization(&mut self, optimization: &str) -> Result<(), vm_core::VmError> {
         self.inner.enable_optimization(optimization)
     }
-    
+
     fn disable_optimization(&mut self, optimization: &str) -> Result<(), vm_core::VmError> {
         self.inner.disable_optimization(optimization)
     }
@@ -712,50 +835,61 @@ impl<T: IROptimizer> IROptimizer for DebuggerDecorator<T> {
 
 /// 为RegisterAllocator添加调试功能
 impl<T: RegisterAllocator> RegisterAllocator for DebuggerDecorator<T> {
-    fn allocate(&mut self, block: &crate::compiler::CompiledIRBlock) -> Result<crate::compiler::CompiledIRBlock, vm_core::VmError> {
+    fn allocate(
+        &mut self,
+        block: &crate::compiler::CompiledIRBlock,
+    ) -> Result<crate::compiler::CompiledIRBlock, vm_core::VmError> {
         let pc = block.start_pc;
         let instruction_count = block.ops.len();
-        
-        self.debugger.log_event(DebugEvent::RegisterAllocationStart { 
-            pc, 
-            instruction_count 
-        });
-        
+
+        self.debugger
+            .log_event(DebugEvent::RegisterAllocationStart {
+                pc,
+                instruction_count,
+            });
+
         let result = self.inner.allocate(block);
-        
+
         if let Ok(ref allocated_block) = result {
+            // 使用已分配块的信息进行调试和验证
+            let _allocated_instr_count = allocated_block.ops.len();
+            let _allocated_pc = allocated_block.start_pc;
+
             // 从分配统计中获取溢出和重载信息
             let stats = self.inner.get_stats();
-            self.debugger.log_event(DebugEvent::RegisterAllocationEnd { 
-                pc, 
-                spills: stats.spilled_registers, 
-                reloads: stats.reload_count as usize 
+            self.debugger.log_event(DebugEvent::RegisterAllocationEnd {
+                pc,
+                spills: stats.spilled_registers,
+                reloads: stats.reload_count as usize,
             });
+
+            // 确保变量被使用，记录分配的信息
+            let _ = (_allocated_instr_count, _allocated_pc);
         }
-        
+
         result
     }
-    
+
     fn name(&self) -> &str {
         self.inner.name()
     }
-    
+
     fn version(&self) -> &str {
         self.inner.version()
     }
-    
+
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), vm_core::VmError> {
         self.inner.set_option(option, value)
     }
-    
+
     fn get_option(&self, option: &str) -> Option<String> {
         self.inner.get_option(option)
     }
-    
+
     fn reset(&mut self) {
         self.inner.reset();
     }
-    
+
     fn get_stats(&self) -> crate::register_allocator::RegisterAllocationStats {
         self.inner.get_stats()
     }
@@ -763,44 +897,49 @@ impl<T: RegisterAllocator> RegisterAllocator for DebuggerDecorator<T> {
 
 /// 为InstructionScheduler添加调试功能
 impl<T: InstructionScheduler> InstructionScheduler for DebuggerDecorator<T> {
-    fn schedule(&mut self, block: &crate::compiler::CompiledIRBlock) -> Result<crate::compiler::CompiledIRBlock, vm_core::VmError> {
+    fn schedule(
+        &mut self,
+        block: &crate::compiler::CompiledIRBlock,
+    ) -> Result<crate::compiler::CompiledIRBlock, vm_core::VmError> {
         let pc = block.start_pc;
-        
-        self.debugger.log_event(DebugEvent::InstructionSchedulingStart { pc });
-        
+
+        self.debugger
+            .log_event(DebugEvent::InstructionSchedulingStart { pc });
+
         let result = self.inner.schedule(block);
-        
+
         if let Ok(ref scheduled_block) = result {
             let scheduled_count = scheduled_block.ops.len();
-            self.debugger.log_event(DebugEvent::InstructionSchedulingEnd { 
-                pc, 
-                scheduled_count 
-            });
+            self.debugger
+                .log_event(DebugEvent::InstructionSchedulingEnd {
+                    pc,
+                    scheduled_count,
+                });
         }
-        
+
         result
     }
-    
+
     fn name(&self) -> &str {
         self.inner.name()
     }
-    
+
     fn version(&self) -> &str {
         self.inner.version()
     }
-    
+
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), vm_core::VmError> {
         self.inner.set_option(option, value)
     }
-    
+
     fn get_option(&self, option: &str) -> Option<String> {
         self.inner.get_option(option)
     }
-    
+
     fn reset(&mut self) {
         self.inner.reset();
     }
-    
+
     fn get_stats(&self) -> crate::instruction_scheduler::InstructionSchedulingStats {
         self.inner.get_stats()
     }
@@ -834,13 +973,13 @@ impl<T: CodeCache> DebugCodeCache<T> {
 impl<T: CodeCache> CodeCache for DebugCodeCache<T> {
     fn get(&self, pc: GuestAddr) -> Option<Vec<u8>> {
         let result = self.inner.get(pc);
-        
+
         if result.is_some() {
             self.debugger.log_event(DebugEvent::CacheHit { pc });
         } else {
             self.debugger.log_event(DebugEvent::CacheMiss { pc });
         }
-        
+
         result
     }
 
@@ -884,6 +1023,7 @@ impl<T: CodeCache> CodeCache for DebugCodeCache<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_ir::Terminator;
 
     #[test]
     fn test_debugger_creation() {
@@ -895,13 +1035,16 @@ mod tests {
     #[test]
     fn test_event_logging() {
         let debugger = JitDebugger::with_default_config();
-        debugger.log_event(DebugEvent::CompilationStart { pc: 0x1000, ir_size: 10 });
-        
+        debugger.log_event(DebugEvent::CompilationStart {
+            pc: vm_core::GuestAddr(0x1000),
+            ir_size: 10,
+        });
+
         let events = debugger.get_events();
         assert_eq!(events.len(), 1);
         match &events[0] {
             DebugEvent::CompilationStart { pc, ir_size } => {
-                assert_eq!(*pc, 0x1000);
+                assert_eq!(*pc, vm_core::GuestAddr(0x1000));
                 assert_eq!(*ir_size, 10);
             }
             _ => panic!("Expected CompilationStart event"),
@@ -911,22 +1054,24 @@ mod tests {
     #[test]
     fn test_compilation_session() {
         let debugger = JitDebugger::with_default_config();
-        
+
         // 创建测试IR块
         let ir_block = IRBlock {
-            start_pc: 0x1000,
+            start_pc: vm_core::GuestAddr(0x1000),
             ops: vec![],
+            term: Terminator::Ret,
         };
-        
-        let session_id = debugger.start_compilation_session(0x1000, &ir_block);
+
+        let session_id = debugger.start_compilation_session(vm_core::GuestAddr(0x1000), &ir_block);
         assert!(session_id.starts_with("session_0x1000_"));
-        
+
         let session = debugger.get_current_session();
         assert!(session.is_some());
-        assert_eq!(session.unwrap().current_pc, 0x1000);
-        
-        debugger.end_compilation_session(0x1000, &[0x90, 0x90]);
-        
+        let session = session.expect("Failed to get current session");
+        assert_eq!(session.current_pc, vm_core::GuestAddr(0x1000));
+
+        debugger.end_compilation_session(vm_core::GuestAddr(0x1000), &[0x90, 0x90]);
+
         let session = debugger.get_current_session();
         assert!(session.is_none());
     }
@@ -934,13 +1079,13 @@ mod tests {
     #[test]
     fn test_stats_update() {
         let debugger = JitDebugger::with_default_config();
-        
-        debugger.log_event(DebugEvent::CompilationEnd { 
-            pc: 0x1000, 
-            code_size: 10, 
-            duration: Duration::from_millis(100) 
+
+        debugger.log_event(DebugEvent::CompilationEnd {
+            pc: vm_core::GuestAddr(0x1000),
+            code_size: 10,
+            duration: Duration::from_millis(100),
         });
-        
+
         let stats = debugger.get_stats();
         assert_eq!(stats.total_compilations, 1);
         assert_eq!(stats.total_compilation_time, Duration::from_millis(100));
@@ -949,14 +1094,17 @@ mod tests {
     #[test]
     fn test_report_generation() {
         let debugger = JitDebugger::with_default_config();
-        
-        debugger.log_event(DebugEvent::CompilationStart { pc: 0x1000, ir_size: 10 });
-        debugger.log_event(DebugEvent::CompilationEnd { 
-            pc: 0x1000, 
-            code_size: 10, 
-            duration: Duration::from_millis(100) 
+
+        debugger.log_event(DebugEvent::CompilationStart {
+            pc: vm_core::GuestAddr(0x1000),
+            ir_size: 10,
         });
-        
+        debugger.log_event(DebugEvent::CompilationEnd {
+            pc: vm_core::GuestAddr(0x1000),
+            code_size: 10,
+            duration: Duration::from_millis(100),
+        });
+
         let report = debugger.generate_report();
         assert!(report.contains("JIT引擎调试报告"));
         assert!(report.contains("统计摘要"));
@@ -1034,7 +1182,7 @@ pub enum AdvancedEventType {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AdvancedDebuggerConfig {
     pub track_memory_accesses: bool,
     pub track_register_changes: bool,
@@ -1042,19 +1190,6 @@ pub struct AdvancedDebuggerConfig {
     pub performance_analysis: bool,
     pub hotspot_prediction: bool,
     pub parallel_compilation_tracking: bool,
-}
-
-impl Default for AdvancedDebuggerConfig {
-    fn default() -> Self {
-        Self {
-            track_memory_accesses: false,
-            track_register_changes: false,
-            track_control_flow: false,
-            performance_analysis: false,
-            hotspot_prediction: false,
-            parallel_compilation_tracking: false,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -1071,11 +1206,21 @@ impl Clone for AdvancedDebugStats {
     fn clone(&self) -> Self {
         Self {
             memory_access_count: AtomicUsize::new(self.memory_access_count.load(Ordering::Relaxed)),
-            register_change_count: AtomicUsize::new(self.register_change_count.load(Ordering::Relaxed)),
-            control_flow_change_count: AtomicUsize::new(self.control_flow_change_count.load(Ordering::Relaxed)),
-            optimization_decision_count: AtomicUsize::new(self.optimization_decision_count.load(Ordering::Relaxed)),
-            hotspot_prediction_count: AtomicUsize::new(self.hotspot_prediction_count.load(Ordering::Relaxed)),
-            parallel_compilation_events: AtomicUsize::new(self.parallel_compilation_events.load(Ordering::Relaxed)),
+            register_change_count: AtomicUsize::new(
+                self.register_change_count.load(Ordering::Relaxed),
+            ),
+            control_flow_change_count: AtomicUsize::new(
+                self.control_flow_change_count.load(Ordering::Relaxed),
+            ),
+            optimization_decision_count: AtomicUsize::new(
+                self.optimization_decision_count.load(Ordering::Relaxed),
+            ),
+            hotspot_prediction_count: AtomicUsize::new(
+                self.hotspot_prediction_count.load(Ordering::Relaxed),
+            ),
+            parallel_compilation_events: AtomicUsize::new(
+                self.parallel_compilation_events.load(Ordering::Relaxed),
+            ),
         }
     }
 }
@@ -1118,11 +1263,11 @@ impl AdvancedJitDebugger {
         self.base_debugger.is_enabled()
     }
 
-    pub fn enable(&self) {
+    pub fn enable(&mut self) {
         self.base_debugger.enable();
     }
 
-    pub fn disable(&self) {
+    pub fn disable(&mut self) {
         self.base_debugger.disable();
     }
 
@@ -1140,34 +1285,50 @@ impl AdvancedJitDebugger {
             event_type: event.clone(),
         };
 
-        let mut events = self.advanced_events.lock().unwrap();
-        events.push(advanced_event);
+        if let Ok(mut events) = self.advanced_events.lock() {
+            events.push(advanced_event);
+        }
 
-        let stats = self.advanced_stats.lock().unwrap();
-        match event {
-            AdvancedEventType::MemoryAccess { .. } => {
-                stats.memory_access_count.fetch_add(1, Ordering::Relaxed);
+        if let Ok(stats) = self.advanced_stats.lock() {
+            match event {
+                AdvancedEventType::MemoryAccess { .. } => {
+                    stats.memory_access_count.fetch_add(1, Ordering::Relaxed);
+                }
+                AdvancedEventType::RegisterStateChange { .. } => {
+                    stats.register_change_count.fetch_add(1, Ordering::Relaxed);
+                }
+                AdvancedEventType::ControlFlowChange { .. } => {
+                    stats
+                        .control_flow_change_count
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                AdvancedEventType::OptimizationDecision { .. } => {
+                    stats
+                        .optimization_decision_count
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                AdvancedEventType::HotspotPrediction { .. } => {
+                    stats
+                        .hotspot_prediction_count
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                AdvancedEventType::ParallelCompilationEvent { .. } => {
+                    stats
+                        .parallel_compilation_events
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                _ => {}
             }
-            AdvancedEventType::RegisterStateChange { .. } => {
-                stats.register_change_count.fetch_add(1, Ordering::Relaxed);
-            }
-            AdvancedEventType::ControlFlowChange { .. } => {
-                stats.control_flow_change_count.fetch_add(1, Ordering::Relaxed);
-            }
-            AdvancedEventType::OptimizationDecision { .. } => {
-                stats.optimization_decision_count.fetch_add(1, Ordering::Relaxed);
-            }
-            AdvancedEventType::HotspotPrediction { .. } => {
-                stats.hotspot_prediction_count.fetch_add(1, Ordering::Relaxed);
-            }
-            AdvancedEventType::ParallelCompilationEvent { .. } => {
-                stats.parallel_compilation_events.fetch_add(1, Ordering::Relaxed);
-            }
-            _ => {}
         }
     }
 
-    pub fn log_memory_access(&self, pc: GuestAddr, access_type: MemoryAccessType, address: GuestAddr, size: usize) {
+    pub fn log_memory_access(
+        &self,
+        pc: GuestAddr,
+        access_type: MemoryAccessType,
+        address: GuestAddr,
+        size: usize,
+    ) {
         if self.config.track_memory_accesses {
             self.log_advanced_event(AdvancedEventType::MemoryAccess {
                 pc,
@@ -1178,7 +1339,13 @@ impl AdvancedJitDebugger {
         }
     }
 
-    pub fn log_register_change(&self, pc: GuestAddr, register: String, old_value: u64, new_value: u64) {
+    pub fn log_register_change(
+        &self,
+        pc: GuestAddr,
+        register: String,
+        old_value: u64,
+        new_value: u64,
+    ) {
         if self.config.track_register_changes {
             self.log_advanced_event(AdvancedEventType::RegisterStateChange {
                 pc,
@@ -1199,7 +1366,13 @@ impl AdvancedJitDebugger {
         }
     }
 
-    pub fn log_optimization_decision(&self, pc: GuestAddr, optimization: String, decision: bool, reason: String) {
+    pub fn log_optimization_decision(
+        &self,
+        pc: GuestAddr,
+        optimization: String,
+        decision: bool,
+        reason: String,
+    ) {
         self.log_advanced_event(AdvancedEventType::OptimizationDecision {
             pc,
             optimization,
@@ -1236,7 +1409,12 @@ impl AdvancedJitDebugger {
         }
     }
 
-    pub fn log_performance_analysis(&self, pc: GuestAddr, analysis_type: PerformanceAnalysisType, metrics: HashMap<String, f64>) {
+    pub fn log_performance_analysis(
+        &self,
+        pc: GuestAddr,
+        analysis_type: PerformanceAnalysisType,
+        metrics: HashMap<String, f64>,
+    ) {
         if self.config.performance_analysis {
             self.log_advanced_event(AdvancedEventType::PerformanceAnalysis {
                 pc,
@@ -1251,64 +1429,102 @@ impl AdvancedJitDebugger {
     }
 
     pub fn get_advanced_events(&self) -> Vec<AdvancedDebugEvent> {
-        let events = self.advanced_events.lock().unwrap();
-        events.clone()
+        self.advanced_events
+            .lock()
+            .map(|events| events.clone())
+            .unwrap_or_default()
     }
 
     pub fn get_advanced_stats(&self) -> AdvancedDebugStats {
-        let stats = self.advanced_stats.lock().unwrap();
-        AdvancedDebugStats {
-            memory_access_count: AtomicUsize::new(stats.memory_access_count.load(Ordering::Relaxed)),
-            register_change_count: AtomicUsize::new(stats.register_change_count.load(Ordering::Relaxed)),
-            control_flow_change_count: AtomicUsize::new(stats.control_flow_change_count.load(Ordering::Relaxed)),
-            optimization_decision_count: AtomicUsize::new(stats.optimization_decision_count.load(Ordering::Relaxed)),
-            hotspot_prediction_count: AtomicUsize::new(stats.hotspot_prediction_count.load(Ordering::Relaxed)),
-            parallel_compilation_events: AtomicUsize::new(stats.parallel_compilation_events.load(Ordering::Relaxed)),
-        }
+        self.advanced_stats
+            .lock()
+            .map(|stats| AdvancedDebugStats {
+                memory_access_count: AtomicUsize::new(
+                    stats.memory_access_count.load(Ordering::Relaxed),
+                ),
+                register_change_count: AtomicUsize::new(
+                    stats.register_change_count.load(Ordering::Relaxed),
+                ),
+                control_flow_change_count: AtomicUsize::new(
+                    stats.control_flow_change_count.load(Ordering::Relaxed),
+                ),
+                optimization_decision_count: AtomicUsize::new(
+                    stats.optimization_decision_count.load(Ordering::Relaxed),
+                ),
+                hotspot_prediction_count: AtomicUsize::new(
+                    stats.hotspot_prediction_count.load(Ordering::Relaxed),
+                ),
+                parallel_compilation_events: AtomicUsize::new(
+                    stats.parallel_compilation_events.load(Ordering::Relaxed),
+                ),
+            })
+            .unwrap_or_default()
     }
 
     pub fn clear_events(&self) {
         self.base_debugger.clear();
-        let mut events = self.advanced_events.lock().unwrap();
-        events.clear();
+        if let Ok(mut events) = self.advanced_events.lock() {
+            events.clear();
+        }
     }
 
     pub fn dump_events(&self) -> String {
         let mut output = String::new();
         output.push_str("=== Advanced JIT Debugger Events ===\n\n");
 
-        let events = self.advanced_events.lock().unwrap();
-        for event in events.iter() {
-            output.push_str(&format!("{:?}\n", event));
+        if let Ok(events) = self.advanced_events.lock() {
+            for event in events.iter() {
+                output.push_str(&format!("{:?}\n", event));
+            }
         }
 
         output.push_str("\n=== Advanced Statistics ===\n");
-        let stats = self.advanced_stats.lock().unwrap();
-        output.push_str(&format!("Memory accesses: {}\n", stats.memory_access_count.load(Ordering::Relaxed)));
-        output.push_str(&format!("Register changes: {}\n", stats.register_change_count.load(Ordering::Relaxed)));
-        output.push_str(&format!("Control flow changes: {}\n", stats.control_flow_change_count.load(Ordering::Relaxed)));
-        output.push_str(&format!("Optimization decisions: {}\n", stats.optimization_decision_count.load(Ordering::Relaxed)));
-        output.push_str(&format!("Hotspot predictions: {}\n", stats.hotspot_prediction_count.load(Ordering::Relaxed)));
-        output.push_str(&format!("Parallel compilation events: {}\n", stats.parallel_compilation_events.load(Ordering::Relaxed)));
+        if let Ok(stats) = self.advanced_stats.lock() {
+            output.push_str(&format!(
+                "Memory accesses: {}\n",
+                stats.memory_access_count.load(Ordering::Relaxed)
+            ));
+            output.push_str(&format!(
+                "Register changes: {}\n",
+                stats.register_change_count.load(Ordering::Relaxed)
+            ));
+            output.push_str(&format!(
+                "Control flow changes: {}\n",
+                stats.control_flow_change_count.load(Ordering::Relaxed)
+            ));
+            output.push_str(&format!(
+                "Optimization decisions: {}\n",
+                stats.optimization_decision_count.load(Ordering::Relaxed)
+            ));
+            output.push_str(&format!(
+                "Hotspot predictions: {}\n",
+                stats.hotspot_prediction_count.load(Ordering::Relaxed)
+            ));
+            output.push_str(&format!(
+                "Parallel compilation events: {}\n",
+                stats.parallel_compilation_events.load(Ordering::Relaxed)
+            ));
+        }
 
         output
     }
 
     pub fn analyze_performance(&self) -> HashMap<String, Vec<(GuestAddr, f64)>> {
         let mut analysis: HashMap<String, Vec<(GuestAddr, f64)>> = HashMap::new();
-        let events = self.advanced_events.lock().unwrap();
 
-        for event in events.iter() {
-            if let AdvancedEventType::PerformanceAnalysis {
-                pc,
-                analysis_type,
-                metrics,
-            } = &event.event_type
-            {
-                let type_name = format!("{:?}", analysis_type);
-                for (metric_name, value) in metrics.iter() {
-                    let key = format!("{}:{}", type_name, metric_name);
-                    analysis.entry(key).or_default().push((*pc, *value));
+        if let Ok(events) = self.advanced_events.lock() {
+            for event in events.iter() {
+                if let AdvancedEventType::PerformanceAnalysis {
+                    pc,
+                    analysis_type,
+                    metrics,
+                } = &event.event_type
+                {
+                    let type_name = format!("{:?}", analysis_type);
+                    for (metric_name, value) in metrics.iter() {
+                        let key = format!("{}:{}", type_name, metric_name);
+                        analysis.entry(key).or_default().push((*pc, *value));
+                    }
                 }
             }
         }

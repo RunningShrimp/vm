@@ -2,7 +2,7 @@
 //!
 //! 提供统一的事件发布订阅机制，支持组件间的松耦合通信。
 
-use crate::{SubscriptionId, VmError, VmEvent};
+use crate::{SubscriptionId, VmError, VmEvent, VmEventListener};
 use std::collections::HashMap;
 use std::sync::{
     Arc, Mutex,
@@ -11,7 +11,7 @@ use std::sync::{
 
 /// 事件发布器
 pub struct EventPublisher {
-    subscribers: HashMap<String, Vec<Box<dyn Fn(&VmEvent) + Send + Sync>>>,
+    subscribers: HashMap<String, Vec<VmEventListener>>,
     next_id: AtomicU64,
 }
 
@@ -167,7 +167,7 @@ impl ComponentRegistry {
 
     /// 注销组件
     pub fn unregister(&mut self, name: &str) -> Result<(), VmError> {
-        if let Some(_) = self.components.remove(name) {
+        if self.components.remove(name).is_some() {
             self.event_bus
                 .publish(VmEvent::ComponentStopped(name.to_string()));
             Ok(())
@@ -247,7 +247,7 @@ mod tests {
         bus.subscribe("component_started", move |_| {
             counter_clone.fetch_add(1, Ordering::Relaxed);
         })
-        .unwrap();
+        .expect("Failed to subscribe to event");
 
         bus.publish(VmEvent::ComponentStarted("test".to_string()));
 

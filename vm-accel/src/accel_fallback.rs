@@ -5,8 +5,7 @@
 //! - 快速回退路径选择
 //! - 错误恢复策略
 
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use vm_core::GuestAddr;
 
 /// 硬件加速回退错误类型（简化版本，用于回退管理）
@@ -78,13 +77,14 @@ impl PreallocatedResources {
 /// # 标识
 /// 硬件加速管理类
 #[derive(Clone)]
+#[allow(clippy::arc_with_non_send_sync)]
 pub struct AccelFallbackManager {
     /// 预分配的资源
-    resources: Arc<RefCell<PreallocatedResources>>,
+    resources: Arc<Mutex<PreallocatedResources>>,
     /// 最后一次错误
-    last_error: Arc<RefCell<Option<FallbackError>>>,
+    last_error: Arc<Mutex<Option<FallbackError>>>,
     /// 回退次数统计
-    fallback_count: Arc<RefCell<u64>>,
+    fallback_count: Arc<Mutex<u64>>,
 }
 
 impl AccelFallbackManager {
@@ -103,9 +103,9 @@ impl AccelFallbackManager {
     /// ```
     pub fn new() -> Self {
         Self {
-            resources: Arc::new(RefCell::new(PreallocatedResources::new())),
-            last_error: Arc::new(RefCell::new(None)),
-            fallback_count: Arc::new(RefCell::new(0)),
+            resources: Arc::new(Mutex::new(PreallocatedResources::new())),
+            last_error: Arc::new(Mutex::new(None)),
+            fallback_count: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -115,18 +115,23 @@ impl AccelFallbackManager {
     ///
     /// * `error` - 失败的错误类型
     pub fn record_failure(&self, error: FallbackError) {
-        *self.last_error.borrow_mut() = Some(error);
-        *self.fallback_count.borrow_mut() += 1;
+        if let Ok(mut last_error) = self.last_error.lock() {
+            *last_error = Some(error);
+        }
+
+        if let Ok(mut count) = self.fallback_count.lock() {
+            *count += 1;
+        }
     }
 
     /// 获取最后一次错误
     pub fn last_error(&self) -> Option<FallbackError> {
-        *self.last_error.borrow()
+        self.last_error.lock().ok().and_then(|e| *e)
     }
 
     /// 获取回退统计次数
     pub fn fallback_count(&self) -> u64 {
-        *self.fallback_count.borrow()
+        self.fallback_count.lock().ok().map(|c| *c).unwrap_or(0)
     }
 
     /// 是否应该尝试软件回退
@@ -167,7 +172,17 @@ impl AccelFallbackManager {
         }
 
         // 获取预分配资源
-        let mut resources = self.resources.borrow_mut();
+        let mut resources = match self.resources.lock() {
+            Ok(lock) => lock,
+            Err(_) => {
+                // 如果锁被污染，返回失败
+                return ExecResult {
+                    success: false,
+                    error: Some(error),
+                    pc,
+                };
+            }
+        };
         resources.reset();
 
         // 执行软件回退逻辑
@@ -282,7 +297,10 @@ mod tests {
     fn test_fallback_execute_unsupported() {
         let manager = AccelFallbackManager::new();
 
-        let result = manager.fallback_execute(FallbackError::UnsupportedInstruction, vm_core::GuestAddr(0x1000));
+        let result = manager.fallback_execute(
+            FallbackError::UnsupportedInstruction,
+            vm_core::GuestAddr(0x1000),
+        );
         assert!(result.success);
         assert_eq!(result.pc, vm_core::GuestAddr(0x1004));
         assert_eq!(manager.fallback_count(), 1);

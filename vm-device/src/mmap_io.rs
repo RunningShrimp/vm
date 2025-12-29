@@ -181,7 +181,7 @@ impl MmapDeviceIo {
     /// 获取映射区域的可变直接切片（零复制写入）
     pub fn get_slice_mut<'a>(
         &self,
-        region: &'a MmapRegion,
+        region: &'a mut MmapRegion,
         offset: usize,
         len: usize,
     ) -> Result<&'a mut [u8], MmapError> {
@@ -323,6 +323,12 @@ impl MmapDeviceIo {
         }
 
         Ok(())
+    }
+}
+
+impl Default for MmapDeviceIo {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -1,7 +1,242 @@
-//! Monitoring bounded context
-//! 
+//! # Monitoring Bounded Context
+//!
 //! This module defines the monitoring domain, including performance metrics,
 //! health checks, and alerting for the JIT engine.
+//!
+//! ## Overview
+//!
+//! The monitoring bounded context provides comprehensive observability for the JIT engine,
+//! tracking metrics, managing alerts, and performing health checks across all system
+//! components.
+//!
+//! ## Key Components
+//!
+//! ### Metric Types
+//!
+//! - **Counter**: Monotonically increasing value (e.g., request count)
+//! - **Gauge**: Current value (e.g., memory usage)
+//! - **Histogram**: Distribution of values (e.g., latencies)
+//! - **Summary**: Statistical summary with quantiles
+//!
+//! ### Alert Management
+//!
+//! - **AlertSeverity**: Debug, Info, Warning, Error, Critical
+//! - **Alert Lifecycle**: Creation, resolution, retention
+//! - **Alert Routing**: Filter by severity and labels
+//!
+//! ### Health Monitoring
+//!
+//! - **HealthStatus**: Healthy, Degraded, Unhealthy, Unknown
+//! - **Health Checks**: Component and system-level checks
+//! - **Health Scoring**: Overall system health percentage
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Monitoring Setup
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::monitoring::{MonitoringService, MonitoringConfig};
+//!
+//! let mut service = MonitoringService::new();
+//!
+//! let config = MonitoringConfig {
+//!     enable_metrics: true,
+//!     enable_health_checks: true,
+//!     enable_alerts: true,
+//!     metrics_interval: Duration::from_secs(10),
+//!     health_check_interval: Duration::from_secs(30),
+//!     ..Default::default()
+//! };
+//!
+//! let monitoring_id = service.create_context(config);
+//! ```
+//!
+//! ### Recording Metrics
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::monitoring::Metric;
+//!
+//! // Counter metric
+//! let counter = Metric::counter("jit.compilations.total".to_string(), 1)
+//!     .with_label("arch".to_string(), "x86_64".to_string());
+//! service.record_metric(monitoring_id, counter)?;
+//!
+//! // Gauge metric
+//! let gauge = Metric::gauge("jit.memory.usage_bytes".to_string(), 1024000.0);
+//! service.record_metric(monitoring_id, gauge)?;
+//!
+//! // Histogram metric
+//! let histogram = Metric::histogram(
+//!     "jit.compilation.time_ms".to_string(),
+//!     vec![10.0, 25.0, 50.0, 100.0]
+//! );
+//! service.record_metric(monitoring_id, histogram)?;
+//! ```
+//!
+//! ### Managing Alerts
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::monitoring::{Alert, AlertSeverity};
+//!
+//! // Generate an alert
+//! let alert = Alert::new(
+//!     "high_memory_usage".to_string(),
+//!     AlertSeverity::Warning,
+//!     "Memory usage exceeded 80% threshold".to_string()
+//! ).with_label("component".to_string(), "compilation".to_string());
+//!
+//! service.generate_alert(monitoring_id, alert)?;
+//!
+//! // Get active alerts
+//! let active_alerts = service.get_active_alerts(monitoring_id)?;
+//! for alert in active_alerts {
+//!     println!("Alert: {} - {}", alert.name, alert.message);
+//! }
+//!
+//! // Resolve an alert
+//! let alert_id = active_alerts[0].alert_id;
+//! service.resolve_alert(monitoring_id, alert_id)?;
+//! ```
+//!
+//! ### Health Checks
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::monitoring::{HealthCheckResult, HealthStatus};
+//!
+//! let result = HealthCheckResult::new(
+//!     "compilation_service".to_string(),
+//!     HealthStatus::Healthy,
+//!     "All systems operational".to_string(),
+//!     Duration::from_millis(50)
+//! ).with_detail("compilations_per_sec".to_string(), "1000".to_string());
+//!
+//! service.record_health_check(monitoring_id, result)?;
+//!
+//! // Get latest health status
+//! let status = service.get_latest_health_status(monitoring_id)?;
+//! println!("System status: {}", status);
+//! ```
+//!
+//! ### Monitoring Analysis
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::monitoring::analysis;
+//!
+//! let context = service.get_context(monitoring_id)?;
+//! let ctx = context.read().unwrap();
+//!
+//! let report = analysis::analyze_monitoring_data(&ctx);
+//! println!("Health score: {:.1}%", report.health_score);
+//! println!("Average gauge value: {:.2}", report.avg_gauge_value);
+//! println!("Active alerts: {}", report.active_alerts);
+//! ```
+//!
+//! ## Alert Severity Levels
+//!
+//! ### Debug
+//! Detailed information for troubleshooting. Not actionable in production.
+//!
+//! ### Info
+//! Informational messages about normal operations.
+//!
+//! ### Warning
+//! Potential issues that should be investigated but don't require immediate action.
+//!
+//! ### Error
+//! Errors that affect functionality but don't break the system.
+//!
+//! ### Critical
+//! Severe issues requiring immediate attention.
+//!
+//! ## Alert Retention
+//!
+//! Alerts are managed based on:
+//! - **Retention Period**: How long to keep resolved alerts
+//! - **Maximum Count**: Maximum number of alerts to retain
+//! - **Resolution Status**: Active vs. resolved alerts
+//!
+//! Resolved alerts are automatically cleaned up based on the retention policy.
+//!
+//! ## Metric Collection
+//!
+//! ### Collection Intervals
+//!
+//! Metrics are collected at regular intervals:
+//! - `metrics_interval`: Time between metric collections
+//! - Adjust based on monitoring overhead vs. granularity needs
+//!
+//! ### Metric Labels
+//!
+//! Labels add dimensional data to metrics:
+//! ```ignore
+//! let metric = Metric::counter("requests".to_string(), 1)
+//!     .with_label("method".to_string(), "GET".to_string())
+//!     .with_label("endpoint".to_string(), "/api/compile".to_string());
+//! ```
+//!
+//! ## Health Check Best Practices
+//!
+//! ### Component-Level Checks
+//!
+//! Each bounded context should have health checks:
+//! - Compilation service health
+//! - Optimization service health
+//! - Execution service health
+//! - Cache service health
+//!
+//! ### System-Level Checks
+//!
+//! Aggregate health across all components:
+//! - **Healthy**: All components healthy
+//! - **Degraded**: Some components degraded but functional
+//! - **Unhealthy**: Critical components failing
+//!
+//! ### Health Check Duration
+//!
+//! Track health check execution time:
+//! - Fast checks (< 100ms) for frequent monitoring
+//! - Slow checks (> 1s) may need optimization
+//!
+//! ## Domain-Driven Design Applied
+//!
+//! ### Entities
+//!
+//! - `MonitoringContext`: Aggregate root for monitoring operations
+//! - Manages metrics, alerts, and health checks
+//!
+//! ### Value Objects
+//!
+//! - `Metric`: Immutable metric data point
+//! - `Alert`: Immutable alert with lifecycle
+//! - `HealthCheckResult`: Immutable check result
+//! - `MonitoringConfig`: Immutable configuration
+//!
+//! ### Domain Services
+//!
+//! - `MonitoringService`: Manages monitoring operations
+//! - `analysis` module: Analyzes monitoring data
+//!
+//! ## Integration Points
+//!
+//! ### With All Bounded Contexts
+//!
+//! Each bounded context reports:
+//! - Performance metrics
+//! - Error rates
+//! - Operational status
+//!
+//! ### With External Systems
+//!
+//! - Metrics can be exported to Prometheus/Grafana
+//! - Alerts can be routed to PagerDuty/Slack
+//! - Health checks exposed via HTTP endpoints
+//!
+//! ## Performance Considerations
+//!
+//! - **Metrics Overhead**: Keep collection lightweight
+//! - **Alert Volume**: Prevent alert storms
+//! - **Storage**: Retention policies control memory usage
+//! - **Concurrency**: Thread-safe monitoring operations
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -14,8 +249,10 @@ pub type MonitoringId = u64;
 
 /// Metric type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum MetricType {
     /// Counter metric
+    #[default]
     Counter,
     /// Gauge metric
     Gauge,
@@ -25,11 +262,6 @@ pub enum MetricType {
     Summary,
 }
 
-impl Default for MetricType {
-    fn default() -> Self {
-        MetricType::Counter
-    }
-}
 
 impl std::fmt::Display for MetricType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -44,10 +276,12 @@ impl std::fmt::Display for MetricType {
 
 /// Alert severity
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Default)]
 pub enum AlertSeverity {
     /// Debug level
     Debug,
     /// Info level
+    #[default]
     Info,
     /// Warning level
     Warning,
@@ -57,11 +291,6 @@ pub enum AlertSeverity {
     Critical,
 }
 
-impl Default for AlertSeverity {
-    fn default() -> Self {
-        AlertSeverity::Info
-    }
-}
 
 impl std::fmt::Display for AlertSeverity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -77,6 +306,7 @@ impl std::fmt::Display for AlertSeverity {
 
 /// Health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum HealthStatus {
     /// Healthy
     Healthy,
@@ -85,14 +315,10 @@ pub enum HealthStatus {
     /// Unhealthy
     Unhealthy,
     /// Unknown
+    #[default]
     Unknown,
 }
 
-impl Default for HealthStatus {
-    fn default() -> Self {
-        HealthStatus::Unknown
-    }
-}
 
 impl std::fmt::Display for HealthStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -536,14 +762,13 @@ impl MonitoringContext {
     
     /// Resolve an alert
     pub fn resolve_alert(&mut self, alert_id: MonitoringId) -> bool {
-        if let Some(alert) = self.alerts.iter_mut().find(|a| a.alert_id == alert_id) {
-            if !alert.resolved {
+        if let Some(alert) = self.alerts.iter_mut().find(|a| a.alert_id == alert_id)
+            && !alert.resolved {
                 alert.resolve();
                 self.stats.active_alerts -= 1;
                 self.stats.resolved_alerts += 1;
                 return true;
             }
-        }
         false
     }
     
@@ -587,13 +812,12 @@ impl MonitoringContext {
         if self.health_checks.is_empty() {
             return HealthStatus::Unknown;
         }
-        
+
         // Get the most recent health check
-        let latest_check = self.health_checks.iter()
-            .max_by_key(|h| h.timestamp)
-            .unwrap();
-        
-        latest_check.status
+        match self.health_checks.iter().max_by_key(|h| h.timestamp) {
+            Some(check) => check.status,
+            None => HealthStatus::Unknown,
+        }
     }
 }
 
@@ -801,7 +1025,7 @@ pub mod analysis {
                     }
                 }
                 MetricType::Histogram => {
-                    if let MetricValue::Histogram(values) = metric.value {
+                    if let MetricValue::Histogram(values) = &metric.value {
                         report.histogram_values.extend(values);
                     }
                 }
@@ -1069,12 +1293,14 @@ mod tests {
         
         // Record a metric
         let metric = Metric::counter("test_counter".to_string(), 42);
-        service.record_metric(monitoring_id, metric).unwrap();
-        
+        service.record_metric(monitoring_id, metric)
+            .expect("test_monitoring_service: Failed to record metric");
+
         // Generate an alert
         let alert = Alert::new("test_alert".to_string(), AlertSeverity::Warning, "Test message".to_string());
-        service.generate_alert(monitoring_id, alert).unwrap();
-        
+        service.generate_alert(monitoring_id, alert)
+            .expect("test_monitoring_service: Failed to generate alert");
+
         // Record a health check
         let health_check = HealthCheckResult::new(
             "test_check".to_string(),
@@ -1082,20 +1308,24 @@ mod tests {
             "All good".to_string(),
             Duration::from_millis(100)
         );
-        service.record_health_check(monitoring_id, health_check).unwrap();
-        
+        service.record_health_check(monitoring_id, health_check)
+            .expect("test_monitoring_service: Failed to record health check");
+
         // Get stats
-        let stats = service.get_stats(monitoring_id).unwrap();
+        let stats = service.get_stats(monitoring_id)
+            .expect("test_monitoring_service: Failed to get stats");
         assert_eq!(stats.total_metrics, 1);
         assert_eq!(stats.total_alerts, 1);
         assert_eq!(stats.total_health_checks, 1);
-        
+
         // Get active alerts
-        let active_alerts = service.get_active_alerts(monitoring_id).unwrap();
+        let active_alerts = service.get_active_alerts(monitoring_id)
+            .expect("test_monitoring_service: Failed to get active alerts");
         assert_eq!(active_alerts.len(), 1);
-        
+
         // Get latest health status
-        let health_status = service.get_latest_health_status(monitoring_id).unwrap();
+        let health_status = service.get_latest_health_status(monitoring_id)
+            .expect("test_monitoring_service: Failed to get latest health status");
         assert_eq!(health_status, HealthStatus::Healthy);
         
         // Remove monitoring context

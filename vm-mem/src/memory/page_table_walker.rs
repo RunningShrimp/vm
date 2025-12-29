@@ -1,7 +1,7 @@
 //! 页表遍历器实现 - 从 SoftMmu 中分离出来
 
-use vm_core::{AccessType, Fault, GuestAddr, GuestPhysAddr, MMU, PageTableWalker};
 use vm_core::error::VmError;
+use vm_core::{AccessType, Fault, GuestAddr, GuestPhysAddr, MMU, PageTableWalker};
 
 /// RISC-V SV39 页表遍历器
 pub struct Sv39PageTableWalker {
@@ -22,30 +22,30 @@ impl Sv39PageTableWalker {
 
 impl PageTableWalker for Sv39PageTableWalker {
     fn walk(
-        &mut self, 
-        addr: GuestAddr, 
-        _access: AccessType, 
+        &mut self,
+        addr: GuestAddr,
+        _access: AccessType,
         asid: u16,
         _mmu: &mut dyn MMU,
     ) -> Result<(GuestPhysAddr, u64), VmError> {
         // 简化的页表遍历实现 - 直接返回地址转换结果
         // 在实际实现中，这里应该遍历页表结构
-        
+
         // 检查ASID匹配
         if asid != self.asid {
-            return Err(VmError::from(Fault::PageFault { 
-                addr, 
+            return Err(VmError::from(Fault::PageFault {
+                addr,
                 access_type: _access,
                 is_write: matches!(_access, AccessType::Write),
-                is_user: false
+                is_user: false,
             }));
         }
-        
+
         // 简化的地址转换：假设虚拟地址直接映射到物理地址
         // 在实际实现中，这里应该遍历多级页表
         let phys_addr = GuestPhysAddr(addr.0 & 0xFFFFFFFF); // 简单的地址掩码
         let flags = 0b111; // 简化的标志：可读写执行
-        
+
         Ok((phys_addr, flags))
     }
 }
@@ -69,9 +69,9 @@ impl Sv48PageTableWalker {
 
 impl PageTableWalker for Sv48PageTableWalker {
     fn walk(
-        &mut self, 
-        addr: GuestAddr, 
-        _access: AccessType, 
+        &mut self,
+        addr: GuestAddr,
+        _access: AccessType,
         _asid: u16,
         _mmu: &mut dyn MMU,
     ) -> Result<(GuestPhysAddr, u64), VmError> {
@@ -100,7 +100,7 @@ impl PageTableWalker for Sv48PageTableWalker {
 
         // 执行页面表遍历（简化实现）
         pte_addr = GuestPhysAddr(pte_addr.0 + vpn[level as usize] * PTE_SIZE);
-        
+
         // 使用计算出的物理地址和偏移量
         let phys_addr = GuestPhysAddr(pte_addr.0 & !PAGE_MASK | offset);
         let flags = V | R | W | X; // 简化的标志：可读写执行

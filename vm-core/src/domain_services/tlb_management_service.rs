@@ -577,7 +577,7 @@ mod tests {
         let mut service = TlbManagementDomainService::default();
         let entry = TlbManagedEntry::new(0x1000, 0x2000, 1, AccessType::Read, 0x1000);
 
-        service.insert_itlb(entry).unwrap();
+        assert!(service.insert_itlb(entry).is_ok());
         assert!(service.lookup_itlb(0x1000, 1).is_some());
     }
 
@@ -586,8 +586,8 @@ mod tests {
         let mut service = TlbManagementDomainService::default();
         let entry = TlbManagedEntry::new(0x1000, 0x2000, 1, AccessType::Read, 0x1000);
 
-        service.insert_itlb(entry).unwrap();
-        service.flush_all(TlbLevel::ITlb).unwrap();
+        assert!(service.insert_itlb(entry).is_ok());
+        assert!(service.flush_all(TlbLevel::ITlb).is_ok());
         assert!(service.lookup_itlb(0x1000, 1).is_none());
     }
 }

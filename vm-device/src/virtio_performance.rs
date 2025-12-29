@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use vm_core::VmError;
 
 /// 设备性能统计
 #[derive(Debug, Clone)]
@@ -90,6 +91,12 @@ impl DevicePerformanceStats {
             return 0.0;
         }
         (self.successful_requests as f64 / self.total_requests as f64) * 100.0
+    }
+}
+
+impl Default for DevicePerformanceStats {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -184,11 +191,10 @@ impl Default for PerformanceMonitor {
     }
 }
 
-use vm_core::VmError;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_performance_stats() {

@@ -1,11 +1,10 @@
-use parking_lot::Mutex;
 use std::collections::VecDeque;
 /// 异步I/O缓冲池实现
 ///
 /// 提供高效的缓冲区管理，支持异步操作和自动扩展。
 /// 使用tokio的Semaphore进行资源限制，Arc<Mutex>保护内部状态。
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 
 /// 缓冲池配置
 #[derive(Clone, Debug)]
@@ -105,13 +104,13 @@ impl Drop for PoolBuffer {
 /// 异步I/O缓冲池
 pub struct AsyncBufferPool {
     /// 可用缓冲区队列
-    available: Arc<Mutex<VecDeque<Vec<u8>>>>,
+    available: Arc<tokio::sync::Mutex<VecDeque<Vec<u8>>>>,
     /// 资源信号量（控制并发操作数）
     semaphore: Arc<Semaphore>,
     /// 配置信息
     config: BufferPoolConfig,
     /// 统计信息
-    stats: Arc<Mutex<BufferPoolStats>>,
+    stats: Arc<tokio::sync::Mutex<BufferPoolStats>>,
 }
 
 impl AsyncBufferPool {
@@ -135,10 +134,10 @@ impl AsyncBufferPool {
         };
 
         Self {
-            available: Arc::new(Mutex::new(pool)),
+            available: Arc::new(tokio::sync::Mutex::new(pool)),
             semaphore: Arc::new(Semaphore::new(config.max_pending_ops)),
             config,
-            stats: Arc::new(Mutex::new(stats)),
+            stats: Arc::new(tokio::sync::Mutex::new(stats)),
         }
     }
 
@@ -151,21 +150,26 @@ impl AsyncBufferPool {
             .await
             .map_err(|e| format!("Failed to acquire semaphore permit: {}", e))?;
 
-        let mut available = self.available.lock();
+        let mut available = self.available.lock().await;
+        let can_expand = self.can_expand(&available);
         let buffer = if let Some(buf) = available.pop_front() {
             // 从池中复用缓冲区
-            let mut stats = self.stats.lock();
-            stats.pool_hits += 1;
-            stats.in_use_buffers += 1;
-            stats.available_buffers -= 1;
+            {
+                let mut stats = self.stats.lock().await;
+                stats.pool_hits += 1;
+                stats.in_use_buffers += 1;
+                stats.available_buffers -= 1;
+            }
             buf
-        } else if self.can_expand(&available) {
+        } else if can_expand {
             // 池中没有可用缓冲区，但可以扩展
-            let mut stats = self.stats.lock();
-            stats.pool_misses += 1;
-            stats.total_buffers += 1;
-            stats.in_use_buffers += 1;
-            stats.total_allocations += 1;
+            {
+                let mut stats = self.stats.lock().await;
+                stats.pool_misses += 1;
+                stats.total_buffers += 1;
+                stats.in_use_buffers += 1;
+                stats.total_allocations += 1;
+            }
             vec![0u8; self.config.buffer_size]
         } else {
             // 等待直到有缓冲区可用（放弃许可权，重新获取）
@@ -179,13 +183,15 @@ impl AsyncBufferPool {
                 .await
                 .map_err(|e| format!("Failed to reacquire semaphore permit: {}", e))?;
 
-            available = self.available.lock();
+            available = self.available.lock().await;
             match available.pop_front() {
                 Some(buf) => {
-                    let mut stats = self.stats.lock();
-                    stats.pool_hits += 1;
-                    stats.in_use_buffers += 1;
-                    stats.available_buffers -= 1;
+                    {
+                        let mut stats = self.stats.lock().await;
+                        stats.pool_hits += 1;
+                        stats.in_use_buffers += 1;
+                        stats.available_buffers -= 1;
+                    }
                     buf
                 }
                 None => return Err("Failed to acquire buffer after waiting".to_string()),
@@ -193,31 +199,33 @@ impl AsyncBufferPool {
         };
 
         {
-            let mut stats = self.stats.lock();
+            let mut stats = self.stats.lock().await;
             stats.total_allocations += 1;
         }
 
         // 创建自动释放回调
         let pool = self.clone_pool();
         let release_fn = Arc::new(move |buf: Vec<u8>| {
-            let mut available = pool.available.lock();
-            available.push_back(buf);
+            tokio::task::block_in_place(|| {
+                let mut available = pool.available.blocking_lock();
+                available.push_back(buf);
 
-            let mut stats = pool.stats.lock();
-            stats.total_releases += 1;
-            stats.in_use_buffers = stats.in_use_buffers.saturating_sub(1);
-            stats.available_buffers += 1;
+                let mut stats = pool.stats.blocking_lock();
+                stats.total_releases += 1;
+                stats.in_use_buffers = stats.in_use_buffers.saturating_sub(1);
+                stats.available_buffers += 1;
+            });
         });
 
         Ok(PoolBuffer::new(buffer).with_release(release_fn))
     }
 
     /// 同步获取缓冲区（如果立即可用）
-    pub fn try_acquire(&self) -> Option<PoolBuffer> {
-        if let Ok(_) = self.semaphore.try_acquire() {
-            let mut available = self.available.lock();
+    pub async fn try_acquire(&self) -> Option<PoolBuffer> {
+        if self.semaphore.try_acquire().is_ok() {
+            let mut available = self.available.lock().await;
             if let Some(buf) = available.pop_front() {
-                let mut stats = self.stats.lock();
+                let mut stats = self.stats.lock().await;
                 stats.pool_hits += 1;
                 stats.in_use_buffers += 1;
                 stats.available_buffers -= 1;
@@ -225,13 +233,16 @@ impl AsyncBufferPool {
 
                 let pool = self.clone_pool();
                 let release_fn = Arc::new(move |buf: Vec<u8>| {
-                    let mut available = pool.available.lock();
-                    available.push_back(buf);
+                    // 在同步上下文中获取锁
+                    if let Ok(mut available) = pool.available.try_lock() {
+                        available.push_back(buf);
 
-                    let mut stats = pool.stats.lock();
-                    stats.total_releases += 1;
-                    stats.in_use_buffers = stats.in_use_buffers.saturating_sub(1);
-                    stats.available_buffers += 1;
+                        if let Ok(mut stats) = pool.stats.try_lock() {
+                            stats.total_releases += 1;
+                            stats.in_use_buffers = stats.in_use_buffers.saturating_sub(1);
+                            stats.available_buffers += 1;
+                        }
+                    }
                 });
 
                 return Some(PoolBuffer::new(buf).with_release(release_fn));
@@ -242,35 +253,50 @@ impl AsyncBufferPool {
 
     /// 手动释放缓冲区到池中
     pub fn release(&self, buffer: Vec<u8>) {
-        if buffer.len() == self.config.buffer_size {
-            let mut available = self.available.lock();
+        if buffer.len() == self.config.buffer_size
+            && let Ok(mut available) = self.available.try_lock()
+        {
             available.push_back(buffer);
 
-            let mut stats = self.stats.lock();
-            stats.total_releases += 1;
-            stats.in_use_buffers = stats.in_use_buffers.saturating_sub(1);
-            stats.available_buffers += 1;
+            if let Ok(mut stats) = self.stats.try_lock() {
+                stats.total_releases += 1;
+                stats.in_use_buffers = stats.in_use_buffers.saturating_sub(1);
+                stats.available_buffers += 1;
+            }
         }
     }
 
-    /// 获取统计信息
-    pub fn get_stats(&self) -> BufferPoolStats {
-        self.stats.lock().clone()
+    /// 获取统计信息（异步版本）
+    pub async fn get_stats(&self) -> BufferPoolStats {
+        self.stats.lock().await.clone()
+    }
+
+    /// 获取统计信息（同步版本）
+    pub fn get_stats_sync(&self) -> BufferPoolStats {
+        if let Ok(stats) = self.stats.try_lock() {
+            stats.clone()
+        } else {
+            BufferPoolStats::default()
+        }
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        let mut stats = self.stats.lock();
-        stats.total_allocations = 0;
-        stats.pool_hits = 0;
-        stats.pool_misses = 0;
-        stats.total_releases = 0;
+        if let Ok(mut stats) = self.stats.try_lock() {
+            stats.total_allocations = 0;
+            stats.pool_hits = 0;
+            stats.pool_misses = 0;
+            stats.total_releases = 0;
+        }
     }
 
     /// 检查是否可以扩展缓冲池
     fn can_expand(&self, available: &VecDeque<Vec<u8>>) -> bool {
-        let stats = self.stats.lock();
-        available.is_empty() && stats.total_buffers < self.config.max_pool_size
+        if let Ok(stats) = self.stats.try_lock() {
+            available.is_empty() && stats.total_buffers < self.config.max_pool_size
+        } else {
+            false
+        }
     }
 
     /// 克隆池引用（用于回调）
@@ -283,19 +309,25 @@ impl AsyncBufferPool {
 
     /// 清空缓冲池
     pub fn clear(&self) {
-        let mut available = self.available.lock();
-        available.clear();
+        if let Ok(mut available) = self.available.try_lock() {
+            available.clear();
+        }
 
-        let mut stats = self.stats.lock();
-        stats.total_buffers = 0;
-        stats.available_buffers = 0;
-        stats.in_use_buffers = 0;
+        if let Ok(mut stats) = self.stats.try_lock() {
+            stats.total_buffers = 0;
+            stats.available_buffers = 0;
+            stats.in_use_buffers = 0;
+            stats.pool_hits = 0;
+            stats.pool_misses = 0;
+            stats.total_allocations = 0;
+            stats.total_releases = 0;
+        }
     }
 
     /// 预热缓冲池（预分配指定数量的缓冲区）
-    pub fn warmup(&self, count: usize) {
-        let mut available = self.available.lock();
-        let mut stats = self.stats.lock();
+    pub async fn warmup(&self, count: usize) {
+        let mut available = self.available.lock().await;
+        let mut stats = self.stats.lock().await;
 
         let to_allocate = std::cmp::min(count, self.config.max_pool_size - stats.total_buffers);
 
@@ -333,38 +365,38 @@ mod tests {
         let config = BufferPoolConfig::default();
         let pool = AsyncBufferPool::new(config.clone());
 
-        let stats = pool.get_stats();
+        let stats = pool.get_stats_sync();
         assert_eq!(stats.total_buffers, config.initial_pool_size);
         assert_eq!(stats.available_buffers, config.initial_pool_size);
         assert_eq!(stats.in_use_buffers, 0);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_buffer_acquire_and_release() {
         let pool = AsyncBufferPool::new(BufferPoolConfig::default());
 
         let buf = pool.acquire().await.expect("Failed to acquire buffer");
         assert_eq!(buf.data.len(), 4096);
 
-        let stats = pool.get_stats();
+        let stats = pool.get_stats().await;
         assert_eq!(stats.in_use_buffers, 1);
         assert_eq!(stats.pool_hits, 1);
 
         drop(buf); // 自动释放
 
-        let stats = pool.get_stats();
+        let stats = pool.get_stats().await;
         assert_eq!(stats.in_use_buffers, 0);
         assert_eq!(stats.total_releases, 1);
     }
 
-    #[test]
-    fn test_try_acquire() {
+    #[tokio::test]
+    async fn test_try_acquire() {
         let pool = AsyncBufferPool::new(BufferPoolConfig::default());
 
-        let buf = pool.try_acquire();
+        let buf = pool.try_acquire().await;
         assert!(buf.is_some());
 
-        let stats = pool.get_stats();
+        let stats = pool.get_stats().await;
         assert_eq!(stats.pool_hits, 1);
     }
 
@@ -372,36 +404,42 @@ mod tests {
     fn test_buffer_pool_stats() {
         let pool = AsyncBufferPool::new(BufferPoolConfig::default());
 
-        let initial_stats = pool.get_stats();
+        let initial_stats = pool.get_stats_sync();
         assert_eq!(initial_stats.hit_rate(), 0.0);
         assert_eq!(initial_stats.utilization_rate(), 0.0);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_buffer_reuse() {
         let pool = AsyncBufferPool::new(BufferPoolConfig::default());
-        let initial_count = pool.get_stats().total_buffers;
+        let initial_count = pool.get_stats().await.total_buffers;
 
-        let buf1 = pool.acquire().await.unwrap();
+        let buf1 = match pool.acquire().await {
+            Ok(buf) => buf,
+            Err(e) => panic!("Failed to acquire buffer: {}", e),
+        };
         drop(buf1);
 
-        let buf2 = pool.acquire().await.unwrap();
+        let _buf2 = match pool.acquire().await {
+            Ok(buf) => buf,
+            Err(e) => panic!("Failed to acquire buffer: {}", e),
+        };
 
-        let stats = pool.get_stats();
+        let stats = pool.get_stats().await;
         assert_eq!(stats.total_buffers, initial_count); // 没有分配新缓冲区
         assert_eq!(stats.pool_hits, 2); // 两次都命中
     }
 
-    #[test]
-    fn test_warmup() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_warmup() {
         let pool = AsyncBufferPool::new(BufferPoolConfig {
             initial_pool_size: 10,
             max_pool_size: 100,
             ..Default::default()
         });
 
-        pool.warmup(20);
-        let stats = pool.get_stats();
+        pool.warmup(20).await;
+        let stats = pool.get_stats().await;
         assert_eq!(stats.total_buffers, 30);
     }
 }

@@ -1,24 +1,25 @@
 [package]
 name = "vm-cross-arch-integration-tests"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["VM Development Team"]
 license = "MIT OR Apache-2.0"
 description = "Cross-architecture integration tests for the VM project"
 
 [dependencies]
-vm-cross-arch = { path = "../vm-cross-arch" }
+vm-cross-arch = { path = "../vm-cross-arch", features = ["all"] }
 vm-core = { path = "../vm-core" }
 vm-engine-jit = { path = "../vm-engine-jit" }
 vm-mem = { path = "../vm-mem" }
 vm-ir = { path = "../vm-ir" }
 
 clap = { version = "4.0", features = ["derive"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-anyhow = "1.0"
-thiserror = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+# vm-cross-arch-integration-tests doesn't directly use tokio but may need it for tests
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [[bin]]
 name = "cross_arch_integration_test_runner"

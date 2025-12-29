@@ -13,6 +13,19 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
+use vm_core::{MemoryError, VmError, VmResult};
+
+/// Type alias for the handler map to reduce type complexity
+type HandlerMap = Arc<RwLock<HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>>;
+
+/// Type alias for the handlers write guard to reduce type complexity
+type HandlersWriteGuard<'a> =
+    std::sync::RwLockWriteGuard<'a, HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>;
+
+/// Type alias for the handlers read guard to reduce type complexity
+type HandlersReadGuard<'a> =
+    std::sync::RwLockReadGuard<'a, HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>;
+
 /// I/O 事件类型
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IoEventType {
@@ -132,7 +145,7 @@ impl IoStats {
 /// I/O 事件循环
 pub struct IoEventLoop {
     /// 注册的文件描述符和处理器映射
-    handlers: Arc<RwLock<HashMap<i32, Arc<Mutex<Box<dyn IoHandler>>>>>>,
+    handlers: HandlerMap,
     /// 事件队列
     event_queue: Arc<Mutex<VecDeque<IoEvent>>>,
     /// I/O 统计信息
@@ -158,39 +171,113 @@ impl IoEventLoop {
         }
     }
 
+    /// Helper to acquire handlers write lock with error handling
+    fn lock_handlers_write(&self) -> VmResult<HandlersWriteGuard<'_>> {
+        self.handlers.write().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoEventLoop handlers lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire handlers read lock with error handling
+    fn lock_handlers_read(&self) -> VmResult<HandlersReadGuard<'_>> {
+        self.handlers.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoEventLoop handlers lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire event_queue lock with error handling
+    fn lock_event_queue(&self) -> VmResult<std::sync::MutexGuard<'_, VecDeque<IoEvent>>> {
+        self.event_queue.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoEventLoop event_queue lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire stats lock with error handling
+    fn lock_stats(&self) -> VmResult<std::sync::MutexGuard<'_, IoStats>> {
+        self.stats.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoEventLoop stats lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire running lock with error handling
+    fn lock_running(&self) -> VmResult<std::sync::MutexGuard<'_, bool>> {
+        self.running.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoEventLoop running lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire last_event_time lock with error handling
+    fn lock_last_event_time(&self) -> VmResult<std::sync::MutexGuard<'_, Instant>> {
+        self.last_event_time.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoEventLoop last_event_time lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 注册 I/O 处理器
     pub fn register(&self, fd: i32, handler: Box<dyn IoHandler>) -> bool {
-        let mut handlers = self.handlers.write().unwrap();
-        if handlers.contains_key(&fd) {
-            return false; // 已注册
+        match self.lock_handlers_write() {
+            Ok(mut handlers) => {
+                if handlers.contains_key(&fd) {
+                    return false; // 已注册
+                }
+                handlers.insert(fd, Arc::new(Mutex::new(handler)));
+                true
+            }
+            Err(_) => false,
         }
-        handlers.insert(fd, Arc::new(Mutex::new(handler)));
-        true
     }
 
     /// 注销处理器
     pub fn unregister(&self, fd: i32) -> bool {
-        let mut handlers = self.handlers.write().unwrap();
-        handlers.remove(&fd).is_some()
+        match self.lock_handlers_write() {
+            Ok(mut handlers) => handlers.remove(&fd).is_some(),
+            Err(_) => false,
+        }
     }
 
     /// 提交事件
     pub fn submit_event(&self, event: IoEvent) {
-        let mut queue = self.event_queue.lock().unwrap();
-        queue.push_back(event);
+        if let Ok(mut queue) = self.lock_event_queue() {
+            queue.push_back(event);
+        }
     }
 
     /// 处理待处理的事件
     pub fn process_events(&self) -> usize {
-        let mut queue = self.event_queue.lock().unwrap();
+        let mut queue = match self.lock_event_queue() {
+            Ok(q) => q,
+            Err(_) => return 0,
+        };
         let mut processed = 0;
         let batch_start = Instant::now();
 
         while !queue.is_empty() && processed < self.max_batch_size {
             if let Some(event) = queue.pop_front() {
-                let handlers = self.handlers.read().unwrap();
-                if let Some(handler_arc) = handlers.get(&event.fd) {
-                    let mut handler = handler_arc.lock().unwrap();
+                let handlers = match self.lock_handlers_read() {
+                    Ok(h) => h,
+                    Err(_) => break,
+                };
+                if let Some(handler_arc) = handlers.get(&event.fd)
+                    && let Ok(mut handler) = handler_arc.lock()
+                {
                     let _ = match event.event_type {
                         IoEventType::Read => handler.handle_read(event.fd, event.data),
                         IoEventType::Write => handler.handle_write(event.fd, event.data),
@@ -198,12 +285,13 @@ impl IoEventLoop {
                     };
 
                     // 更新统计
-                    let mut stats = self.stats.lock().unwrap();
-                    stats.events_processed += 1;
-                    match event.event_type {
-                        IoEventType::Read => stats.read_ops += 1,
-                        IoEventType::Write => stats.write_ops += 1,
-                        IoEventType::Error => stats.errors += 1,
+                    if let Ok(mut stats) = self.lock_stats() {
+                        stats.events_processed += 1;
+                        match event.event_type {
+                            IoEventType::Read => stats.read_ops += 1,
+                            IoEventType::Write => stats.write_ops += 1,
+                            IoEventType::Error => stats.errors += 1,
+                        }
                     }
 
                     processed += 1;
@@ -213,13 +301,16 @@ impl IoEventLoop {
 
         // 更新延迟统计
         let elapsed = batch_start.elapsed();
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_latency_ns += elapsed.as_nanos() as u64;
+        if let Ok(mut stats) = self.lock_stats() {
+            stats.total_latency_ns += elapsed.as_nanos() as u64;
 
-        if processed > 0 {
-            let current_avg = stats.avg_batch_size;
-            stats.avg_batch_size = (current_avg * 0.9) + (processed as f64 * 0.1);
-            *self.last_event_time.lock().unwrap() = Instant::now();
+            if processed > 0 {
+                let current_avg = stats.avg_batch_size;
+                stats.avg_batch_size = (current_avg * 0.9) + (processed as f64 * 0.1);
+                if let Ok(mut time) = self.lock_last_event_time() {
+                    *time = Instant::now();
+                }
+            }
         }
 
         processed
@@ -227,42 +318,58 @@ impl IoEventLoop {
 
     /// 获取统计信息
     pub fn stats(&self) -> IoStats {
-        let stats = self.stats.lock().unwrap();
-        stats.clone()
+        match self.lock_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => IoStats::default(),
+        }
     }
 
     /// 重置统计
     pub fn reset_stats(&self) {
-        let mut stats = self.stats.lock().unwrap();
-        stats.reset();
+        if let Ok(mut stats) = self.lock_stats() {
+            stats.reset();
+        }
     }
 
     /// 获取待处理事件数
     pub fn pending_events(&self) -> usize {
-        let queue = self.event_queue.lock().unwrap();
-        queue.len()
+        match self.lock_event_queue() {
+            Ok(queue) => queue.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 获取已注册的处理器数
     pub fn registered_handlers(&self) -> usize {
-        let handlers = self.handlers.read().unwrap();
-        handlers.len()
+        match self.lock_handlers_read() {
+            Ok(handlers) => handlers.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 启动事件循环
     pub fn start(&self) {
-        *self.running.lock().unwrap() = true;
-        *self.last_event_time.lock().unwrap() = Instant::now();
+        if let Ok(mut running) = self.lock_running() {
+            *running = true;
+        }
+        if let Ok(mut time) = self.lock_last_event_time() {
+            *time = Instant::now();
+        }
     }
 
     /// 停止事件循环
     pub fn stop(&self) {
-        *self.running.lock().unwrap() = false;
+        if let Ok(mut running) = self.lock_running() {
+            *running = false;
+        }
     }
 
     /// 是否运行
     pub fn is_running(&self) -> bool {
-        *self.running.lock().unwrap()
+        match self.lock_running() {
+            Ok(running) => *running,
+            Err(_) => false,
+        }
     }
 
     /// 诊断报告
@@ -311,12 +418,35 @@ impl IoThroughputOptimizer {
         }
     }
 
+    /// Helper to acquire throughput_history lock with error handling
+    fn lock_throughput_history(&self) -> VmResult<std::sync::MutexGuard<'_, VecDeque<f64>>> {
+        self.throughput_history.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoThroughputOptimizer throughput_history lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire batch_adjustments lock with error handling
+    fn lock_batch_adjustments(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.batch_adjustments.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoThroughputOptimizer batch_adjustments lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 执行优化迭代
     pub fn optimize(&self) -> bool {
         let stats = self.event_loop.stats();
         let current_throughput = stats.throughput();
 
-        let mut history = self.throughput_history.lock().unwrap();
+        let mut history = match self.lock_throughput_history() {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
         history.push_back(current_throughput);
 
         if history.len() > 10 {
@@ -326,7 +456,9 @@ impl IoThroughputOptimizer {
         // 简单的优化策略：如果吞吐量低于目标，增加批大小
         if current_throughput < self.target_throughput as f64 {
             // 这里可以增加事件循环的批大小
-            *self.batch_adjustments.lock().unwrap() += 1;
+            if let Ok(mut adjustments) = self.lock_batch_adjustments() {
+                *adjustments += 1;
+            }
             true
         } else {
             false
@@ -335,13 +467,18 @@ impl IoThroughputOptimizer {
 
     /// 获取吞吐量历史
     pub fn throughput_history(&self) -> Vec<f64> {
-        let history = self.throughput_history.lock().unwrap();
-        history.iter().copied().collect()
+        match self.lock_throughput_history() {
+            Ok(history) => history.iter().copied().collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// 获取调整次数
     pub fn adjustment_count(&self) -> u64 {
-        *self.batch_adjustments.lock().unwrap()
+        match self.lock_batch_adjustments() {
+            Ok(adjustments) => *adjustments,
+            Err(_) => 0,
+        }
     }
 
     /// 诊断报告
@@ -384,32 +521,62 @@ impl IoLatencyOptimizer {
         }
     }
 
+    /// Helper to acquire high_latency_events lock with error handling
+    fn lock_high_latency_events(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.high_latency_events.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoLatencyOptimizer high_latency_events lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire latency_history lock with error handling
+    fn lock_latency_history(&self) -> VmResult<std::sync::MutexGuard<'_, VecDeque<f64>>> {
+        self.latency_history.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "IoLatencyOptimizer latency_history lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 记录延迟
     pub fn record_latency(&self, latency_us: f64) {
-        if latency_us > self.max_latency_us as f64 {
-            *self.high_latency_events.lock().unwrap() += 1;
+        if latency_us > self.max_latency_us as f64
+            && let Ok(mut events) = self.lock_high_latency_events()
+        {
+            *events += 1;
         }
 
-        let mut history = self.latency_history.lock().unwrap();
-        history.push_back(latency_us);
+        if let Ok(mut history) = self.lock_latency_history() {
+            history.push_back(latency_us);
 
-        if history.len() > 10 {
-            history.pop_front();
+            if history.len() > 10 {
+                history.pop_front();
+            }
         }
     }
 
     /// 获取高延迟事件数
     pub fn high_latency_events(&self) -> u64 {
-        *self.high_latency_events.lock().unwrap()
+        match self.lock_high_latency_events() {
+            Ok(events) => *events,
+            Err(_) => 0,
+        }
     }
 
     /// 获取平均延迟
     pub fn avg_latency(&self) -> f64 {
-        let history = self.latency_history.lock().unwrap();
-        if history.is_empty() {
-            return 0.0;
+        match self.lock_latency_history() {
+            Ok(history) => {
+                if history.is_empty() {
+                    return 0.0;
+                }
+                history.iter().sum::<f64>() / history.len() as f64
+            }
+            Err(_) => 0.0,
         }
-        history.iter().sum::<f64>() / history.len() as f64
     }
 
     /// 诊断报告

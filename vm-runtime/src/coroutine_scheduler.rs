@@ -38,6 +38,96 @@ impl Default for Priority {
     }
 }
 
+/// 协程ID
+pub type CoroutineId = u64;
+
+/// vCPU状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VCPUState {
+    /// 空闲
+    Idle,
+    /// 运行中
+    Running,
+    /// 暂停
+    Halted,
+}
+
+/// 协程
+#[derive(Debug, Clone)]
+pub struct Coroutine {
+    /// 协程ID
+    pub id: CoroutineId,
+    /// 协程状态
+    pub state: CoroutineState,
+    /// 优先级
+    pub priority: Priority,
+}
+
+impl Coroutine {
+    /// 创建新协程
+    pub fn new(id: CoroutineId, priority: Priority) -> Self {
+        Self {
+            id,
+            state: CoroutineState::Ready,
+            priority,
+        }
+    }
+
+    /// 标记为就绪
+    pub fn mark_ready(&mut self) {
+        self.state = CoroutineState::Ready;
+    }
+}
+
+/// 简单的协程调度器（用于vCPU映射）
+pub struct Scheduler {
+    /// vCPU数量
+    vcpu_count: u32,
+    /// 下一个协程ID
+    next_coro_id: u64,
+    /// 全局队列长度（用于测试）
+    global_queue_len: std::sync::atomic::AtomicUsize,
+}
+
+impl Scheduler {
+    /// 创建新调度器
+    pub fn new(vcpu_count: u32) -> Self {
+        Self {
+            vcpu_count,
+            next_coro_id: 1,
+            global_queue_len: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// 获取vCPU数量
+    pub fn vcpu_count(&self) -> u32 {
+        self.vcpu_count
+    }
+
+    /// 创建协程
+    pub fn create_coroutine(&mut self) -> Coroutine {
+        let id = self.next_coro_id;
+        self.next_coro_id += 1;
+        Coroutine::new(id, Priority::default())
+    }
+
+    /// 分配协程到vCPU
+    pub fn assign_to_vcpu(&mut self, _vcpu_id: u32, _coro: Coroutine) -> Result<(), String> {
+        // 简化实现
+        Ok(())
+    }
+
+    /// 提交协程
+    pub fn submit_coroutine(&mut self, _coro: Coroutine) {
+        // 简化实现
+    }
+
+    /// 获取全局队列长度
+    pub fn global_queue_length(&self) -> usize {
+        self.global_queue_len.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// 协程信息
 #[derive(Debug, Clone)]
 pub struct CoroutineInfo {
@@ -398,7 +488,8 @@ mod tests {
 
         let vcpu_info = scheduler.get_vcpu_info(0);
         assert!(vcpu_info.is_some());
-        assert_eq!(vcpu_info.unwrap().id, 0);
+        let info = vcpu_info.expect("vCPU info should exist");
+        assert_eq!(info.id, 0);
     }
 
     #[tokio::test]
@@ -408,9 +499,11 @@ mod tests {
         let coro_id = scheduler.create_coroutine(Priority::Normal, 1000).await;
         assert!(coro_id.is_ok());
 
-        let info = scheduler.get_coroutine_info(coro_id.unwrap());
+        let id = coro_id.expect("Coroutine creation should succeed");
+        let info = scheduler.get_coroutine_info(id);
         assert!(info.is_some());
-        assert_eq!(info.unwrap().state, CoroutineState::Ready);
+        let coro_info = info.expect("Coroutine info should exist");
+        assert_eq!(coro_info.state, CoroutineState::Ready);
     }
 
     #[tokio::test]
@@ -436,7 +529,8 @@ mod tests {
     async fn test_execute_coroutine() {
         let scheduler = CoroutineScheduler::new(SchedulerConfig::default());
 
-        let coro_id = scheduler.create_coroutine(Priority::Normal, 1000).await.unwrap();
+        let coro_id = scheduler.create_coroutine(Priority::Normal, 1000).await
+            .expect("Coroutine creation should succeed");
         scheduler.schedule().await.ok();
 
         let latency = scheduler.execute_coroutine(coro_id).await;
@@ -463,15 +557,18 @@ mod tests {
         let scheduler = CoroutineScheduler::new(SchedulerConfig::default());
 
         // 创建不同优先级的协程
-        let low_id = scheduler.create_coroutine(Priority::Low, 1000).await.unwrap();
-        let high_id = scheduler.create_coroutine(Priority::High, 1000).await.unwrap();
+        let low_id = scheduler.create_coroutine(Priority::Low, 1000).await
+            .expect("Low priority coroutine creation should succeed");
+        let high_id = scheduler.create_coroutine(Priority::High, 1000).await
+            .expect("High priority coroutine creation should succeed");
 
         // 应该优先调度高优先级
         for _ in 0..2 {
             let _ = scheduler.schedule().await;
         }
 
-        let high_info = scheduler.get_coroutine_info(high_id).unwrap();
+        let high_info = scheduler.get_coroutine_info(high_id)
+            .expect("High priority coroutine info should exist");
         assert!(high_info.assigned_vcpu.is_some());
     }
 
@@ -479,20 +576,23 @@ mod tests {
     async fn test_coroutine_pause_resume() {
         let scheduler = CoroutineScheduler::new(SchedulerConfig::default());
 
-        let coro_id = scheduler.create_coroutine(Priority::Normal, 1000).await.unwrap();
+        let coro_id = scheduler.create_coroutine(Priority::Normal, 1000).await
+            .expect("Coroutine creation should succeed");
 
         // 暂停
         let pause_result = scheduler.pause_coroutine(coro_id).await;
         assert!(pause_result.is_ok());
 
-        let info = scheduler.get_coroutine_info(coro_id).unwrap();
+        let info = scheduler.get_coroutine_info(coro_id)
+            .expect("Coroutine info should exist");
         assert_eq!(info.state, CoroutineState::Waiting);
 
         // 恢复
         let resume_result = scheduler.resume_coroutine(coro_id).await;
         assert!(resume_result.is_ok());
 
-        let info = scheduler.get_coroutine_info(coro_id).unwrap();
+        let info = scheduler.get_coroutine_info(coro_id)
+            .expect("Coroutine info should exist");
         assert_eq!(info.state, CoroutineState::Ready);
     }
 

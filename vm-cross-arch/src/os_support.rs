@@ -21,6 +21,12 @@ pub struct LinuxSyscallHandler {
     // 文件描述符表和下一个文件描述符已移除，因为目前未使用
 }
 
+impl Default for LinuxSyscallHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinuxSyscallHandler {
     pub fn new() -> Self {
         Self {}
@@ -94,8 +100,6 @@ impl SyscallHandler for LinuxSyscallHandler {
         }
     }
 }
-
-
 
 /// 设备模拟器
 pub trait DeviceEmulator: Send + Sync {

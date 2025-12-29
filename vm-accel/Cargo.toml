@@ -4,28 +4,31 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-raw-cpuid = { version = "11", optional = true }
-num_cpus = "1.17"
-log = "0.4"
-thiserror = "2.0"
+raw-cpuid = { workspace = true, optional = true }
+num_cpus = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
 vm-core = { path = "../vm-core" }
-parking_lot = "0.12"
-serde = { version = "1.0", features = ["derive"] }
+vm-smmu = { path = "../vm-smmu", optional = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-kvm-ioctls = { version = "0.24", optional = true }
-kvm-bindings = { version = "0.14", optional = true }
-libc = "0.2"
+kvm-ioctls = { workspace = true, optional = true }
+kvm-bindings = { workspace = true, optional = true }
+libc = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", features = ["Win32_System_Hypervisor"], optional = true }
+windows = { workspace = true, optional = true }
 
 [features]
-default = []
-cpuid = ["raw-cpuid"]
-# kvm = ["kvm-ioctls", "kvm-bindings"]  # Temporarily disabled due to compatibility issues
-hvf = []
-whpx = ["windows"]
+default = ["acceleration"]
+# Acceleration features (merged: hardware, smmu)
+acceleration = ["raw-cpuid", "dep:kvm-ioctls", "dep:kvm-bindings", "dep:vm-smmu"]
+
+# Legacy feature aliases (deprecated, use "acceleration" instead)
+hardware = ["acceleration"]
+smmu = ["acceleration"]

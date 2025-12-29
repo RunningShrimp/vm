@@ -422,7 +422,8 @@ impl CodeHotUpdateManager {
         
         // 更新代码缓存
         {
-            let mut jit_engine = self.jit_engine.lock().unwrap();
+            let mut jit_engine = self.jit_engine.lock()
+                .map_err(|_| VmError::LockPoisoned("JITEngine mutex poisoned".into()))?;
             // 简化实现：实际需要更新代码缓存
             // jit_engine.update_code_cache(task.pc, &task.new_code)?;
         }
@@ -638,7 +639,8 @@ impl CodeHotUpdateManager {
                 if let Some(old_code) = version_info.code_data.get(&new_version) {
                     // 更新代码缓存
                     {
-                        let mut jit_engine = self.jit_engine.lock().unwrap();
+                        let mut jit_engine = self.jit_engine.lock()
+                            .map_err(|_| VmError::LockPoisoned("JITEngine mutex poisoned".into()))?;
                         // 简化实现：实际需要更新代码缓存
                         // jit_engine.update_code_cache(pc, old_code)?;
                     }

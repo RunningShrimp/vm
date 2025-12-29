@@ -10,6 +10,14 @@ use super::di_service_descriptor::{
     DIError, ServiceDescriptor, ServiceProvider, ServiceLifetime,
 };
 
+/// 将锁错误转换为 DIError
+fn lock_error(operation: &str) -> DIError {
+    DIError::DependencyResolutionFailed(format!(
+        "Failed to acquire lock for {}",
+        operation
+    ))
+}
+
 /// 依赖解析器
 pub struct DependencyResolver {
     /// 依赖图缓存
@@ -62,15 +70,25 @@ impl DependencyResolver {
             strategy,
         }
     }
-    
+
+    /// 辅助方法：获取读锁
+    fn lock_read(&self) -> Result<std::sync::RwLockReadGuard<HashMap<TypeId, DependencyNode>>, DIError> {
+        self.dependency_graph.read().map_err(|_| lock_error("read dependency graph"))
+    }
+
+    /// 辅助方法：获取写锁
+    fn lock_write(&self) -> Result<std::sync::RwLockWriteGuard<HashMap<TypeId, DependencyNode>>, DIError> {
+        self.dependency_graph.write().map_err(|_| lock_error("write dependency graph"))
+    }
+
     /// 添加服务描述符到依赖图
     pub fn add_service_descriptor(&self, descriptor: &dyn ServiceDescriptor) -> Result<(), DIError> {
         let type_id = descriptor.service_type();
         let dependencies = descriptor.dependencies();
         let lifetime = descriptor.lifetime();
-        
-        let mut graph = self.dependency_graph.write().unwrap();
-        
+
+        let mut graph = self.lock_write()?;
+
         // 创建新节点
         let node = DependencyNode {
             type_id,
@@ -79,14 +97,14 @@ impl DependencyResolver {
             lifetime,
             resolved: false,
         };
-        
+
         // 更新依赖关系
         for &dep_type_id in &dependencies {
             if let Some(dep_node) = graph.get_mut(&dep_type_id) {
                 dep_node.dependents.push(type_id);
             }
         }
-        
+
         graph.insert(type_id, node);
         Ok(())
     }
@@ -119,39 +137,39 @@ impl DependencyResolver {
     
     /// 构建依赖图
     fn build_dependency_graph(&self, root_type: TypeId) -> Result<DependencyGraph, DIError> {
-        let graph = self.dependency_graph.read().unwrap();
+        let graph = self.lock_read()?;
         let mut nodes = HashMap::new();
         let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
-        
+
         queue.push_back(root_type);
-        
+
         while let Some(current_type) = queue.pop_front() {
             if visited.contains(&current_type) {
                 continue;
             }
-            
+
             visited.insert(current_type);
-            
+
             if let Some(node) = graph.get(&current_type) {
                 let new_node = node.clone();
-                
+
                 // 递归添加依赖
                 for &dep_type in &node.dependencies {
                     if !visited.contains(&dep_type) {
                         queue.push_back(dep_type);
                     }
                 }
-                
+
                 nodes.insert(current_type, new_node);
             } else {
                 return Err(DIError::ServiceNotRegistered(current_type));
             }
         }
-        
+
         // 计算解析顺序
         let resolution_order = self.calculate_resolution_order(&nodes)?;
-        
+
         Ok(DependencyGraph {
             nodes,
             resolution_order,
@@ -389,10 +407,10 @@ impl DependencyResolver {
     
     /// 获取服务的依赖链
     pub fn get_dependency_chain(&self, service_type: TypeId) -> Result<Vec<TypeId>, DIError> {
-        let graph = self.dependency_graph.read().unwrap();
+        let graph = self.lock_read()?;
         let mut chain = Vec::new();
         let mut visited = HashSet::new();
-        
+
         self.build_dependency_chain(&graph, service_type, &mut chain, &mut visited)?;
         Ok(chain)
     }
@@ -425,29 +443,45 @@ impl DependencyResolver {
     
     /// 清除依赖图缓存
     pub fn clear_cache(&self) {
-        let mut graph = self.dependency_graph.write().unwrap();
-        graph.clear();
+        match self.lock_write() {
+            Ok(mut graph) => {
+                graph.clear();
+            }
+            Err(_) => {
+                // 静默失败
+                eprintln!("Failed to clear cache: lock failed");
+            }
+        }
     }
-    
+
     /// 获取依赖图统计信息
     pub fn stats(&self) -> ResolverStats {
-        let graph = self.dependency_graph.read().unwrap();
-        let mut total_dependencies = 0;
-        let mut total_dependents = 0;
-        
-        for node in graph.values() {
-            total_dependencies += node.dependencies.len();
-            total_dependents += node.dependents.len();
-        }
-        
-        ResolverStats {
-            total_nodes: graph.len(),
-            total_dependencies,
-            total_dependents,
-            average_dependencies: if graph.is_empty() {
-                0.0
-            } else {
-                total_dependencies as f64 / graph.len() as f64
+        match self.lock_read() {
+            Ok(graph) => {
+                let mut total_dependencies = 0;
+                let mut total_dependents = 0;
+
+                for node in graph.values() {
+                    total_dependencies += node.dependencies.len();
+                    total_dependents += node.dependents.len();
+                }
+
+                ResolverStats {
+                    total_nodes: graph.len(),
+                    total_dependencies,
+                    total_dependents,
+                    average_dependencies: if graph.is_empty() {
+                        0.0
+                    } else {
+                        total_dependencies as f64 / graph.len() as f64
+                    },
+                }
+            }
+            Err(_) => ResolverStats {
+                total_nodes: 0,
+                total_dependencies: 0,
+                total_dependents: 0,
+                average_dependencies: 0.0,
             },
         }
     }
@@ -503,11 +537,11 @@ mod tests {
         let descriptor_c = GenericServiceDescriptor::<TestServiceC>::new(ServiceLifetime::Singleton)
             .with_dependencies(vec![TypeId::of::<TestServiceB>()]);
         
-        resolver.add_service_descriptor(&*descriptor_a).unwrap();
-        resolver.add_service_descriptor(&*descriptor_b).unwrap();
-        resolver.add_service_descriptor(&*descriptor_c).unwrap();
-        
-        let chain = resolver.get_dependency_chain(TypeId::of::<TestServiceC>()).unwrap();
+        let _ = resolver.add_service_descriptor(&*descriptor_a);
+        let _ = resolver.add_service_descriptor(&*descriptor_b);
+        let _ = resolver.add_service_descriptor(&*descriptor_c);
+
+        let chain = resolver.get_dependency_chain(TypeId::of::<TestServiceC>())?;
         assert_eq!(chain.len(), 3);
         assert_eq!(chain[0], TypeId::of::<TestServiceA>());
         assert_eq!(chain[1], TypeId::of::<TestServiceB>());
@@ -519,7 +553,7 @@ mod tests {
         let resolver = DependencyResolver::new(ResolutionStrategy::DepthFirst);
         let descriptor = GenericServiceDescriptor::<TestServiceA>::new(ServiceLifetime::Singleton);
         
-        resolver.add_service_descriptor(&*descriptor).unwrap();
+        let _ = resolver.add_service_descriptor(&*descriptor);
         assert_eq!(resolver.stats().total_nodes, 1);
         
         resolver.clear_cache();

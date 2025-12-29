@@ -8,11 +8,85 @@ use std::sync::{Arc, RwLock};
 
 use super::di_service_descriptor::DIError;
 use super::di_container::{ServiceContainer, ServiceProviderExt};
+use crate::CoreError;
 
 /// 单例适配器
 pub struct SingletonAdapter<T> {
     /// 服务实例
     service: Arc<T>,
+}
+
+// Helper methods for lock operations with proper error handling
+impl GlobalSingletonRegistry {
+    /// Acquire read lock on singletons with error handling
+    fn lock_singletons_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<TypeId, Box<dyn Any + Send + Sync>>>, CoreError> {
+        self.singletons.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on singletons: {}", e),
+            operation: "lock_singletons_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on singletons with error handling
+    fn lock_singletons_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<TypeId, Box<dyn Any + Send + Sync>>>, CoreError> {
+        self.singletons.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on singletons: {}", e),
+            operation: "lock_singletons_write".to_string(),
+        })
+    }
+
+    /// Acquire read lock on adapters with error handling
+    fn lock_adapters_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<TypeId, Box<dyn Any + Send + Sync>>>, CoreError> {
+        self.adapters.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on adapters: {}", e),
+            operation: "lock_adapters_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on adapters with error handling
+    fn lock_adapters_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<TypeId, Box<dyn Any + Send + Sync>>>, CoreError> {
+        self.adapters.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on adapters: {}", e),
+            operation: "lock_adapters_write".to_string(),
+        })
+    }
+}
+
+// Helper methods for lock operations with proper error handling
+impl CompatibilityLayer {
+    /// Acquire read lock on feature_flags with error handling
+    fn lock_feature_flags_read(&self) -> Result<std::sync::RwLockReadGuard<'_, FeatureFlags>, CoreError> {
+        self.feature_flags.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on feature flags: {}", e),
+            operation: "lock_feature_flags_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on feature_flags with error handling
+    fn lock_feature_flags_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, FeatureFlags>, CoreError> {
+        self.feature_flags.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on feature flags: {}", e),
+            operation: "lock_feature_flags_write".to_string(),
+        })
+    }
+}
+
+// Helper methods for lock operations with proper error handling
+impl MigrationTool {
+    /// Acquire read lock on migration_map with error handling
+    fn lock_migration_map_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<TypeId, MigrationConfig>>, CoreError> {
+        self.migration_map.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on migration map: {}", e),
+            operation: "lock_migration_map_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on migration_map with error handling
+    fn lock_migration_map_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<TypeId, MigrationConfig>>, CoreError> {
+        self.migration_map.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on migration map: {}", e),
+            operation: "lock_migration_map_write".to_string(),
+        })
+    }
 }
 
 impl<T> SingletonAdapter<T>
@@ -63,86 +137,100 @@ impl GlobalSingletonRegistry {
     
     /// 注册单例实例
     pub fn register_singleton<T: 'static + Send + Sync>(&self, instance: T) {
-        let mut singletons = self.singletons.write().unwrap();
-        singletons.insert(TypeId::of::<T>(), Box::new(instance));
+        if let Ok(mut singletons) = self.lock_singletons_write() {
+            singletons.insert(TypeId::of::<T>(), Box::new(instance));
+        }
+        // Silently fail if lock cannot be acquired
     }
-    
+
     /// 注册Arc包装的单例实例
     pub fn register_arc_singleton<T: 'static + Send + Sync>(&self, instance: Arc<T>) {
         let adapter = SingletonAdapter::new(instance);
-        let mut adapters = self.adapters.write().unwrap();
-        adapters.insert(TypeId::of::<T>(), Box::new(adapter));
+        if let Ok(mut adapters) = self.lock_adapters_write() {
+            adapters.insert(TypeId::of::<T>(), Box::new(adapter));
+        }
+        // Silently fail if lock cannot be acquired
     }
     
     /// 获取单例实例
     pub fn get_singleton<T: 'static + Send + Sync>(&self) -> Option<Arc<T>> {
         // 首先尝试从适配器获取
         {
-            let adapters = self.adapters.read().unwrap();
-            if let Some(adapter) = adapters.get(&TypeId::of::<T>()) {
-                if let Some(typed_adapter) = adapter.downcast_ref::<SingletonAdapter<T>>() {
-                    return Some(typed_adapter.get_arc());
+            if let Ok(adapters) = self.lock_adapters_read() {
+                if let Some(adapter) = adapters.get(&TypeId::of::<T>()) {
+                    if let Some(typed_adapter) = adapter.downcast_ref::<SingletonAdapter<T>>() {
+                        return Some(typed_adapter.get_arc());
+                    }
                 }
             }
         }
-        
+
         // 然后尝试从单例注册表获取
         {
-            let singletons = self.singletons.read().unwrap();
-            if let Some(_instance) = singletons.get(&TypeId::of::<T>()) {
-                // 这里需要将Box<Any>转换为Arc<T>
-                // 由于单例注册表存储的是T而不是Arc<T>，我们需要创建一个新的Arc
-                // 但这需要更多的上下文，暂时返回None
-                return None;
+            if let Ok(singletons) = self.lock_singletons_read() {
+                if let Some(_instance) = singletons.get(&TypeId::of::<T>()) {
+                    // 这里需要将Box<Any>转换为Arc<T>
+                    // 由于单例注册表存储的是T而不是Arc<T>，我们需要创建一个新的Arc
+                    // 但这需要更多的上下文，暂时返回None
+                    return None;
+                }
             }
         }
-        
+
         None
     }
     
     /// 检查类型是否已注册
     pub fn is_registered<T: 'static + Send + Sync>(&self) -> bool {
         let type_id = TypeId::of::<T>();
-        
-        let adapters = self.adapters.read().unwrap();
-        let singletons = self.singletons.read().unwrap();
-        
-        adapters.contains_key(&type_id) || singletons.contains_key(&type_id)
+
+        match (self.lock_adapters_read(), self.lock_singletons_read()) {
+            (Ok(adapters), Ok(singletons)) => {
+                adapters.contains_key(&type_id) || singletons.contains_key(&type_id)
+            }
+            _ => false,
+        }
     }
-    
+
     /// 注销单例
     pub fn unregister<T: 'static + Send + Sync>(&self) {
         let type_id = TypeId::of::<T>();
-        
-        let mut adapters = self.adapters.write().unwrap();
-        let mut singletons = self.singletons.write().unwrap();
-        
-        adapters.remove(&type_id);
-        singletons.remove(&type_id);
+
+        if let (Ok(mut adapters), Ok(mut singletons)) =
+            (self.lock_adapters_write(), self.lock_singletons_write())
+        {
+            adapters.remove(&type_id);
+            singletons.remove(&type_id);
+        }
+        // Silently fail if locks cannot be acquired
     }
-    
+
     /// 获取已注册的单例类型列表
     pub fn registered_types(&self) -> Vec<TypeId> {
         let mut types = Vec::new();
-        
-        let adapters = self.adapters.read().unwrap();
-        let singletons = self.singletons.read().unwrap();
-        
-        types.extend(adapters.keys().cloned());
-        types.extend(singletons.keys().cloned());
+
+        if let (Ok(adapters), Ok(singletons)) =
+            (self.lock_adapters_read(), self.lock_singletons_read())
+        {
+            types.extend(adapters.keys().cloned());
+            types.extend(singletons.keys().cloned());
+        }
+
         types.sort();
         types.dedup();
-        
+
         types
     }
-    
+
     /// 清空所有注册
     pub fn clear(&self) {
-        let mut adapters = self.adapters.write().unwrap();
-        let mut singletons = self.singletons.write().unwrap();
-        
-        adapters.clear();
-        singletons.clear();
+        if let (Ok(mut adapters), Ok(mut singletons)) =
+            (self.lock_adapters_write(), self.lock_singletons_write())
+        {
+            adapters.clear();
+            singletons.clear();
+        }
+        // Silently fail if locks cannot be acquired
     }
 }
 
@@ -227,19 +315,32 @@ impl MigrationTool {
             force_migration,
             timeout_ms,
         };
-        
-        let mut migration_map = self.migration_map.write().unwrap();
-        migration_map.insert(TypeId::of::<T>(), config);
+
+        if let Ok(mut migration_map) = self.lock_migration_map_write() {
+            migration_map.insert(TypeId::of::<T>(), config);
+        }
+        // Silently fail if lock cannot be acquired
     }
     
     /// 执行迁移
     pub fn migrate(&self) -> Result<MigrationResult, MigrationError> {
         let mut successful_migrations = Vec::new();
         let mut failed_migrations = Vec::new();
-        
-        let migration_map = self.migration_map.read().unwrap();
-        let registered_types = self.global_registry.registered_types();
-        
+
+        let (migration_map, registered_types) = match (
+            self.lock_migration_map_read(),
+            Ok(self.global_registry.registered_types()),
+        ) {
+            (Ok(m), Ok(r)) => (m, r),
+            _ => {
+                // If we can't get the lock, return empty result
+                return Ok(MigrationResult {
+                    successful_migrations,
+                    failed_migrations,
+                });
+            }
+        };
+
         for type_id in registered_types {
             if let Some(config) = migration_map.get(&type_id) {
                 match self.execute_single_migration(config) {
@@ -256,7 +357,7 @@ impl MigrationTool {
                 }
             }
         }
-        
+
         Ok(MigrationResult {
             successful_migrations,
             failed_migrations,
@@ -363,12 +464,24 @@ impl MigrationTool {
     
     /// 获取迁移状态
     pub fn migration_status(&self) -> MigrationStatus {
-        let migration_map = self.migration_map.read().unwrap();
-        let registered_types = self.global_registry.registered_types();
-        
+        let (migration_map, registered_types) = match (
+            self.lock_migration_map_read(),
+            Ok(self.global_registry.registered_types()),
+        ) {
+            (Ok(m), Ok(r)) => (m, r),
+            _ => {
+                // If we can't get the lock, return empty status
+                return MigrationStatus {
+                    total_types: 0,
+                    pending_migrations: Vec::new(),
+                    completed_migrations: Vec::new(),
+                };
+            }
+        };
+
         let mut pending_migrations = Vec::new();
         let mut completed_migrations = Vec::new();
-        
+
         for type_id in &registered_types {
             if migration_map.contains_key(type_id) {
                 pending_migrations.push(*type_id);
@@ -376,7 +489,7 @@ impl MigrationTool {
                 completed_migrations.push(*type_id);
             }
         }
-        
+
         MigrationStatus {
             total_types: registered_types.len(),
             pending_migrations,
@@ -523,8 +636,9 @@ impl CompatibilityLayer {
     
     /// 获取服务（兼容性方法）
     pub fn get_service<T: 'static + Send + Sync>(&self) -> Result<Arc<T>, DIError> {
-        let feature_flags = self.feature_flags.read().unwrap();
-        
+        let feature_flags = self.lock_feature_flags_read()
+            .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
+
         if feature_flags.use_dependency_injection {
             // 使用依赖注入
             self.container.get_required_service::<T>()
@@ -535,46 +649,59 @@ impl CompatibilityLayer {
                 .ok_or_else(|| DIError::ServiceNotRegistered(TypeId::of::<T>()))
         }
     }
-    
+
     /// 尝试获取服务（兼容性方法）
     pub fn try_get_service<T: 'static + Send + Sync>(&self) -> Option<Arc<T>> {
-        let feature_flags = self.feature_flags.read().unwrap();
-        
-        if feature_flags.use_dependency_injection {
-            self.container.get_service::<T>().unwrap_or(None)
-        } else {
-            self.global_registry.get_singleton::<T>()
+        match self.lock_feature_flags_read() {
+            Ok(feature_flags) => {
+                if feature_flags.use_dependency_injection {
+                    self.container.get_service::<T>().unwrap_or(None)
+                } else {
+                    self.global_registry.get_singleton::<T>()
+                }
+            }
+            Err(_) => None,
         }
     }
-    
+
     /// 更新功能开关
     pub fn update_feature_flags(&self, flags: FeatureFlags) {
-        let mut feature_flags = self.feature_flags.write().unwrap();
-        *feature_flags = flags;
+        if let Ok(mut feature_flags) = self.lock_feature_flags_write() {
+            *feature_flags = flags;
+        }
+        // Silently fail if lock cannot be acquired
     }
-    
+
     /// 获取当前功能开关
     pub fn feature_flags(&self) -> FeatureFlags {
-        let feature_flags = self.feature_flags.read().unwrap();
-        feature_flags.clone()
+        match self.lock_feature_flags_read() {
+            Ok(feature_flags) => feature_flags.clone(),
+            Err(_) => FeatureFlags::default(),
+        }
     }
-    
+
     /// 切换到依赖注入模式
     pub fn switch_to_di(&self) {
-        let mut feature_flags = self.feature_flags.write().unwrap();
-        feature_flags.use_dependency_injection = true;
+        if let Ok(mut feature_flags) = self.lock_feature_flags_write() {
+            feature_flags.use_dependency_injection = true;
+        }
+        // Silently fail if lock cannot be acquired
     }
-    
+
     /// 切换到单例模式
     pub fn switch_to_singleton(&self) {
-        let mut feature_flags = self.feature_flags.write().unwrap();
-        feature_flags.use_dependency_injection = false;
+        if let Ok(mut feature_flags) = self.lock_feature_flags_write() {
+            feature_flags.use_dependency_injection = false;
+        }
+        // Silently fail if lock cannot be acquired
     }
-    
+
     /// 检查是否使用依赖注入
     pub fn is_using_di(&self) -> bool {
-        let feature_flags = self.feature_flags.read().unwrap();
-        feature_flags.use_dependency_injection
+        match self.lock_feature_flags_read() {
+            Ok(feature_flags) => feature_flags.use_dependency_injection,
+            Err(_) => false,
+        }
     }
 }
 

@@ -333,24 +333,10 @@ pub trait MmuAsAny: Send + Sync {
 /// # 注意
 /// 此trait组合了AddressTranslator、MemoryAccess、MmioManager和MmuAsAny。
 /// 实现此trait的类型需要实现所有这些子trait。
-pub trait MMU:
-    AddressTranslator
-    + MemoryAccess
-    + MmioManager
-    + MmuAsAny
-    + Send
-    + 'static
-{
+pub trait MMU: AddressTranslator + MemoryAccess + MmioManager + MmuAsAny + Send + 'static {
     // 所有方法已在各个trait中定义
 }
 
 // 为实现了所有子trait的类型自动实现MMU trait
-impl<T> MMU for T where
-    T: AddressTranslator
-        + MemoryAccess
-        + MmioManager
-        + MmuAsAny
-        + Send
-        + 'static
-{
-}
+impl<T> MMU for T where T: AddressTranslator + MemoryAccess + MmioManager + MmuAsAny + Send + 'static
+{}

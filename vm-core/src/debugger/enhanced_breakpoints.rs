@@ -3,6 +3,8 @@
 //! This module provides comprehensive breakpoint management including
 //! execution, read/write, hardware, and conditional breakpoints.
 
+#![cfg(feature = "debug")]
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
@@ -61,7 +63,6 @@ pub enum BreakpointType {
 }
 
 /// Breakpoint condition evaluation
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BreakpointCondition {
     /// Always trigger (no condition)
@@ -87,7 +88,6 @@ pub enum BreakpointCondition {
 }
 
 /// Enhanced breakpoint information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Breakpoint {
     /// Unique breakpoint ID
@@ -135,8 +135,6 @@ impl crate::debugger::breakpoint::Breakpoint {
             id,
             address,
             breakpoint_type: BreakpointType::Execution,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             condition: BreakpointCondition::Always,
             enabled: true,
             hit_count: 0,
@@ -163,8 +161,6 @@ impl crate::debugger::breakpoint::Breakpoint {
             id,
             address,
             breakpoint_type: BreakpointType::Read,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             condition: BreakpointCondition::Always,
             enabled: true,
             hit_count: 0,
@@ -191,8 +187,6 @@ impl crate::debugger::breakpoint::Breakpoint {
             id,
             address,
             breakpoint_type: BreakpointType::Write,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             condition: BreakpointCondition::Always,
             enabled: true,
             hit_count: 0,
@@ -259,44 +253,26 @@ impl crate::debugger::breakpoint::Breakpoint {
 
         // Evaluate condition
         match &self.condition {
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::Always => true,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::RegisterEquals { register, value } => {
                 registers.get(register).map_or(0, |&v| v) == *value
             }
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::RegisterNotEquals { register, value } => {
                 registers.get(register).map_or(0, |&v| v) != *value
             }
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::MemoryEquals { address, value } => {
                 memory.get(address).map_or(0, |&v| v) == *value
             }
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::MemoryNotEquals { address, value } => {
                 memory.get(address).map_or(0, |&v| v) != *value
             }
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::Expression { .. } => {
                 // In a real implementation, this would evaluate the expression
                 // For now, return true as a placeholder
                 true
             }
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::HitCount { count } => self.hit_count >= *count,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::ThreadId { thread_id: tid } => thread_id == *tid,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::And { conditions } => {
                 conditions.iter().all(|c| {
                     // Create a temporary breakpoint with this condition to check
@@ -307,8 +283,6 @@ impl crate::debugger::breakpoint::Breakpoint {
                     temp_bp.should_trigger(registers, memory, thread_id)
                 })
             }
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::Or { conditions } => {
                 conditions.iter().any(|c| {
                     // Create a temporary breakpoint with this condition to check
@@ -335,7 +309,6 @@ impl crate::debugger::breakpoint::Breakpoint {
 }
 
 /// Breakpoint group for managing related breakpoints
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BreakpointGroup {
     /// Group ID
@@ -382,7 +355,6 @@ impl crate::debugger::breakpoint::BreakpointType {
 }
 
 /// Breakpoint manager configuration
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BreakpointConfig {
     /// Maximum number of breakpoints
@@ -405,7 +377,6 @@ pub struct BreakpointConfig {
     pub default_hit_count_limit: u64,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 impl Default for BreakpointConfig {
     fn default() -> Self {
         Self {
@@ -423,7 +394,6 @@ impl Default for BreakpointConfig {
 }
 
 /// Enhanced breakpoint manager
-#[cfg(feature = "enhanced-debugging")]
 pub struct BreakpointManager {
     /// Breakpoints by ID
     breakpoints: Arc<RwLock<HashMap<u64, Breakpoint>>>,
@@ -439,8 +409,87 @@ pub struct BreakpointManager {
     next_group_id: Arc<RwLock<u64>>,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 impl BreakpointManager {
+    /// Helper method to lock breakpoints for reading
+    fn lock_breakpoints(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<u64, Breakpoint>>, VmError> {
+        self.breakpoints.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire breakpoints read lock: {}", e),
+            operation: "lock_breakpoints_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock breakpoints for writing
+    fn lock_breakpoints_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<u64, Breakpoint>>, VmError> {
+        self.breakpoints.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire breakpoints write lock: {}", e),
+            operation: "lock_breakpoints_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock address_index for reading
+    fn lock_address_index(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<GuestAddr, Vec<u64>>>, VmError> {
+        self.address_index.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire address_index read lock: {}", e),
+            operation: "lock_address_index_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock address_index for writing
+    fn lock_address_index_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<GuestAddr, Vec<u64>>>, VmError> {
+        self.address_index.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire address_index write lock: {}", e),
+            operation: "lock_address_index_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock type_index for reading
+    fn lock_type_index(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<BreakpointType, Vec<u64>>>, VmError> {
+        self.type_index.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire type_index read lock: {}", e),
+            operation: "lock_type_index_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock type_index for writing
+    fn lock_type_index_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<BreakpointType, Vec<u64>>>, VmError> {
+        self.type_index.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire type_index write lock: {}", e),
+            operation: "lock_type_index_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock groups for reading
+    fn lock_groups(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<u64, BreakpointGroup>>, VmError> {
+        self.groups.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire groups read lock: {}", e),
+            operation: "lock_groups_read".to_string(),
+        })
+    }
+
+    /// Helper method to lock groups for writing
+    fn lock_groups_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<u64, BreakpointGroup>>, VmError> {
+        self.groups.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire groups write lock: {}", e),
+            operation: "lock_groups_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock next_id for writing
+    fn lock_next_id_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, u64>, VmError> {
+        self.next_id.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire next_id write lock: {}", e),
+            operation: "lock_next_id_write".to_string(),
+        })
+    }
+
+    /// Helper method to lock next_group_id for writing
+    fn lock_next_group_id_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, u64>, VmError> {
+        self.next_group_id.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire next_group_id write lock: {}", e),
+            operation: "lock_next_group_id_write".to_string(),
+        })
+    }
+
     /// Create a new breakpoint manager
     pub fn new() -> Self {
         Self {
@@ -457,7 +506,7 @@ impl BreakpointManager {
     pub fn add_breakpoint(&self, mut breakpoint: Breakpoint) -> VmResult<u64> {
         // Assign ID if not set
         if breakpoint.id == 0 {
-            let mut next_id = self.next_id.write().unwrap();
+            let mut next_id = self.lock_next_id_mut()?;
             breakpoint.id = *next_id;
             *next_id += 1;
         }
@@ -465,24 +514,24 @@ impl BreakpointManager {
         let id = breakpoint.id;
 
         // Add to main storage
-        let mut breakpoints = self.breakpoints.write().unwrap();
+        let mut breakpoints = self.lock_breakpoints_mut()?;
         breakpoints.insert(id, breakpoint.clone());
 
         // Update address index
-        let mut address_index = self.address_index.write().unwrap();
+        let mut address_index = self.lock_address_index_mut()?;
         address_index.entry(breakpoint.address)
             .or_insert_with(Vec::new)
             .push(id);
 
         // Update type index
-        let mut type_index = self.type_index.write().unwrap();
+        let mut type_index = self.lock_type_index_mut()?;
         type_index.entry(breakpoint.breakpoint_type)
             .or_insert_with(Vec::new)
             .push(id);
 
         // Add to group if specified
         if let Some(group_id) = breakpoint.group_id {
-            let mut groups = self.groups.write().unwrap();
+            let mut groups = self.lock_groups_mut()?;
             if let Some(group) = groups.get_mut(&group_id) {
                 group.add_breakpoint(id);
             }
@@ -493,7 +542,7 @@ impl BreakpointManager {
 
     /// Remove a breakpoint
     pub fn remove_breakpoint(&self, id: u64) -> VmResult<Breakpoint> {
-        let mut breakpoints = self.breakpoints.write().unwrap();
+        let mut breakpoints = self.lock_breakpoints_mut()?;
         let breakpoint = breakpoints.remove(&id)
             .ok_or_else(|| VmError::Core(crate::error::CoreError::InvalidState {
                 message: format!("Breakpoint {} not found", id),
@@ -502,7 +551,7 @@ impl BreakpointManager {
             }))?;
 
         // Update address index
-        let mut address_index = self.address_index.write().unwrap();
+        let mut address_index = self.lock_address_index_mut()?;
         if let Some(bp_ids) = address_index.get_mut(&breakpoint.address) {
             bp_ids.retain(|&bp_id| bp_id != id);
             if bp_ids.is_empty() {
@@ -511,7 +560,7 @@ impl BreakpointManager {
         }
 
         // Update type index
-        let mut type_index = self.type_index.write().unwrap();
+        let mut type_index = self.lock_type_index_mut()?;
         if let Some(bp_ids) = type_index.get_mut(&breakpoint.breakpoint_type) {
             bp_ids.retain(|&bp_id| bp_id != id);
             if bp_ids.is_empty() {
@@ -521,7 +570,7 @@ impl BreakpointManager {
 
         // Remove from group
         if let Some(group_id) = breakpoint.group_id {
-            let mut groups = self.groups.write().unwrap();
+            let mut groups = self.lock_groups_mut()?;
             if let Some(group) = groups.get_mut(&group_id) {
                 group.remove_breakpoint(id);
             }
@@ -532,7 +581,7 @@ impl BreakpointManager {
 
     /// Get a breakpoint by ID
     pub fn get_breakpoint(&self, id: u64) -> VmResult<Breakpoint> {
-        let breakpoints = self.breakpoints.read().unwrap();
+        let breakpoints = self.lock_breakpoints()?;
         breakpoints.get(&id)
             .cloned()
             .ok_or_else(|| VmError::Core(crate::error::CoreError::InvalidState {
@@ -544,41 +593,47 @@ impl BreakpointManager {
 
     /// Get all breakpoints at a specific address
     pub fn get_breakpoints_at(&self, address: GuestAddr) -> Vec<Breakpoint> {
-        let breakpoints = self.breakpoints.read().unwrap();
-        let address_index = self.address_index.read().unwrap();
-        
-        if let Some(bp_ids) = address_index.get(&address) {
-            bp_ids.iter()
-                .filter_map(|&id| breakpoints.get(id).cloned())
-                .collect()
-        } else {
-            Vec::new()
+        match (self.lock_breakpoints(), self.lock_address_index()) {
+            (Ok(breakpoints), Ok(address_index)) => {
+                if let Some(bp_ids) = address_index.get(&address) {
+                    bp_ids.iter()
+                        .filter_map(|&id| breakpoints.get(id).cloned())
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => Vec::new(),
         }
     }
 
     /// Get all breakpoints of a specific type
     pub fn get_breakpoints_by_type(&self, breakpoint_type: BreakpointType) -> Vec<Breakpoint> {
-        let breakpoints = self.breakpoints.read().unwrap();
-        let type_index = self.type_index.read().unwrap();
-        
-        if let Some(bp_ids) = type_index.get(&breakpoint_type) {
-            bp_ids.iter()
-                .filter_map(|&id| breakpoints.get(id).cloned())
-                .collect()
-        } else {
-            Vec::new()
+        match (self.lock_breakpoints(), self.lock_type_index()) {
+            (Ok(breakpoints), Ok(type_index)) => {
+                if let Some(bp_ids) = type_index.get(&breakpoint_type) {
+                    bp_ids.iter()
+                        .filter_map(|&id| breakpoints.get(id).cloned())
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => Vec::new(),
         }
     }
 
     /// Get all breakpoints
     pub fn get_all_breakpoints(&self) -> Vec<Breakpoint> {
-        let breakpoints = self.breakpoints.read().unwrap();
-        breakpoints.values().cloned().collect()
+        match self.lock_breakpoints() {
+            Ok(breakpoints) => breakpoints.values().cloned().collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Enable or disable a breakpoint
     pub fn set_breakpoint_enabled(&self, id: u64, enabled: bool) -> VmResult<()> {
-        let mut breakpoints = self.breakpoints.write().unwrap();
+        let mut breakpoints = self.lock_breakpoints_mut()?;
         if let Some(breakpoint) = breakpoints.get_mut(&id) {
             breakpoint.enabled = enabled;
             Ok(())
@@ -593,13 +648,13 @@ impl BreakpointManager {
 
     /// Create a new breakpoint group
     pub fn create_group(&self, name: String, description: String) -> VmResult<u64> {
-        let mut next_group_id = self.next_group_id.write().unwrap();
+        let mut next_group_id = self.lock_next_group_id_mut()?;
         let group_id = *next_group_id;
         *next_group_id += 1;
 
         let group = BreakpointGroup::new(group_id, name, description);
-        
-        let mut groups = self.groups.write().unwrap();
+
+        let mut groups = self.lock_groups_mut()?;
         groups.insert(group_id, group);
 
         Ok(group_id)
@@ -609,7 +664,7 @@ impl BreakpointManager {
     pub fn add_breakpoint_to_group(&self, breakpoint_id: u64, group_id: u64) -> VmResult<()> {
         // Update breakpoint's group ID
         {
-            let mut breakpoints = self.breakpoints.write().unwrap();
+            let mut breakpoints = self.lock_breakpoints_mut()?;
             if let Some(breakpoint) = breakpoints.get_mut(&breakpoint_id) {
                 breakpoint.group_id = Some(group_id);
             } else {
@@ -622,7 +677,7 @@ impl BreakpointManager {
         }
 
         // Update group
-        let mut groups = self.groups.write().unwrap();
+        let mut groups = self.lock_groups_mut()?;
         if let Some(group) = groups.get_mut(&group_id) {
             group.add_breakpoint(breakpoint_id);
         } else {
@@ -640,7 +695,7 @@ impl BreakpointManager {
     pub fn remove_breakpoint_from_group(&self, breakpoint_id: u64, group_id: u64) -> VmResult<()> {
         // Update breakpoint's group ID
         {
-            let mut breakpoints = self.breakpoints.write().unwrap();
+            let mut breakpoints = self.lock_breakpoints_mut()?;
             if let Some(breakpoint) = breakpoints.get_mut(&breakpoint_id) {
                 breakpoint.group_id = None;
             } else {
@@ -653,7 +708,7 @@ impl BreakpointManager {
         }
 
         // Update group
-        let mut groups = self.groups.write().unwrap();
+        let mut groups = self.lock_groups_mut()?;
         if let Some(group) = groups.get_mut(&group_id) {
             group.remove_breakpoint(breakpoint_id);
         } else {
@@ -669,12 +724,12 @@ impl BreakpointManager {
 
     /// Enable or disable a breakpoint group
     pub fn set_group_enabled(&self, group_id: u64, enabled: bool) -> VmResult<()> {
-        let mut groups = self.groups.write().unwrap();
+        let mut groups = self.lock_groups_mut()?;
         if let Some(group) = groups.get_mut(&group_id) {
             group.enabled = enabled;
 
             // Enable/disable all breakpoints in the group
-            let mut breakpoints = self.breakpoints.write().unwrap();
+            let mut breakpoints = self.lock_breakpoints_mut()?;
             for &breakpoint_id in &group.breakpoint_ids {
                 if let Some(breakpoint) = breakpoints.get_mut(&breakpoint_id) {
                     breakpoint.enabled = enabled;
@@ -733,23 +788,34 @@ impl BreakpointManager {
 
     /// Get breakpoint statistics
     pub fn get_statistics(&self) -> BreakpointStatistics {
-        let breakpoints = self.breakpoints.read().unwrap();
-        let groups = self.groups.read().unwrap();
+        let (breakpoints, groups) = match (self.lock_breakpoints(), self.lock_groups()) {
+            (Ok(breakpoints), Ok(groups)) => (Some(breakpoints), Some(groups)),
+            _ => (None, None),
+        };
 
-        let total_breakpoints = breakpoints.len();
-        let enabled_breakpoints = breakpoints.values()
-            .filter(|bp| bp.enabled)
-            .count();
-        
-        let mut type_counts = HashMap::new();
-        for bp in breakpoints.values() {
-            *type_counts.entry(bp.breakpoint_type).or_insert(0) += 1;
-        }
+        let (total_breakpoints, enabled_breakpoints, type_counts) = match breakpoints {
+            Some(breakpoints) => {
+                let total = breakpoints.len();
+                let enabled = breakpoints.values().filter(|bp| bp.enabled).count();
 
-        let total_groups = groups.len();
-        let enabled_groups = groups.values()
-            .filter(|g| g.enabled)
-            .count();
+                let mut type_counts = HashMap::new();
+                for bp in breakpoints.values() {
+                    *type_counts.entry(bp.breakpoint_type).or_insert(0) += 1;
+                }
+
+                (total, enabled, type_counts)
+            }
+            None => (0, 0, HashMap::new()),
+        };
+
+        let (total_groups, enabled_groups) = match groups {
+            Some(groups) => {
+                let total = groups.len();
+                let enabled = groups.values().filter(|g| g.enabled).count();
+                (total, enabled)
+            }
+            None => (0, 0),
+        };
 
         BreakpointStatistics {
             total_breakpoints,
@@ -762,7 +828,6 @@ impl BreakpointManager {
 }
 
 /// Breakpoint statistics
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BreakpointStatistics {
     /// Total number of breakpoints
@@ -815,8 +880,6 @@ mod tests {
         let bp_reg_eq = Breakpoint::new_conditional(
             2,
             0x1000,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::RegisterEquals {
                 register: "rax".to_string(),
                 value: 0x1234,
@@ -830,8 +893,6 @@ mod tests {
         let bp_mem_eq = Breakpoint::new_conditional(
             3,
             0x1000,
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
             BreakpointCondition::MemoryEquals {
                 address: 0x2000,
                 value: 0xABCDEF,
@@ -849,9 +910,9 @@ mod tests {
         // Add breakpoints
         let bp1 = Breakpoint::new_execution(1, 0x1000, vec![0x90]);
         let bp2 = Breakpoint::new_read_watchpoint(2, 0x2000, 4);
-        
-        let id1 = manager.add_breakpoint(bp1).unwrap();
-        let id2 = manager.add_breakpoint(bp2).unwrap();
+
+        let id1 = manager.add_breakpoint(bp1).expect("Failed to add breakpoint 1");
+        let id2 = manager.add_breakpoint(bp2).expect("Failed to add breakpoint 2");
 
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
@@ -869,7 +930,7 @@ mod tests {
         assert_eq!(read_bps.len(), 1);
 
         // Remove breakpoint
-        let removed_bp = manager.remove_breakpoint(id1).unwrap();
+        let removed_bp = manager.remove_breakpoint(id1).expect("Failed to remove breakpoint");
         assert_eq!(removed_bp.id, 1);
 
         let bps_at_1000_after = manager.get_breakpoints_at(0x1000);
@@ -884,25 +945,25 @@ mod tests {
         let group_id = manager.create_group(
             "Test Group".to_string(),
             "Group for testing".to_string(),
-        ).unwrap();
+        ).expect("Failed to create group");
 
         // Add breakpoints to group
         let bp1 = Breakpoint::new_execution(1, 0x1000, vec![0x90]);
         let bp2 = Breakpoint::new_execution(2, 0x2000, vec![0x90]);
-        
-        let id1 = manager.add_breakpoint(bp1).unwrap();
-        let id2 = manager.add_breakpoint(bp2).unwrap();
 
-        manager.add_breakpoint_to_group(id1, group_id).unwrap();
-        manager.add_breakpoint_to_group(id2, group_id).unwrap();
+        let id1 = manager.add_breakpoint(bp1).expect("Failed to add breakpoint 1");
+        let id2 = manager.add_breakpoint(bp2).expect("Failed to add breakpoint 2");
+
+        manager.add_breakpoint_to_group(id1, group_id).expect("Failed to add breakpoint 1 to group");
+        manager.add_breakpoint_to_group(id2, group_id).expect("Failed to add breakpoint 2 to group");
 
         // Disable group
-        manager.set_group_enabled(group_id, false).unwrap();
+        manager.set_group_enabled(group_id, false).expect("Failed to disable group");
 
         // Check breakpoints are disabled
-        let bp1_retrieved = manager.get_breakpoint(id1).unwrap();
-        let bp2_retrieved = manager.get_breakpoint(id2).unwrap();
-        
+        let bp1_retrieved = manager.get_breakpoint(id1).expect("Failed to get breakpoint 1");
+        let bp2_retrieved = manager.get_breakpoint(id2).expect("Failed to get breakpoint 2");
+
         assert!(!bp1_retrieved.enabled);
         assert!(!bp2_retrieved.enabled);
     }

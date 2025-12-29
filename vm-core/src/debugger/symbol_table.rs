@@ -3,6 +3,8 @@
 //! This module provides comprehensive symbol table support including
 //! DWARF debug information parsing, symbol lookup, and source-level debugging.
 
+#![cfg(feature = "debug")]
+
 use std::collections::{HashMap, BTreeMap};
 use std::sync::{Arc, RwLock};
 use std::path::Path;
@@ -10,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use crate::{GuestAddr, VmError, VmResult};
 
 /// Symbol information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Symbol {
     /// Symbol name
@@ -97,7 +98,6 @@ pub enum SymbolVisibility {
 }
 
 /// Source location information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceLocation {
     /// Source file path
@@ -113,7 +113,6 @@ pub struct SourceLocation {
 }
 
 /// Function information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionInfo {
     /// Function name
@@ -147,7 +146,6 @@ pub struct FunctionInfo {
 }
 
 /// Parameter information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParameterInfo {
     /// Parameter name
@@ -161,7 +159,6 @@ pub struct ParameterInfo {
 }
 
 /// Local variable information
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalVariableInfo {
     /// Variable name
@@ -194,7 +191,6 @@ pub enum VariableLocation {
 }
 
 /// Line number information for address-to-line mapping
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LineInfo {
     /// Source file path
@@ -210,7 +206,6 @@ pub struct LineInfo {
 }
 
 /// Symbol table configuration
-#[cfg(feature = "enhanced-debugging")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolTableConfig {
     /// Enable DWARF debug information parsing
@@ -227,7 +222,6 @@ pub struct SymbolTableConfig {
     pub lazy_loading: bool,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 impl Default for SymbolTableConfig {
     fn default() -> Self {
         Self {
@@ -242,7 +236,6 @@ impl Default for SymbolTableConfig {
 }
 
 /// Enhanced symbol table
-#[cfg(feature = "enhanced-debugging")]
 pub struct SymbolTable {
     /// Configuration
     config: SymbolTableConfig,
@@ -290,7 +283,6 @@ enum DebugFormat {
     Unknown,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 impl SymbolTable {
     /// Create a new symbol table
     pub fn new(config: SymbolTableConfig) -> Self {
@@ -307,13 +299,141 @@ impl SymbolTable {
         }
     }
 
+    /// Helper: Lock debug_files for reading
+    fn lock_debug_files(&self) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<String, DebugFileInfo>>> {
+        self.debug_files.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on debug_files".to_string(),
+            operation: "lock_debug_files".to_string(),
+        })
+    }
+
+    /// Helper: Lock debug_files for writing
+    fn lock_debug_files_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<String, DebugFileInfo>>> {
+        self.debug_files.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on debug_files".to_string(),
+            operation: "lock_debug_files_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock symbols_by_name for reading
+    fn lock_symbols_by_name(&self) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<String, Vec<Symbol>>>> {
+        self.symbols_by_name.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on symbols_by_name".to_string(),
+            operation: "lock_symbols_by_name".to_string(),
+        })
+    }
+
+    /// Helper: lock symbols_by_name for writing
+    fn lock_symbols_by_name_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<String, Vec<Symbol>>>> {
+        self.symbols_by_name.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on symbols_by_name".to_string(),
+            operation: "lock_symbols_by_name_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock symbols_by_address for reading
+    fn lock_symbols_by_address(&self) -> VmResult<std::sync::RwLockReadGuard<'_, BTreeMap<GuestAddr, Symbol>>> {
+        self.symbols_by_address.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on symbols_by_address".to_string(),
+            operation: "lock_symbols_by_address".to_string(),
+        })
+    }
+
+    /// Helper: Lock symbols_by_address for writing
+    fn lock_symbols_by_address_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, BTreeMap<GuestAddr, Symbol>>> {
+        self.symbols_by_address.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on symbols_by_address".to_string(),
+            operation: "lock_symbols_by_address_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock functions_by_name for reading
+    fn lock_functions_by_name(&self) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<String, FunctionInfo>>> {
+        self.functions_by_name.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on functions_by_name".to_string(),
+            operation: "lock_functions_by_name".to_string(),
+        })
+    }
+
+    /// Helper: Lock functions_by_name for writing
+    fn lock_functions_by_name_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<String, FunctionInfo>>> {
+        self.functions_by_name.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on functions_by_name".to_string(),
+            operation: "lock_functions_by_name_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock functions_by_address for reading
+    fn lock_functions_by_address(&self) -> VmResult<std::sync::RwLockReadGuard<'_, BTreeMap<GuestAddr, FunctionInfo>>> {
+        self.functions_by_address.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on functions_by_address".to_string(),
+            operation: "lock_functions_by_address".to_string(),
+        })
+    }
+
+    /// Helper: Lock functions_by_address for writing
+    fn lock_functions_by_address_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, BTreeMap<GuestAddr, FunctionInfo>>> {
+        self.functions_by_address.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on functions_by_address".to_string(),
+            operation: "lock_functions_by_address_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock line_info for reading
+    fn lock_line_info(&self) -> VmResult<std::sync::RwLockReadGuard<'_, BTreeMap<GuestAddr, LineInfo>>> {
+        self.line_info.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on line_info".to_string(),
+            operation: "lock_line_info".to_string(),
+        })
+    }
+
+    /// Helper: Lock line_info for writing
+    fn lock_line_info_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, BTreeMap<GuestAddr, LineInfo>>> {
+        self.line_info.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on line_info".to_string(),
+            operation: "lock_line_info_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock source_locations for reading
+    fn lock_source_locations(&self) -> VmResult<std::sync::RwLockReadGuard<'_, BTreeMap<GuestAddr, SourceLocation>>> {
+        self.source_locations.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on source_locations".to_string(),
+            operation: "lock_source_locations".to_string(),
+        })
+    }
+
+    /// Helper: Lock source_locations for writing
+    fn lock_source_locations_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, BTreeMap<GuestAddr, SourceLocation>>> {
+        self.source_locations.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on source_locations".to_string(),
+            operation: "lock_source_locations_mut".to_string(),
+        })
+    }
+
+    /// Helper: Lock symbol_cache for reading
+    fn lock_symbol_cache(&self) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<String, Symbol>>> {
+        self.symbol_cache.read().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire read lock on symbol_cache".to_string(),
+            operation: "lock_symbol_cache".to_string(),
+        })
+    }
+
+    /// Helper: Lock symbol_cache for writing
+    fn lock_symbol_cache_mut(&self) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<String, Symbol>>> {
+        self.symbol_cache.write().map_err(|_| VmError::Core(crate::error::CoreError::Concurrency {
+            message: "Failed to acquire write lock on symbol_cache".to_string(),
+            operation: "lock_symbol_cache_mut".to_string(),
+        })
+    }
+
     /// Load symbols from a binary file
     pub fn load_from_file(&self, file_path: &Path) -> VmResult<()> {
         let file_path_str = file_path.to_string_lossy().to_string();
-        
+
         // Check if already loaded
         {
-            let debug_files = self.debug_files.read().unwrap();
+            let debug_files = self.lock_debug_files()?;
             if let Some(info) = debug_files.get(&file_path_str) {
                 if info.loaded {
                     return Ok(());
@@ -323,7 +443,7 @@ impl SymbolTable {
 
         // Load debug information based on file format
         let format = self.detect_debug_format(file_path)?;
-        
+
         match format {
             DebugFormat::Dwarf => {
                 if self.config.enable_dwarf {
@@ -355,12 +475,13 @@ impl SymbolTable {
 
         // Mark as loaded
         {
-            let mut debug_files = self.debug_files.write().unwrap();
+            let mut debug_files = self.lock_debug_files_mut()?;
+            let modified_time = std::fs::metadata(file_path)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
             debug_files.insert(file_path_str, DebugFileInfo {
                 path: file_path_str,
-                modified_time: std::fs::metadata(file_path)
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+                modified_time,
                 loaded: true,
                 format,
             });
@@ -373,35 +494,32 @@ impl SymbolTable {
     pub fn find_symbol(&self, name: &str) -> VmResult<Option<Symbol>> {
         // Check cache first
         if self.config.enable_caching {
-            let cache = self.symbol_cache.read().unwrap();
+            let cache = self.lock_symbol_cache()?;
             if let Some(symbol) = cache.get(name) {
                 return Ok(Some(symbol.clone()));
             }
         }
 
-        let symbols_by_name = self.symbols_by_name.read().unwrap();
-        if let Some(symbols) = symbols_by_name.get(name) {
-            // Return the first match (could be multiple due to overloading)
-            let symbol = symbols.first().cloned();
-            
-            // Update cache
-            if self.config.enable_caching {
-                if let Some(ref sym) = symbol {
-                    let mut cache = self.symbol_cache.write().unwrap();
+        let symbols_by_name = self.lock_symbols_by_name()?;
+        let symbol = symbols_by_name.get(name)
+            .and_then(|symbols| symbols.first().cloned());
+
+        // Update cache
+        if self.config.enable_caching {
+            if let Some(ref sym) = symbol {
+                if let Ok(mut cache) = self.lock_symbol_cache_mut() {
                     cache.insert(name.to_string(), sym.clone());
                 }
             }
-            
-            Ok(symbol)
-        } else {
-            Ok(None)
         }
+
+        Ok(symbol)
     }
 
     /// Find symbol by address
     pub fn find_symbol_by_address(&self, address: GuestAddr) -> VmResult<Option<Symbol>> {
-        let symbols_by_address = self.symbols_by_address.read().unwrap();
-        
+        let symbols_by_address = self.lock_symbols_by_address()?;
+
         // Find the symbol with the largest address <= target address
         let symbol = symbols_by_address
             .range(..=address)
@@ -413,14 +531,14 @@ impl SymbolTable {
 
     /// Find function by name
     pub fn find_function(&self, name: &str) -> VmResult<Option<FunctionInfo>> {
-        let functions_by_name = self.functions_by_name.read().unwrap();
+        let functions_by_name = self.lock_functions_by_name()?;
         Ok(functions_by_name.get(name).cloned())
     }
 
     /// Find function by address
     pub fn find_function_by_address(&self, address: GuestAddr) -> VmResult<Option<FunctionInfo>> {
-        let functions_by_address = self.functions_by_address.read().unwrap();
-        
+        let functions_by_address = self.lock_functions_by_address()?;
+
         // Find the function containing this address
         let function = functions_by_address
             .range(..=address)
@@ -433,8 +551,8 @@ impl SymbolTable {
 
     /// Get source location for address
     pub fn get_source_location(&self, address: GuestAddr) -> VmResult<Option<SourceLocation>> {
-        let source_locations = self.source_locations.read().unwrap();
-        
+        let source_locations = self.lock_source_locations()?;
+
         // Find the closest source location
         let location = source_locations
             .range(..=address)
@@ -446,8 +564,8 @@ impl SymbolTable {
 
     /// Get line information for address
     pub fn get_line_info(&self, address: GuestAddr) -> VmResult<Option<LineInfo>> {
-        let line_info = self.line_info.read().unwrap();
-        
+        let line_info = self.lock_line_info()?;
+
         // Find the line containing this address
         let info = line_info
             .range(..=address)
@@ -465,8 +583,8 @@ impl SymbolTable {
 
     /// Resolve line number to address
     pub fn line_to_address(&self, file: &str, line: u32) -> VmResult<Option<GuestAddr>> {
-        let line_info = self.line_info.read().unwrap();
-        
+        let line_info = self.lock_line_info()?;
+
         // Find the first occurrence of this line in the specified file
         for (_, info) in line_info.range(..) {
             if info.file == file && info.line == line {
@@ -479,14 +597,14 @@ impl SymbolTable {
 
     /// Search for symbols by pattern
     pub fn search_symbols(&self, pattern: &str, max_results: Option<usize>) -> VmResult<Vec<Symbol>> {
-        let symbols_by_name = self.symbols_by_name.read().unwrap();
+        let symbols_by_name = self.lock_symbols_by_name()?;
         let mut results = Vec::new();
-        
+
         for symbols in symbols_by_name.values() {
             for symbol in symbols {
                 if symbol.name.contains(pattern) {
                     results.push(symbol.clone());
-                    
+
                     if let Some(max) = max_results {
                         if results.len() >= max {
                             break;
@@ -501,9 +619,9 @@ impl SymbolTable {
 
     /// Get all symbols
     pub fn get_all_symbols(&self) -> VmResult<Vec<Symbol>> {
-        let symbols_by_name = self.symbols_by_name.read().unwrap();
+        let symbols_by_name = self.lock_symbols_by_name()?;
         let mut all_symbols = Vec::new();
-        
+
         for symbols in symbols_by_name.values() {
             all_symbols.extend(symbols.clone());
         }
@@ -513,29 +631,36 @@ impl SymbolTable {
 
     /// Get all functions
     pub fn get_all_functions(&self) -> VmResult<Vec<FunctionInfo>> {
-        let functions_by_name = self.functions_by_name.read().unwrap();
+        let functions_by_name = self.lock_functions_by_name()?;
         Ok(functions_by_name.values().cloned().collect())
     }
 
     /// Clear symbol cache
     pub fn clear_cache(&self) {
-        let mut cache = self.symbol_cache.write().unwrap();
-        cache.clear();
+        if let Ok(mut cache) = self.symbol_cache.write() {
+            cache.clear();
+        }
     }
 
     /// Get symbol table statistics
     pub fn get_statistics(&self) -> SymbolTableStatistics {
-        let symbols_by_name = self.symbols_by_name.read().unwrap();
-        let functions_by_name = self.functions_by_name.read().unwrap();
-        let line_info = self.line_info.read().unwrap();
-        let debug_files = self.debug_files.read().unwrap();
-        let cache = self.symbol_cache.read().unwrap();
-
-        let total_symbols = symbols_by_name.values().map(|v| v.len()).sum();
-        let total_functions = functions_by_name.len();
-        let total_line_info = line_info.len();
-        let loaded_files = debug_files.values().filter(|info| info.loaded).count();
-        let cache_size = cache.len();
+        let (total_symbols, total_functions, total_line_info, loaded_files, cache_size) = match (
+            self.symbols_by_name.read(),
+            self.functions_by_name.read(),
+            self.line_info.read(),
+            self.debug_files.read(),
+            self.symbol_cache.read(),
+        ) {
+            (Ok(symbols), Ok(functions), Ok(line_info), Ok(debug_files), Ok(cache)) => {
+                let total_symbols = symbols.values().map(|v| v.len()).sum();
+                let total_functions = functions.len();
+                let total_line_info = line_info.len();
+                let loaded_files = debug_files.values().filter(|info| info.loaded).count();
+                let cache_size = cache.len();
+                (total_symbols, total_functions, total_line_info, loaded_files, cache_size)
+            }
+            _ => (0, 0, 0, 0, 0),
+        };
 
         SymbolTableStatistics {
             total_symbols,
@@ -582,14 +707,14 @@ impl SymbolTable {
     fn load_dwarf_debug_info(&self, file_path: &Path) -> VmResult<()> {
         // This is a placeholder for DWARF parsing
         // In a real implementation, you would use a DWARF parsing library
-        
+
         // For now, create some dummy symbols for testing
-        let mut symbols_by_name = self.symbols_by_name.write().unwrap();
-        let mut symbols_by_address = self.symbols_by_address.write().unwrap();
-        let mut functions_by_name = self.functions_by_name.write().unwrap();
-        let mut functions_by_address = self.functions_by_address.write().unwrap();
-        let mut line_info = self.line_info.write().unwrap();
-        let mut source_locations = self.source_locations.write().unwrap();
+        let mut symbols_by_name = self.lock_symbols_by_name_mut()?;
+        let mut symbols_by_address = self.lock_symbols_by_address_mut()?;
+        let mut functions_by_name = self.lock_functions_by_name_mut()?;
+        let mut functions_by_address = self.lock_functions_by_address_mut()?;
+        let mut line_info = self.lock_line_info_mut()?;
+        let mut source_locations = self.lock_source_locations_mut()?;
 
         // Add a dummy function
         let function_info = FunctionInfo {
@@ -602,18 +727,18 @@ impl SymbolTable {
                 ParameterInfo {
                     name: "argc".to_string(),
                     param_type: "int".to_string(),
-                    location: VariableLocation::Register { 
-                        register: "rdi".to_string(), 
-                        offset: None 
+                    location: VariableLocation::Register {
+                        register: "rdi".to_string(),
+                        offset: None
                     },
                     default_value: None,
                 },
                 ParameterInfo {
                     name: "argv".to_string(),
                     param_type: "char**".to_string(),
-                    location: VariableLocation::Register { 
-                        register: "rsi".to_string(), 
-                        offset: None 
+                    location: VariableLocation::Register {
+                        register: "rsi".to_string(),
+                        offset: None
                     },
                     default_value: None,
                 },
@@ -663,21 +788,21 @@ impl SymbolTable {
 
         // Add line info
         for line in 5..=15 {
-            let line_info = LineInfo {
+            let line_info_entry = LineInfo {
                 file: "main.c".to_string(),
                 line,
                 column: 1,
                 address: 0x1000 + ((line - 5) * 0x10) as u64,
                 length: 0x10,
             };
-            line_info.insert(line_info.address, line_info);
+            line_info.insert(line_info_entry.address, line_info_entry);
 
             let source_location = SourceLocation {
                 file: "main.c".to_string(),
                 line,
                 column: 1,
                 function: Some("main".to_string()),
-                address: line_info.address,
+                address: line_info_entry.address,
             };
             source_locations.insert(source_location.address, source_location);
         }
@@ -701,13 +826,9 @@ pub struct SymbolTableStatistics {
     pub cache_size: usize,
 }
 
-#[cfg(feature = "enhanced-debugging")]
 impl Default for crate::debugger::symbol_table::SymbolTable {
     fn default() -> Self {
-        #[cfg(feature = "enhanced-debugging")]
-        { Self::new(SymbolTableBuilder::default()) }
-        #[cfg(not(feature = "enhanced-debugging"))]
-        { Self::new(crate::debugger::symbol_table::SymbolTableConfig::default()) }
+        Self::new(crate::debugger::symbol_table::SymbolTableConfig::default())
     }
 }
 
@@ -739,9 +860,7 @@ mod tests {
 
     #[test]
     fn test_symbol_table() {
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
-        let config = SymbolTableBuilder::default();        let config = SymbolTableConfig::default();
+        let config = SymbolTableConfig::default();
         let symbol_table = SymbolTable::new(config);
 
         // Load dummy debug info
@@ -751,69 +870,71 @@ mod tests {
         let _result = symbol_table.load_from_file(&test_file);
 
         // Test symbol lookup
-        let symbol = symbol_table.find_symbol("main").unwrap();
+        let symbol = symbol_table.find_symbol("main").expect("Failed to find symbol");
         assert!(symbol.is_some());
-        assert_eq!(symbol.unwrap().name, "main");
+        let symbol = symbol.expect("Symbol is None");
+        assert_eq!(symbol.name, "main");
 
         // Test function lookup
-        let function = symbol_table.find_function("main").unwrap();
+        let function = symbol_table.find_function("main").expect("Failed to find function");
         assert!(function.is_some());
-        assert_eq!(function.unwrap().name, "main");
+        let function = function.expect("Function is None");
+        assert_eq!(function.name, "main");
 
         // Test address lookup
-        let symbol_by_addr = symbol_table.find_symbol_by_address(0x1000).unwrap();
+        let symbol_by_addr = symbol_table.find_symbol_by_address(0x1000).expect("Failed to find symbol by address");
         assert!(symbol_by_addr.is_some());
-        assert_eq!(symbol_by_addr.unwrap().address, 0x1000);
+        let symbol_by_addr = symbol_by_addr.expect("Symbol by address is None");
+        assert_eq!(symbol_by_addr.address, 0x1000);
 
         // Test source location
-        let source_loc = symbol_table.get_source_location(0x1000).unwrap();
+        let source_loc = symbol_table.get_source_location(0x1000).expect("Failed to get source location");
         assert!(source_loc.is_some());
-        assert_eq!(source_loc.unwrap().line, 5);
+        let source_loc = source_loc.expect("Source location is None");
+        assert_eq!(source_loc.line, 5);
     }
 
     #[test]
     fn test_symbol_search() {
-#[cfg(feature = "enhanced-debugging")]
-#[cfg(feature = "enhanced-debugging")]
-        let config = SymbolTableBuilder::default();        let config = SymbolTableConfig::default();
+        let config = SymbolTableConfig::default();
         let symbol_table = SymbolTable::new(config);
 
         // Add some test symbols
-        let mut symbols_by_name = symbol_table.symbols_by_name.write().unwrap();
-        
-        symbols_by_name.insert("test_func".to_string(), vec![
-            Symbol {
-                name: "test_func".to_string(),
-                address: 0x1000,
-                size: 0x100,
-                symbol_type: SymbolType::Function,
-                scope: SymbolScope::Global,
-                source_file: None,
-                line_number: None,
-                column_number: None,
-                visibility: SymbolVisibility::Public,
-                attributes: HashMap::new(),
-            },
-            Symbol {
-                name: "test_helper".to_string(),
-                address: 0x2000,
-                size: 0x50,
-                symbol_type: SymbolType::Function,
-                scope: SymbolScope::Global,
-                source_file: None,
-                line_number: None,
-                column_number: None,
-                visibility: SymbolVisibility::Public,
-                attributes: HashMap::new(),
-            },
-        ]);
+        if let Ok(mut symbols_by_name) = symbol_table.symbols_by_name.write() {
+            symbols_by_name.insert("test_func".to_string(), vec![
+                Symbol {
+                    name: "test_func".to_string(),
+                    address: 0x1000,
+                    size: 0x100,
+                    symbol_type: SymbolType::Function,
+                    scope: SymbolScope::Global,
+                    source_file: None,
+                    line_number: None,
+                    column_number: None,
+                    visibility: SymbolVisibility::Public,
+                    attributes: HashMap::new(),
+                },
+                Symbol {
+                    name: "test_helper".to_string(),
+                    address: 0x2000,
+                    size: 0x50,
+                    symbol_type: SymbolType::Function,
+                    scope: SymbolScope::Global,
+                    source_file: None,
+                    line_number: None,
+                    column_number: None,
+                    visibility: SymbolVisibility::Public,
+                    attributes: HashMap::new(),
+                },
+            ]);
+        }
 
         // Search for symbols containing "test"
-        let results = symbol_table.search_symbols("test", None).unwrap();
+        let results = symbol_table.search_symbols("test", None).expect("Failed to search symbols");
         assert_eq!(results.len(), 2);
 
         // Search with limit
-        let limited_results = symbol_table.search_symbols("test", Some(1)).unwrap();
+        let limited_results = symbol_table.search_symbols("test", Some(1)).expect("Failed to search symbols with limit");
         assert_eq!(limited_results.len(), 1);
     }
 }

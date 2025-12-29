@@ -3,8 +3,8 @@
 mod address_translation_tests {
     use std::sync::{Arc, Mutex};
     use vm_core::{AccessType, Fault, VmError};
-    use vm_mem::domain_services::AddressTranslationDomainService;
     use vm_mem::GuestAddr;
+    use vm_mem::domain_services::AddressTranslationDomainService;
     use vm_mem::mmu::{MmuArch, PageWalkResult};
 
     fn create_test_memory() -> Arc<Mutex<Vec<u8>>> {
@@ -22,36 +22,32 @@ mod address_translation_tests {
                 let start = addr.0 as usize;
                 let end = (start + size).min(mem.len());
                 Ok(mem[start..end].to_vec())
-            }
+            },
         );
-        assert_eq!(service.arch, MmuArch::X86_64);
+        assert_eq!(service.arch(), MmuArch::X86_64);
     }
 
     #[test]
     fn test_service_creation_all_architectures() {
-        let memory = create_test_memory();
-        let memory_clone = Arc::clone(&memory);
-        let read_fn = move |addr: GuestAddr, size: usize| -> Result<Vec<u8>, VmError> {
-            let mem = memory_clone.lock().unwrap();
-            let start = addr.0 as usize;
-            let end = (start + size).min(mem.len());
-            Ok(mem[start..end].to_vec())
-        };
+        // Mock read function for testing
+        fn mock_read_fn(_addr: GuestAddr, size: usize) -> Result<Vec<u8>, VmError> {
+            Ok(vec![0u8; size])
+        }
 
-        let _ = AddressTranslationDomainService::new(MmuArch::X86_64, &read_fn);
-        let _ = AddressTranslationDomainService::new(MmuArch::AArch64, &read_fn);
-        let _ = AddressTranslationDomainService::new(MmuArch::RiscVSv39, &read_fn);
-        let _ = AddressTranslationDomainService::new(MmuArch::RiscVSv48, &read_fn);
+        let _ = AddressTranslationDomainService::new(MmuArch::X86_64, mock_read_fn);
+        let _ = AddressTranslationDomainService::new(MmuArch::AArch64, mock_read_fn);
+        let _ = AddressTranslationDomainService::new(MmuArch::RiscVSv39, mock_read_fn);
+        let _ = AddressTranslationDomainService::new(MmuArch::RiscVSv48, mock_read_fn);
     }
 
     #[test]
     fn test_translate_x86_64_success() {
         let mut memory = vec![0u8; 1024 * 1024];
-        
-        let pml4e: u64 = 0x3; 
-        let pdpte: u64 = 0x1000 + 0x3; 
-        let pde: u64 = 0x2000 + 0x3; 
-        let pte: u64 = 0x3000 + 0x3; 
+
+        let pml4e: u64 = 0x3;
+        let pdpte: u64 = 0x1000 + 0x3;
+        let pde: u64 = 0x2000 + 0x3;
+        let pte: u64 = 0x3000 + 0x3;
 
         memory[0..8].copy_from_slice(&pml4e.to_le_bytes());
         memory[0x1000..0x1008].copy_from_slice(&pdpte.to_le_bytes());
@@ -67,7 +63,7 @@ mod address_translation_tests {
                 let start = addr.0 as usize;
                 let end = (start + size).min(mem.len());
                 Ok(mem[start..end].to_vec())
-            }
+            },
         );
 
         let result = service.translate(GuestAddr(0x1000), GuestAddr(0));
@@ -87,14 +83,16 @@ mod address_translation_tests {
                 let start = addr.0 as usize;
                 let end = (start + size).min(mem.len());
                 Ok(mem[start..end].to_vec())
-            }
+            },
         );
 
         let result = service.translate(GuestAddr(0x1000), GuestAddr(0));
         assert!(result.is_err(), "Translation should fail with page fault");
-        
+
         match result {
-            Err(VmError::Execution(vm_core::ExecutionError::Fault(Fault::PageFault { .. }))) => {}
+            Err(VmError::Execution(vm_core::ExecutionError::Fault(Fault::PageFault {
+                ..
+            }))) => {}
             _ => panic!("Expected PageFault error"),
         }
     }
@@ -102,11 +100,11 @@ mod address_translation_tests {
     #[test]
     fn test_translate_aarch64_success() {
         let mut memory = vec![0u8; 1024 * 1024];
-        
-        let l0e: u64 = 0x3; 
-        let l1e: u64 = 0x1000 + 0x3; 
-        let l2e: u64 = 0x2000 + 0x3; 
-        let l3e: u64 = 0x3000 + 0x3; 
+
+        let l0e: u64 = 0x3;
+        let l1e: u64 = 0x1000 + 0x3;
+        let l2e: u64 = 0x2000 + 0x3;
+        let l3e: u64 = 0x3000 + 0x3;
 
         memory[0..8].copy_from_slice(&l0e.to_le_bytes());
         memory[0x1000..0x1008].copy_from_slice(&l1e.to_le_bytes());
@@ -122,7 +120,7 @@ mod address_translation_tests {
                 let start = addr.0 as usize;
                 let end = (start + size).min(mem.len());
                 Ok(mem[start..end].to_vec())
-            }
+            },
         );
 
         let result = service.translate(GuestAddr(0x1000), GuestAddr(0));
@@ -142,14 +140,16 @@ mod address_translation_tests {
                 let start = addr.0 as usize;
                 let end = (start + size).min(mem.len());
                 Ok(mem[start..end].to_vec())
-            }
+            },
         );
 
         let result = service.translate(GuestAddr(0x1000), GuestAddr(0));
         assert!(result.is_err(), "Translation should fail with page fault");
-        
+
         match result {
-            Err(VmError::Execution(vm_core::ExecutionError::Fault(Fault::PageFault { .. }))) => {}
+            Err(VmError::Execution(vm_core::ExecutionError::Fault(Fault::PageFault {
+                ..
+            }))) => {}
             _ => panic!("Expected PageFault error"),
         }
     }
@@ -157,10 +157,10 @@ mod address_translation_tests {
     #[test]
     fn test_translate_riscv_sv39_success() {
         let mut memory = vec![0u8; 1024 * 1024];
-        
-        let l2e: u64 = 0x3; 
-        let l1e: u64 = 0x1000 + 0x3; 
-        let l0e: u64 = 0x2000 + 0xF; 
+
+        let l2e: u64 = 0x3;
+        let l1e: u64 = 0x1000 + 0x3;
+        let l0e: u64 = 0x2000 + 0xF;
 
         memory[0..8].copy_from_slice(&l2e.to_le_bytes());
         memory[0x1000..0x1008].copy_from_slice(&l1e.to_le_bytes());
@@ -175,7 +175,7 @@ mod address_translation_tests {
                 let start = addr.0 as usize;
                 let end = (start + size).min(mem.len());
                 Ok(mem[start..end].to_vec())
-            }
+            },
         );
 
         let result = service.translate(GuestAddr(0x1000), GuestAddr(0));
@@ -187,11 +187,11 @@ mod address_translation_tests {
     #[test]
     fn test_translate_riscv_sv48_success() {
         let mut memory = vec![0u8; 1024 * 1024];
-        
-        let l3e: u64 = 0x3; 
-        let l2e: u64 = 0x1000 + 0x3; 
-        let l1e: u64 = 0x2000 + 0x3; 
-        let l0e: u64 = 0x3000 + 0xF; 
+
+        let l3e: u64 = 0x3;
+        let l2e: u64 = 0x1000 + 0x3;
+        let l1e: u64 = 0x2000 + 0x3;
+        let l0e: u64 = 0x3000 + 0xF;
 
         memory[0..8].copy_from_slice(&l3e.to_le_bytes());
         memory[0x1000..0x1008].copy_from_slice(&l2e.to_le_bytes());
@@ -207,7 +207,7 @@ mod address_translation_tests {
                 let start = addr.0 as usize;
                 let end = (start + size).min(mem.len());
                 Ok(mem[start..end].to_vec())
-            }
+            },
         );
 
         let result = service.translate(GuestAddr(0x1000), GuestAddr(0));
@@ -238,7 +238,7 @@ mod address_translation_tests {
                     msg: "Access denied".to_string(),
                     access_type: Some(AccessType::Read),
                 }))
-            }
+            },
         );
 
         let result = service.translate(GuestAddr(0x1000), GuestAddr(0));

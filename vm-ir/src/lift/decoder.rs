@@ -3,8 +3,8 @@
 //! 利用 Capstone 库进行多 ISA 指令解码，输出规范化的指令表示。
 
 use crate::lift::LiftResult;
-use vm_core::{CoreError, VmError};
 use std::fmt;
+use vm_core::{CoreError, VmError};
 
 /// 支持的 ISA 类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -241,13 +241,11 @@ fn decode_x86_64_manual(bytes: &[u8]) -> LiftResult<Instruction> {
         0x89 => {
             // MOV r64, r64 (ModR/M)
             if offset >= bytes.len() {
-                return Err(
-                    VmError::Core(CoreError::DecodeError {
-                        message: "Incomplete MOV instruction".to_string(),
-                        position: None,
-                        module: "vm-ir".to_string(),
-                    })
-                );
+                return Err(VmError::Core(CoreError::DecodeError {
+                    message: "Incomplete MOV instruction".to_string(),
+                    position: None,
+                    module: "vm-ir".to_string(),
+                }));
             }
             let modrm = bytes[offset];
             let (dst, src, _) = decode_modrm_reg_reg(modrm, rex);
@@ -261,13 +259,11 @@ fn decode_x86_64_manual(bytes: &[u8]) -> LiftResult<Instruction> {
         0x01 => {
             // ADD r64, r64 (ModR/M)
             if offset >= bytes.len() {
-                return Err(
-                    VmError::Core(CoreError::DecodeError {
-                        message: "Incomplete ADD instruction".to_string(),
-                        position: None,
-                        module: "vm-ir".to_string(),
-                    })
-                );
+                return Err(VmError::Core(CoreError::DecodeError {
+                    message: "Incomplete ADD instruction".to_string(),
+                    position: None,
+                    module: "vm-ir".to_string(),
+                }));
             }
             let modrm = bytes[offset];
             let (dst, src, _) = decode_modrm_reg_reg(modrm, rex);
@@ -282,13 +278,11 @@ fn decode_x86_64_manual(bytes: &[u8]) -> LiftResult<Instruction> {
         0x29 => {
             // SUB r64, r64 (ModR/M)
             if offset >= bytes.len() {
-                return Err(
-                    VmError::Core(CoreError::DecodeError {
-                        message: "Incomplete SUB instruction".to_string(),
-                        position: None,
-                        module: "vm-ir".to_string(),
-                    })
-                );
+                return Err(VmError::Core(CoreError::DecodeError {
+                    message: "Incomplete SUB instruction".to_string(),
+                    position: None,
+                    module: "vm-ir".to_string(),
+                }));
             }
             let modrm = bytes[offset];
             let (dst, src, _) = decode_modrm_reg_reg(modrm, rex);
@@ -345,23 +339,18 @@ fn decode_x86_64_manual(bytes: &[u8]) -> LiftResult<Instruction> {
                     )
                     .as_branch())
                 }
-                _ => Err(
-                    VmError::Core(CoreError::DecodeError {
-                        message: format!("Unsupported FF variant: {}", reg_opcode),
-                        position: None,
-                        module: "vm-ir".to_string(),
-                    })
-                        .into(),
-                ),
+                _ => Err(VmError::Core(CoreError::DecodeError {
+                    message: format!("Unsupported FF variant: {}", reg_opcode),
+                    position: None,
+                    module: "vm-ir".to_string(),
+                })),
             }
         }
-        _ => Err(
-            VmError::Core(CoreError::DecodeError {
-                message: format!("Unsupported x86-64 opcode: 0x{:02X}", opcode),
-                position: None,
-                module: "vm-ir".to_string(),
-            })
-        ),
+        _ => Err(VmError::Core(CoreError::DecodeError {
+            message: format!("Unsupported x86-64 opcode: 0x{:02X}", opcode),
+            position: None,
+            module: "vm-ir".to_string(),
+        })),
     }
 }
 
@@ -397,13 +386,11 @@ pub struct ARM64Decoder;
 impl InstructionDecoder for ARM64Decoder {
     fn decode(&self, bytes: &[u8]) -> LiftResult<(Instruction, usize)> {
         if bytes.len() < 4 {
-            return Err(
-                VmError::Core(CoreError::DecodeError {
-                    message: "ARM64 instruction must be 4 bytes".to_string(),
-                    position: None,
-                    module: "vm-ir".to_string(),
-                })
-            );
+            return Err(VmError::Core(CoreError::DecodeError {
+                message: "ARM64 instruction must be 4 bytes".to_string(),
+                position: None,
+                module: "vm-ir".to_string(),
+            }));
         }
 
         // ARM64 is fixed 4-byte width
@@ -447,13 +434,11 @@ fn decode_arm64_manual(word: u32) -> LiftResult<Instruction> {
             )
             .with_implicit_writes(vec!["NZCV".to_string()]))
         }
-        _ => Err(
-            VmError::Core(CoreError::DecodeError {
-                message: format!("Unsupported ARM64 instruction: 0x{:08X}", word),
-                position: None,
-                module: "vm-ir".to_string(),
-            })
-        ),
+        _ => Err(VmError::Core(CoreError::DecodeError {
+            message: format!("Unsupported ARM64 instruction: 0x{:08X}", word),
+            position: None,
+            module: "vm-ir".to_string(),
+        })),
     }
 }
 
@@ -532,13 +517,11 @@ fn decode_riscv_manual(word: u32) -> LiftResult<Instruction> {
                 4,
             ))
         }
-        _ => Err(
-            VmError::Core(CoreError::DecodeError {
-                message: format!("Unsupported RISC-V opcode: 0x{:02X}", opcode),
-                position: None,
-                module: "vm-ir".to_string(),
-            })
-        ),
+        _ => Err(VmError::Core(CoreError::DecodeError {
+            message: format!("Unsupported RISC-V opcode: 0x{:02X}", opcode),
+            position: None,
+            module: "vm-ir".to_string(),
+        })),
     }
 }
 
@@ -574,7 +557,9 @@ mod tests {
     fn test_x86_64_nop_decode() {
         let decoder = X86_64Decoder;
         let bytes = vec![0x90]; // NOP
-        let (instr, size) = decoder.decode(&bytes).unwrap();
+        let (instr, size) = decoder
+            .decode(&bytes)
+            .expect("should decode x86_64 NOP instruction");
         assert_eq!(instr.mnemonic, "nop");
         assert_eq!(size, 1);
     }
@@ -583,7 +568,9 @@ mod tests {
     fn test_x86_64_push_decode() {
         let decoder = X86_64Decoder;
         let bytes = vec![0x50]; // PUSH RAX
-        let (instr, size) = decoder.decode(&bytes).unwrap();
+        let (instr, size) = decoder
+            .decode(&bytes)
+            .expect("should decode x86_64 PUSH instruction");
         assert_eq!(instr.mnemonic, "push");
         assert_eq!(size, 1);
         assert!(!instr.implicit_writes.is_empty());
@@ -593,7 +580,9 @@ mod tests {
     fn test_arm64_nop_decode() {
         let decoder = ARM64Decoder;
         let bytes = vec![0x1F, 0x20, 0x03, 0xD5]; // NOP
-        let (instr, size) = decoder.decode(&bytes).unwrap();
+        let (instr, size) = decoder
+            .decode(&bytes)
+            .expect("should decode ARM64 NOP instruction");
         assert_eq!(instr.mnemonic, "nop");
         assert_eq!(size, 4);
     }
@@ -603,7 +592,9 @@ mod tests {
         let decoder = RISCV64Decoder;
         // ADDI x1, x1, 0 (pseudo-encoding)
         let bytes = vec![0x13, 0x05, 0x00, 0x00];
-        let (instr, size) = decoder.decode(&bytes).unwrap();
+        let (instr, size) = decoder
+            .decode(&bytes)
+            .expect("should decode RISC-V ADDI instruction");
         assert_eq!(instr.mnemonic, "addi");
         assert_eq!(size, 4);
     }

@@ -6,32 +6,35 @@
 //! - GraphColoring：图着色分配（高级）
 //! - Hybrid：混合策略（默认）
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use crate::compiler::CompiledIRBlock;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use vm_core::VmError;
 use vm_ir::{IROp, RegId};
-use crate::compiler::{CompiledIRBlock, CompiledInstruction};
 
 /// 寄存器分配器接口
 pub trait RegisterAllocator: Send + Sync {
     /// 为IR块分配寄存器
-    fn allocate(&mut self, block: &crate::compiler::CompiledIRBlock) -> Result<crate::compiler::CompiledIRBlock, VmError>;
-    
+    fn allocate(
+        &mut self,
+        block: &crate::compiler::CompiledIRBlock,
+    ) -> Result<crate::compiler::CompiledIRBlock, VmError>;
+
     /// 获取分配器名称
     fn name(&self) -> &str;
-    
+
     /// 获取分配器版本
     fn version(&self) -> &str;
-    
+
     /// 设置分配选项
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError>;
-    
+
     /// 获取分配选项
     fn get_option(&self, option: &str) -> Option<String>;
-    
+
     /// 重置分配器状态
     fn reset(&mut self);
-    
+
     /// 获取分配统计信息
     fn get_stats(&self) -> RegisterAllocationStats;
 }
@@ -53,8 +56,10 @@ pub struct RegisterAllocationStats {
     pub allocation_time_ns: u64,
     /// 寄存器重载次数
     pub reload_count: u64,
-    /// 寄存器存储次数
-    pub spill_count: u64,
+    /// 寄存器存储次数（新字段）
+    pub store_count: u64,
+    /// 寄存器加载次数（新字段）
+    pub load_count: u64,
 }
 
 /// 寄存器分配器配置
@@ -83,6 +88,16 @@ pub enum AllocationStrategy {
     Hybrid,
 }
 
+impl std::fmt::Display for AllocationStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AllocationStrategy::LinearScan => write!(f, "LinearScan"),
+            AllocationStrategy::GraphColoring => write!(f, "GraphColoring"),
+            AllocationStrategy::Hybrid => write!(f, "Hybrid"),
+        }
+    }
+}
+
 impl Default for AllocatorConfig {
     fn default() -> Self {
         Self {
@@ -102,14 +117,17 @@ mod tests {
     #[test]
     fn test_allocation_strategy_display() {
         assert_eq!(format!("{}", AllocationStrategy::LinearScan), "LinearScan");
-        assert_eq!(format!("{}", AllocationStrategy::GraphColoring), "GraphColoring");
+        assert_eq!(
+            format!("{}", AllocationStrategy::GraphColoring),
+            "GraphColoring"
+        );
         assert_eq!(format!("{}", AllocationStrategy::Hybrid), "Hybrid");
     }
 
     #[test]
     fn test_basic_allocator_creation() {
-        let allocator = BasicRegisterAllocator::new(AllocatorConfig::default());
-        assert_eq!(allocator.name(), "BasicRegisterAllocator");
+        let allocator = OptimizedRegisterAllocator::new(AllocatorConfig::default());
+        assert_eq!(allocator.name(), "OptimizedRegisterAllocator");
         assert_eq!(allocator.version(), "1.0.0");
     }
 
@@ -123,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_basic_allocator_set_option() {
-        let mut allocator = BasicRegisterAllocator::new(AllocatorConfig::default());
+        let mut allocator = OptimizedRegisterAllocator::new(AllocatorConfig::default());
         let result = allocator.set_option("max_physical_registers", "32");
         assert!(result.is_ok());
         let value = allocator.get_option("max_physical_registers");
@@ -132,14 +150,14 @@ mod tests {
 
     #[test]
     fn test_basic_allocator_invalid_option() {
-        let mut allocator = BasicRegisterAllocator::new(AllocatorConfig::default());
+        let mut allocator = OptimizedRegisterAllocator::new(AllocatorConfig::default());
         let result = allocator.set_option("unknown_option", "value");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_optimized_allocator_creation() {
-        let allocator = OptimizedRegisterAllocator::new(OptimizedAllocatorConfig::default());
+        let allocator = OptimizedRegisterAllocator::new(AllocatorConfig::default());
         assert_eq!(allocator.name(), "OptimizedRegisterAllocator");
         assert_eq!(allocator.version(), "1.0.0");
     }
@@ -147,15 +165,16 @@ mod tests {
     #[test]
     fn test_allocator_config_default() {
         let config = AllocatorConfig::default();
-        assert_eq!(config.strategy, AllocationStrategy::LinearScan);
-        assert_eq!(config.max_physical_registers, 32);
-        assert_eq!(config.spill_threshold, 10);
+        assert_eq!(config.strategy, AllocationStrategy::Hybrid);
+        assert_eq!(config.max_physical_registers, 16);
+        assert_eq!(config.spill_threshold, 0.8);
     }
 
     #[test]
     fn test_optimized_allocator_set_strategy() {
         let mut allocator = OptimizedRegisterAllocator::new(AllocatorConfig::default());
-        allocator.set_option("strategy", "graph").unwrap();
+        let result = allocator.set_option("strategy", "graph");
+        assert!(result.is_ok(), "Failed to set strategy: {:?}", result.err());
         assert_eq!(allocator.config.strategy, AllocationStrategy::GraphColoring);
     }
 
@@ -195,6 +214,7 @@ mod tests {
             avg_allocation_time_ns: AtomicU64::new(1000),
             reload_count: AtomicU64::new(5),
             store_count: AtomicU64::new(3),
+            load_count: AtomicU64::new(7),
         };
         assert_eq!(stats.total_allocations.load(Ordering::Relaxed), 10);
         assert_eq!(stats.spill_count.load(Ordering::Relaxed), 2);
@@ -230,7 +250,12 @@ mod tests {
     #[test]
     fn test_optimized_allocator_enable_renaming() {
         let mut allocator = OptimizedRegisterAllocator::new(AllocatorConfig::default());
-        allocator.set_option("enable_renaming", "false").unwrap();
+        let result = allocator.set_option("enable_renaming", "false");
+        assert!(
+            result.is_ok(),
+            "Failed to set enable_renaming: {:?}",
+            result.err()
+        );
         assert!(!allocator.config.enable_renaming);
     }
 }
@@ -254,6 +279,8 @@ pub struct OptimizedAllocationStats {
     pub reload_count: AtomicU64,
     /// 寄存器存储次数
     pub store_count: AtomicU64,
+    /// 寄存器加载次数
+    pub load_count: AtomicU64,
 }
 
 /// 寄存器活跃区间
@@ -334,7 +361,7 @@ impl LiveRange {
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
-    
+
     /// 检查两个活跃区间是否重叠
     pub fn overlaps(&self, other: &LiveRange) -> bool {
         self.start <= other.end && other.start <= self.end
@@ -365,27 +392,35 @@ pub struct LinearScanAllocator {
     stats: RegisterAllocationStats,
 }
 
+impl Default for LinearScanAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinearScanAllocator {
     /// 创建新的线性扫描分配器
     pub fn new() -> Self {
         let mut physical_registers = HashMap::new();
-        
+
         // 初始化x86-64寄存器
         let mut general_regs = Vec::new();
         for i in 0..16 {
-            let reg_names = ["RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI", 
-                            "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15"];
+            let reg_names = [
+                "RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI", "R8", "R9", "R10", "R11",
+                "R12", "R13", "R14", "R15",
+            ];
             general_regs.push(RegisterInfo {
                 name: reg_names[i].to_string(),
                 class: RegisterClass::General,
                 size: 64,
                 caller_saved: i < 6 || (8..=11).contains(&i), // RAX,RCX,RDX,RBX,RSI,RDI,R8-R11是调用者保存
-                argument: i < 6, // 前6个是参数寄存器
-                return_value: i == 0, // RAX是返回值寄存器
+                argument: i < 6,                              // 前6个是参数寄存器
+                return_value: i == 0,                         // RAX是返回值寄存器
             });
         }
         physical_registers.insert(RegisterClass::General, general_regs);
-        
+
         // 初始化浮点寄存器
         let mut float_regs = Vec::new();
         for i in 0..16 {
@@ -393,13 +428,13 @@ impl LinearScanAllocator {
                 name: format!("XMM{}", i),
                 class: RegisterClass::Float,
                 size: 128,
-                caller_saved: i < 6, // XMM0-XMM5是调用者保存
-                argument: i < 8, // 前8个是参数寄存器
+                caller_saved: i < 6,  // XMM0-XMM5是调用者保存
+                argument: i < 8,      // 前8个是参数寄存器
                 return_value: i == 0, // XMM0是返回值寄存器
             });
         }
         physical_registers.insert(RegisterClass::Float, float_regs);
-        
+
         // 初始化向量寄存器（与浮点寄存器共享）
         let mut vector_regs = Vec::new();
         for i in 0..16 {
@@ -407,13 +442,13 @@ impl LinearScanAllocator {
                 name: format!("YMM{}", i),
                 class: RegisterClass::Vector,
                 size: 255,
-                caller_saved: i < 6, // YMM0-YMM5是调用者保存
-                argument: i < 8, // 前8个是参数寄存器
+                caller_saved: i < 6,  // YMM0-YMM5是调用者保存
+                argument: i < 8,      // 前8个是参数寄存器
                 return_value: i == 0, // YMM0是返回值寄存器
             });
         }
         physical_registers.insert(RegisterClass::Vector, vector_regs);
-        
+
         Self {
             name: "LinearScanAllocator".to_string(),
             version: "1.0.0".to_string(),
@@ -427,14 +462,14 @@ impl LinearScanAllocator {
             stats: RegisterAllocationStats::default(),
         }
     }
-    
+
     /// 获取寄存器类
     fn get_register_class(&self, _reg: RegId) -> RegisterClass {
         // 在实际实现中，这里需要根据寄存器的用途确定其类
         // 目前默认返回通用寄存器
         RegisterClass::General
     }
-    
+
     /// 获取可用的物理寄存器
     fn get_available_register(&self, reg_class: RegisterClass) -> Option<String> {
         if let Some(regs) = self.physical_registers.get(&reg_class) {
@@ -453,23 +488,30 @@ impl LinearScanAllocator {
         }
         None
     }
-    
+
     /// 分配物理寄存器
-    fn allocate_physical_register(&mut self, vreg: RegId, reg_class: RegisterClass) -> Option<String> {
+    fn allocate_physical_register(
+        &mut self,
+        vreg: RegId,
+        reg_class: RegisterClass,
+    ) -> Option<String> {
         if let Some(preg) = self.get_available_register(reg_class) {
             // 标记寄存器为已使用
-            self.used_registers.entry(reg_class).or_insert_with(HashSet::new).insert(preg.clone());
-            
+            self.used_registers
+                .entry(reg_class)
+                .or_default()
+                .insert(preg.clone());
+
             // 记录映射
             self.vreg_to_preg.insert(vreg, preg.clone());
-            
+
             Some(preg)
         } else {
             // 没有可用的物理寄存器，需要溢出到栈
             None
         }
     }
-    
+
     /// 分配栈槽
     fn allocate_stack_slot(&mut self, vreg: RegId) -> usize {
         // 找到下一个可用的栈槽
@@ -477,43 +519,43 @@ impl LinearScanAllocator {
         while self.used_stack_slots.contains(&slot) {
             slot += 1;
         }
-        
+
         // 标记栈槽为已使用
         self.used_stack_slots.insert(slot);
         self.next_stack_slot = slot + 1;
-        
+
         // 记录映射
         self.vreg_to_stack.insert(vreg, slot);
-        
+
         slot
     }
-    
+
     /// 释放物理寄存器
     fn release_physical_register(&mut self, preg: &str, reg_class: RegisterClass) {
         if let Some(used) = self.used_registers.get_mut(&reg_class) {
             used.remove(preg);
         }
     }
-    
+
     /// 释放栈槽
     fn release_stack_slot(&mut self, slot: usize) {
         self.used_stack_slots.remove(&slot);
     }
-    
+
     /// 模拟寄存器使用结束后的释放操作
     fn simulate_register_release(&mut self, vreg: RegId) {
         // 在实际实现中，这会在寄存器不再需要时被调用
         // 这里只是为了确保方法被使用
-        
+
         // 克隆需要的数据以避免借用冲突
         let preg_clone = self.vreg_to_preg.get(&vreg).cloned();
         let slot_clone = self.vreg_to_stack.get(&vreg).copied();
-        
+
         if let Some(preg) = preg_clone {
             let reg_class = self.get_register_class(vreg);
             self.release_physical_register(&preg, reg_class);
         }
-        
+
         if let Some(slot) = slot_clone {
             self.release_stack_slot(slot);
         }
@@ -521,17 +563,20 @@ impl LinearScanAllocator {
 }
 
 impl RegisterAllocator for LinearScanAllocator {
-    fn allocate(&mut self, block: &crate::compiler::CompiledIRBlock) -> Result<crate::compiler::CompiledIRBlock, VmError> {
+    fn allocate(
+        &mut self,
+        block: &crate::compiler::CompiledIRBlock,
+    ) -> Result<crate::compiler::CompiledIRBlock, VmError> {
         let start_time = std::time::Instant::now();
-        
+
         // 重置分配状态
         self.reset();
-        
+
         // 简化的线性扫描分配
         let mut allocated_block = block.clone();
         let mut vreg_to_preg = HashMap::new();
         let mut vreg_to_stack = HashMap::new();
-        
+
         // 遍历所有操作，为每个虚拟寄存器分配物理寄存器或栈槽
         for op in &mut allocated_block.ops {
             match &op.op {
@@ -543,17 +588,22 @@ impl RegisterAllocator for LinearScanAllocator {
                     } else {
                         let slot = self.allocate_stack_slot(*dst);
                         vreg_to_stack.insert(*dst, slot);
-                        op.register_allocation.insert(format!("v{}", dst), format!("stack[{}]", slot));
+                        op.register_allocation
+                            .insert(format!("v{}", dst), format!("stack[{}]", slot));
                     }
                 }
-                IROp::Add { dst, src1, src2 } |
-                IROp::Sub { dst, src1, src2 } |
-                IROp::Mul { dst, src1, src2 } |
-                IROp::Div { dst, src1, src2, .. } |
-                IROp::Rem { dst, src1, src2, .. } |
-                IROp::And { dst, src1, src2 } |
-                IROp::Or { dst, src1, src2 } |
-                IROp::Xor { dst, src1, src2 } => {
+                IROp::Add { dst, src1, src2 }
+                | IROp::Sub { dst, src1, src2 }
+                | IROp::Mul { dst, src1, src2 }
+                | IROp::Div {
+                    dst, src1, src2, ..
+                }
+                | IROp::Rem {
+                    dst, src1, src2, ..
+                }
+                | IROp::And { dst, src1, src2 }
+                | IROp::Or { dst, src1, src2 }
+                | IROp::Xor { dst, src1, src2 } => {
                     // 处理目标寄存器
                     let dst_class = self.get_register_class(*dst);
                     if let Some(preg) = self.allocate_physical_register(*dst, dst_class) {
@@ -562,89 +612,98 @@ impl RegisterAllocator for LinearScanAllocator {
                     } else {
                         let slot = self.allocate_stack_slot(*dst);
                         vreg_to_stack.insert(*dst, slot);
-                        op.register_allocation.insert(format!("v{}", dst), format!("stack[{}]", slot));
+                        op.register_allocation
+                            .insert(format!("v{}", dst), format!("stack[{}]", slot));
                     }
-                    
+
                     // 处理源寄存器1
                     let src1_class = self.get_register_class(*src1);
                     if let Some(preg) = vreg_to_preg.get(src1) {
-                        op.register_allocation.insert(format!("v{}", src1), preg.clone());
+                        op.register_allocation
+                            .insert(format!("v{}", src1), preg.clone());
                     } else if let Some(slot) = vreg_to_stack.get(src1) {
-                        op.register_allocation.insert(format!("v{}", src1), format!("stack[{}]", slot));
+                        op.register_allocation
+                            .insert(format!("v{}", src1), format!("stack[{}]", slot));
                     } else if let Some(preg) = self.allocate_physical_register(*src1, src1_class) {
                         vreg_to_preg.insert(*src1, preg.clone());
                         op.register_allocation.insert(format!("v{}", src1), preg);
                     } else {
                         let slot = self.allocate_stack_slot(*src1);
                         vreg_to_stack.insert(*src1, slot);
-                        op.register_allocation.insert(format!("v{}", src1), format!("stack[{}]", slot));
+                        op.register_allocation
+                            .insert(format!("v{}", src1), format!("stack[{}]", slot));
                     }
-                    
+
                     // 处理源寄存器2
                     let src2_class = self.get_register_class(*src2);
                     if let Some(preg) = vreg_to_preg.get(src2) {
-                        op.register_allocation.insert(format!("v{}", src2), preg.clone());
+                        op.register_allocation
+                            .insert(format!("v{}", src2), preg.clone());
                     } else if let Some(slot) = vreg_to_stack.get(src2) {
-                        op.register_allocation.insert(format!("v{}", src2), format!("stack[{}]", slot));
+                        op.register_allocation
+                            .insert(format!("v{}", src2), format!("stack[{}]", slot));
                     } else if let Some(preg) = self.allocate_physical_register(*src2, src2_class) {
                         vreg_to_preg.insert(*src2, preg.clone());
                         op.register_allocation.insert(format!("v{}", src2), preg);
                     } else {
                         let slot = self.allocate_stack_slot(*src2);
                         vreg_to_stack.insert(*src2, slot);
-                        op.register_allocation.insert(format!("v{}", src2), format!("stack[{}]", slot));
+                        op.register_allocation
+                            .insert(format!("v{}", src2), format!("stack[{}]", slot));
                     }
                 }
                 // 其他操作类型的处理...
                 _ => {}
             }
         }
-        
+
         // 更新寄存器信息
-        allocated_block.register_info.vreg_to_preg = vreg_to_preg.into_iter()
+        allocated_block.register_info.vreg_to_preg = vreg_to_preg
+            .into_iter()
             .map(|(k, v)| (k.to_string(), v))
             .collect();
-        allocated_block.register_info.stack_slots = vreg_to_stack.into_iter()
-            .map(|(_vreg, slot)| crate::compiler::StackSlot {
+        allocated_block.register_info.stack_slots = vreg_to_stack
+            .into_values()
+            .map(|slot| crate::compiler::StackSlot {
                 index: slot,
                 size: 8, // 假设每个栈槽8字节
                 alignment: 8,
                 purpose: crate::compiler::StackSlotPurpose::Spill,
             })
             .collect();
-        
+
         // 模拟释放一些寄存器以确保方法被使用
         if let Some((&first_vreg, _)) = self.vreg_to_preg.iter().next() {
             self.simulate_register_release(first_vreg);
         }
-        
+
         // 更新统计信息
         let elapsed = start_time.elapsed().as_nanos() as u64;
         self.stats.allocation_time_ns = elapsed;
         self.stats.allocated_registers = self.vreg_to_preg.len();
         self.stats.spilled_registers = self.vreg_to_stack.len();
         self.stats.stack_slots_used = self.used_stack_slots.len();
-        
+
         Ok(allocated_block)
     }
-    
+
     fn name(&self) -> &str {
         &self.name
     }
-    
+
     fn version(&self) -> &str {
         &self.version
     }
-    
+
     fn set_option(&mut self, option: &str, value: &str) -> Result<(), VmError> {
         self.options.insert(option.to_string(), value.to_string());
         Ok(())
     }
-    
+
     fn get_option(&self, option: &str) -> Option<String> {
         self.options.get(option).cloned()
     }
-    
+
     fn reset(&mut self) {
         self.vreg_to_preg.clear();
         self.vreg_to_stack.clear();
@@ -653,7 +712,7 @@ impl RegisterAllocator for LinearScanAllocator {
         self.next_stack_slot = 0;
         self.stats = RegisterAllocationStats::default();
     }
-    
+
     fn get_stats(&self) -> RegisterAllocationStats {
         self.stats.clone()
     }
@@ -712,7 +771,7 @@ impl OptimizedRegisterAllocator {
     /// 构建活跃区间
     fn build_live_intervals(&mut self, block: &CompiledIRBlock) {
         self.live_intervals.clear();
-        
+
         let mut all_registers = HashSet::new();
         for instruction in &block.ops {
             self.collect_registers_from_instruction(instruction, &mut all_registers);
@@ -727,18 +786,23 @@ impl OptimizedRegisterAllocator {
     }
 
     /// 从指令中收集寄存器
-    fn collect_registers_from_instruction(&self, instruction: &CompiledInstruction, registers: &mut HashSet<RegId>) {
+    fn collect_registers_from_instruction(
+        &self,
+        instruction: &crate::compiler::CompiledIROp,
+        registers: &mut HashSet<RegId>,
+    ) {
         match &instruction.op {
-            IROp::Add { dst, src1, src2 } |
-            IROp::Sub { dst, src1, src2 } |
-            IROp::Mul { dst, src1, src2 } |
-            IROp::Div { dst, src1, src2, .. } => {
+            IROp::Add { dst, src1, src2 }
+            | IROp::Sub { dst, src1, src2 }
+            | IROp::Mul { dst, src1, src2 }
+            | IROp::Div {
+                dst, src1, src2, ..
+            } => {
                 registers.insert(*dst);
                 registers.insert(*src1);
                 registers.insert(*src2);
             }
-            IROp::Load { dst, .. } |
-            IROp::MovImm { dst, .. } => {
+            IROp::Load { dst, .. } | IROp::MovImm { dst, .. } => {
                 registers.insert(*dst);
             }
             IROp::Store { src, .. } => {
@@ -748,12 +812,12 @@ impl OptimizedRegisterAllocator {
                 registers.insert(*dst);
                 registers.insert(*src);
             }
-            IROp::Beq { src1, src2, .. } |
-            IROp::Bne { src1, src2, .. } |
-            IROp::Blt { src1, src2, .. } |
-            IROp::Bge { src1, src2, .. } |
-            IROp::Bltu { src1, src2, .. } |
-            IROp::Bgeu { src1, src2, .. } => {
+            IROp::Beq { src1, src2, .. }
+            | IROp::Bne { src1, src2, .. }
+            | IROp::Blt { src1, src2, .. }
+            | IROp::Bge { src1, src2, .. }
+            | IROp::Bltu { src1, src2, .. }
+            | IROp::Bgeu { src1, src2, .. } => {
                 registers.insert(*src1);
                 registers.insert(*src2);
             }
@@ -762,7 +826,11 @@ impl OptimizedRegisterAllocator {
     }
 
     /// 计算寄存器的活跃区间
-    fn compute_live_interval(&self, block: &CompiledIRBlock, reg_id: RegId) -> LiveInterval {
+    fn compute_live_interval(
+        &self,
+        block: &crate::compiler::CompiledIRBlock,
+        reg_id: RegId,
+    ) -> LiveInterval {
         let mut start = None;
         let mut end = None;
         let mut use_frequency = 0;
@@ -789,38 +857,29 @@ impl OptimizedRegisterAllocator {
     }
 
     /// 检查指令是否使用指定寄存器
-    fn uses_register(&self, instruction: &CompiledInstruction, reg_id: RegId) -> bool {
+    fn uses_register(&self, instruction: &crate::compiler::CompiledIROp, reg_id: RegId) -> bool {
         match &instruction.op {
-            IROp::Add { dst, src1, src2 } |
-            IROp::Sub { dst, src1, src2 } |
-            IROp::Mul { dst, src1, src2 } |
-            IROp::Div { dst, src1, src2, .. } => {
-                *dst == reg_id || *src1 == reg_id || *src2 == reg_id
-            }
-            IROp::Load { dst, .. } |
-            IROp::MovImm { dst, .. } => {
-                *dst == reg_id
-            }
-            IROp::Store { src, .. } => {
-                *src == reg_id
-            }
-            IROp::Mov { dst, src } => {
-                *dst == reg_id || *src == reg_id
-            }
-            IROp::Beq { src1, src2, .. } |
-            IROp::Bne { src1, src2, .. } |
-            IROp::Blt { src1, src2, .. } |
-            IROp::Bge { src1, src2, .. } |
-            IROp::Bltu { src1, src2, .. } |
-            IROp::Bgeu { src1, src2, .. } => {
-                *src1 == reg_id || *src2 == reg_id
-            }
+            IROp::Add { dst, src1, src2 }
+            | IROp::Sub { dst, src1, src2 }
+            | IROp::Mul { dst, src1, src2 }
+            | IROp::Div {
+                dst, src1, src2, ..
+            } => *dst == reg_id || *src1 == reg_id || *src2 == reg_id,
+            IROp::Load { dst, .. } | IROp::MovImm { dst, .. } => *dst == reg_id,
+            IROp::Store { src, .. } => *src == reg_id,
+            IROp::Mov { dst, src } => *dst == reg_id || *src == reg_id,
+            IROp::Beq { src1, src2, .. }
+            | IROp::Bne { src1, src2, .. }
+            | IROp::Blt { src1, src2, .. }
+            | IROp::Bge { src1, src2, .. }
+            | IROp::Bltu { src1, src2, .. }
+            | IROp::Bgeu { src1, src2, .. } => *src1 == reg_id || *src2 == reg_id,
             _ => false,
         }
     }
 
     /// 构建干扰图
-    fn build_interference_graph(&mut self) {
+    fn build_interference_graph(&mut self) -> Result<(), VmError> {
         self.interference_graph.clear();
 
         for interval in &self.live_intervals {
@@ -837,20 +896,38 @@ impl OptimizedRegisterAllocator {
         for (i, interval1) in self.live_intervals.iter().enumerate() {
             for interval2 in self.live_intervals[i + 1..].iter() {
                 if self.intervals_overlap(interval1, interval2) {
-                    self.interference_graph
-                        .get_mut(&interval1.reg_id)
-                        .unwrap()
-                        .neighbors
-                        .insert(interval2.reg_id);
-                    
-                    self.interference_graph
-                        .get_mut(&interval2.reg_id)
-                        .unwrap()
-                        .neighbors
-                        .insert(interval1.reg_id);
+                    // Update interval1's neighbors
+                    if let Some(node1) = self.interference_graph.get_mut(&interval1.reg_id) {
+                        node1.neighbors.insert(interval2.reg_id);
+                    } else {
+                        return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                            name: "reg_id".to_string(),
+                            value: format!("{:?}", interval1.reg_id),
+                            message: format!(
+                                "Register {:?} not found in interference graph",
+                                interval1.reg_id
+                            ),
+                        }));
+                    }
+
+                    // Update interval2's neighbors
+                    if let Some(node2) = self.interference_graph.get_mut(&interval2.reg_id) {
+                        node2.neighbors.insert(interval1.reg_id);
+                    } else {
+                        return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                            name: "reg_id".to_string(),
+                            value: format!("{:?}", interval2.reg_id),
+                            message: format!(
+                                "Register {:?} not found in interference graph",
+                                interval2.reg_id
+                            ),
+                        }));
+                    }
                 }
             }
         }
+
+        Ok(())
     }
 
     /// 检查两个活跃区间是否重叠
@@ -864,22 +941,27 @@ impl OptimizedRegisterAllocator {
         let mut available_registers = self.physical_registers.clone();
 
         for interval in &mut self.live_intervals {
-            active_intervals.retain(|active| active.end >= interval.start);
+            active_intervals.retain(|active: &LiveInterval| active.end >= interval.start);
 
             for active in &active_intervals {
-                if let Some(ref physical_reg) = active.physical_reg {
-                    if !available_registers.contains(physical_reg) {
-                        available_registers.push(physical_reg.clone());
-                    }
+                if let Some(ref physical_reg) = active.physical_reg
+                    && !available_registers.contains(physical_reg)
+                {
+                    available_registers.push(physical_reg.clone());
                 }
             }
 
             if !available_registers.is_empty() {
                 interval.physical_reg = Some(available_registers.remove(0));
-                self.stats.register_reuse_count.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .register_reuse_count
+                    .fetch_add(1, Ordering::Relaxed);
             } else {
                 interval.spilled = true;
-                interval.stack_slot = Some(self.allocate_stack_slot());
+                // 预先分配栈槽，避免在借用 self.live_intervals 时调用 self.allocate_stack_slot()
+                let slot = self.next_stack_slot;
+                self.next_stack_slot += 1;
+                interval.stack_slot = Some(slot);
                 self.stats.spill_count.fetch_add(1, Ordering::Relaxed);
             }
 
@@ -896,20 +978,20 @@ impl OptimizedRegisterAllocator {
 
         for mut node in nodes {
             let mut available_colors = Vec::new();
-            
+
             for (i, _) in self.physical_registers.iter().enumerate() {
                 let color = i;
                 let mut color_available = true;
-                
+
                 for &neighbor_id in &node.neighbors {
-                    if let Some(neighbor_node) = self.interference_graph.get(&neighbor_id) {
-                        if neighbor_node.color == Some(color) {
-                            color_available = false;
-                            break;
-                        }
+                    if let Some(neighbor_node) = self.interference_graph.get(&neighbor_id)
+                        && neighbor_node.color == Some(color)
+                    {
+                        color_available = false;
+                        break;
                     }
                 }
-                
+
                 if color_available {
                     available_colors.push(color);
                 }
@@ -920,7 +1002,8 @@ impl OptimizedRegisterAllocator {
                 node.physical_reg = Some(self.physical_registers[*color].clone());
             } else {
                 node.physical_reg = None;
-                self.stack_slots.insert(node.reg_id, self.allocate_stack_slot());
+                let stack_slot = self.allocate_stack_slot();
+                self.stack_slots.insert(node.reg_id, stack_slot);
                 self.stats.spill_count.fetch_add(1, Ordering::Relaxed);
             }
 
@@ -933,8 +1016,8 @@ impl OptimizedRegisterAllocator {
 
     /// 混合分配策略
     fn hybrid_allocation(&mut self) -> Result<(), VmError> {
-        if let Err(_) = self.linear_scan_allocation() {
-            self.build_interference_graph();
+        if self.linear_scan_allocation().is_err() {
+            self.build_interference_graph()?;
             self.graph_coloring_allocation()?;
         }
         Ok(())
@@ -956,18 +1039,19 @@ impl OptimizedRegisterAllocator {
     }
 
     /// 将分配结果应用到单个指令
-    fn apply_allocation_to_instruction(&self, instruction: &mut CompiledInstruction) {
+    fn apply_allocation_to_instruction(&self, instruction: &mut crate::compiler::CompiledIROp) {
         match &mut instruction.op {
-            IROp::Add { dst, src1, src2 } |
-            IROp::Sub { dst, src1, src2 } |
-            IROp::Mul { dst, src1, src2 } |
-            IROp::Div { dst, src1, src2, .. } => {
+            IROp::Add { dst, src1, src2 }
+            | IROp::Sub { dst, src1, src2 }
+            | IROp::Mul { dst, src1, src2 }
+            | IROp::Div {
+                dst, src1, src2, ..
+            } => {
                 self.replace_register(&mut dst.clone());
                 self.replace_register(&mut src1.clone());
                 self.replace_register(&mut src2.clone());
             }
-            IROp::Load { dst, .. } |
-            IROp::MovImm { dst, .. } => {
+            IROp::Load { dst, .. } | IROp::MovImm { dst, .. } => {
                 self.replace_register(&mut dst.clone());
             }
             IROp::Store { src, .. } => {
@@ -977,12 +1061,12 @@ impl OptimizedRegisterAllocator {
                 self.replace_register(&mut dst.clone());
                 self.replace_register(&mut src.clone());
             }
-            IROp::Beq { src1, src2, .. } |
-            IROp::Bne { src1, src2, .. } |
-            IROp::Blt { src1, src2, .. } |
-            IROp::Bge { src1, src2, .. } |
-            IROp::Bltu { src1, src2, .. } |
-            IROp::Bgeu { src1, src2, .. } => {
+            IROp::Beq { src1, src2, .. }
+            | IROp::Bne { src1, src2, .. }
+            | IROp::Blt { src1, src2, .. }
+            | IROp::Bge { src1, src2, .. }
+            | IROp::Bltu { src1, src2, .. }
+            | IROp::Bgeu { src1, src2, .. } => {
                 self.replace_register(&mut src1.clone());
                 self.replace_register(&mut src2.clone());
             }
@@ -991,45 +1075,50 @@ impl OptimizedRegisterAllocator {
     }
 
     /// 替换寄存器为物理寄存器或栈位置
-    fn replace_register(&self, reg_id: &mut RegId) {
-        if let Some(interval) = self.live_intervals.iter()
-            .find(|interval| interval.reg_id == *reg_id) {
-            if let Some(ref physical_reg) = interval.physical_reg {
-                // 分配了物理寄存器
-            } else if let Some(stack_slot) = interval.stack_slot {
-                // 溢出到栈
-            }
-        }
+    /// 注意：这里只是标记虚拟寄存器的分配情况，实际的物理寄存器映射
+    /// 会通过register_allocation HashMap来跟踪
+    fn replace_register(&self, _reg_id: &mut RegId) {
+        // 在当前实现中，我们不直接修改RegId的值
+        // 而是通过register_allocation HashMap来维护虚拟寄存器到物理寄存器的映射
+        // 这样可以避免类型转换问题，并保持IR块的语义不变
+        //
+        // 如果将来需要将RegId改为物理寄存器ID，可以考虑：
+        // 1. 将RegId从数值类型改为枚举类型，区分虚拟和物理寄存器
+        // 2. 使用物理寄存器索引映射
+        //
+        // 当前保留此函数接口以保持向后兼容性
     }
 }
 
 impl RegisterAllocator for OptimizedRegisterAllocator {
     fn allocate(&mut self, block: &CompiledIRBlock) -> Result<CompiledIRBlock, VmError> {
         let start_time = std::time::Instant::now();
-        
+
         let mut result_block = block.clone();
-        
+
         self.build_live_intervals(&result_block);
-        
+
         match self.config.strategy {
             AllocationStrategy::LinearScan => {
                 self.linear_scan_allocation()?;
             }
             AllocationStrategy::GraphColoring => {
-                self.build_interference_graph();
+                self.build_interference_graph()?;
                 self.graph_coloring_allocation()?;
             }
             AllocationStrategy::Hybrid => {
                 self.hybrid_allocation()?;
             }
         }
-        
+
         self.apply_allocation(&mut result_block)?;
-        
+
         let elapsed = start_time.elapsed().as_nanos() as u64;
         self.stats.total_allocations.fetch_add(1, Ordering::Relaxed);
-        self.stats.avg_allocation_time_ns.store(elapsed, Ordering::Relaxed);
-        
+        self.stats
+            .avg_allocation_time_ns
+            .store(elapsed, Ordering::Relaxed);
+
         Ok(result_block)
     }
 
@@ -1048,50 +1137,58 @@ impl RegisterAllocator for OptimizedRegisterAllocator {
                     "linear" => AllocationStrategy::LinearScan,
                     "graph" => AllocationStrategy::GraphColoring,
                     "hybrid" => AllocationStrategy::Hybrid,
-                    _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
-                        name: "strategy".to_string(),
-                        value: value.to_string(),
-                        message: format!("Invalid strategy: {}", value),
-                    })),
+                    _ => {
+                        return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                            name: "strategy".to_string(),
+                            value: value.to_string(),
+                            message: format!("Invalid strategy: {}", value),
+                        }));
+                    }
                 };
             }
             "max_physical_registers" => {
-                self.config.max_physical_registers = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.max_physical_registers = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: "max_physical_registers".to_string(),
                         value: value.to_string(),
                         message: "Invalid max_physical_registers".to_string(),
-                    }))?;
+                    })
+                })?;
             }
             "spill_threshold" => {
-                self.config.spill_threshold = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.spill_threshold = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: "spill_threshold".to_string(),
                         value: value.to_string(),
                         message: "Invalid spill_threshold".to_string(),
-                    }))?;
+                    })
+                })?;
             }
             "enable_renaming" => {
-                self.config.enable_renaming = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.enable_renaming = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: "enable_renaming".to_string(),
                         value: value.to_string(),
                         message: "Invalid enable_renaming".to_string(),
-                    }))?;
+                    })
+                })?;
             }
             "enable_spill_optimization" => {
-                self.config.enable_spill_optimization = value.parse()
-                    .map_err(|_| VmError::Core(vm_core::CoreError::InvalidParameter {
+                self.config.enable_spill_optimization = value.parse().map_err(|_| {
+                    VmError::Core(vm_core::CoreError::InvalidParameter {
                         name: "enable_spill_optimization".to_string(),
                         value: value.to_string(),
                         message: "Invalid enable_spill_optimization".to_string(),
-                    }))?;
+                    })
+                })?;
             }
-            _ => return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
-                name: "option".to_string(),
-                value: option.to_string(),
-                message: format!("Unknown option: {}", option),
-            })),
+            _ => {
+                return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
+                    name: "option".to_string(),
+                    value: option.to_string(),
+                    message: format!("Unknown option: {}", option),
+                }));
+            }
         }
         Ok(())
     }
@@ -1125,6 +1222,7 @@ impl RegisterAllocator for OptimizedRegisterAllocator {
             allocation_time_ns: self.stats.avg_allocation_time_ns.load(Ordering::Relaxed),
             reload_count: self.stats.reload_count.load(Ordering::Relaxed),
             store_count: self.stats.store_count.load(Ordering::Relaxed),
+            load_count: self.stats.load_count.load(Ordering::Relaxed),
         }
     }
 }

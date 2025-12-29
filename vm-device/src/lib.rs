@@ -55,7 +55,7 @@ pub mod virtio;
 pub mod async_block_device; // 真正的异步块设备
 pub mod async_buffer_pool; // 异步I/O缓冲池
 pub mod block;
-#[cfg(feature = "async-io")]
+// async-io feature removed - block_async is now always compiled
 pub mod block_async;
 pub mod block_service; // DDD服务层
 pub mod net;
@@ -92,6 +92,8 @@ pub mod dma;
 pub mod io_multiplexing;
 pub mod io_scheduler;
 pub mod mmap_io;
+#[cfg(feature = "smmu")]
+pub mod smmu_device;
 pub mod vhost_protocol;
 pub mod virtio_zerocopy;
 #[cfg(test)]
@@ -125,9 +127,14 @@ pub mod virgl;
 pub mod device_service;
 
 // ============================================================
-// 简化设备实现（需要 simple-devices 特性）
+// SMMU 设备支持
 // ============================================================
-#[cfg(feature = "simple-devices")]
+#[cfg(feature = "smmu")]
+pub use smmu_device::{SmmuDeviceInfo, SmmuDeviceManager};
+
+// ============================================================
+// 简化设备实现（simple-devices feature removed - always available）
+// ============================================================
 pub mod simple_devices;
 
 // ============================================================
@@ -140,5 +147,5 @@ pub mod virtio_devices;
 // 高级网络功能
 // ============================================================
 pub mod dpdk;
-pub mod sriov;
 pub mod network_qos;
+pub mod sriov;

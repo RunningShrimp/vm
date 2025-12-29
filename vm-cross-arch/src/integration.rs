@@ -2,9 +2,13 @@
 //!
 //! 提供与VM服务集成的便捷接口
 
-use super::{AutoExecutor, CrossArchConfig, create_auto_vm_config};
+#[cfg(any(feature = "interpreter", feature = "jit"))]
+use super::AutoExecutor;
+use super::{CrossArchConfig, create_auto_vm_config};
 use vm_core::{ExecMode, GuestAddr, GuestArch, MemoryAccess, VmConfig, VmError};
 use vm_ir::IRBlock;
+
+#[cfg(feature = "memory")]
 use vm_mem::SoftMmu;
 
 /// 跨架构VM构建器
@@ -96,7 +100,8 @@ impl CrossArchVm {
     /// 加载代码到内存
     pub fn load_code(&mut self, addr: u64, code: &[u8]) -> Result<(), VmError> {
         for (i, byte) in code.iter().enumerate() {
-            self.mmu.write(GuestAddr(addr + i as u64), *byte as u64, 1)?;
+            self.mmu
+                .write(GuestAddr(addr + i as u64), *byte as u64, 1)?;
         }
         Ok(())
     }
@@ -115,10 +120,9 @@ mod tests {
     fn test_cross_arch_vm_builder() {
         let vm = CrossArchVmBuilder::new(GuestArch::X86_64)
             .memory_size(128 * 1024 * 1024)
-            .build();
+            .build()
+            .expect("Failed to build cross-arch VM");
 
-        assert!(vm.is_ok());
-        let vm = vm.unwrap();
         assert_eq!(vm.config().guest_arch, GuestArch::X86_64);
         assert!(vm.cross_config().is_supported());
     }

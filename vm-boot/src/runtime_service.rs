@@ -21,17 +21,15 @@ impl<L: RuntimeEventListener, E: AccelEventSource> RuntimeService<L, E> {
             self.listener.on_event(evt);
         }
 
-        if let Some(src) = self.accel.as_mut() {
-            if let Some(aevt) = src.poll_event() {
-                match aevt {
-                    AccelEvent::Interrupt(_) => self
-                        .listener
-                        .on_event(RuntimeEvent::Error("interrupt".into())),
-                    AccelEvent::Timer => {
-                        self.listener.on_event(RuntimeEvent::Error("timer".into()))
-                    }
-                    AccelEvent::Io => self.listener.on_event(RuntimeEvent::Error("io".into())),
-                }
+        if let Some(src) = self.accel.as_mut()
+            && let Some(aevt) = src.poll_event()
+        {
+            match aevt {
+                AccelEvent::Interrupt(_) => self
+                    .listener
+                    .on_event(RuntimeEvent::Error("interrupt".into())),
+                AccelEvent::Timer => self.listener.on_event(RuntimeEvent::Error("timer".into())),
+                AccelEvent::Io => self.listener.on_event(RuntimeEvent::Error("io".into())),
             }
         }
     }

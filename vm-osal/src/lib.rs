@@ -335,11 +335,28 @@ impl MappedMemory {
     }
 
     /// 作为切片访问
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保：
+    /// 1. `self.ptr` 指针在整个生命周期内保持有效
+    /// 2. `self.size` 的大小是正确的
+    /// 3. 指针指向的内存范围是可读的
+    /// 4. 在此切片存在期间，不会调用任何可能改变 `self.ptr` 的方法（如 `make_writable`）
     pub unsafe fn as_slice(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.ptr, self.size) }
     }
 
     /// 作为可变切片访问
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保：
+    /// 1. `self.ptr` 指针在整个生命周期内保持有效
+    /// 2. `self.size` 的大小是正确的
+    /// 3. 指针指向的内存范围是可读写的
+    /// 4. 内存当前处于可写状态（通过 `make_writable()` 切换）
+    /// 5. 在此切片存在期间，不会调用任何可能改变 `self.ptr` 的方法
     pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size) }
     }
@@ -422,6 +439,15 @@ impl JitMemory {
     }
 
     /// 获取函数指针
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保：
+    /// 1. `offset` 是一个有效的偏移量，不会超出 `self.mem` 的范围
+    /// 2. `offset + size_of::<T>()` 不会超出内存区域
+    /// 3. 内存当前处于可执行状态（通过 `make_executable()` 切换）
+    /// 4. 指向的内存包含有效的类型 `T` 的函数
+    /// 5. 返回的函数指针在调用时内存仍然有效且可执行
     pub unsafe fn get_fn<T>(&self, offset: usize) -> T {
         unsafe {
             let ptr = self.mem.as_ptr().add(offset);

@@ -52,14 +52,39 @@ impl DeviceEventHandler {
         }
     }
 
+    /// Helper to acquire stats lock with error handling
+    fn lock_stats(&self) -> VmResult<std::sync::MutexGuard<DeviceEventStats>> {
+        self.stats.lock().map_err(|e| {
+            vm_core::VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Stats lock is poisoned: {:?}", e),
+                current: "unknown".to_string(),
+                expected: "valid lock".to_string(),
+            })
+        })
+    }
+
+    /// Helper to acquire subscription_ids lock with error handling
+    fn lock_subscription_ids(&self) -> VmResult<std::sync::MutexGuard<Vec<vm_core::domain_event_bus::EventSubscriptionId>>> {
+        self.subscription_ids.lock().map_err(|e| {
+            vm_core::VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Subscription IDs lock is poisoned: {:?}", e),
+                current: "unknown".to_string(),
+                expected: "valid lock".to_string(),
+            })
+        })
+    }
+
     /// 获取统计信息
     pub fn stats(&self) -> DeviceEventStats {
-        self.stats.lock().unwrap().clone()
+        match self.lock_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => DeviceEventStats::default(),
+        }
     }
 
     /// 取消所有订阅
     pub fn unregister_handlers(&self) -> VmResult<()> {
-        let ids = self.subscription_ids.lock().unwrap();
+        let ids = self.lock_subscription_ids()?;
         for id in ids.iter() {
             let _ = self.event_bus.unsubscribe_by_id(*id);
         }
@@ -68,16 +93,17 @@ impl DeviceEventHandler {
 
     /// 注册事件处理器
     pub fn register_handlers(&self) -> VmResult<()> {
-        let mut ids = self.subscription_ids.lock().unwrap();
+        let mut ids = self.lock_subscription_ids()?;
 
         // 订阅设备添加事件
         let handler_added = SimpleEventHandler::new({
             let stats = Arc::clone(&self.stats);
             move |event: &dyn DomainEvent| -> VmResult<()> {
                 if event.event_type() == "device.added" {
-                    let mut s = stats.lock().unwrap();
-                    s.devices_added += 1;
-                    info!("Device added: total={}", s.devices_added);
+                    if let Ok(mut s) = stats.lock() {
+                        s.devices_added += 1;
+                        info!("Device added: total={}", s.devices_added);
+                    }
                 }
                 Ok(())
             }
@@ -92,9 +118,10 @@ impl DeviceEventHandler {
             let stats = Arc::clone(&self.stats);
             move |event: &dyn DomainEvent| -> VmResult<()> {
                 if event.event_type() == "device.removed" {
-                    let mut s = stats.lock().unwrap();
-                    s.devices_removed += 1;
-                    info!("Device removed: total={}", s.devices_removed);
+                    if let Ok(mut s) = stats.lock() {
+                        s.devices_removed += 1;
+                        info!("Device removed: total={}", s.devices_removed);
+                    }
                 }
                 Ok(())
             }
@@ -109,9 +136,10 @@ impl DeviceEventHandler {
             let stats = Arc::clone(&self.stats);
             move |event: &dyn DomainEvent| -> VmResult<()> {
                 if event.event_type() == "device.interrupt" {
-                    let mut s = stats.lock().unwrap();
-                    s.total_interrupts += 1;
-                    debug!("Device interrupt: total={}", s.total_interrupts);
+                    if let Ok(mut s) = stats.lock() {
+                        s.total_interrupts += 1;
+                        debug!("Device interrupt: total={}", s.total_interrupts);
+                    }
                     // 注意：这里无法直接提取设备ID和IRQ，因为DomainEvent trait的限制
                 }
                 Ok(())
@@ -127,7 +155,7 @@ impl DeviceEventHandler {
             let stats = Arc::clone(&self.stats);
             move |event: &dyn DomainEvent| -> VmResult<()> {
                 if event.event_type() == "device.io_completed" {
-                    let _s = stats.lock().unwrap();
+                    let _ = stats.lock();
                     // 注意：这里无法直接提取字节数，因为DomainEvent trait的限制
                     debug!("Device I/O completed");
                 }

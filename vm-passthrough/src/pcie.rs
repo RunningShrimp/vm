@@ -3,7 +3,6 @@
 //! 支持 VFIO (Virtual Function I/O) 和 IOMMU
 
 use super::{PassthroughError, PciAddress, PciDeviceInfo};
-use std::path::PathBuf;
 
 /// IOMMU 组
 #[derive(Debug, Clone)]
@@ -37,6 +36,7 @@ impl VfioDevice {
     #[cfg(target_os = "linux")]
     fn get_iommu_group(address: PciAddress) -> Result<u32, PassthroughError> {
         use std::fs;
+        use std::path::PathBuf;
 
         let device_path = format!("/sys/bus/pci/devices/{}", address.to_string());
         let iommu_link = PathBuf::from(device_path).join("iommu_group");
@@ -66,6 +66,7 @@ impl VfioDevice {
     pub fn bind_vfio_driver(&self) -> Result<(), PassthroughError> {
         use std::fs;
         use std::io::Write;
+        use std::path::PathBuf;
 
         let addr_str = self.address.to_string();
         let device_path = format!("/sys/bus/pci/devices/{}", addr_str);
@@ -213,7 +214,7 @@ impl IommuManager {
         for group in &self.groups {
             println!("Group {}: {} device(s)", group.id, group.devices.len());
             for addr in &group.devices {
-                println!("  - {}", addr.to_string());
+                println!("  - {}", addr);
             }
         }
     }
@@ -224,8 +225,6 @@ impl Default for IommuManager {
         Self::new()
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -240,7 +239,7 @@ mod tests {
     #[test]
     fn test_iommu_groups() {
         let mut manager = IommuManager::new();
-        if let Ok(_) = manager.scan_groups() {
+        if manager.scan_groups().is_ok() {
             manager.print_groups();
         }
     }

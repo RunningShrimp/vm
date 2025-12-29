@@ -326,7 +326,7 @@ mod tests {
             crate::GuestArch::X86_64,
             crate::GuestArch::Arm64,
             &context,
-        ).unwrap();
+        ).expect("Failed to select optimal strategy");
         
         assert!(matches!(strategy, TranslationStrategy::Optimized));
     }
@@ -339,7 +339,7 @@ mod tests {
         let result = service.validate_architecture_compatibility(
             crate::GuestArch::X86_64,
             crate::GuestArch::X86_64,
-        ).unwrap();
+        ).expect("Failed to validate architecture compatibility");
         
         assert!(matches!(result, CompatibilityResult::FullyCompatible));
         
@@ -347,7 +347,7 @@ mod tests {
         let result = service.validate_architecture_compatibility(
             crate::GuestArch::X86_64,
             crate::GuestArch::Arm64,
-        ).unwrap();
+        ).expect("Failed to validate architecture compatibility for x86_64 to ARM64");
         
         if let CompatibilityResult::CompatibleWithOptimizations { optimizations, .. } = result {
             assert!(!optimizations.is_empty());
@@ -359,7 +359,7 @@ mod tests {
         let result = service.validate_architecture_compatibility(
             crate::GuestArch::X86_64,
             crate::GuestArch::Riscv64,
-        ).unwrap();
+        ).expect("Failed to validate architecture compatibility for x86_64 to RiscV64");
         
         if let CompatibilityResult::CompatibleWithLimitations { limitations, .. } = result {
             assert!(!limitations.is_empty());
@@ -394,7 +394,7 @@ mod tests {
             crate::GuestArch::X86_64,
             crate::GuestArch::Arm64,
             &context,
-        ).unwrap();
+        ).expect("Failed to select optimal strategy");
         
         assert!(matches!(strategy, TranslationStrategy::MemoryOptimized));
     }
@@ -425,7 +425,7 @@ mod tests {
             crate::GuestArch::X86_64,
             crate::GuestArch::Arm64,
             &context,
-        ).unwrap();
+        ).expect("Failed to select optimal strategy");
         
         assert!(matches!(strategy, TranslationStrategy::FastTranslation));
     }
@@ -459,7 +459,7 @@ mod tests {
             crate::GuestArch::X86_64,
             crate::GuestArch::Arm64,
             &context,
-        ).unwrap();
+        ).expect("Failed to select optimal strategy");
         
         assert!(matches!(strategy, TranslationStrategy::Optimized));
         

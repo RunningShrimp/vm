@@ -99,6 +99,22 @@ impl PerformanceBenchmarker {
         }
     }
 
+    /// 获取JIT引擎的锁
+    fn lock_jit_engine(&self) -> Result<std::sync::MutexGuard<JITEngine>, VmError> {
+        self.jit_engine.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire JIT engine lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
+    /// 获取结果历史的锁
+    fn lock_results_history(&self) -> Result<std::sync::MutexGuard<Vec<BenchmarkResult>>, VmError> {
+        self.results_history.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire results history lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
     /// 运行完整的性能基准测试
     pub fn run_full_benchmark(&mut self) -> Result<Vec<BenchmarkResult>, VmError> {
         let mut results = Vec::new();
@@ -126,7 +142,7 @@ impl PerformanceBenchmarker {
         
         // 保存结果
         {
-            let mut history = self.results_history.lock().unwrap();
+            let mut history = self.lock_results_history()?;
             history.extend(results.clone());
         }
         
@@ -191,7 +207,7 @@ impl PerformanceBenchmarker {
         // 创建并编译测试IR块
         let test_ir = self.create_test_ir_block(1000);
         let compiled_code = {
-            let mut jit_engine = self.jit_engine.lock().unwrap();
+            let mut jit_engine = self.lock_jit_engine()?;
             jit_engine.compile(&test_ir)?
         };
         
@@ -275,15 +291,15 @@ impl PerformanceBenchmarker {
         
         // 首次编译 (缓存未命中)
         {
-            let mut jit_engine = self.jit_engine.lock().unwrap();
+            let mut jit_engine = self.lock_jit_engine()?;
             let _ = jit_engine.compile(&test_ir)?;
         }
         total_requests += 1;
-        
+
         // 重复编译相同代码 (应该命中缓存)
         for _ in 0..self.config.iterations {
             {
-                let mut jit_engine = self.jit_engine.lock().unwrap();
+                let mut jit_engine = self.lock_jit_engine()?;
                 let _ = jit_engine.compile(&test_ir)?;
             }
             cache_hits += 1;
@@ -413,14 +429,14 @@ impl PerformanceBenchmarker {
 
     /// 编译测试IR块
     fn compile_test_block(&self, ir_block: &IRBlock) -> Result<(Duration, Duration), VmError> {
-        let mut jit_engine = self.jit_engine.lock().unwrap();
-        
+        let mut jit_engine = self.lock_jit_engine()?;
+
         // 这里需要实际的编译时间分解，暂时返回模拟值
         let optimization_time = Duration::from_micros(100);
         let codegen_time = Duration::from_micros(200);
-        
+
         let _ = jit_engine.compile(ir_block)?;
-        
+
         Ok((optimization_time, codegen_time))
     }
 
@@ -433,7 +449,7 @@ impl PerformanceBenchmarker {
 
     /// 优化测试IR块
     fn optimize_test_block(&self, ir_block: &IRBlock) -> Result<(), VmError> {
-        let mut jit_engine = self.jit_engine.lock().unwrap();
+        let mut jit_engine = self.lock_jit_engine()?;
         // 这里应该调用实际的优化器
         let _ = jit_engine.compile(ir_block)?;
         Ok(())
@@ -443,8 +459,8 @@ impl PerformanceBenchmarker {
     fn compile_test_block_no_simd(&self, ir_block: &IRBlock) -> Result<(), VmError> {
         let mut config = JITConfig::default();
         config.enable_simd = false;
-        
-        let mut jit_engine = self.jit_engine.lock().unwrap();
+
+        let mut jit_engine = self.lock_jit_engine()?;
         let _ = jit_engine.compile(ir_block)?;
         Ok(())
     }
@@ -453,21 +469,21 @@ impl PerformanceBenchmarker {
     fn compile_test_block_with_simd(&self, ir_block: &IRBlock) -> Result<(), VmError> {
         let mut config = JITConfig::default();
         config.enable_simd = true;
-        
-        let mut jit_engine = self.jit_engine.lock().unwrap();
+
+        let mut jit_engine = self.lock_jit_engine()?;
         let _ = jit_engine.compile(ir_block)?;
         Ok(())
     }
 
     /// 模拟热点检测
     fn simulate_hotspot_detection(&self, ir_block: &IRBlock) -> Result<(), VmError> {
-        let mut jit_engine = self.jit_engine.lock().unwrap();
-        
+        let mut jit_engine = self.lock_jit_engine()?;
+
         // 模拟多次执行
         for _ in 0..150 {
             let _ = jit_engine.compile(ir_block)?;
         }
-        
+
         Ok(())
     }
 
@@ -603,12 +619,12 @@ impl PerformanceBenchmarker {
     }
 
     /// 生成性能报告
-    pub fn generate_performance_report(&self) -> String {
-        let history = self.results_history.lock().unwrap();
-        
+    pub fn generate_performance_report(&self) -> Result<String, VmError> {
+        let history = self.lock_results_history()?;
+
         let mut report = String::new();
         report.push_str("# JIT性能基准测试报告\n\n");
-        
+
         for result in history.iter() {
             report.push_str(&format!("## {}\n", result.name));
             report.push_str(&format!("- 编译时间: {} μs\n", result.compilation_time_us));
@@ -620,47 +636,47 @@ impl PerformanceBenchmarker {
             report.push_str(&format!("- 优化时间: {} μs\n", result.optimization_time_us));
             report.push_str(&format!("- 代码生成时间: {} μs\n\n", result.codegen_time_us));
         }
-        
-        report
+
+        Ok(report)
     }
 
     /// 保存基准测试结果
     pub fn save_results(&self, filename: &str) -> Result<(), VmError> {
-        let history = self.results_history.lock().unwrap();
+        let history = self.lock_results_history()?;
         let json = serde_json::to_string_pretty(&*history)
-            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError { 
+            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError {
                 message: e.to_string(),
                 function_addr: None,
             }))?;
-        
+
         std::fs::write(filename, json)
-            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError { 
+            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError {
                 message: e.to_string(),
                 function_addr: None,
             }))?;
-        
+
         Ok(())
     }
 
     /// 加载基准测试结果
     pub fn load_results(&self, filename: &str) -> Result<(), VmError> {
         let json = std::fs::read_to_string(filename)
-            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError { 
+            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError {
                 message: e.to_string(),
                 function_addr: None,
             }))?;
-        
+
         let results: Vec<BenchmarkResult> = serde_json::from_str(&json)
-            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError { 
+            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError {
                 message: e.to_string(),
                 function_addr: None,
             }))?;
-        
+
         {
-            let mut history = self.results_history.lock().unwrap();
+            let mut history = self.lock_results_history()?;
             history.extend(results);
         }
-        
+
         Ok(())
     }
 }
@@ -677,31 +693,40 @@ impl PerformanceRegressionDetector {
     /// 创建新的性能回归检测器
     pub fn new(results_history: Arc<Mutex<Vec<BenchmarkResult>>>) -> Self {
         let mut performance_thresholds = HashMap::new();
-        
+
         // 设置默认性能阈值
         performance_thresholds.insert("compilation_time_us".to_string(), 1.1); // 10% 退化阈值
         performance_thresholds.insert("execution_time_us".to_string(), 1.1);    // 10% 退化阈值
         performance_thresholds.insert("memory_usage_bytes".to_string(), 1.2);  // 20% 退化阈值
-        
+
         Self {
             results_history,
             performance_thresholds,
         }
     }
 
+    /// 获取结果历史的锁
+    fn lock_results_history(&self) -> Result<std::sync::MutexGuard<Vec<BenchmarkResult>>, String> {
+        self.results_history.lock().map_err(|_| "Failed to acquire results history lock".to_string())
+    }
+
     /// 检测性能回归
     pub fn detect_regressions(&self) -> Vec<String> {
-        let history = self.results_history.lock().unwrap();
+        let history = match self.lock_results_history() {
+            Ok(h) => h,
+            Err(e) => return vec![format!("Error acquiring lock: {}", e)],
+        };
+
         let mut regressions = Vec::new();
-        
+
         if history.len() < 2 {
             return regressions;
         }
-        
+
         // 比较最新的结果与之前的结果
         let latest = &history[history.len() - 1];
         let previous = &history[history.len() - 2];
-        
+
         // 检查编译时间回归
         let compilation_threshold = self.performance_thresholds["compilation_time_us"];
         if latest.compilation_time_us > (previous.compilation_time_us as f64 * compilation_threshold as f64) as u64 {
@@ -712,7 +737,7 @@ impl PerformanceRegressionDetector {
                 (latest.compilation_time_us as f64 - previous.compilation_time_us as f64) / previous.compilation_time_us as f64 * 100.0
             ));
         }
-        
+
         // 检查执行时间回归
         let execution_threshold = self.performance_thresholds["execution_time_us"];
         if latest.execution_time_us > (previous.execution_time_us as f64 * execution_threshold as f64) as u64 {
@@ -723,7 +748,7 @@ impl PerformanceRegressionDetector {
                 (latest.execution_time_us as f64 - previous.execution_time_us as f64) / previous.execution_time_us as f64 * 100.0
             ));
         }
-        
+
         // 检查内存使用回归
         let memory_threshold = self.performance_thresholds["memory_usage_bytes"];
         if latest.memory_usage_bytes > (previous.memory_usage_bytes as f64 * memory_threshold as f64) as u64 {
@@ -734,7 +759,7 @@ impl PerformanceRegressionDetector {
                 (latest.memory_usage_bytes as f64 - previous.memory_usage_bytes as f64) / previous.memory_usage_bytes as f64 * 100.0
             ));
         }
-        
+
         regressions
     }
 }

@@ -1,8 +1,8 @@
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
-use vm_ir::{IRBlock, RegId};
 use crate::common::OptimizationStats;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::{Duration, Instant};
+use vm_ir::IRBlock;
 
 pub struct HotUpdateManager {
     config: HotUpdateConfig,
@@ -10,6 +10,7 @@ pub struct HotUpdateManager {
     hotspots: VecDeque<Hotspot>,
     update_queue: VecDeque<UpdateRequest>,
     stats: OptimizationStats,
+    block_sizes: HashMap<u64, u64>,
     last_cleanup: Instant,
 }
 
@@ -126,31 +127,51 @@ impl HotUpdateManager {
             hotspots: VecDeque::new(),
             update_queue: VecDeque::new(),
             stats: OptimizationStats::default(),
+            block_sizes: HashMap::new(),
             last_cleanup: Instant::now(),
         }
     }
 
+    /// Helper method to safely acquire read lock
+    fn acquire_read(&self) -> Option<RwLockReadGuard<'_, HashMap<u64, CachedCode>>> {
+        self.code_cache.read().ok()
+    }
+
+    /// Helper method to safely acquire write lock
+    fn acquire_write(&self) -> Option<RwLockWriteGuard<'_, HashMap<u64, CachedCode>>> {
+        self.code_cache.write().ok()
+    }
+
     pub fn add_block(&mut self, block_id: u64, code: Vec<u8>, optimization_level: u8) {
         let cached = CachedCode::new(block_id, code, optimization_level);
-        
-        let mut cache = self.code_cache.write().unwrap();
-        cache.insert(block_id, cached);
-        
-        if cache.len() > self.config.max_cache_size {
-            self.evict_oldest(&mut cache);
+
+        if let Some(mut cache) = self.acquire_write() {
+            cache.insert(block_id, cached);
+
+            if cache.len() > self.config.max_cache_size {
+                self.evict_oldest(&mut cache);
+            }
         }
     }
 
     pub fn record_execution(&mut self, block_id: u64) {
-        let mut cache = self.code_cache.write().unwrap();
-        if let Some(cached) = cache.get_mut(&block_id) {
-            cached.execution_count += 1;
-            cached.last_used = Instant::now();
-            
-            if cached.execution_count >= self.config.hotspot_threshold {
-                drop(cache);
-                self.add_hotspot(block_id);
+        let should_add_hotspot = {
+            if let Some(mut cache) = self.acquire_write() {
+                if let Some(cached) = cache.get_mut(&block_id) {
+                    cached.execution_count += 1;
+                    cached.last_used = Instant::now();
+
+                    cached.execution_count >= self.config.hotspot_threshold
+                } else {
+                    false
+                }
+            } else {
+                false
             }
+        };
+
+        if should_add_hotspot {
+            self.add_hotspot(block_id);
         }
     }
 
@@ -163,7 +184,7 @@ impl HotUpdateManager {
         };
 
         self.hotspots.push_back(hotspot);
-        
+
         if self.hotspots.len() > self.config.max_hotspots {
             self.hotspots.pop_front();
         }
@@ -172,9 +193,8 @@ impl HotUpdateManager {
     }
 
     fn get_execution_count(&self, block_id: u64) -> u64 {
-        let cache = self.code_cache.read().unwrap();
-        cache.get(&block_id)
-            .map(|c| c.execution_count)
+        self.acquire_read()
+            .and_then(|cache| cache.get(&block_id).map(|c| c.execution_count))
             .unwrap_or(0)
     }
 
@@ -190,16 +210,21 @@ impl HotUpdateManager {
     }
 
     fn queue_update(&mut self, block_id: u64, reason: UpdateReason) {
-        let cache = self.code_cache.read().unwrap();
-        if let Some(cached) = cache.get(&block_id) {
-            let request = UpdateRequest {
-                block_id,
-                old_optimization: cached.optimization_level,
-                new_optimization: (cached.optimization_level + 1).min(3),
-                timestamp: Instant::now(),
-                reason,
-            };
-            drop(cache);
+        let request_opt = {
+            if let Some(cache) = self.acquire_read() {
+                cache.get(&block_id).map(|cached| UpdateRequest {
+                    block_id,
+                    old_optimization: cached.optimization_level,
+                    new_optimization: (cached.optimization_level + 1).min(3),
+                    timestamp: Instant::now(),
+                    reason,
+                })
+            } else {
+                None
+            }
+        };
+
+        if let Some(request) = request_opt {
             self.update_queue.push_back(request);
         }
     }
@@ -207,17 +232,17 @@ impl HotUpdateManager {
     pub fn process_updates(&mut self, blocks: &HashMap<u64, IRBlock>) -> Vec<UpdateResult> {
         let mut results = Vec::new();
         let batch_size = self.config.update_batch_size.min(self.update_queue.len());
-        
+
         for _ in 0..batch_size {
             if let Some(request) = self.update_queue.pop_front() {
                 let start = Instant::now();
-                
+
                 if let Some(block) = blocks.get(&request.block_id) {
                     let old_size = self.get_cached_size(request.block_id);
-                    
+
                     if self.perform_update(request.block_id, block, request.new_optimization) {
                         self.stats.blocks_optimized += 1;
-                        
+
                         results.push(UpdateResult {
                             block_id: request.block_id,
                             success: true,
@@ -239,94 +264,125 @@ impl HotUpdateManager {
                 }
             }
         }
-        
+
         results
     }
 
     fn perform_update(&mut self, block_id: u64, block: &IRBlock, new_opt_level: u8) -> bool {
-        let mut cache = self.code_cache.write().unwrap();
-        if let Some(cached) = cache.get_mut(&block_id) {
-            let mut new_code = cached.code.clone();
-            
-            self.apply_optimizations(&mut new_code, new_opt_level);
-            
-            cached.code = new_code;
-            cached.optimization_level = new_opt_level;
-            cached.last_used = Instant::now();
-            cached.checksum = CachedCode::compute_checksum(&cached.code);
-            
-            true
-        } else {
-            false
+        // 使用 block 参数进行验证
+        let block_size = block.ops.len();
+        if block_size == 0 {
+            // 空块不需要更新
+            return false;
         }
+
+        let result = {
+            if let Some(mut cache) = self.acquire_write() {
+                if let Some(cached) = cache.get_mut(&block_id) {
+                    let mut new_code = cached.code.clone();
+                    self.apply_optimizations(new_code.as_mut_slice(), new_opt_level);
+
+                    cached.code = new_code;
+                    cached.optimization_level = new_opt_level;
+                    cached.last_used = Instant::now();
+                    cached.checksum = CachedCode::compute_checksum(&cached.code);
+
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+
+        if result {
+            // 记录块大小以便后续分析
+            self.block_sizes.insert(block_id, block_size as u64);
+        }
+
+        result
     }
 
-    fn apply_optimizations(&self, code: &mut Vec<u8>, level: u8) {
+    fn apply_optimizations(&self, code: &mut [u8], level: u8) {
         match level {
             0 => {}
-            1 => self.basic_optimization(code),
-            2 => self.aggressive_optimization(code),
-            3 => self.maximum_optimization(code),
+            1 => {
+                let code_slice = &mut code[..];
+                self.basic_optimization(code_slice);
+            }
+            2 => {
+                let code_slice = &mut code[..];
+                self.aggressive_optimization(code_slice);
+            }
+            3 => {
+                let code_slice = &mut code[..];
+                self.maximum_optimization(code_slice);
+            }
             _ => {}
         }
     }
 
-    fn basic_optimization(&self, code: &mut Vec<u8>) {
+    fn basic_optimization(&self, code: &mut [u8]) {
         let mut i = 0;
         while i < code.len() {
-            if i + 2 < code.len() {
-                if code[i] == 0x90 && code[i + 1] == 0x90 && code[i + 2] == 0x90 {
-                    code[i] = 0x0F;
-                    code[i + 1] = 0x1F;
-                    code[i + 2] = 0x00;
-                    i += 3;
-                    continue;
-                }
+            if i + 2 < code.len() && code[i] == 0x90 && code[i + 1] == 0x90 && code[i + 2] == 0x90 {
+                code[i] = 0x0F;
+                code[i + 1] = 0x1F;
+                code[i + 2] = 0x00;
+                i += 3;
+                continue;
             }
             i += 1;
         }
     }
 
-    fn aggressive_optimization(&self, code: &mut Vec<u8>) {
+    fn aggressive_optimization(&self, code: &mut [u8]) {
         self.basic_optimization(code);
         self.reorder_instructions(code);
     }
 
-    fn maximum_optimization(&self, code: &mut Vec<u8>) {
+    fn maximum_optimization(&self, code: &mut [u8]) {
         self.aggressive_optimization(code);
         self.inline_functions(code);
         self.loop_unrolling(code);
     }
 
-    fn reorder_instructions(&self, code: &mut Vec<u8>) {
+    fn reorder_instructions(&self, code: &mut [u8]) {
         if code.len() > 16 {
             let mid = code.len() / 2;
             let first_half: Vec<_> = code[..mid].to_vec();
             let second_half: Vec<_> = code[mid..].to_vec();
-            
-            code.clear();
-            code.extend_from_slice(&second_half);
-            code.extend_from_slice(&first_half);
+
+            let mut code_vec = code.to_vec();
+            code_vec.clear();
+            code_vec.extend_from_slice(&second_half);
+            code_vec.extend_from_slice(&first_half);
+
+            code.copy_from_slice(&code_vec);
         }
     }
 
-    fn inline_functions(&self, code: &mut Vec<u8>) {
-        while code.len() > 0 && code.len() < code.capacity() / 2 {
-            code.push(0xCC);
+    fn inline_functions(&self, code: &mut [u8]) {
+        let mut code_vec = code.to_vec();
+        while !code_vec.is_empty() && code_vec.len() < code_vec.capacity() / 2 {
+            code_vec.push(0xCC);
         }
+        code.copy_from_slice(&code_vec);
     }
 
-    fn loop_unrolling(&self, code: &mut Vec<u8>) {
-        if code.len() < 64 {
-            let copy: Vec<u8> = code.clone();
-            code.extend_from_slice(&copy);
+    fn loop_unrolling(&self, code: &mut [u8]) {
+        let mut code_vec = code.to_vec();
+        if code_vec.len() < 64 {
+            let copy: Vec<u8> = code_vec.clone();
+            code_vec.extend_from_slice(&copy);
         }
+        code.copy_from_slice(&code_vec);
     }
 
     fn get_cached_size(&self, block_id: u64) -> usize {
-        let cache = self.code_cache.read().unwrap();
-        cache.get(&block_id)
-            .map(|c| c.code.len())
+        self.acquire_read()
+            .and_then(|cache| cache.get(&block_id).map(|c| c.code.len()))
             .unwrap_or(0)
     }
 
@@ -347,10 +403,12 @@ impl HotUpdateManager {
     }
 
     pub fn get_cached_code(&self, block_id: u64) -> Option<Vec<u8>> {
-        let cache = self.code_cache.read().unwrap();
-        cache.get(&block_id)
-            .filter(|c| c.verify_checksum())
-            .map(|c| c.code.clone())
+        self.acquire_read().and_then(|cache| {
+            cache
+                .get(&block_id)
+                .filter(|c| c.verify_checksum())
+                .map(|c| c.code.clone())
+        })
     }
 
     pub fn get_hotspots(&self) -> Vec<Hotspot> {
@@ -362,15 +420,22 @@ impl HotUpdateManager {
     }
 
     pub fn get_cache_stats(&self) -> CacheStats {
-        let cache = self.code_cache.read().unwrap();
-        CacheStats {
-            total_blocks: cache.len(),
-            total_size: cache.values().map(|c| c.code.len()).sum(),
-            avg_execution_count: if cache.is_empty() {
-                0
-            } else {
-                cache.values().map(|c| c.execution_count).sum::<u64>() as usize / cache.len()
-            },
+        if let Some(cache) = self.acquire_read() {
+            CacheStats {
+                total_blocks: cache.len(),
+                total_size: cache.values().map(|c| c.code.len()).sum(),
+                avg_execution_count: if cache.is_empty() {
+                    0
+                } else {
+                    cache.values().map(|c| c.execution_count).sum::<u64>() as usize / cache.len()
+                },
+            }
+        } else {
+            CacheStats {
+                total_blocks: 0,
+                total_size: 0,
+                avg_execution_count: 0,
+            }
         }
     }
 
@@ -379,20 +444,32 @@ impl HotUpdateManager {
             return;
         }
 
-        let mut cache = self.code_cache.write().unwrap();
-        let now = Instant::now();
-        
-        let expired: Vec<u64> = cache
-            .iter()
-            .filter(|(_, cached)| now.duration_since(cached.last_used) > Duration::from_secs(300))
-            .map(|(id, _)| *id)
-            .collect();
+        let (expired, now) = {
+            if let Some(cache) = self.acquire_read() {
+                let now = Instant::now();
+                let expired: Vec<u64> = cache
+                    .iter()
+                    .filter(|(_, cached)| {
+                        now.duration_since(cached.last_used) > Duration::from_secs(300)
+                    })
+                    .map(|(id, _)| *id)
+                    .collect();
+                (expired, now)
+            } else {
+                return;
+            }
+        };
 
-        for id in expired {
-            cache.remove(&id);
+        // Remove expired blocks
+        if let Some(mut cache) = self.acquire_write() {
+            for id in &expired {
+                cache.remove(id);
+            }
         }
 
-        self.hotspots.retain(|h| now.duration_since(h.last_update) < Duration::from_secs(600));
+        // Cleanup hotspots and update last_cleanup time
+        self.hotspots
+            .retain(|h| now.duration_since(h.last_update) < Duration::from_secs(600));
         self.last_cleanup = now;
     }
 
@@ -462,7 +539,7 @@ mod tests {
     fn test_add_and_get_block() {
         let config = HotUpdateConfig::default();
         let mut manager = HotUpdateManager::new(config);
-        
+
         manager.add_block(1, vec![1, 2, 3, 4], 0);
         let code = manager.get_cached_code(1);
         assert_eq!(code, Some(vec![1, 2, 3, 4]));
@@ -478,12 +555,12 @@ mod tests {
     fn test_hotspot_detection() {
         let config = HotUpdateConfig::default();
         let mut manager = HotUpdateManager::new(config);
-        
+
         manager.add_block(1, vec![1, 2, 3, 4], 0);
         for _ in 0..110 {
             manager.record_execution(1);
         }
-        
+
         let hotspots = manager.get_hotspots();
         assert!(!hotspots.is_empty());
     }

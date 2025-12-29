@@ -240,11 +240,25 @@ impl Scope {
     /// 创建新作用域
     pub fn new() -> Self {
         static NEXT_SCOPE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        
+
         Self {
             id: NEXT_SCOPE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             services: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         }
+    }
+
+    /// Helper method to acquire read lock
+    fn lock_read(&self) -> Result<std::sync::RwLockReadGuard<'_, std::collections::HashMap<TypeId, ServiceInstance>>, DIError> {
+        self.services.read().map_err(|e| {
+            DIError::ServiceCreationFailed(format!("Failed to acquire read lock: {}", e))
+        })
+    }
+
+    /// Helper method to acquire write lock
+    fn lock_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, std::collections::HashMap<TypeId, ServiceInstance>>, DIError> {
+        self.services.write().map_err(|e| {
+            DIError::ServiceCreationFailed(format!("Failed to acquire write lock: {}", e))
+        })
     }
     
     /// 获取作用域ID
@@ -254,20 +268,25 @@ impl Scope {
     
     /// 注册服务
     pub fn register_service(&self, type_id: TypeId, instance: ServiceInstance) {
-        let mut services = self.services.write().unwrap();
-        services.insert(type_id, instance);
+        if let Ok(mut services) = self.lock_write() {
+            services.insert(type_id, instance);
+        }
     }
-    
+
     /// 获取服务
     pub fn get_service(&self, type_id: TypeId) -> Option<ServiceInstance> {
-        let services = self.services.read().unwrap();
-        services.get(&type_id).cloned()
+        match self.lock_read() {
+            Ok(services) => services.get(&type_id).cloned(),
+            Err(_) => None,
+        }
     }
-    
+
     /// 检查服务是否存在
     pub fn has_service(&self, type_id: TypeId) -> bool {
-        let services = self.services.read().unwrap();
-        services.contains_key(&type_id)
+        match self.lock_read() {
+            Ok(services) => services.contains_key(&type_id),
+            Err(_) => false,
+        }
     }
 }
 

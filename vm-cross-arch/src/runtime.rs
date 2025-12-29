@@ -63,26 +63,9 @@ impl fmt::Display for HostArch {
 }
 
 /// Guest架构到Architecture的转换
-impl From<GuestArch> for Architecture {
-    fn from(arch: GuestArch) -> Self {
-        match arch {
-            GuestArch::X86_64 => Architecture::X86_64,
-            GuestArch::Arm64 => Architecture::ARM64,
-            GuestArch::Riscv64 => Architecture::RISCV64,
-        }
-    }
-}
-
-impl From<Architecture> for GuestArch {
-    fn from(arch: Architecture) -> Self {
-        match arch {
-            Architecture::X86_64 => GuestArch::X86_64,
-            Architecture::ARM64 => GuestArch::Arm64,
-            Architecture::RISCV64 => GuestArch::Riscv64,
-        }
-    }
-}
-
+// Note: From implementations for GuestArch/Architecture are omitted due to orphan rule.
+// Both types are defined in external crates (vm-core and vm-error).
+// Conversion is handled inline where needed using match expressions.
 /// 跨架构执行策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrossArchStrategy {
@@ -127,7 +110,17 @@ impl CrossArchConfig {
             }));
         }
 
-        let guest_arch_enum: Architecture = guest_arch.into();
+        let guest_arch_enum: Architecture = match guest_arch {
+            vm_core::GuestArch::X86_64 => Architecture::X86_64,
+            vm_core::GuestArch::Arm64 => Architecture::ARM64,
+            vm_core::GuestArch::Riscv64 => Architecture::RISCV64,
+            vm_core::GuestArch::PowerPC64 => {
+                return Err(VmError::Core(vm_core::CoreError::NotSupported {
+                    feature: "PowerPC64 architecture".to_string(),
+                    module: "runtime".to_string(),
+                }));
+            }
+        };
         let host_arch_enum = host_arch.to_architecture().ok_or_else(|| {
             VmError::Core(vm_core::CoreError::NotSupported {
                 feature: format!("Unknown host architecture: {:?}", host_arch),
@@ -215,8 +208,17 @@ mod tests {
 
     #[test]
     fn test_cross_arch_config_native() {
-        // 测试同架构配置（假设host是x86_64）
-        let config = CrossArchConfig::auto_detect(GuestArch::X86_64).unwrap();
+        // 测试同架构配置（使用实际检测的host架构）
+        let host = HostArch::detect();
+        let guest = match host {
+            HostArch::X86_64 => GuestArch::X86_64,
+            HostArch::ARM64 => GuestArch::Arm64,
+            HostArch::RISCV64 => GuestArch::Riscv64,
+            HostArch::Unknown => panic!("Cannot run test on unknown host architecture"),
+        };
+
+        let config =
+            CrossArchConfig::auto_detect(guest).expect("Failed to auto-detect cross-arch config");
         assert_eq!(config.strategy, CrossArchStrategy::Native);
         assert!(config.enable_hardware_accel);
     }
@@ -231,7 +233,8 @@ mod tests {
             GuestArch::X86_64
         };
 
-        let config = CrossArchConfig::auto_detect(guest).unwrap();
+        let config =
+            CrossArchConfig::auto_detect(guest).expect("Failed to auto-detect cross-arch config");
         assert_eq!(config.strategy, CrossArchStrategy::CrossArch);
         assert!(!config.enable_hardware_accel);
     }

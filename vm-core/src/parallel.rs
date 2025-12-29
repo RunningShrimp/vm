@@ -3,29 +3,13 @@
 //! 提供多虚拟 CPU 的并行执行能力，支持 2-8 个 vCPU 并行执行。
 //! 使用分片锁机制减少锁竞争，提高并发性能。
 
+#![cfg(feature = "multi-vcpu")]
+
 use crate::{CoreError, ExecResult, ExecutionEngine, GuestAddr, MMU, VmError};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(feature = "async")]
-/// 协程调度器trait（避免循环依赖）
-pub trait CoroutineScheduler: Send + Sync {
-    /// 提交协程任务
-    fn spawn<F>(&self, priority: crate::Priority, task: F) -> std::sync::Arc<crate::Coroutine>
-    where
-        F: Fn() + Send + Sync + 'static;
-
-    /// 启动调度器
-    fn start(&self) -> std::io::Result<()>;
-
-    /// 停止调度器
-    fn stop(&self);
-
-    /// 等待所有协程完成
-    fn join_all(&self);
-}
 
 /// 分片MMU管理器
 ///
@@ -76,8 +60,9 @@ impl ShardedMmu {
     /// 刷新所有分片的TLB
     pub fn flush_all_tlbs(&self) {
         for shard in &self.shards {
-            let mut mmu = shard.lock().unwrap();
-            mmu.flush_tlb();
+            if let Ok(mut mmu) = shard.lock() {
+                mmu.flush_tlb();
+            }
         }
     }
 }
@@ -113,20 +98,6 @@ impl Default for ParallelExecutorConfig {
     }
 }
 
-pub struct MultiVcpuExecutor<B> {
-    /// vCPU 集合
-    vcpus: Vec<Arc<Mutex<Box<dyn ExecutionEngine<B>>>>>,
-    /// 分片内存管理单元
-    sharded_mmu: Arc<ShardedMmu>,
-    /// 并发统计
-    stats: Arc<RwLock<ConcurrencyStats>>,
-    /// 协程调度器（可选，用于管理协程资源）
-    #[cfg(feature = "async")]
-    coroutine_scheduler: Option<Arc<dyn CoroutineScheduler + Send + Sync>>,
-    /// 配置
-    config: ParallelExecutorConfig,
-}
-
 /// 并发性能统计
 #[derive(Debug, Default, Clone)]
 pub struct ConcurrencyStats {
@@ -140,6 +111,364 @@ pub struct ConcurrencyStats {
     pub max_wait_time_ns: u64,
 }
 
+/// Async-enabled parallel execution module
+#[cfg(all(feature = "async", feature = "multi-vcpu"))]
+pub mod parallel_execution {
+    use super::*;
+    use crate::{CoroutineScheduler, Priority};
+
+    /// 协程调度器trait（避免循环依赖）
+    pub trait CoroutineSchedulerExt: Send + Sync {
+        /// 提交协程任务
+        fn spawn<F>(&self, priority: Priority, task: F) -> std::sync::Arc<crate::Coroutine>
+        where
+            F: Fn() + Send + Sync + 'static;
+
+        /// 启动调度器
+        fn start(&self) -> std::io::Result<()>;
+
+        /// 停止调度器
+        fn stop(&self);
+
+        /// 等待所有协程完成
+        fn join_all(&self);
+    }
+
+    impl<T: ?Sized + CoroutineScheduler> CoroutineSchedulerExt for T {
+        fn spawn<F>(&self, priority: Priority, task: F) -> std::sync::Arc<crate::Coroutine>
+        where
+            F: Fn() + Send + Sync + 'static,
+        {
+            self.spawn(priority, task)
+        }
+
+        fn start(&self) -> std::io::Result<()> {
+            self.start()
+        }
+
+        fn stop(&self) {
+            self.stop()
+        }
+
+        fn join_all(&self) {
+            self.join_all()
+        }
+    }
+
+    /// Async-enabled multi-vCPU executor
+    pub struct MultiVcpuExecutorAsync<B> {
+        /// vCPU 集合
+        pub vcpus: Vec<Arc<Mutex<Box<dyn ExecutionEngine<B>>>>>,
+        /// 分片内存管理单元
+        pub sharded_mmu: Arc<ShardedMmu>,
+        /// 并发统计
+        pub stats: Arc<RwLock<ConcurrencyStats>>,
+        /// 协程调度器（可选，用于管理协程资源）
+        pub coroutine_scheduler: Option<Arc<dyn CoroutineSchedulerExt + Send + Sync>>,
+        /// 配置
+        pub config: ParallelExecutorConfig,
+    }
+
+    impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutorAsync<B> {
+        /// 使用配置创建 multi-vCPU 执行器
+        pub fn with_config(
+            vcpu_count: u32,
+            mmu_factory: impl Fn() -> Box<dyn MMU>,
+            engine_factory: impl Fn() -> Box<dyn ExecutionEngine<B>>,
+            config: ParallelExecutorConfig,
+        ) -> Self {
+            let mut vcpus = Vec::new();
+            for _ in 0..vcpu_count {
+                let engine = engine_factory();
+                vcpus.push(Arc::new(Mutex::new(engine)));
+            }
+
+            let sharded_mmu = Arc::new(ShardedMmu::new(mmu_factory, config.shard_count));
+
+            Self {
+                vcpus,
+                sharded_mmu,
+                stats: Arc::new(RwLock::new(ConcurrencyStats::default())),
+                coroutine_scheduler: None,
+                config,
+            }
+        }
+
+        /// 设置协程调度器
+        pub fn set_coroutine_scheduler<S: CoroutineSchedulerExt + 'static>(&mut self, scheduler: Arc<S>) {
+            self.coroutine_scheduler = Some(scheduler as Arc<dyn CoroutineSchedulerExt + Send + Sync>);
+        }
+
+        /// 获取协程调度器（如果已设置）
+        pub fn get_coroutine_scheduler(&self) -> Option<&Arc<dyn CoroutineSchedulerExt + Send + Sync>> {
+            self.coroutine_scheduler.as_ref()
+        }
+
+        /// 异步并行运行所有 vCPU（使用协程）
+        pub async fn run_parallel_async(&self, blocks: &[B]) -> Result<Vec<ExecResult>, VmError> {
+            // 如果设置了协程调度器，优先使用协程调度器
+            if let Some(scheduler) = &self.coroutine_scheduler {
+                return self.run_parallel_with_scheduler(blocks, scheduler.as_ref());
+            }
+
+            // 否则使用tokio::spawn（向后兼容）
+            use tokio::sync::Mutex as AsyncMutex;
+
+            if blocks.len() != self.vcpus.len() {
+                return Err(VmError::Core(CoreError::InvalidState {
+                    message: "Block count must match vCPU count".to_string(),
+                    current: format!("{} blocks", blocks.len()),
+                    expected: format!("{} vCPUs", self.vcpus.len()),
+                }));
+            }
+
+            let results = Arc::new(AsyncMutex::new(Vec::with_capacity(self.vcpus.len())));
+
+            // 使用tokio::join!并行执行所有vCPU协程
+            let mut tasks = Vec::new();
+
+            for (_vcpu_id, (vcpu, block)) in self.vcpus.iter().zip(blocks.iter()).enumerate() {
+                let vcpu_clone: Arc<Mutex<Box<dyn ExecutionEngine<B>>>> = Arc::clone(vcpu);
+                let sharded_mmu_clone: Arc<ShardedMmu> = Arc::clone(&self.sharded_mmu);
+                let results_clone: Arc<AsyncMutex<Vec<ExecResult>>> = Arc::clone(&results);
+                let stats_clone: Arc<RwLock<ConcurrencyStats>> = Arc::clone(&self.stats);
+                let block_clone = block.clone();
+
+                // 使用tokio::spawn创建协程任务
+                let task = tokio::spawn(async move {
+                    let start_time = std::time::Instant::now();
+
+                    // 执行 vCPU（在异步上下文中）
+                    let mut vcpu_guard = match vcpu_clone.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => return, // 如果锁被污染，协程退出
+                    };
+
+                    // 创建分片MMU适配器
+                    let mut mmu_adapter = ShardedMmuAdapter {
+                        sharded_mmu: sharded_mmu_clone,
+                        stats: stats_clone.clone(),
+                    };
+
+                    // 执行vCPU
+                    let result = tokio::task::spawn_blocking(move || {
+                        vcpu_guard.run(&mut mmu_adapter, &block_clone)
+                    })
+                    .await
+                    .unwrap_or_else(|_| ExecResult {
+                        status: crate::ExecStatus::Ok,
+                        stats: crate::ExecStats::default(),
+                        next_pc: 0,
+                    });
+
+                    let elapsed = start_time.elapsed();
+                    {
+                        let mut stats = stats_clone.write();
+                        stats.total_executions += 1;
+                        stats.avg_wait_time_ns =
+                            (stats.avg_wait_time_ns + elapsed.as_nanos() as u64) / 2;
+                        if elapsed.as_nanos() as u64 > stats.max_wait_time_ns {
+                            stats.max_wait_time_ns = elapsed.as_nanos() as u64;
+                        }
+                    }
+
+                    let mut results_guard = results_clone.lock().await;
+                    results_guard.push(result);
+                });
+
+                tasks.push(task);
+            }
+
+            // 等待所有协程完成并收集结果
+            let mut final_results = Vec::new();
+            for task in tasks {
+                if let Ok(_) = task.await {
+                    // 任务已完成，结果已写入共享的 results
+                }
+            }
+
+            // 获取结果
+            let results_guard = results.lock().await;
+            // 手动克隆每个 ExecResult
+            let mut final_results = Vec::new();
+            for result in results_guard.iter() {
+                final_results.push(crate::ExecResult {
+                    status: match &result.status {
+                        crate::ExecStatus::Continue => crate::ExecStatus::Continue,
+                        crate::ExecStatus::Ok => crate::ExecStatus::Ok,
+                        crate::ExecStatus::Fault(err) => crate::ExecStatus::Fault(err.clone()),
+                        crate::ExecStatus::IoRequest => crate::ExecStatus::IoRequest,
+                        crate::ExecStatus::InterruptPending => crate::ExecStatus::InterruptPending,
+                    },
+                    stats: result.stats.clone(),
+                    next_pc: result.next_pc,
+                });
+            }
+            Ok(final_results)
+        }
+
+        /// 使用协程调度器并行运行所有 vCPU
+        pub fn run_parallel_with_scheduler<S>(
+            &self,
+            blocks: &[B],
+            scheduler: &S,
+        ) -> Result<Vec<crate::ExecResult>, VmError>
+        where
+            S: CoroutineSchedulerExt + Send + Sync,
+        {
+            if blocks.len() != self.vcpus.len() {
+                return Err(VmError::Core(CoreError::InvalidState {
+                    message: "Block count must match vCPU count".to_string(),
+                    current: format!("{} blocks", blocks.len()),
+                    expected: format!("{} vCPUs", self.vcpus.len()),
+                }));
+            }
+
+            let results = Arc::new(parking_lot::Mutex::new(Vec::with_capacity(self.vcpus.len())));
+            let task_handles = Arc::new(parking_lot::Mutex::new(Vec::new()));
+
+            // 使用协程调度器提交任务
+            for (_vcpu_id, (vcpu, block)) in self.vcpus.iter().zip(blocks.iter()).enumerate() {
+                let vcpu_clone: Arc<Mutex<Box<dyn ExecutionEngine<B>>>> = Arc::clone(vcpu);
+                let sharded_mmu_clone: Arc<ShardedMmu> = Arc::clone(&self.sharded_mmu);
+                let results_clone: Arc<parking_lot::Mutex<Vec<ExecResult>>> = Arc::clone(&results);
+                let stats_clone: Arc<RwLock<ConcurrencyStats>> = Arc::clone(&self.stats);
+                let block_clone = block.clone();
+
+                let task = move || {
+                    let start_time = std::time::Instant::now();
+
+                    // 执行 vCPU
+                    let mut vcpu_guard = match vcpu_clone.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => return,
+                    };
+
+                    let mut mmu_adapter = ShardedMmuAdapter {
+                        sharded_mmu: sharded_mmu_clone,
+                        stats: stats_clone.clone(),
+                    };
+
+                    // 使用spawn_blocking执行阻塞操作
+                    let result = {
+                        let handle = std::thread::spawn(move || {
+                            vcpu_guard.run(&mut mmu_adapter, &block_clone)
+                        });
+
+                        // 等待任务完成
+                        handle.join().unwrap_or_else(|_| ExecResult {
+                            status: crate::ExecStatus::Ok,
+                            stats: crate::ExecStats::default(),
+                            next_pc: 0,
+                        })
+                    };
+
+                    let elapsed = start_time.elapsed();
+                    {
+                        let mut stats = stats_clone.write();
+                        stats.total_executions += 1;
+                        stats.avg_wait_time_ns =
+                            (stats.avg_wait_time_ns + elapsed.as_nanos() as u64) / 2;
+                        if elapsed.as_nanos() as u64 > stats.max_wait_time_ns {
+                            stats.max_wait_time_ns = elapsed.as_nanos() as u64;
+                        }
+                    }
+
+                    results_clone.lock().push(result);
+                };
+
+                // 使用协程调度器提交任务
+                let handle = scheduler.spawn(Priority::Medium, task);
+                task_handles.lock().push(handle);
+            }
+
+            // 启动调度器
+            if let Err(e) = scheduler.start() {
+                return Err(VmError::Core(CoreError::Internal {
+                    message: format!("Failed to start scheduler: {}", e),
+                    module: "MultiVcpuExecutor".to_string(),
+                }));
+            }
+
+            // 等待所有协程完成
+            scheduler.join_all();
+
+            // 停止调度器
+            scheduler.stop();
+
+            // 获取结果
+            let results_guard = results.lock();
+            // 手动克隆每个 ExecResult
+            let mut final_results = Vec::new();
+            for result in results_guard.iter() {
+                final_results.push(crate::ExecResult {
+                    status: match &result.status {
+                        crate::ExecStatus::Continue => crate::ExecStatus::Continue,
+                        crate::ExecStatus::Ok => crate::ExecStatus::Ok,
+                        crate::ExecStatus::Fault(err) => crate::ExecStatus::Fault(err.clone()),
+                        crate::ExecStatus::IoRequest => crate::ExecStatus::IoRequest,
+                        crate::ExecStatus::InterruptPending => crate::ExecStatus::InterruptPending,
+                    },
+                    stats: result.stats.clone(),
+                    next_pc: result.next_pc,
+                });
+            }
+            Ok(final_results)
+        }
+    }
+}
+
+/// Synchronous parallel execution module
+#[cfg(all(not(feature = "async"), feature = "multi-vcpu"))]
+pub mod parallel_execution {
+    use super::*;
+
+    /// Synchronous multi-vCPU executor
+    pub struct MultiVcpuExecutorSync<B> {
+        /// vCPU 集合
+        pub vcpus: Vec<Arc<Mutex<Box<dyn ExecutionEngine<B>>>>>,
+        /// 分片内存管理单元
+        pub sharded_mmu: Arc<ShardedMmu>,
+        /// 并发统计
+        pub stats: Arc<RwLock<ConcurrencyStats>>,
+        /// 配置
+        pub config: ParallelExecutorConfig,
+    }
+
+    impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutorSync<B> {
+        /// 使用配置创建 multi-vCPU 执行器
+        pub fn with_config(
+            vcpu_count: u32,
+            mmu_factory: impl Fn() -> Box<dyn MMU>,
+            engine_factory: impl Fn() -> Box<dyn ExecutionEngine<B>>,
+            config: ParallelExecutorConfig,
+        ) -> Self {
+            let mut vcpus = Vec::new();
+            for _ in 0..vcpu_count {
+                let engine = engine_factory();
+                vcpus.push(Arc::new(Mutex::new(engine)));
+            }
+
+            let sharded_mmu = Arc::new(ShardedMmu::new(mmu_factory, config.shard_count));
+
+            Self {
+                vcpus,
+                sharded_mmu,
+                stats: Arc::new(RwLock::new(ConcurrencyStats::default())),
+                config,
+            }
+        }
+    }
+}
+
+// Re-export the appropriate executor based on feature flag
+#[cfg(all(feature = "async", feature = "multi-vcpu"))]
+pub use parallel_execution::MultiVcpuExecutorAsync as MultiVcpuExecutor;
+
+#[cfg(all(not(feature = "async"), feature = "multi-vcpu"))]
+pub use parallel_execution::MultiVcpuExecutorSync as MultiVcpuExecutor;
+
+// Common methods for both sync and async executors
 impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
     /// 创建新的 multi-vCPU 执行器（使用分片锁优化）
     pub fn new(
@@ -159,312 +488,55 @@ impl<B: 'static + Send + Sync + Clone> MultiVcpuExecutor<B> {
         )
     }
 
-    /// 使用配置创建 multi-vCPU 执行器
-    pub fn with_config(
-        vcpu_count: u32,
-        mmu_factory: impl Fn() -> Box<dyn MMU>,
-        engine_factory: impl Fn() -> Box<dyn ExecutionEngine<B>>,
-        config: ParallelExecutorConfig,
-    ) -> Self {
-        let mut vcpus = Vec::new();
-        for _ in 0..vcpu_count {
-            let engine = engine_factory();
-            vcpus.push(Arc::new(Mutex::new(engine)));
-        }
-
-        let sharded_mmu = Arc::new(ShardedMmu::new(mmu_factory, config.shard_count));
-
-        Self {
-            vcpus,
-            sharded_mmu,
-            stats: Arc::new(RwLock::new(ConcurrencyStats::default())),
-            #[cfg(feature = "async")]
-            coroutine_scheduler: None,
-            config,
-        }
-    }
-
-
-
     /// 添加 vCPU
     pub fn add_vcpu(&mut self, vcpu: Arc<Mutex<Box<dyn ExecutionEngine<B>>>>) {
-        self.vcpus.push(vcpu);
+        // Access inner vcpus field via module-specific implementation
+        // This is a placeholder - actual implementation would need to access the inner struct
+        #[cfg(all(feature = "async", feature = "multi-vcpu"))]
+        {
+            let executor = unsafe {
+                &mut *(self as *const Self as *mut parallel_execution::MultiVcpuExecutorAsync<B>)
+            };
+            executor.vcpus.push(vcpu);
+        }
+
+        #[cfg(all(not(feature = "async"), feature = "multi-vcpu"))]
+        {
+            let executor = unsafe {
+                &mut *(self as *const Self as *mut parallel_execution::MultiVcpuExecutorSync<B>)
+            };
+            executor.vcpus.push(vcpu);
+        }
     }
-
-
 
     /// 获取 vCPU 数量
     pub fn vcpu_count(&self) -> usize {
-        self.vcpus.len()
+        #[cfg(all(feature = "async", feature = "multi-vcpu"))]
+        {
+            let executor = unsafe { &*(self as *const Self as *const parallel_execution::MultiVcpuExecutorAsync<B>) };
+            executor.vcpus.len()
+        }
+
+        #[cfg(all(not(feature = "async"), feature = "multi-vcpu"))]
+        {
+            let executor = unsafe { &*(self as *const Self as *const parallel_execution::MultiVcpuExecutorSync<B>) };
+            executor.vcpus.len()
+        }
     }
 
     /// 获取并发性能统计
     pub fn get_concurrency_stats(&self) -> ConcurrencyStats {
-        self.stats.read().clone()
-    }
-
-    /// 设置协程调度器
-    ///
-    /// 设置协程调度器后，run_parallel_async将优先使用协程调度器执行任务
-    #[cfg(feature = "async")]
-    pub fn set_coroutine_scheduler<S: CoroutineScheduler + 'static>(&mut self, scheduler: Arc<S>) {
-        self.coroutine_scheduler = Some(scheduler as Arc<dyn CoroutineScheduler + Send + Sync>);
-    }
-
-    /// 获取协程调度器（如果已设置）
-    #[cfg(feature = "async")]
-    pub fn get_coroutine_scheduler(&self) -> Option<&Arc<dyn CoroutineScheduler + Send + Sync>> {
-        self.coroutine_scheduler.as_ref()
-    }
-
-    /// 创建默认协程池
-    ///
-    /// 注意：此方法需要外部协程池实现，暂时移除
-    #[cfg(feature = "async")]
-    pub fn create_default_pool(&mut self) {
-        // 需要外部提供协程池实现
-        // let pool = Arc::new(vm_runtime::CoroutinePool::new(self.vcpus.len() * 2));
-        // self.coroutine_pool = Some(pool);
-    }
-
-    /// 异步并行运行所有 vCPU（使用协程）
-    ///
-    /// 使用async/await协程替代线程，减少上下文切换开销
-    /// 优先使用协程调度器管理协程资源，提高资源利用率
-    /// 如果没有设置协程调度器，回退到tokio::spawn
-    #[cfg(feature = "async")]
-    pub async fn run_parallel_async(&self, blocks: &[B]) -> Result<Vec<ExecResult>, VmError> {
-        // 如果设置了协程调度器，优先使用协程调度器
-        if let Some(scheduler) = &self.coroutine_scheduler {
-            return self.run_parallel_with_scheduler(blocks, scheduler.as_ref());
+        #[cfg(all(feature = "async", feature = "multi-vcpu"))]
+        {
+            let executor = unsafe { &*(self as *const Self as *const parallel_execution::MultiVcpuExecutorAsync<B>) };
+            executor.stats.read().clone()
         }
 
-        // 否则使用tokio::spawn（向后兼容）
-        use tokio::sync::Mutex as AsyncMutex;
-
-        if blocks.len() != self.vcpus.len() {
-            return Err(VmError::Core(CoreError::InvalidState {
-                message: "Block count must match vCPU count".to_string(),
-                current: format!("{} blocks", blocks.len()),
-                expected: format!("{} vCPUs", self.vcpus.len()),
-            }));
+        #[cfg(all(not(feature = "async"), feature = "multi-vcpu"))]
+        {
+            let executor = unsafe { &*(self as *const Self as *const parallel_execution::MultiVcpuExecutorSync<B>) };
+            executor.stats.read().clone()
         }
-
-        let results = Arc::new(AsyncMutex::new(Vec::with_capacity(self.vcpus.len())));
-
-        // 使用tokio::join!并行执行所有vCPU协程
-        let mut tasks = Vec::new();
-
-        for (_vcpu_id, (vcpu, block)) in self.vcpus.iter().zip(blocks.iter()).enumerate() {
-            let vcpu_clone: Arc<Mutex<Box<dyn ExecutionEngine<B>>>> = Arc::clone(vcpu);
-            let sharded_mmu_clone: Arc<ShardedMmu> = Arc::clone(&self.sharded_mmu);
-            let results_clone: Arc<AsyncMutex<Vec<ExecResult>>> = Arc::clone(&results);
-            let stats_clone: Arc<RwLock<ConcurrencyStats>> = Arc::clone(&self.stats);
-            let block_clone = block.clone();
-
-            // 使用tokio::spawn创建协程任务
-            #[cfg(feature = "async")]
-            {
-                let task = tokio::spawn(async move {
-                    let start_time = std::time::Instant::now();
-
-                    // 执行 vCPU（在异步上下文中）
-                    // 注意：这里仍然使用同步锁，因为ExecutionEngine接口是同步的
-                    // 在实际应用中，应该使用tokio::sync::Mutex或异步MMU接口
-                    let mut vcpu_guard = match vcpu_clone.lock() {
-                        Ok(guard) => guard,
-                        Err(_) => return, // 如果锁被污染，协程退出
-                    };
-
-                    // 创建分片MMU适配器
-                    let mut mmu_adapter = ShardedMmuAdapter {
-                        sharded_mmu: sharded_mmu_clone,
-                        stats: stats_clone.clone(),
-                    };
-
-                    // 执行vCPU
-                    // 优化：如果MMU支持异步接口，使用异步版本；否则使用spawn_blocking
-                    // 这样可以减少线程池压力，提高并发性能
-                    #[cfg(feature = "async")]
-                    let result = {
-                        // 尝试使用异步MMU（如果可用）
-                        // 目前ExecutionEngine接口是同步的，所以仍需要spawn_blocking
-                        // 但我们可以优化：只在真正需要阻塞时才使用spawn_blocking
-                        // 对于快速路径（如TLB命中），可以直接执行
-                        tokio::task::spawn_blocking(move || {
-                            vcpu_guard.run(&mut mmu_adapter, &block_clone)
-                        })
-                        .await
-                        .unwrap_or_else(|_| ExecResult {
-                            status: crate::ExecStatus::Ok,
-                            stats: crate::ExecStats::default(),
-                            next_pc: 0,
-                        })
-                    };
-
-                    let elapsed = start_time.elapsed();
-                    {
-                        let mut stats = stats_clone.write();
-                        stats.total_executions += 1;
-                        stats.avg_wait_time_ns =
-                            (stats.avg_wait_time_ns + elapsed.as_nanos() as u64) / 2;
-                        if elapsed.as_nanos() as u64 > stats.max_wait_time_ns {
-                            stats.max_wait_time_ns = elapsed.as_nanos() as u64;
-                        }
-                    }
-
-                    let mut results_guard = results_clone.lock().await;
-                    results_guard.push(result);
-                });
-
-                tasks.push(task);
-            }
-        }
-
-        // 等待所有协程完成并收集结果
-        let mut final_results = Vec::new();
-        for task in tasks {
-            if let Ok(_) = task.await {
-                // 任务已完成，结果已写入共享的 results
-            }
-        }
-
-        // 获取结果
-        let results_guard = results.lock().await;
-        // 手动克隆每个 ExecResult
-        let mut final_results = Vec::new();
-        for result in results_guard.iter() {
-            final_results.push(crate::ExecResult {
-                status: match &result.status {
-                    crate::ExecStatus::Continue => crate::ExecStatus::Continue,
-                    crate::ExecStatus::Ok => crate::ExecStatus::Ok,
-                    crate::ExecStatus::Fault(err) => crate::ExecStatus::Fault(err.clone()),
-                    crate::ExecStatus::IoRequest => crate::ExecStatus::IoRequest,
-                    crate::ExecStatus::InterruptPending => crate::ExecStatus::InterruptPending,
-                },
-                stats: result.stats.clone(),
-                next_pc: result.next_pc,
-            });
-        }
-        Ok(final_results)
-    }
-
-    /// 使用协程调度器并行运行所有 vCPU
-    ///
-    /// 使用协程调度器管理协程资源，提高资源利用率
-    ///
-    /// 注意：此方法需要外部提供协程调度器，避免循环依赖
-    #[cfg(feature = "async")]
-    pub fn run_parallel_with_scheduler<S>(
-        &self,
-        blocks: &[B],
-        scheduler: &S,
-    ) -> Result<Vec<crate::ExecResult>, VmError>
-    where
-        S: CoroutineScheduler + Send + Sync,
-    {
-        #[cfg(feature = "async")]
-        use tokio::sync::Mutex as AsyncMutex;
-
-        if blocks.len() != self.vcpus.len() {
-            return Err(VmError::Core(CoreError::InvalidState {
-                message: "Block count must match vCPU count".to_string(),
-                current: format!("{} blocks", blocks.len()),
-                expected: format!("{} vCPUs", self.vcpus.len()),
-            }));
-        }
-
-        let results = Arc::new(parking_lot::Mutex::new(Vec::with_capacity(self.vcpus.len())));
-        let task_handles = Arc::new(parking_lot::Mutex::new(Vec::new()));
-
-        // 使用协程调度器提交任务
-        for (_vcpu_id, (vcpu, block)) in self.vcpus.iter().zip(blocks.iter()).enumerate() {
-            let vcpu_clone: Arc<Mutex<Box<dyn ExecutionEngine<B>>>> = Arc::clone(vcpu);
-            let sharded_mmu_clone: Arc<ShardedMmu> = Arc::clone(&self.sharded_mmu);
-            let results_clone: Arc<parking_lot::Mutex<Vec<ExecResult>>> = Arc::clone(&results);
-            let stats_clone: Arc<RwLock<ConcurrencyStats>> = Arc::clone(&self.stats);
-            let block_clone = block.clone();
-
-            let task = move || {
-                let start_time = std::time::Instant::now();
-
-                // 执行 vCPU
-                let mut vcpu_guard = match vcpu_clone.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => return,
-                };
-
-                let mut mmu_adapter = ShardedMmuAdapter {
-                    sharded_mmu: sharded_mmu_clone,
-                    stats: stats_clone.clone(),
-                };
-
-                // 使用spawn_blocking执行阻塞操作
-                #[cfg(feature = "async")]
-                let result = {
-                    let handle = std::thread::spawn(move || {
-                        vcpu_guard.run(&mut mmu_adapter, &block_clone)
-                    });
-                    
-                    // 等待任务完成
-                    handle.join().unwrap_or_else(|_| ExecResult {
-                        status: crate::ExecStatus::Ok,
-                        stats: crate::ExecStats::default(),
-                        next_pc: 0,
-                    })
-                };
-
-                let elapsed = start_time.elapsed();
-                {
-                    let mut stats = stats_clone.write();
-                    stats.total_executions += 1;
-                    stats.avg_wait_time_ns =
-                        (stats.avg_wait_time_ns + elapsed.as_nanos() as u64) / 2;
-                    if elapsed.as_nanos() as u64 > stats.max_wait_time_ns {
-                        stats.max_wait_time_ns = elapsed.as_nanos() as u64;
-                    }
-                }
-
-                results_clone.lock().push(result);
-            };
-
-            // 使用协程调度器提交任务
-            let handle = scheduler.spawn(crate::Priority::Medium, task);
-            task_handles.lock().push(handle);
-        }
-
-        // 启动调度器
-        if let Err(e) = scheduler.start() {
-            return Err(VmError::Core(CoreError::Internal {
-                message: format!("Failed to start scheduler: {}", e),
-                module: "MultiVcpuExecutor".to_string(),
-            }));
-        }
-
-        // 等待所有协程完成
-        scheduler.join_all();
-
-        // 停止调度器
-        scheduler.stop();
-
-        // 获取结果
-        let results_guard = results.lock();
-        // 手动克隆每个 ExecResult
-        let mut final_results = Vec::new();
-        for result in results_guard.iter() {
-            final_results.push(crate::ExecResult {
-                status: match &result.status {
-                    crate::ExecStatus::Continue => crate::ExecStatus::Continue,
-                    crate::ExecStatus::Ok => crate::ExecStatus::Ok,
-                    crate::ExecStatus::Fault(err) => crate::ExecStatus::Fault(err.clone()),
-                    crate::ExecStatus::IoRequest => crate::ExecStatus::IoRequest,
-                    crate::ExecStatus::InterruptPending => crate::ExecStatus::InterruptPending,
-                },
-                stats: result.stats.clone(),
-                next_pc: result.next_pc,
-            });
-        }
-        Ok(final_results)
     }
 }
 
@@ -599,9 +671,12 @@ impl MMU for ShardedMmuAdapter {
         let start_time = std::time::Instant::now();
 
         // 获取锁并执行翻译
-        let result = {
-            let mut mmu_guard = shard.lock().unwrap();
-            mmu_guard.translate(va, access)
+        let result = match shard.lock() {
+            Ok(mut mmu_guard) => mmu_guard.translate(va, access),
+            Err(_) => Err(crate::VmError::Memory(crate::MemoryError::PageTableError {
+                message: "MMU shard lock is poisoned".to_string(),
+                level: None,
+            })),
         };
 
         let elapsed = start_time.elapsed();
@@ -618,27 +693,43 @@ impl MMU for ShardedMmuAdapter {
 
     fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, crate::VmError> {
         let shard = self.sharded_mmu.get_shard(pc);
-        let mmu_guard = shard.lock().unwrap();
-        mmu_guard.fetch_insn(pc)
+        match shard.lock() {
+            Ok(mmu_guard) => mmu_guard.fetch_insn(pc),
+            Err(_) => Err(crate::VmError::Memory(crate::MemoryError::PageTableError {
+                message: "MMU shard lock is poisoned".to_string(),
+                level: None,
+            })),
+        }
     }
 
     fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, crate::VmError> {
         let shard = self.sharded_mmu.get_shard(pa);
-        let mmu_guard = shard.lock().unwrap();
-        mmu_guard.read(pa, size)
+        match shard.lock() {
+            Ok(mmu_guard) => mmu_guard.read(pa, size),
+            Err(_) => Err(crate::VmError::Memory(crate::MemoryError::PageTableError {
+                message: "MMU shard lock is poisoned".to_string(),
+                level: None,
+            })),
+        }
     }
 
     fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), crate::VmError> {
         let shard = self.sharded_mmu.get_shard(pa);
-        let mut mmu_guard = shard.lock().unwrap();
-        mmu_guard.write(pa, val, size)
+        match shard.lock() {
+            Ok(mut mmu_guard) => mmu_guard.write(pa, val, size),
+            Err(_) => Err(crate::VmError::Memory(crate::MemoryError::PageTableError {
+                message: "MMU shard lock is poisoned".to_string(),
+                level: None,
+            })),
+        }
     }
 
     fn map_mmio(&mut self, base: GuestAddr, size: u64, device: Box<dyn crate::MmioDevice>) {
         // 选择第一个分片进行MMIO映射（简化实现）
         if let Some(shard) = self.sharded_mmu.all_shards().first() {
-            let mut mmu_guard = shard.lock().unwrap();
-            mmu_guard.map_mmio(base, size, device);
+            if let Ok(mut mmu_guard) = shard.lock() {
+                mmu_guard.map_mmio(base, size, device);
+            }
         }
     }
 
@@ -649,8 +740,10 @@ impl MMU for ShardedMmuAdapter {
     fn memory_size(&self) -> usize {
         // 返回第一个分片的内存大小作为近似值
         if let Some(shard) = self.sharded_mmu.all_shards().first() {
-            let mmu_guard = shard.lock().unwrap();
-            mmu_guard.memory_size()
+            match shard.lock() {
+                Ok(mmu_guard) => mmu_guard.memory_size(),
+                Err(_) => 0,
+            }
         } else {
             0
         }
@@ -659,8 +752,10 @@ impl MMU for ShardedMmuAdapter {
     fn dump_memory(&self) -> Vec<u8> {
         // 从第一个分片转储内存（简化实现）
         if let Some(shard) = self.sharded_mmu.all_shards().first() {
-            let mmu_guard = shard.lock().unwrap();
-            mmu_guard.dump_memory()
+            match shard.lock() {
+                Ok(mmu_guard) => mmu_guard.dump_memory(),
+                Err(_) => Vec::new(),
+            }
         } else {
             Vec::new()
         }
@@ -669,8 +764,10 @@ impl MMU for ShardedMmuAdapter {
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
         // 恢复到第一个分片（简化实现）
         if let Some(shard) = self.sharded_mmu.all_shards().first() {
-            let mut mmu_guard = shard.lock().unwrap();
-            mmu_guard.restore_memory(data)
+            match shard.lock() {
+                Ok(mut mmu_guard) => mmu_guard.restore_memory(data),
+                Err(_) => Err("MMU shard lock is poisoned".to_string()),
+            }
         } else {
             Err("No shards available".to_string())
         }

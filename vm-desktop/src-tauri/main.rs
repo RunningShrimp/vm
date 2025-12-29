@@ -6,13 +6,13 @@
     windows_subsystem = "windows"
 )]
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
 use vm_desktop::{
-    ipc::{VmConfig, VmInstance, VmMetrics},
     AppState, MonitoringService, VmController,
+    ipc::{VmConfig, VmInstance, VmMetrics},
 };
-use std::path::PathBuf;
 
 #[tauri::command]
 async fn list_vms(state: State<'_, Arc<AppState>>) -> Result<Vec<VmInstance>, String> {
@@ -94,7 +94,7 @@ async fn set_start_pc(
     id: String,
     start_pc: String,
 ) -> Result<(), String> {
-    let pc = u64::from_str_radix(&start_pc.trim_start_matches("0x"), 16)
+    let pc = u64::from_str_radix(start_pc.trim_start_matches("0x"), 16)
         .map_err(|e| format!("Invalid start PC: {}", e))?;
     state.vm_controller.set_start_pc(&id, pc)
 }
@@ -106,7 +106,10 @@ async fn create_snapshot(
     name: String,
     description: String,
 ) -> Result<String, String> {
-    state.vm_controller.create_snapshot(&id, name, description).await
+    state
+        .vm_controller
+        .create_snapshot(&id, name, description)
+        .await
 }
 
 #[tauri::command]
@@ -115,14 +118,17 @@ async fn restore_snapshot(
     id: String,
     snapshot_id: String,
 ) -> Result<(), String> {
-    state.vm_controller.restore_snapshot(&id, &snapshot_id).await
+    state
+        .vm_controller
+        .restore_snapshot(&id, &snapshot_id)
+        .await
 }
 
 #[tauri::command]
 async fn list_snapshots(
     state: State<'_, Arc<AppState>>,
     id: String,
-) -> Result<Vec<vm_core::snapshot::Snapshot>, String> {
+) -> Result<Vec<String>, String> {
     state.vm_controller.list_snapshots(&id).await
 }
 

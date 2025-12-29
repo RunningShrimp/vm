@@ -908,6 +908,21 @@ impl DynamicRecompilationManager {
         }
     }
 
+    /// Helper method to safely lock recompilation candidates
+    fn lock_candidates(&self) -> Result<std::sync::MutexGuard<HashMap<GuestAddr, RecompilationCandidate>>, String> {
+        self.recompilation_candidates.lock().map_err(|e| format!("Failed to lock recompilation candidates: {}", e))
+    }
+
+    /// Helper method to safely lock code generator
+    fn lock_code_generator(&self) -> Result<std::sync::MutexGuard<AdaptiveCodeGenerator>, String> {
+        self.code_generator.lock().map_err(|e| format!("Failed to lock code generator: {}", e))
+    }
+
+    /// Helper method to safely lock recompilation history
+    fn lock_history(&self) -> Result<std::sync::MutexGuard<Vec<RecompilationRecord>>, String> {
+        self.recompilation_history.lock().map_err(|e| format!("Failed to lock recompilation history: {}", e))
+    }
+
     /// 分析重编译候选
     pub fn analyze_recompilation_candidate(&self, pc: GuestAddr, current_performance: f64) -> Option<RecompilationCandidate> {
         // 简化的重编译候选分析
@@ -946,18 +961,19 @@ impl DynamicRecompilationManager {
     }
 
     /// 添加重编译候选
-    pub fn add_recompilation_candidate(&self, candidate: RecompilationCandidate) {
-        let mut candidates = self.recompilation_candidates.lock().unwrap();
+    pub fn add_recompilation_candidate(&self, candidate: RecompilationCandidate) -> Result<(), String> {
+        let mut candidates = self.lock_candidates()?;
         candidates.insert(candidate.pc, candidate);
+        Ok(())
     }
 
     /// 执行重编译
     pub fn execute_recompilation(&self, pc: GuestAddr, ir_block: &mut IRBlock) -> Result<Vec<u8>, String> {
-        let mut code_generator = self.code_generator.lock().unwrap();
-        
+        let mut code_generator = self.lock_code_generator()?;
+
         // 生成优化代码
         let optimized_code = code_generator.generate_optimized_code(ir_block)?;
-        
+
         // 记录重编译
         let record = RecompilationRecord {
             pc,
@@ -967,36 +983,36 @@ impl DynamicRecompilationManager {
             performance_improvement: 0.2, // 假设提升
             reason: "性能优化".to_string(),
         };
-        
+
         {
-            let mut history = self.recompilation_history.lock().unwrap();
+            let mut history = self.lock_history()?;
             history.push(record);
-            
+
             // 限制历史大小
             if history.len() > self.config.recompilation_history_size {
                 history.remove(0);
             }
         }
-        
+
         // 移除候选
         {
-            let mut candidates = self.recompilation_candidates.lock().unwrap();
+            let mut candidates = self.lock_candidates()?;
             candidates.remove(&pc);
         }
-        
+
         Ok(optimized_code)
     }
 
     /// 获取重编译候选
-    pub fn get_recompilation_candidates(&self) -> Vec<RecompilationCandidate> {
-        let candidates = self.recompilation_candidates.lock().unwrap();
-        candidates.values().cloned().collect()
+    pub fn get_recompilation_candidates(&self) -> Result<Vec<RecompilationCandidate>, String> {
+        let candidates = self.lock_candidates()?;
+        Ok(candidates.values().cloned().collect())
     }
 
     /// 获取重编译历史
-    pub fn get_recompilation_history(&self) -> Vec<RecompilationRecord> {
-        let history = self.recompilation_history.lock().unwrap();
-        history.clone()
+    pub fn get_recompilation_history(&self) -> Result<Vec<RecompilationRecord>, String> {
+        let history = self.lock_history()?;
+        Ok(history.clone())
     }
 }
 
@@ -1100,6 +1116,16 @@ impl HotUpdateManager {
         }
     }
 
+    /// Helper method to safely lock hot update candidates
+    fn lock_candidates(&self) -> Result<std::sync::MutexGuard<HashMap<GuestAddr, HotUpdateCandidate>>, String> {
+        self.hot_update_candidates.lock().map_err(|e| format!("Failed to lock hot update candidates: {}", e))
+    }
+
+    /// Helper method to safely lock hot update history
+    fn lock_history(&self) -> Result<std::sync::MutexGuard<Vec<HotUpdateRecord>>, String> {
+        self.hot_update_history.lock().map_err(|e| format!("Failed to lock hot update history: {}", e))
+    }
+
     /// 分析热更新候选
     pub fn analyze_hot_update_candidate(&self, pc: GuestAddr, current_version: u32, new_code: Vec<u8>) -> Option<HotUpdateCandidate> {
         // 简化的热更新候选分析
@@ -1123,26 +1149,27 @@ impl HotUpdateManager {
     }
 
     /// 添加热更新候选
-    pub fn add_hot_update_candidate(&self, candidate: HotUpdateCandidate) {
-        let mut candidates = self.hot_update_candidates.lock().unwrap();
+    pub fn add_hot_update_candidate(&self, candidate: HotUpdateCandidate) -> Result<(), String> {
+        let mut candidates = self.lock_candidates()?;
         candidates.insert(candidate.pc, candidate);
+        Ok(())
     }
 
     /// 执行热更新
     pub fn execute_hot_update(&self, pc: GuestAddr) -> Result<bool, String> {
         let candidate = {
-            let mut candidates = self.hot_update_candidates.lock().unwrap();
+            let mut candidates = self.lock_candidates()?;
             candidates.remove(&pc)
         };
 
         if let Some(candidate) = candidate {
             let start_time = Instant::now();
-            
+
             // 执行热更新
             let success = self.perform_hot_update(&candidate)?;
-            
+
             let update_time_ns = start_time.elapsed().as_nanos() as u64;
-            
+
             // 记录热更新
             let record = HotUpdateRecord {
                 pc,
@@ -1153,17 +1180,17 @@ impl HotUpdateManager {
                 success,
                 update_time_ns,
             };
-            
+
             {
-                let mut history = self.hot_update_history.lock().unwrap();
+                let mut history = self.lock_history()?;
                 history.push(record);
-                
+
                 // 限制历史大小
                 if history.len() > self.config.hot_update_history_size {
                     history.remove(0);
                 }
             }
-            
+
             Ok(success)
         } else {
             Err("没有找到热更新候选".to_string())
@@ -1179,15 +1206,15 @@ impl HotUpdateManager {
     }
 
     /// 获取热更新候选
-    pub fn get_hot_update_candidates(&self) -> Vec<HotUpdateCandidate> {
-        let candidates = self.hot_update_candidates.lock().unwrap();
-        candidates.values().cloned().collect()
+    pub fn get_hot_update_candidates(&self) -> Result<Vec<HotUpdateCandidate>, String> {
+        let candidates = self.lock_candidates()?;
+        Ok(candidates.values().cloned().collect())
     }
 
     /// 获取热更新历史
-    pub fn get_hot_update_history(&self) -> Vec<HotUpdateRecord> {
-        let history = self.hot_update_history.lock().unwrap();
-        history.clone()
+    pub fn get_hot_update_history(&self) -> Result<Vec<HotUpdateRecord>, String> {
+        let history = self.lock_history()?;
+        Ok(history.clone())
     }
 }
 
@@ -1509,20 +1536,36 @@ impl PerformanceMonitor {
         }
     }
 
+    /// Helper method to safely lock performance collector
+    fn lock_collector(&self) -> Result<std::sync::MutexGuard<PerformanceDataCollector>, String> {
+        self.performance_collector.lock().map_err(|e| format!("Failed to lock performance collector: {}", e))
+    }
+
+    /// Helper method to safely lock feedback analyzer
+    fn lock_analyzer(&self) -> Result<std::sync::MutexGuard<FeedbackAnalyzer>, String> {
+        self.feedback_analyzer.lock().map_err(|e| format!("Failed to lock feedback analyzer: {}", e))
+    }
+
+    /// Helper method to safely lock report generator
+    fn lock_generator(&self) -> Result<std::sync::MutexGuard<PerformanceReportGenerator>, String> {
+        self.report_generator.lock().map_err(|e| format!("Failed to lock report generator: {}", e))
+    }
+
     /// 记录性能数据
-    pub fn record_performance_data(&self, data_point: PerformanceDataPoint) {
-        let mut collector = self.performance_collector.lock().unwrap();
-        
+    pub fn record_performance_data(&self, data_point: PerformanceDataPoint) -> Result<(), String> {
+        let mut collector = self.lock_collector()?;
+
         // 添加数据点
         collector.data_points.push(data_point.clone());
-        
+
         // 限制数据点数量
         if collector.data_points.len() > collector.max_data_points {
             collector.data_points.remove(0);
         }
-        
+
         // 更新聚合统计
         self.update_aggregated_stats(&mut collector, &data_point);
+        Ok(())
     }
 
     /// 更新聚合统计
@@ -1623,28 +1666,28 @@ impl PerformanceMonitor {
     }
 
     /// 分析性能
-    pub fn analyze_performance(&self) -> Vec<PerformanceAnalysisResult> {
-        let collector = self.performance_collector.lock().unwrap();
-        let mut analyzer = self.feedback_analyzer.lock().unwrap();
-        
+    pub fn analyze_performance(&self) -> Result<Vec<PerformanceAnalysisResult>, String> {
+        let collector = self.lock_collector()?;
+        let mut analyzer = self.lock_analyzer()?;
+
         let mut results = Vec::new();
-        
+
         for (&pc, stats) in &collector.aggregated_stats {
             let result = self.analyze_pc_performance(pc, stats);
             results.push(result);
         }
-        
+
         // 更新分析结果
         let max_results = analyzer.max_results;
         analyzer.analysis_results.extend(results.clone());
-        
+
         // 限制结果数量
         let current_len = analyzer.analysis_results.len();
         if current_len > max_results {
             analyzer.analysis_results.drain(0..current_len - max_results);
         }
-        
-        results
+
+        Ok(results)
     }
 
     /// 分析特定PC的性能
@@ -1778,33 +1821,33 @@ impl PerformanceMonitor {
     }
 
     /// 生成性能报告
-    pub fn generate_performance_report(&self, report_type: ReportType) -> PerformanceReport {
-        let collector = self.performance_collector.lock().unwrap();
-        let analyzer = self.feedback_analyzer.lock().unwrap();
-        
+    pub fn generate_performance_report(&self, report_type: ReportType) -> Result<PerformanceReport, String> {
+        let collector = self.lock_collector()?;
+        let analyzer = self.lock_analyzer()?;
+
         // 计算总体性能评分
         let overall_performance_score = self.calculate_overall_performance_score(&collector);
-        
+
         // 收集关键指标
         let mut key_metrics = HashMap::new();
         key_metrics.insert("total_executions".to_string(), collector.aggregated_stats.values().map(|s| s.total_executions).sum::<u64>() as f64);
-        key_metrics.insert("avg_execution_time_ns".to_string(), 
-            collector.aggregated_stats.values().map(|s| s.avg_execution_time_ns).sum::<u64>() as f64 / 
+        key_metrics.insert("avg_execution_time_ns".to_string(),
+            collector.aggregated_stats.values().map(|s| s.avg_execution_time_ns).sum::<u64>() as f64 /
             collector.aggregated_stats.len().max(1) as f64);
-        key_metrics.insert("avg_cache_hit_rate".to_string(), 
-            collector.aggregated_stats.values().map(|s| s.avg_cache_hit_rate).sum::<f64>() / 
+        key_metrics.insert("avg_cache_hit_rate".to_string(),
+            collector.aggregated_stats.values().map(|s| s.avg_cache_hit_rate).sum::<f64>() /
             collector.aggregated_stats.len().max(1) as f64);
-        
+
         // 生成热点分析
         let hotspot_analysis = self.generate_hotspot_analysis(&collector);
-        
+
         // 生成趋势分析
         let trend_analysis = self.generate_trend_analysis(&collector);
-        
+
         // 生成建议摘要
         let recommendations_summary = self.generate_recommendations_summary(&analyzer);
-        
-        PerformanceReport {
+
+        Ok(PerformanceReport {
             report_time: Instant::now(),
             report_type,
             overall_performance_score,
@@ -1812,7 +1855,7 @@ impl PerformanceMonitor {
             hotspot_analysis,
             trend_analysis,
             recommendations_summary,
-        }
+        })
     }
 
     /// 计算总体性能评分
@@ -1848,7 +1891,11 @@ impl PerformanceMonitor {
         }
         
         // 按性能影响排序
-        hotspot_functions.sort_by(|a, b| b.performance_impact.partial_cmp(&a.performance_impact).unwrap());
+        hotspot_functions.sort_by(|a, b| {
+            b.performance_impact
+                .partial_cmp(&a.performance_impact)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         
         HotspotAnalysis {
             hotspot_functions,
@@ -1931,21 +1978,21 @@ impl PerformanceMonitor {
     }
 
     /// 获取聚合统计
-    pub fn get_aggregated_stats(&self) -> HashMap<GuestAddr, AggregatedPerformanceStats> {
-        let collector = self.performance_collector.lock().unwrap();
-        collector.aggregated_stats.clone()
+    pub fn get_aggregated_stats(&self) -> Result<HashMap<GuestAddr, AggregatedPerformanceStats>, String> {
+        let collector = self.lock_collector()?;
+        Ok(collector.aggregated_stats.clone())
     }
 
     /// 获取分析结果
-    pub fn get_analysis_results(&self) -> Vec<PerformanceAnalysisResult> {
-        let analyzer = self.feedback_analyzer.lock().unwrap();
-        analyzer.analysis_results.clone()
+    pub fn get_analysis_results(&self) -> Result<Vec<PerformanceAnalysisResult>, String> {
+        let analyzer = self.lock_analyzer()?;
+        Ok(analyzer.analysis_results.clone())
     }
 
     /// 获取报告历史
-    pub fn get_report_history(&self) -> Vec<PerformanceReport> {
-        let generator = self.report_generator.lock().unwrap();
-        generator.report_history.clone()
+    pub fn get_report_history(&self) -> Result<Vec<PerformanceReport>, String> {
+        let generator = self.lock_generator()?;
+        Ok(generator.report_history.clone())
     }
 }
 
@@ -2028,7 +2075,8 @@ mod tests {
         assert!(features.block_size > 0);
         
         // 预测优化决策
-        let decision = optimizer.predict_optimization(&features).unwrap();
+        let decision = optimizer.predict_optimization(&features)
+            .expect("Failed to predict optimization");
         assert!(decision.optimization_level <= 3);
     }
 
@@ -2058,7 +2106,8 @@ mod tests {
         };
         
         // 生成优化代码
-        let code = generator.generate_optimized_code(&mut ir_block).unwrap();
+        let code = generator.generate_optimized_code(&mut ir_block)
+            .expect("Failed to generate optimized code");
         assert!(!code.is_empty());
     }
 

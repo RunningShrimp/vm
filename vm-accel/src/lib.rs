@@ -83,9 +83,9 @@
 //!
 //! 所有加速器操作返回 [`Result<T, AccelError>`]，常见错误包括：
 //!
-//! - [`AccelError::NotAvailable`]: 加速器不可用（硬件不支持或权限不足）
-//! - [`AccelError::CreateVmFailed`]: 创建虚拟机失败
-//! - [`AccelError::MapMemoryFailed`]: 内存映射失败
+//! - [`AccelError::NotAvailable`][]: 加速器不可用（硬件不支持或权限不足）
+//! - [`AccelError::CreateVmFailed`][]: 创建虚拟机失败
+//! - [`AccelError::MapMemoryFailed`][]: 内存映射失败
 //! - [`AccelError::RunFailed`]: vCPU 执行失败
 //!
 //! ## 平台特定说明
@@ -112,7 +112,7 @@
 //!
 //! - `cpuid`: 启用 x86/x86_64 CPU 特性检测（使用 raw_cpuid crate）
 
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "cpuid"))]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "hardware"))]
 use raw_cpuid::CpuId;
 
 /// CPU 特性检测结果
@@ -167,7 +167,7 @@ pub struct CpuFeatures {
 pub fn detect() -> CpuFeatures {
     let mut features = CpuFeatures::default();
 
-    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "cpuid"))]
+    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "hardware"))]
     {
         let cpuid = CpuId::new();
 
@@ -202,8 +202,8 @@ pub fn detect() -> CpuFeatures {
 // 统一加速器接口
 // ============================================================================
 
-use vm_core::{GuestRegs, MMU, VmError, ExecutionError};
 use vm_core::error::{CoreError, MemoryError};
+use vm_core::{ExecutionError, GuestRegs, MMU, VmError};
 
 /// 加速器错误类型别名
 ///
@@ -214,88 +214,70 @@ pub type AccelError = VmError;
 impl From<AccelLegacyError> for VmError {
     fn from(err: AccelLegacyError) -> Self {
         match err {
-            AccelLegacyError::NotAvailable(msg) => {
-                VmError::Core(CoreError::NotSupported { 
-                    feature: msg,
-                    module: "vm-accel".to_string(),
-                })
-            }
-            AccelLegacyError::NotInitialized(msg) => {
-                VmError::Core(CoreError::InvalidState { 
-                    message: msg,
-                    current: "not_initialized".to_string(),
-                    expected: "initialized".to_string(),
-                })
-            }
-            AccelLegacyError::InitFailed(msg) => {
-                VmError::Core(CoreError::Internal { 
-                    message: msg,
-                    module: "vm-accel".to_string(),
-                })
-            }
-            AccelLegacyError::CreateVmFailed(msg) => {
-                VmError::Core(CoreError::Internal { 
-                    message: msg,
-                    module: "vm-accel".to_string(),
-                })
-            }
-            AccelLegacyError::CreateVcpuFailed(msg) => {
-                VmError::Core(CoreError::Internal { 
-                    message: msg,
-                    module: "vm-accel".to_string(),
-                })
-            }
-            AccelLegacyError::MapMemoryFailed(msg) => {
-                VmError::Memory(MemoryError::MappingFailed { 
-                    message: msg,
-                    src: None,
-                    dst: None,
-                })
-            }
+            AccelLegacyError::NotAvailable(msg) => VmError::Core(CoreError::NotSupported {
+                feature: msg,
+                module: "vm-accel".to_string(),
+            }),
+            AccelLegacyError::NotInitialized(msg) => VmError::Core(CoreError::InvalidState {
+                message: msg,
+                current: "not_initialized".to_string(),
+                expected: "initialized".to_string(),
+            }),
+            AccelLegacyError::InitFailed(msg) => VmError::Core(CoreError::Internal {
+                message: msg,
+                module: "vm-accel".to_string(),
+            }),
+            AccelLegacyError::CreateVmFailed(msg) => VmError::Core(CoreError::Internal {
+                message: msg,
+                module: "vm-accel".to_string(),
+            }),
+            AccelLegacyError::CreateVcpuFailed(msg) => VmError::Core(CoreError::Internal {
+                message: msg,
+                module: "vm-accel".to_string(),
+            }),
+            AccelLegacyError::MapMemoryFailed(msg) => VmError::Memory(MemoryError::MappingFailed {
+                message: msg,
+                src: None,
+                dst: None,
+            }),
             AccelLegacyError::UnmapMemoryFailed(msg) => {
-                VmError::Memory(MemoryError::MappingFailed { 
+                VmError::Memory(MemoryError::MappingFailed {
                     message: msg,
                     src: None,
                     dst: None,
                 })
             }
             AccelLegacyError::RunFailed(msg) => {
-                VmError::Execution(ExecutionError::Halted { 
-                    reason: msg,
-                })
+                VmError::Execution(ExecutionError::Halted { reason: msg })
             }
             AccelLegacyError::GetRegsFailed(msg) => {
-                VmError::Execution(ExecutionError::FetchFailed { 
+                VmError::Execution(ExecutionError::FetchFailed {
                     pc: vm_core::GuestAddr(0),
                     message: msg,
                 })
             }
             AccelLegacyError::SetRegsFailed(msg) => {
-                VmError::Execution(ExecutionError::FetchFailed { 
+                VmError::Execution(ExecutionError::FetchFailed {
                     pc: vm_core::GuestAddr(0),
                     message: msg,
                 })
             }
-            AccelLegacyError::AccessDenied(msg) => {
-                VmError::Core(CoreError::NotSupported { 
-                    feature: msg,
-                    module: "vm-accel".to_string(),
-                })
-            }
-            AccelLegacyError::InvalidVcpuId(id) => VmError::Core(CoreError::InvalidParameter { 
+            AccelLegacyError::AccessDenied(msg) => VmError::Core(CoreError::NotSupported {
+                feature: msg,
+                module: "vm-accel".to_string(),
+            }),
+            AccelLegacyError::InvalidVcpuId(id) => VmError::Core(CoreError::InvalidParameter {
                 name: "vcpu_id".to_string(),
                 value: format!("{}", id),
                 message: "Invalid vCPU ID".to_string(),
             }),
             AccelLegacyError::InvalidAddress(msg) => VmError::Memory(MemoryError::InvalidAddress(
-                vm_core::GuestAddr(msg.parse().unwrap_or(0))
+                vm_core::GuestAddr(msg.parse().unwrap_or(0)),
             )),
-            AccelLegacyError::NotSupported(msg) => {
-                VmError::Core(CoreError::NotSupported { 
-                    feature: msg,
-                    module: "vm-accel".to_string(),
-                })
-            }
+            AccelLegacyError::NotSupported(msg) => VmError::Core(CoreError::NotSupported {
+                feature: msg,
+                module: "vm-accel".to_string(),
+            }),
         }
     }
 }
@@ -513,22 +495,34 @@ impl AccelKind {
     }
 }
 
+pub mod accel;
 pub mod accel_fallback;
 pub mod event;
 
+#[cfg(feature = "smmu")]
+pub mod smmu;
+
+pub use accel::{AccelManagerError, AccelerationManager};
 pub use accel_fallback::{AccelFallbackManager, ExecResult};
 pub use numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer};
+pub use vcpu_numa_manager::{NumaTopology, VcpuNumaManager};
+
+#[cfg(feature = "smmu")]
+pub use smmu::{SmmuDeviceAttachment, SmmuDeviceInfo, SmmuManager};
+
+#[cfg(target_os = "linux")]
+pub use kvm_enhanced::EnhancedKvmAccelerator;
 
 pub struct NoAccel;
 impl Accel for NoAccel {
     fn init(&mut self) -> Result<(), AccelError> {
-        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
             feature: "No accelerator available".to_string(),
             module: "vm-accel".to_string(),
         }))
     }
     fn create_vcpu(&mut self, _id: u32) -> Result<(), AccelError> {
-        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
             feature: "No accelerator".to_string(),
             module: "vm-accel".to_string(),
         }))
@@ -540,31 +534,31 @@ impl Accel for NoAccel {
         _size: u64,
         _flags: u32,
     ) -> Result<(), AccelError> {
-        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
             feature: "No accelerator".to_string(),
             module: "vm-accel".to_string(),
         }))
     }
     fn unmap_memory(&mut self, _gpa: u64, _size: u64) -> Result<(), AccelError> {
-        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
             feature: "No accelerator".to_string(),
             module: "vm-accel".to_string(),
         }))
     }
     fn run_vcpu(&mut self, _vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
-        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
             feature: "No accelerator".to_string(),
             module: "vm-accel".to_string(),
         }))
     }
     fn get_regs(&self, _vcpu_id: u32) -> Result<GuestRegs, AccelError> {
-        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
             feature: "No accelerator".to_string(),
             module: "vm-accel".to_string(),
         }))
     }
     fn set_regs(&mut self, _vcpu_id: u32, _regs: &GuestRegs) -> Result<(), AccelError> {
-        Err(VmError::Core(vm_core::CoreError::NotSupported { 
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
             feature: "No accelerator".to_string(),
             module: "vm-accel".to_string(),
         }))
@@ -591,6 +585,8 @@ mod whpx_io;
 mod hvf;
 #[cfg(target_os = "linux")]
 mod kvm;
+#[cfg(target_os = "linux")]
+mod kvm_enhanced;
 #[cfg(target_os = "windows")]
 mod whpx;
 
@@ -612,6 +608,8 @@ pub mod realtime;
 pub mod realtime_monitor;
 /// vCPU 亲和性和 NUMA 支持
 pub mod vcpu_affinity;
+/// 集成的 vCPU 和 NUMA 管理器
+pub mod vcpu_numa_manager;
 /// 厂商扩展检测
 pub mod vendor_extensions;
 
@@ -694,7 +692,7 @@ pub fn select() -> (AccelKind, Box<dyn Accel>) {
 
 // 导出各平台的实现
 #[cfg(target_os = "macos")]
-pub use hvf_impl::AccelHvf;
+pub use hvf_impl::{AccelHvf, HvfError, HvmExit};
 #[cfg(target_os = "linux")]
 pub use kvm_impl::AccelKvm;
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
@@ -735,9 +733,12 @@ pub use whpx_impl::AccelWhpx;
 ///     assert_eq!(result, [11, 22, 33, 44, 55, 66, 77, 88]);
 /// }
 /// ```
-#[cfg(all(target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 pub fn add_i32x8(a: [i32; 8], b: [i32; 8]) -> [i32; 8] {
     if std::is_x86_feature_detected!("avx2") {
+        // SAFETY: AVX2 intrinsics require CPU feature check (done above)
+        // Preconditions: a and b are valid arrays of 8 i32 each (32 bytes), pointers properly aligned for loadu/storeu
+        // Invariants: _mm256_loadu_si256 supports unaligned loads, _mm256_storeu_si256 supports unaligned stores
         unsafe {
             use core::arch::x86_64::*;
             let va = _mm256_loadu_si256(a.as_ptr() as *const __m256i);
@@ -784,8 +785,11 @@ pub fn add_i32x8(a: [i32; 8], b: [i32; 8]) -> [i32; 8] {
 ///     assert_eq!(result, [11, 22, 33, 44]);
 /// }
 /// ```
-#[cfg(all(target_arch = "aarch64"))]
+#[cfg(target_arch = "aarch64")]
 pub fn add_i32x4(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
+    // SAFETY: NEON intrinsics are mandatory on aarch64 (always available)
+    // Preconditions: a and b are valid arrays of 4 i32 each (16 bytes), pointers properly aligned
+    // Invariants: vld1q_s32 loads 4 i32 values, vst1q_s32 stores 4 i32 values, vaddq_s32 performs SIMD addition
     unsafe {
         use core::arch::aarch64::*;
         let va = vld1q_s32(a.as_ptr());
@@ -804,12 +808,12 @@ mod tests {
     #[test]
     fn test_cpu_features_default() {
         let features = CpuFeatures::default();
-        assert_eq!(features.avx2, false);
-        assert_eq!(features.avx512, false);
-        assert_eq!(features.neon, false);
-        assert_eq!(features.vmx, false);
-        assert_eq!(features.svm, false);
-        assert_eq!(features.arm_el2, false);
+        assert!(!features.avx2);
+        assert!(!features.avx512);
+        assert!(!features.neon);
+        assert!(!features.vmx);
+        assert!(!features.svm);
+        assert!(!features.arm_el2);
     }
 
     #[test]
@@ -827,9 +831,9 @@ mod tests {
             write: true,
             exec: false,
         };
-        assert_eq!(flags.read, true);
-        assert_eq!(flags.write, true);
-        assert_eq!(flags.exec, false);
+        assert!(flags.read);
+        assert!(flags.write);
+        assert!(!flags.exec);
     }
 
     #[test]

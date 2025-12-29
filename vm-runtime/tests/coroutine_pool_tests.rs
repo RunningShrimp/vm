@@ -6,7 +6,7 @@ use vm_runtime::Priority;
 
 #[tokio::test]
 async fn test_coroutine_scheduler_basic() {
-    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+    let mut scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
     // 提交任务
@@ -16,17 +16,17 @@ async fn test_coroutine_scheduler_basic() {
 
     let coroutine = scheduler.submit_task(Priority::Medium, task);
     assert!(!coroutine.id().is_empty());
-    
+
     // 等待任务完成
     std::thread::sleep(Duration::from_millis(20));
-    
+
     scheduler.stop();
     scheduler.join_all();
 }
 
 #[tokio::test]
 async fn test_coroutine_scheduler_multiple_tasks() {
-    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+    let mut scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
     // 提交多个任务
@@ -39,24 +39,24 @@ async fn test_coroutine_scheduler_multiple_tasks() {
 
     // 等待所有任务完成
     std::thread::sleep(Duration::from_millis(300));
-    
+
     let stats = scheduler.get_stats();
     println!("Scheduler stats: {:?}", stats);
-    
+
     scheduler.stop();
     scheduler.join_all();
 }
 
 #[tokio::test]
 async fn test_coroutine_scheduler_priority() {
-    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+    let mut scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
     scheduler.start().expect("Failed to start scheduler");
 
     // 提交不同优先级的任务
     let high_task = || {
         std::thread::sleep(Duration::from_millis(10));
     };
-    
+
     let low_task = || {
         std::thread::sleep(Duration::from_millis(10));
     };
@@ -66,15 +66,15 @@ async fn test_coroutine_scheduler_priority() {
 
     // 等待任务完成
     std::thread::sleep(Duration::from_millis(30));
-    
+
     scheduler.stop();
     scheduler.join_all();
 }
 
 #[tokio::test]
 async fn test_coroutine_scheduler_stats() {
-    let scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
-    
+    let mut scheduler = CoroutineScheduler::new().expect("Failed to create scheduler");
+
     // 提交一些任务到全局队列
     for _i in 0..3 {
         let task = move || {
@@ -88,21 +88,21 @@ async fn test_coroutine_scheduler_stats() {
     assert_eq!(stats.global_queue_size, 3);
     assert_eq!(stats.total_tasks, 0);
     assert!(!stats.running);
-    
+
     // 启动调度器
     scheduler.start().expect("Failed to start scheduler");
-    
+
     // 分发任务到处理器队列
     scheduler.distribute_tasks();
-    
+
     let stats = scheduler.get_stats();
     assert_eq!(stats.global_queue_size, 0);
     assert_eq!(stats.total_tasks, 3);
     assert!(stats.running);
-    
+
     // 等待任务被处理
     std::thread::sleep(Duration::from_millis(50));
-    
+
     scheduler.stop();
     scheduler.join_all();
 }

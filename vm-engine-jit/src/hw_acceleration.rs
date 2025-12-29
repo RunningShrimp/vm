@@ -505,7 +505,7 @@ impl HardwareAccelerationManager {
         // 选择得分最高的路径
         let best_path = path_scores.iter()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(path, _)| **path)
+            .map(|(path, _)| *path)
             .unwrap_or(OptimizationPath::Scalar);
         
         // 应用安全检查
@@ -1225,11 +1225,13 @@ mod tests {
     #[test]
     fn test_hardware_acceleration_manager() {
         let config = HardwareAccelerationConfig::default();
-        let mut manager = HardwareAccelerationManager::new(config).unwrap();
-        
+        let mut manager = HardwareAccelerationManager::new(config)
+            .expect("Failed to create hardware acceleration manager");
+
         // 初始化
-        manager.initialize().unwrap();
-        
+        manager.initialize()
+            .expect("Failed to initialize hardware acceleration manager");
+
         // 创建测试IR块
         let ir_block = IRBlock {
             start_pc: 0x1000,
@@ -1238,7 +1240,7 @@ mod tests {
                 IROp::Add { dst: 2, src1: 1, src2: 1 },
             ],
         };
-        
+
         // 执行IR块
         // 使用一个简单的MMU实现进行测试
         struct TestMMU;
@@ -1253,10 +1255,11 @@ mod tests {
                 Ok(0)
             }
         }
-        
+
         let mut mmu = TestMMU;
-        let result = manager.execute_ir_block(&ir_block, &mut mmu).unwrap();
-        
+        let result = manager.execute_ir_block(&ir_block, &mut mmu)
+            .expect("Failed to execute IR block");
+
         assert_eq!(result.status, ExecStatus::Ok);
         assert!(result.stats.executed_insns > 0);
     }
@@ -1264,8 +1267,9 @@ mod tests {
     #[test]
     fn test_block_characteristics_analysis() {
         let config = HardwareAccelerationConfig::default();
-        let manager = HardwareAccelerationManager::new(config).unwrap();
-        
+        let manager = HardwareAccelerationManager::new(config)
+            .expect("Failed to create hardware acceleration manager");
+
         // 创建测试IR块
         let ir_block = IRBlock {
             start_pc: 0x1000,
@@ -1276,10 +1280,10 @@ mod tests {
                 IROp::Store { src: 2, base: 6, offset: 12, size: 4 },
             ],
         };
-        
+
         // 分析代码块特性
         let characteristics = manager.analyze_block_characteristics(&ir_block);
-        
+
         assert!(characteristics.arithmetic_ratio > 0.0);
         assert!(characteristics.memory_ratio > 0.0);
         assert!(characteristics.performance_potential > 0.0);

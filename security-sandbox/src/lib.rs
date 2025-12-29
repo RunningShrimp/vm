@@ -8,8 +8,12 @@
 
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// 权限映射类型别名：简化复杂类型定义
+/// Key: (资源类型, 资源ID) -> Value: 权限集合
+type PermissionMap = Arc<RwLock<HashMap<(String, String), HashSet<String>>>>;
 
 /// Syscall权限级别
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,46 +161,46 @@ impl ResourceUsage {
     pub fn check_quota(&self, quota: &ResourceQuota) -> Vec<String> {
         let mut violations = Vec::new();
 
-        if let Some(limit) = quota.cpu_time_ms {
-            if self.cpu_time_ms > limit {
-                violations.push(format!(
-                    "CPU time exceeded: {} > {}",
-                    self.cpu_time_ms, limit
-                ));
-            }
+        if let Some(limit) = quota.cpu_time_ms
+            && self.cpu_time_ms > limit
+        {
+            violations.push(format!(
+                "CPU time exceeded: {} > {}",
+                self.cpu_time_ms, limit
+            ));
         }
 
-        if let Some(limit) = quota.memory_limit_bytes {
-            if self.memory_bytes > limit {
-                violations.push(format!(
-                    "Memory exceeded: {} > {}",
-                    self.memory_bytes, limit
-                ));
-            }
+        if let Some(limit) = quota.memory_limit_bytes
+            && self.memory_bytes > limit
+        {
+            violations.push(format!(
+                "Memory exceeded: {} > {}",
+                self.memory_bytes, limit
+            ));
         }
 
-        if let Some(limit) = quota.fd_limit {
-            if self.open_fds > limit {
-                violations.push(format!("FD limit exceeded: {} > {}", self.open_fds, limit));
-            }
+        if let Some(limit) = quota.fd_limit
+            && self.open_fds > limit
+        {
+            violations.push(format!("FD limit exceeded: {} > {}", self.open_fds, limit));
         }
 
-        if let Some(limit) = quota.process_limit {
-            if self.process_count > limit {
-                violations.push(format!(
-                    "Process limit exceeded: {} > {}",
-                    self.process_count, limit
-                ));
-            }
+        if let Some(limit) = quota.process_limit
+            && self.process_count > limit
+        {
+            violations.push(format!(
+                "Process limit exceeded: {} > {}",
+                self.process_count, limit
+            ));
         }
 
-        if let Some(limit) = quota.file_size_limit {
-            if self.file_written_bytes > limit {
-                violations.push(format!(
-                    "File size exceeded: {} > {}",
-                    self.file_written_bytes, limit
-                ));
-            }
+        if let Some(limit) = quota.file_size_limit
+            && self.file_written_bytes > limit
+        {
+            violations.push(format!(
+                "File size exceeded: {} > {}",
+                self.file_written_bytes, limit
+            ));
         }
 
         violations
@@ -297,7 +301,7 @@ impl Default for ResourceMonitor {
 /// 访问控制列表 (ACL)
 pub struct AccessControlList {
     // 权限映射: (资源类型, 资源ID) -> 权限集合
-    permissions: Arc<RwLock<HashMap<(String, String), HashSet<String>>>>,
+    permissions: PermissionMap,
 }
 
 impl AccessControlList {
@@ -698,7 +702,7 @@ mod tests {
         };
 
         let violations = usage.check_quota(&quota);
-        assert!(violations.len() > 0);
+        assert!(!violations.is_empty());
         assert!(violations.iter().any(|v| v.contains("CPU")));
     }
 

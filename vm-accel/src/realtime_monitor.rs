@@ -172,7 +172,8 @@ impl JitterDetector {
             let stddev = variance.sqrt() as u64;
 
             if stddev > self.jitter_threshold_us {
-                let deviation = (latency_us as i64 - self.baseline_latency_us as i64).abs() as u64;
+                let deviation =
+                    (latency_us as i64 - self.baseline_latency_us as i64).unsigned_abs();
                 if deviation > self.jitter_threshold_us {
                     let mut anomalies = self.anomalies.write();
                     anomalies.push((
@@ -293,8 +294,6 @@ impl PredictiveAlert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn test_latency_analyzer() {
@@ -333,15 +332,19 @@ mod tests {
     fn test_jitter_detection() {
         let detector = JitterDetector::new(100, 50);
 
-        // 正常延迟
-        for i in 0..5 {
-            detector.detect(100 + i);
+        // 添加足够的基线样本
+        for _ in 0..20 {
+            detector.detect(100);
         }
 
-        // 异常尖刺
-        detector.detect(200);
+        // 添加多个高延迟样本来增加方差
+        for _ in 0..10 {
+            detector.detect(500); // 5倍基线延迟
+        }
 
-        assert!(detector.get_anomaly_count() >= 0);
+        // 验证至少检测到一些异常
+        let count = detector.get_anomaly_count();
+        assert!(count > 0, "Expected at least 1 anomaly, got {}", count);
     }
 
     #[test]
@@ -355,7 +358,7 @@ mod tests {
         }
 
         let alerts = alert.check_alerts();
-        assert!(alerts.len() > 0);
+        assert!(!alerts.is_empty());
     }
 
     #[test]
@@ -384,7 +387,7 @@ mod tests {
         }
 
         let anomalies = detector.get_anomalies();
-        assert!(anomalies.len() > 0);
+        assert!(!anomalies.is_empty());
     }
 
     #[test]

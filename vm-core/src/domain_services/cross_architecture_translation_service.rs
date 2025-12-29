@@ -1,7 +1,188 @@
-//! Cross-architecture translation domain service
+//! # Cross-Architecture Translation Domain Service
 //!
 //! This service manages the complex business logic of cross-architecture translation,
 //! coordinating between different architectures and managing translation strategies.
+//!
+//! ## Domain Responsibilities
+//!
+//! The cross-architecture translation service is responsible for:
+//!
+//! 1. **Translation Strategy Selection**: Choosing optimal translation strategies based on
+//!    source and target architectures
+//! 2. **Compatibility Validation**: Ensuring instruction sets are compatible between
+//!    architectures
+//! 3. **Translation Coordination**: Orchestrating the translation process across multiple
+//!    optimization stages
+//! 4. **Performance Optimization**: Balancing translation quality with performance
+//!    requirements
+//! 5. **Resource Management**: Managing translation resources and constraints
+//!
+//! ## DDD Patterns
+//!
+//! ### Domain Service Pattern
+//! This is a **Domain Service** because:
+//! - It coordinates between multiple architecture-specific aggregates
+//! - It encapsulates complex translation strategy selection logic
+//! - It manages business rules for translation validation
+//!
+//! ### Domain Events Published
+//!
+//! - **`TranslationEvent::StrategySelected`**: Published when translation strategy is chosen
+//! - **`TranslationEvent::CompatibilityValidated`**: Published when compatibility check completes
+//!
+//! ## Supported Architectures
+//!
+//! ### Source → Target Matrix
+//!
+//! | From \ To | x86_64 | ARM64 | RISC-V64 |
+//! |-----------|--------|-------|----------|
+//! | **x86_64** | - | ✓ | ✓ |
+//! | **ARM64** | ✓ | - | ✓ |
+//! | **RISC-V64** | ✓ | ✓ | - |
+//!
+//! ## Translation Strategies
+//!
+//! The service supports multiple translation strategies:
+//!
+//! | Strategy | Description | Performance | Accuracy |
+//!----------|-------------|-------------|----------|
+//! | **Direct** | One-to-one instruction mapping | Fast | High |
+//! | **Optimized** | Pattern-based optimization | Medium | Very High |
+//! | **Interpretive** | Interpretation-based fallback | Slow | Perfect |
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Translation
+//!
+//! ```rust
+//! use crate::domain_services::cross_architecture_translation_service::{
+//!     CrossArchitectureTranslationDomainService, TranslationConfig,
+//!     TranslationStrategy
+//! };
+//! use crate::GuestArch;
+//!
+//! let service = CrossArchitectureTranslationDomainService::new();
+//!
+//! let config = TranslationConfig {
+//!     source_arch: GuestArch::X86_64,
+//!     target_arch: GuestArch::ARM64,
+//!     strategy: TranslationStrategy::Optimized,
+//!     optimization_level: 2,
+//! };
+//!
+//! let result = service.translate(&code_bytes, &config)?;
+//! ```
+//!
+//! ### Compatibility Validation
+//!
+//! ```rust
+//! let service = CrossArchitectureTranslationDomainService::new();
+//!
+//! let compatibility = service.validate_compatibility(
+//!     GuestArch::X86_64,
+//!     GuestArch::ARM64,
+//! )?;
+//!
+//! if compatibility.is_supported {
+//!     println!("Compatibility: {}", compatibility.level);
+//!     println!("Supported features: {:?}", compatibility.supported_features);
+//! } else {
+//!     println!("Unsupported: {:?}", compatibility.unsupported_features);
+//! }
+//! ```
+//!
+//! ### Custom Business Rules
+//!
+//! ```rust
+//! use crate::domain_services::rules::translation_rules::{
+//!     TranslationBusinessRule, CustomTranslationRule
+//! };
+//!
+//! let custom_rule = Box::new(CustomTranslationRule::new());
+//!
+//! let service = CrossArchitectureTranslationDomainService::with_rules(
+//!     vec![custom_rule]
+//! );
+//! ```
+//!
+//! ## Architecture Compatibility
+//!
+//! ### Feature Compatibility Matrix
+//!
+//! | Feature | x86_64 | ARM64 | RISC-V64 | Notes |
+//! |---------|--------|-------|----------|-------|
+//! | **64-bit** | ✓ | ✓ | ✓ | Full support |
+//! | **SIMD** | SSE/AVX | NEON | V | Different semantics |
+//! | **Atomics** | ✓ | ✓ | ✓ | Generally compatible |
+//! | **FPU** | x87/AVX | FP/SIMD | F/D | Different precision |
+//! | **Vector** | AVX-512 | SVE | V | Translation needed |
+//!
+//! ### Instruction Translation Mapping
+//!
+//! ```text
+//! x86_64 → ARM64:
+//!   MOV   → LDR/STR
+//!   ADD   → ADD
+//!   PUSH  → STP (store pair)
+//!   CALL  → BL (branch with link)
+//!   RET   → RET
+//!
+//! x86_64 → RISC-V64:
+//!   MOV   → LW/SW
+//!   ADD   → ADD
+//!   PUSH  → SW (multiple)
+//!   CALL  → JAL (jump and link)
+//!   RET   → JALR x0, ra
+//! ```
+//!
+//! ## Translation Pipeline
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────┐
+//! │     Cross-Architecture Translation Pipeline      │
+//! └─────────────────────────────────────────────────┘
+//!                    │
+//!                    ▼
+//!     ┌─────────────────────────────┐
+//!     │  Validate Compatibility     │
+//!     └─────────────────────────────┘
+//!                    │
+//!                    ▼
+//!     ┌─────────────────────────────┐
+//!     │   Select Translation        │
+//!     │   Strategy                  │
+//!     └─────────────────────────────┘
+//!                    │
+//!                    ▼
+//!     ┌─────────────────────────────┐
+//!     │   Lift to IR                │
+//!     └─────────────────────────────┘
+//!                    │
+//!                    ▼
+//!     ┌─────────────────────────────┐
+//!     │   Optimize IR               │
+//!     └─────────────────────────────┘
+//!                    │
+//!                    ▼
+//!     ┌─────────────────────────────┐
+//!     │   Lower to Target           │
+//!     └─────────────────────────────┘
+//!                    │
+//!                    ▼
+//!     ┌─────────────────────────────┐
+//!     │   Validate Result           │
+//!     └─────────────────────────────┘
+//!                    │
+//!                    ▼
+//!                Result
+//! ```
+//!
+//! ## Integration with Aggregate Roots
+//!
+//! This service works with:
+//! - **`VirtualMachineAggregate`**: VM-level translation coordination
+//! - **`CodeBlockAggregate`**: Code block translation
+//! - **`TranslationCacheAggregate`**: Translation result caching
 
 use std::sync::Arc;
 use crate::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
@@ -812,15 +993,15 @@ mod tests {
             max_memory_overhead_mb: None,
             min_execution_speedup: None,
         };
-        
+
         let plan = service.plan_translation_strategy(
             GuestArch::X86_64,
             GuestArch::ARM64,
             1000,
             3,
             &performance_requirements,
-        ).unwrap();
-        
+        ).expect("plan_translation_strategy should not fail in test");
+
         assert_eq!(plan.source_arch, GuestArch::X86_64);
         assert_eq!(plan.target_arch, GuestArch::ARM64);
         assert_eq!(plan.optimization_level, 3);
@@ -831,13 +1012,13 @@ mod tests {
         let service = CrossArchitectureTranslationDomainService::new();
         
         let instruction_bytes = vec![0x48, 0x89, 0xc0]; // mov rax, rax
-        
+
         let result = service.validate_instruction_encoding(
             GuestArch::X86_64,
             GuestArch::X86_64,
             &instruction_bytes,
-        ).unwrap();
-        
+        ).expect("validate_instruction_encoding should not fail in test");
+
         assert!(result.is_compatible);
     }
     
@@ -852,13 +1033,13 @@ mod tests {
                 class: "general".to_string(),
             },
         ];
-        
+
         let result = service.map_registers_between_architectures(
             GuestArch::X86_64,
             GuestArch::ARM64,
             &source_registers,
-        ).unwrap();
-        
+        ).expect("map_registers_between_architectures should not fail in test");
+
         assert_eq!(result.register_mappings.len(), 1);
         assert_eq!(result.source_arch, GuestArch::X86_64);
         assert_eq!(result.target_arch, GuestArch::ARM64);

@@ -89,7 +89,7 @@ impl Clint {
 
         match offset {
             // MSIP 寄存器 (0x0000 - 0x3FFF)
-            o if o >= offsets::MSIP_BASE && o < offsets::MTIMECMP_BASE => {
+            o if (offsets::MSIP_BASE..offsets::MTIMECMP_BASE).contains(&o) => {
                 let hart_id = ((o - offsets::MSIP_BASE) / 4) as usize;
                 if hart_id < self.num_harts {
                     self.msip[hart_id] as u64
@@ -98,7 +98,7 @@ impl Clint {
                 }
             }
             // MTIMECMP 寄存器 (0x4000 - 0xBFF7)
-            o if o >= offsets::MTIMECMP_BASE && o < offsets::MTIME => {
+            o if (offsets::MTIMECMP_BASE..offsets::MTIME).contains(&o) => {
                 let hart_id = ((o - offsets::MTIMECMP_BASE) / 8) as usize;
                 if hart_id < self.num_harts {
                     self.mtimecmp[hart_id]
@@ -116,14 +116,14 @@ impl Clint {
     pub fn write(&mut self, offset: u64, val: u64, _size: u8) {
         match offset {
             // MSIP 寄存器
-            o if o >= offsets::MSIP_BASE && o < offsets::MTIMECMP_BASE => {
+            o if (offsets::MSIP_BASE..offsets::MTIMECMP_BASE).contains(&o) => {
                 let hart_id = ((o - offsets::MSIP_BASE) / 4) as usize;
                 if hart_id < self.num_harts {
                     self.msip[hart_id] = (val & 0x1) != 0;
                 }
             }
             // MTIMECMP 寄存器
-            o if o >= offsets::MTIMECMP_BASE && o < offsets::MTIME => {
+            o if (offsets::MTIMECMP_BASE..offsets::MTIME).contains(&o) => {
                 let hart_id = ((o - offsets::MTIMECMP_BASE) / 8) as usize;
                 if hart_id < self.num_harts {
                     self.mtimecmp[hart_id] = val;

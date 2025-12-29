@@ -277,21 +277,55 @@ impl VmDebugger {
             breakpoints: HashMap::new(),
             stopped: false,
             stop_reason: None,
-            current_pc: vm_core::GuestAddr(0), 
+            current_pc: vm_core::GuestAddr(0),
             watchpoints: HashSet::new(),
             start_time: Instant::now(),
         };
 
         self.current_session = Some(session);
 
-        // 启动GDB存根
-        if let Some(gdb_stub) = &self.gdb_stub {
-            gdb_stub.write().unwrap().start().await?;
+        // 启动GDB存根 - 在await前获取端口，释放锁后再进行异步操作
+        let gdb_port = if let Some(gdb_stub) = &self.gdb_stub {
+            let stub = gdb_stub.read().map_err(|e| {
+                VmError::Core(vm_core::CoreError::Concurrency {
+                    message: format!("Failed to acquire read lock on gdb_stub: {}", e),
+                    operation: "start_session".to_string(),
+                })
+            })?;
+            Some(stub.port)
+        } else {
+            None
+        };
+
+        if let Some(port) = gdb_port {
+            // 在释放锁后执行异步操作
+            let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
+                .await
+                .map_err(|e| VmError::Io(e.to_string()))?;
+
+            // 重新获取锁并更新connection
+            if let Some(gdb_stub) = &self.gdb_stub {
+                let mut stub = gdb_stub.write().map_err(|e| {
+                    VmError::Core(vm_core::CoreError::Concurrency {
+                        message: format!("Failed to acquire write lock on gdb_stub: {}", e),
+                        operation: "start_session".to_string(),
+                    })
+                })?;
+                stub.connection = Some(listener);
+            }
         }
 
         // 启动性能分析器
         if let Some(profiler) = &self.profiler {
-            profiler.write().unwrap().start();
+            profiler
+                .write()
+                .map_err(|e| {
+                    VmError::Core(vm_core::CoreError::Concurrency {
+                        message: format!("Failed to acquire write lock on profiler: {}", e),
+                        operation: "start_session".to_string(),
+                    })
+                })?
+                .start();
         }
 
         Ok(session_id)
@@ -299,12 +333,30 @@ impl VmDebugger {
 
     /// 结束调试会话
     pub async fn end_session(&mut self) -> Result<(), VmError> {
+        // 停止GDB存根 - 在await前释放锁
         if let Some(gdb_stub) = &self.gdb_stub {
-            gdb_stub.write().unwrap().stop().await?;
+            {
+                let mut stub = gdb_stub.write().map_err(|e| {
+                    VmError::Core(vm_core::CoreError::Concurrency {
+                        message: format!("Failed to acquire write lock on gdb_stub: {}", e),
+                        operation: "end_session".to_string(),
+                    })
+                })?;
+                stub.connection = None;
+                stub.current_packet.clear();
+            } // 锁在这里释放
         }
 
         if let Some(profiler) = &self.profiler {
-            profiler.write().unwrap().stop();
+            profiler
+                .write()
+                .map_err(|e| {
+                    VmError::Core(vm_core::CoreError::Concurrency {
+                        message: format!("Failed to acquire write lock on profiler: {}", e),
+                        operation: "end_session".to_string(),
+                    })
+                })?
+                .stop();
         }
 
         self.current_session = None;
@@ -381,12 +433,16 @@ impl VmDebugger {
                     let hit = match breakpoint.breakpoint_type {
                         BreakpointType::Execution => pc == breakpoint.address,
                         BreakpointType::Read => {
-                            access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
+                            access_type == Some(MemoryAccessType::Random)
+                                && pc == breakpoint.address
                         }
                         BreakpointType::Write => {
-                            access_type == Some(MemoryAccessType::Random) && pc == breakpoint.address
+                            access_type == Some(MemoryAccessType::Random)
+                                && pc == breakpoint.address
                         }
-                        BreakpointType::ReadWrite => access_type.is_some() && pc == breakpoint.address,
+                        BreakpointType::ReadWrite => {
+                            access_type.is_some() && pc == breakpoint.address
+                        }
                     };
 
                     if hit {
@@ -412,7 +468,7 @@ impl VmDebugger {
                 break;
             }
         }
-        
+
         // 如果有命中的断点，更新状态并返回
         if let Some(breakpoint_id) = hit_breakpoint_id {
             let session = self.current_session.as_mut()?;
@@ -508,7 +564,7 @@ impl VmDebugger {
 
     /// 获取性能分析数据
     pub fn get_profiling_data(&self) -> Option<ProfilingData> {
-        self.profiler.as_ref()?.read().unwrap().get_data()
+        self.profiler.as_ref()?.read().ok()?.get_data()
     }
 
     /// 创建快照
@@ -520,7 +576,15 @@ impl VmDebugger {
             })
         })?;
 
-        snapshot_manager.write().unwrap().create_snapshot()
+        snapshot_manager
+            .write()
+            .map_err(|e| {
+                VmError::Core(vm_core::CoreError::Concurrency {
+                    message: format!("Failed to acquire write lock on snapshot_manager: {}", e),
+                    operation: "create_snapshot".to_string(),
+                })
+            })?
+            .create_snapshot()
     }
 
     /// 恢复到快照
@@ -534,7 +598,12 @@ impl VmDebugger {
 
         snapshot_manager
             .write()
-            .unwrap()
+            .map_err(|e| {
+                VmError::Core(vm_core::CoreError::Concurrency {
+                    message: format!("Failed to acquire write lock on snapshot_manager: {}", e),
+                    operation: "restore_snapshot".to_string(),
+                })
+            })?
             .restore_snapshot(snapshot_id)
     }
 
@@ -545,14 +614,20 @@ impl VmDebugger {
 
     /// 记录日志
     pub fn log(&self, level: LogLevel, message: &str, context: Option<HashMap<String, String>>) {
-        if level >= self.config.log_level {
-            self.logger.write().unwrap().log(level, message, context);
+        if level >= self.config.log_level
+            && let Ok(mut logger) = self.logger.write()
+        {
+            logger.log(level, message, context);
         }
+        // If lock is poisoned, silently fail - logging shouldn't crash the system
     }
 
     /// 获取日志
     pub fn get_logs(&self, level: Option<LogLevel>, limit: Option<usize>) -> Vec<LogEntry> {
-        self.logger.read().unwrap().get_logs(level, limit)
+        self.logger
+            .read()
+            .map(|logger| logger.get_logs(level, limit))
+            .unwrap_or_default()
     }
 
     /// 评估条件表达式
@@ -620,7 +695,7 @@ impl GdbStub {
     pub fn handle_command(&mut self, command: &str) -> String {
         // 累积包数据用于处理分片的GDB消息
         self.current_packet.extend_from_slice(command.as_bytes());
-        
+
         match command {
             "g" => self.handle_read_registers(),
             "G" => self.handle_write_registers(),
@@ -681,6 +756,18 @@ pub struct Profiler {
 
 impl Profiler {
     pub fn new(sample_interval_us: u64) -> Self {
+        let now_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| {
+                eprintln!(
+                    "Warning: Failed to get system time for profiler initialization: {}",
+                    e
+                );
+                e
+            })
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
         Self {
             sample_interval_us,
             running: false,
@@ -688,16 +775,7 @@ impl Profiler {
                 function_stats: HashMap::new(),
                 hot_instructions: Vec::new(),
                 memory_access_patterns: Vec::new(),
-                time_range: (
-                    (SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64),
-                    (SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64),
-                ),
+                time_range: (now_timestamp, now_timestamp),
             },
             sample_timer: Instant::now(),
         }
@@ -708,16 +786,30 @@ impl Profiler {
         self.sample_timer = Instant::now();
         self.data.time_range.0 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+            .map_err(|e| {
+                eprintln!(
+                    "Warning: Failed to get system time when starting profiler: {}",
+                    e
+                );
+                e
+            })
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or_else(|_| self.data.time_range.0);
     }
 
     pub fn stop(&mut self) {
         self.running = false;
         self.data.time_range.1 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+            .map_err(|e| {
+                eprintln!(
+                    "Warning: Failed to get system time when stopping profiler: {}",
+                    e
+                );
+                e
+            })
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or_else(|_| self.data.time_range.0);
     }
 
     /// 检查是否应该进行采样
@@ -840,11 +932,16 @@ impl DebugLogger {
         message: &str,
         context: Option<HashMap<String, String>>,
     ) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to get timestamp for log entry: {}", e);
+                0
+            });
+
         let entry = LogEntry {
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
+            timestamp,
             level,
             message: message.to_string(),
             context,
@@ -885,7 +982,10 @@ impl SnapshotManager {
 
     /// 检查是否应该创建快照
     pub fn should_snapshot(&self) -> bool {
-        self.snapshot_interval > 0 && self.instruction_counter % self.snapshot_interval == 0
+        self.snapshot_interval > 0
+            && self
+                .instruction_counter
+                .is_multiple_of(self.snapshot_interval)
     }
 
     /// 增加指令计数器
@@ -897,8 +997,11 @@ impl SnapshotManager {
         let snapshot_id = format!("snapshot_{}", self.snapshots.len());
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to get timestamp for snapshot: {}", e);
+                0
+            });
 
         // 这里应该从实际的VM状态创建快照
         // 简化的实现
@@ -954,36 +1057,45 @@ mod tests {
         let config = DebuggerConfig::default();
         let mut debugger = VmDebugger::new(config);
 
-        let session_id = debugger.start_session().await.unwrap();
+        let session_id = debugger
+            .start_session()
+            .await
+            .expect("Failed to start debug session");
         assert!(!session_id.is_empty());
         assert!(debugger.current_session.is_some());
 
-        debugger.end_session().await.unwrap();
+        debugger
+            .end_session()
+            .await
+            .expect("Failed to end debug session");
         assert!(debugger.current_session.is_none());
     }
 
-    #[test]
-    fn test_breakpoint_management() {
+    #[tokio::test]
+    async fn test_breakpoint_management() {
         let config = DebuggerConfig::default();
         let mut debugger = VmDebugger::new(config);
 
         // 需要先启动会话
-        let session_id = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(debugger.start_session())
-            .unwrap();
+        let session_id = debugger
+            .start_session()
+            .await
+            .expect("Failed to start debug session");
+        assert!(!session_id.is_empty());
 
         let breakpoint_id = debugger
-            .set_breakpoint(0x1000, BreakpointType::Execution, None)
-            .unwrap();
+            .set_breakpoint(vm_core::GuestAddr(0x1000), BreakpointType::Execution, None)
+            .expect("Failed to set breakpoint");
         assert_eq!(breakpoint_id, 1);
 
-        debugger.remove_breakpoint(breakpoint_id).unwrap();
+        debugger
+            .remove_breakpoint(breakpoint_id)
+            .expect("Failed to remove breakpoint");
 
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(debugger.end_session())
-            .unwrap();
+        debugger
+            .end_session()
+            .await
+            .expect("Failed to end debug session");
     }
 
     #[test]
@@ -992,10 +1104,10 @@ mod tests {
 
         profiler.start();
         profiler.record_function_call("test_function", 100);
-        profiler.record_instruction_execution(0x1000, 10);
+        profiler.record_instruction_execution(vm_core::GuestAddr(0x1000), 10);
         profiler.stop();
 
-        let data = profiler.get_data().unwrap();
+        let data = profiler.get_data().expect("Failed to get profiling data");
         assert_eq!(data.function_stats.len(), 1);
         assert_eq!(data.hot_instructions.len(), 1);
     }

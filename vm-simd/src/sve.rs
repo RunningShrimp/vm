@@ -271,11 +271,11 @@ pub fn sve_add(a: &[u32], b: &[u32], pred: &SvePredicate) -> Vec<u32> {
     let len = a.len().min(b.len());
     let mut result = Vec::with_capacity(len);
 
-    for i in 0..len {
+    for (i, (ai, bi)) in a.iter().zip(b.iter()).enumerate().take(len) {
         if pred.test(i) {
-            result.push(a[i].wrapping_add(b[i]));
+            result.push(ai.wrapping_add(*bi));
         } else {
-            result.push(a[i]); // 未激活的元素保持原值
+            result.push(*ai); // 未激活的元素保持原值
         }
     }
     result
@@ -286,11 +286,11 @@ pub fn sve_sub(a: &[u32], b: &[u32], pred: &SvePredicate) -> Vec<u32> {
     let len = a.len().min(b.len());
     let mut result = Vec::with_capacity(len);
 
-    for i in 0..len {
+    for (i, (ai, bi)) in a.iter().zip(b.iter()).enumerate().take(len) {
         if pred.test(i) {
-            result.push(a[i].wrapping_sub(b[i]));
+            result.push(ai.wrapping_sub(*bi));
         } else {
-            result.push(a[i]);
+            result.push(*ai);
         }
     }
     result
@@ -301,11 +301,11 @@ pub fn sve_mul(a: &[u32], b: &[u32], pred: &SvePredicate) -> Vec<u32> {
     let len = a.len().min(b.len());
     let mut result = Vec::with_capacity(len);
 
-    for i in 0..len {
+    for (i, (ai, bi)) in a.iter().zip(b.iter()).enumerate().take(len) {
         if pred.test(i) {
-            result.push(a[i].wrapping_mul(b[i]));
+            result.push(ai.wrapping_mul(*bi));
         } else {
-            result.push(a[i]);
+            result.push(*ai);
         }
     }
     result
@@ -314,9 +314,9 @@ pub fn sve_mul(a: &[u32], b: &[u32], pred: &SvePredicate) -> Vec<u32> {
 /// SVE 向量归约加法 (ADDV)
 pub fn sve_addv(a: &[u32], pred: &SvePredicate) -> u32 {
     let mut sum = 0u32;
-    for i in 0..a.len() {
+    for (i, &val) in a.iter().enumerate() {
         if pred.test(i) {
-            sum = sum.wrapping_add(a[i]);
+            sum = sum.wrapping_add(val);
         }
     }
     sum
@@ -327,9 +327,9 @@ pub fn sve_smaxv(a: &[i32], pred: &SvePredicate) -> i32 {
     let mut max_val = i32::MIN;
     let mut found = false;
 
-    for i in 0..a.len() {
-        if pred.test(i) && (!found || a[i] > max_val) {
-            max_val = a[i];
+    for (i, &val) in a.iter().enumerate() {
+        if pred.test(i) && (!found || val > max_val) {
+            max_val = val;
             found = true;
         }
     }
@@ -346,7 +346,7 @@ pub fn sve_sminv(a: &[i32], pred: &SvePredicate) -> i32 {
     let mut min_val = i32::MAX;
     let mut found = false;
 
-    for (i, &val) in a.iter().enumerate() {
+    for (i, &val) in a.iter().enumerate().take(a.len()) {
         if pred.test(i) && (!found || val < min_val) {
             min_val = val;
             found = true;

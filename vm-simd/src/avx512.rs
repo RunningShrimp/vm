@@ -184,6 +184,12 @@ pub fn decompress_mask(byte: u8) -> Avx512Mask {
 mod fallback {
     use super::Avx512Mask;
 
+    /// AVX512 ZMM寄存器单精度浮点加法的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vaddps_zmm(
         _a: &[f32; 16],
         _b: &[f32; 16],
@@ -191,6 +197,13 @@ mod fallback {
     ) -> Option<[f32; 16]> {
         None
     }
+
+    /// AVX512 ZMM寄存器融合乘加的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vfma_zmm(
         _a: &[f32; 16],
         _b: &[f32; 16],
@@ -199,6 +212,13 @@ mod fallback {
     ) -> Option<[f32; 16]> {
         None
     }
+
+    /// AVX512 ZMM寄存器排列操作的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vpermps_zmm(
         _a: &[f32; 16],
         _indices: &[u32; 16],

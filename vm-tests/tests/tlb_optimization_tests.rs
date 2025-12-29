@@ -6,10 +6,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 use vm_core::{AccessType, MMU};
-use vm_mem::{
-    MmuOptimizationStrategy, SoftMmu, UnifiedMmu,
-    UnifiedMmuConfig,
-};
+use vm_mem::{MmuOptimizationStrategy, SoftMmu, UnifiedMmu, UnifiedMmuConfig};
 
 /// 测试多级TLB性能提升
 #[test]

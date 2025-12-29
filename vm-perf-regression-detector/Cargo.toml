@@ -1,27 +1,28 @@
 [package]
 name = "vm-perf-regression-detector"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["VM Development Team"]
 license = "MIT OR Apache-2.0"
 description = "Performance regression detection system for the VM project"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
-vm-cross-arch = { path = "../vm-cross-arch" }
+vm-cross-arch = { path = "../vm-cross-arch", features = ["all"] }
 vm-engine-jit = { path = "../vm-engine-jit" }
 
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-anyhow = "1.0"
-thiserror = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+# vm-perf-regression-detector uses: macros (tokio::main), rt-multi-thread (for async main), time (for sleep)
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 clap = { version = "4.0", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 rusqlite = { version = "0.28", features = ["chrono"] }
 plotters = "0.3"
 statrs = "0.16"
-num_cpus = "1.0"
+num_cpus = { workspace = true }
 tempfile = "3.0"
 
 [[bin]]

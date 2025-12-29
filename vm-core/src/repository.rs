@@ -9,6 +9,7 @@ use crate::snapshot::Snapshot;
 use crate::{VmConfig, VmError, VmId, VmResult, VmState};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 /// 聚合根仓储trait
 ///
@@ -327,7 +328,12 @@ pub trait VmStateRepository: Send + Sync {
 
     /// 检查虚拟机是否存在
     fn exists(&self, vm_id: &str) -> bool {
-        self.load(vm_id).map(|s| s.is_some()).unwrap_or(false)
+        self.load(vm_id)
+            .map(|s| s.is_some())
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to check if VM exists: {}", e);
+                false
+            })
     }
 }
 
@@ -485,7 +491,15 @@ impl AggregateRepository for InMemoryAggregateRepository {
     }
 
     fn aggregate_exists(&self, vm_id: &VmId) -> bool {
-        let aggregates = self.aggregates.read().unwrap();
+        // Handle poisoned lock gracefully by returning false
+        let aggregates = match self.aggregates.read() {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::warn!("Aggregate lock is poisoned, assuming aggregate does not exist");
+                return false;
+            }
+        };
+
         aggregates.contains_key(vm_id.as_str())
             || self
                 .event_repo
@@ -840,15 +854,15 @@ mod tests {
         assert!(repo.save("test-vm", &snapshot).is_ok());
 
         // 加载
-        let loaded = repo.load("test-vm").unwrap();
+        let loaded = repo.load("test-vm").expect("Failed to load VM state");
         assert!(loaded.is_some());
-        assert_eq!(loaded.unwrap().vm_id, "test-vm");
+        assert_eq!(loaded.expect("No VM state found").vm_id, "test-vm");
 
         // 检查存在
         assert!(repo.exists("test-vm"));
 
         // 列出
-        let ids = repo.list_vm_ids().unwrap();
+        let ids = repo.list_vm_ids().expect("Failed to list VM IDs");
         assert!(ids.contains(&"test-vm".to_string()));
 
         // 删除
@@ -860,7 +874,7 @@ mod tests {
     fn test_aggregate_repository() {
         let event_repo = Arc::new(InMemoryEventRepository::new());
         let repo = InMemoryAggregateRepository::new(event_repo);
-        let vm_id = VmId::new("test-vm").unwrap();
+        let vm_id = VmId::new("test-vm").expect("Failed to create VmId");
 
         // 聚合根不存在
         assert!(!repo.aggregate_exists(&vm_id));
@@ -880,27 +894,27 @@ mod tests {
         );
 
         // 保存聚合根
-        repo.save_aggregate(&aggregate).unwrap();
+        repo.save_aggregate(&aggregate).expect("Failed to save aggregate");
 
         // 检查存在性
         assert!(repo.aggregate_exists(&vm_id));
 
         // 加载聚合根
-        let loaded = repo.load_aggregate(&vm_id).unwrap().unwrap();
+        let loaded = repo.load_aggregate(&vm_id).expect("Failed to load aggregate").expect("No aggregate found");
         assert_eq!(loaded.vm_id(), vm_id.as_str());
 
         // 获取版本
-        let version = repo.get_aggregate_version(&vm_id).unwrap();
+        let version = repo.get_aggregate_version(&vm_id).expect("Failed to get aggregate version");
         assert_eq!(version, Some(0)); // 新创建的聚合根版本为0
     }
 
     #[test]
     fn test_event_repository() {
         let repo = InMemoryEventRepository::new();
-        let vm_id = VmId::new("test-vm").unwrap();
+        let vm_id = VmId::new("test-vm").expect("Failed to create VmId");
 
         // 初始状态
-        assert_eq!(repo.get_latest_version(&vm_id).unwrap(), None);
+        assert_eq!(repo.get_latest_version(&vm_id).expect("Failed to get latest version"), None);
 
         // 保存事件
         use crate::domain_events::{DomainEventEnum, VmLifecycleEvent};
@@ -910,13 +924,13 @@ mod tests {
             occurred_at: SystemTime::now(),
         });
 
-        repo.save_event(&vm_id, event).unwrap();
+        repo.save_event(&vm_id, event).expect("Failed to save event");
 
         // 检查版本
-        assert_eq!(repo.get_latest_version(&vm_id).unwrap(), Some(1));
+        assert_eq!(repo.get_latest_version(&vm_id).expect("Failed to get latest version"), Some(1));
 
         // 加载事件
-        let events = repo.load_events(&vm_id, None, None).unwrap();
+        let events = repo.load_events(&vm_id, None, None).expect("Failed to load events");
         assert_eq!(events.len(), 1);
         // 验证返回的是StoredEvent
         assert_eq!(events[0].sequence_number, 1);
@@ -927,10 +941,30 @@ mod tests {
     fn test_repository_factory() {
         let suite = RepositoryFactory::create_in_memory_suite();
 
-        // 验证所有仓储都已创建
-        assert!(suite.aggregate_repo.as_ref() as *const _ as usize != 0);
-        assert!(suite.event_repo.as_ref() as *const _ as usize != 0);
-        assert!(suite.state_repo.as_ref() as *const _ as usize != 0);
-        assert!(suite.snapshot_repo.as_ref() as *const _ as usize != 0);
+        // 验证所有仓储都已创建（通过简单的操作验证）
+        // Test that repositories are functional by checking basic operations
+        let vm_id = "test-vm-factory";
+
+        // Test state repo
+        let snapshot = VmStateSnapshot {
+            vm_id: vm_id.to_string(),
+            config: VmConfig::default(),
+            state: VmState::Created,
+            version: 1,
+            timestamp: 0,
+            aggregate_version: None,
+            metadata: std::collections::HashMap::new(),
+        };
+        assert!(suite.state_repo.save(vm_id, &snapshot).is_ok());
+
+        // Test aggregate repo
+        let vm_id_obj = VmId::new(vm_id.to_string()).expect("Failed to create VmId");
+        assert!(!suite.aggregate_repo.aggregate_exists(&vm_id_obj));
+
+        // Test event repo
+        assert_eq!(suite.event_repo.get_latest_version(&vm_id_obj).expect("Failed to get version"), None);
+
+        // Test snapshot repo
+        assert!(suite.snapshot_repo.list_snapshots(vm_id).is_ok());
     }
 }

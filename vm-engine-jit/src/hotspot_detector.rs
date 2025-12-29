@@ -130,35 +130,83 @@ impl HotspotDetector {
         }
     }
 
+    /// Helper: Acquire execution_stats lock
+    fn lock_execution_stats(&self) -> Result<std::sync::MutexGuard<HashMap<GuestAddr, ExecutionStats>>, VmError> {
+        self.execution_stats.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire execution_stats lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
+    /// Helper: Acquire window_stats lock
+    fn lock_window_stats(&self) -> Result<std::sync::MutexGuard<BTreeMap<Instant, HashMap<GuestAddr, u64>>>, VmError> {
+        self.window_stats.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire window_stats lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
+    /// Helper: Acquire current_hot_threshold lock
+    fn lock_hot_threshold(&self) -> Result<std::sync::MutexGuard<u64>, VmError> {
+        self.current_hot_threshold.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire hot_threshold lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
+    /// Helper: Acquire current_cold_threshold lock
+    fn lock_cold_threshold(&self) -> Result<std::sync::MutexGuard<u64>, VmError> {
+        self.current_cold_threshold.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire cold_threshold lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
+    /// Helper: Acquire detection_history lock
+    fn lock_detection_history(&self) -> Result<std::sync::MutexGuard<Vec<HotspotDetectionResult>>, VmError> {
+        self.detection_history.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire detection_history lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
+    /// Helper: Acquire last_cleanup lock
+    fn lock_last_cleanup(&self) -> Result<std::sync::MutexGuard<Instant>, VmError> {
+        self.last_cleanup.lock().map_err(|_| VmError::Execution(vm_core::ExecutionError::JitError {
+            message: "Failed to acquire last_cleanup lock".to_string(),
+            function_addr: None,
+        }))
+    }
+
     /// 记录代码块执行
     pub fn record_execution(&self, addr: GuestAddr, execution_time: Duration) -> Result<(), VmError> {
         let now = Instant::now();
-        
+
         // 更新执行统计
         {
-            let mut stats = self.execution_stats.lock().unwrap();
+            let mut stats = self.lock_execution_stats()?;
             let entry = stats.entry(addr).or_default();
-            
+
             entry.execution_count += 1;
             entry.total_execution_time += execution_time;
             entry.average_execution_time = entry.total_execution_time / entry.execution_count as u32;
             entry.last_execution = Duration::from_millis(now.elapsed().as_millis() as u64);
-            
+
             if entry.execution_count == 1 {
                 entry.first_execution = Duration::from_millis(now.elapsed().as_millis() as u64);
             }
         }
-        
+
         // 更新时间窗口统计
         {
-            let mut window_stats = self.window_stats.lock().unwrap();
+            let mut window_stats = self.lock_window_stats()?;
             let window_entry = window_stats.entry(now).or_default();
             *window_entry.entry(addr).or_insert(0) += 1;
         }
-        
+
         // 定期清理过期数据
         self.cleanup_expired_data()?;
-        
+
         Ok(())
     }
 
@@ -167,51 +215,51 @@ impl HotspotDetector {
         let now = Instant::now();
         let mut hotspot_blocks = Vec::new();
         let mut coldspot_blocks = Vec::new();
-        
+
         // 获取当前阈值
-        let hot_threshold = *self.current_hot_threshold.lock().unwrap();
-        let cold_threshold = *self.current_cold_threshold.lock().unwrap();
-        
+        let hot_threshold = *self.lock_hot_threshold()?;
+        let cold_threshold = *self.lock_cold_threshold()?;
+
         // 分析执行统计
         let total_blocks = {
-            let mut stats = self.execution_stats.lock().unwrap();
+            let mut stats = self.lock_execution_stats()?;
             let total_blocks = stats.len();
-            
+
             for (addr, stat) in stats.iter_mut() {
                 // 计算热点分数
                 stat.hotspot_score = self.calculate_hotspot_score(stat);
-                
+
                 // 判断是否为热点或冷点
                 stat.is_hotspot = stat.execution_count >= hot_threshold && stat.hotspot_score >= 1.0;
                 stat.is_coldspot = stat.execution_count <= cold_threshold && stat.hotspot_score <= 0.1;
-                
+
                 if stat.is_hotspot {
                     hotspot_blocks.push(*addr);
                 } else if stat.is_coldspot {
                     coldspot_blocks.push(*addr);
                 }
             }
-            
+
             // 如果启用自适应调整，更新阈值
             if self.config.enable_adaptive {
                 self.adapt_thresholds(&stats)?;
             }
-            
+
             total_blocks
         };
-        
+
         let hotspot_ratio = if total_blocks > 0 {
             hotspot_blocks.len() as f64 / total_blocks as f64
         } else {
             0.0
         };
-        
+
         let coldspot_ratio = if total_blocks > 0 {
             coldspot_blocks.len() as f64 / total_blocks as f64
         } else {
             0.0
         };
-        
+
         let result = HotspotDetectionResult {
             hotspot_blocks,
             coldspot_blocks,
@@ -220,18 +268,18 @@ impl HotspotDetector {
             hotspot_ratio,
             coldspot_ratio,
         };
-        
+
         // 保存检测结果
         {
-            let mut history = self.detection_history.lock().unwrap();
+            let mut history = self.lock_detection_history()?;
             history.push(result.clone());
-            
+
             // 保持历史记录在合理范围内
             if history.len() > 100 {
                 history.remove(0);
             }
         }
-        
+
         Ok(result)
     }
 
@@ -274,22 +322,22 @@ impl HotspotDetector {
         if stats.is_empty() {
             return Ok(());
         }
-        
+
         // 计算执行次数的统计信息
         let execution_counts: Vec<u64> = stats.values()
             .map(|s| s.execution_count)
             .collect();
-        
+
         let avg_execution = execution_counts.iter().sum::<u64>() as f64 / execution_counts.len() as f64;
         let _max_execution = *execution_counts.iter().max().unwrap_or(&0);
-        
+
         // 计算热点分数的统计信息
         let hotspot_scores: Vec<f64> = stats.values()
             .map(|s| s.hotspot_score)
             .collect();
-        
+
         let avg_score = hotspot_scores.iter().sum::<f64>() / hotspot_scores.len() as f64;
-        
+
         // 自适应调整热点阈值
         let new_hot_threshold = if avg_execution > self.config.base_hot_threshold as f64 {
             // 如果平均执行次数较高，提高热点阈值
@@ -297,7 +345,7 @@ impl HotspotDetector {
         } else {
             self.config.base_hot_threshold
         };
-        
+
         // 自适应调整冷点阈值
         let new_cold_threshold = if avg_score > 1.0 {
             // 如果平均热点分数较高，提高冷点阈值
@@ -305,55 +353,55 @@ impl HotspotDetector {
         } else {
             self.config.base_cold_threshold
         };
-        
+
         // 更新阈值
         {
-            let mut hot_threshold = self.current_hot_threshold.lock().unwrap();
+            let mut hot_threshold = self.lock_hot_threshold()?;
             *hot_threshold = new_hot_threshold;
-            
-            let mut cold_threshold = self.current_cold_threshold.lock().unwrap();
+
+            let mut cold_threshold = self.lock_cold_threshold()?;
             *cold_threshold = new_cold_threshold;
         }
-        
+
         Ok(())
     }
 
     /// 清理过期数据
     fn cleanup_expired_data(&self) -> Result<(), VmError> {
         let now = Instant::now();
-        let mut last_cleanup = self.last_cleanup.lock().unwrap();
-        
+        let mut last_cleanup = self.lock_last_cleanup()?;
+
         // 如果距离上次清理时间不足1秒，跳过清理
         if now.duration_since(*last_cleanup) < Duration::from_secs(1) {
             return Ok(());
         }
-        
+
         *last_cleanup = now;
-        
+
         // 清理时间窗口统计中的过期数据
         {
-            let mut window_stats = self.window_stats.lock().unwrap();
+            let mut window_stats = self.lock_window_stats()?;
             let cutoff_time = now - self.config.window_size;
-            
+
             window_stats.retain(|&time, _| time >= cutoff_time);
         }
-        
+
         // 清理执行统计中的过期数据
         {
-            let mut stats = self.execution_stats.lock().unwrap();
+            let mut stats = self.lock_execution_stats()?;
             let cutoff_duration = self.config.window_size * 2; // 使用更长的保留时间
             let _cutoff_time = now.checked_sub(cutoff_duration).unwrap_or(now);
             let cutoff_duration_for_compare = cutoff_duration; // 转换为Duration用于比较
-            
+
             stats.retain(|_, stat| stat.last_execution >= cutoff_duration_for_compare);
         }
-        
+
         Ok(())
     }
 
     /// 获取代码块的执行统计
     pub fn get_execution_stats(&self, addr: GuestAddr) -> Option<ExecutionStats> {
-        let stats = self.execution_stats.lock().unwrap();
+        let stats = self.lock_execution_stats().ok()?;
         stats.get(&addr).cloned()
     }
 
@@ -371,40 +419,40 @@ impl HotspotDetector {
 
     /// 获取当前热点阈值
     pub fn get_current_hot_threshold(&self) -> u64 {
-        *self.current_hot_threshold.lock().unwrap()
+        *self.lock_hot_threshold().unwrap_or_else(|_| self.config.base_hot_threshold)
     }
 
     /// 获取当前冷点阈值
     pub fn get_current_cold_threshold(&self) -> u64 {
-        *self.current_cold_threshold.lock().unwrap()
+        *self.lock_cold_threshold().unwrap_or_else(|_| self.config.base_cold_threshold)
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) -> Result<(), VmError> {
         {
-            let mut stats = self.execution_stats.lock().unwrap();
+            let mut stats = self.lock_execution_stats()?;
             stats.clear();
         }
-        
+
         {
-            let mut window_stats = self.window_stats.lock().unwrap();
+            let mut window_stats = self.lock_window_stats()?;
             window_stats.clear();
         }
-        
+
         {
-            let mut history = self.detection_history.lock().unwrap();
+            let mut history = self.lock_detection_history()?;
             history.clear();
         }
-        
+
         // 重置阈值
         {
-            let mut hot_threshold = self.current_hot_threshold.lock().unwrap();
+            let mut hot_threshold = self.lock_hot_threshold()?;
             *hot_threshold = self.config.base_hot_threshold;
-            
-            let mut cold_threshold = self.current_cold_threshold.lock().unwrap();
+
+            let mut cold_threshold = self.lock_cold_threshold()?;
             *cold_threshold = self.config.base_cold_threshold;
         }
-        
+
         Ok(())
     }
 
@@ -463,7 +511,7 @@ impl HotspotDetector {
         
         report.push_str("## 检测历史\n");
         {
-            let history = self.detection_history.lock().unwrap();
+            let history = self.lock_detection_history()?;
             for (i, hist) in history.iter().rev().take(10).enumerate() {
                 report.push_str(&format!(
                     "{}. 时间: {:?}, 热点数: {}, 冷点数: {}, 热点比例: {:.2}%\n",
@@ -475,13 +523,13 @@ impl HotspotDetector {
                 ));
             }
         }
-        
+
         Ok(report)
     }
 
     /// 导出统计数据
     pub fn export_stats(&self) -> Result<String, VmError> {
-        let stats = self.execution_stats.lock().unwrap();
+        let stats = self.lock_execution_stats()?;
         let json = serde_json::to_string_pretty(&*stats)
             .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError { 
                 message: e.to_string(),
@@ -493,16 +541,16 @@ impl HotspotDetector {
     /// 导入统计数据
     pub fn import_stats(&self, json: &str) -> Result<(), VmError> {
         let imported_stats: HashMap<GuestAddr, ExecutionStats> = serde_json::from_str(json)
-            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError { 
+            .map_err(|e| VmError::Execution(vm_core::ExecutionError::JitError {
                 message: e.to_string(),
                 function_addr: None,
             }))?;
-        
+
         {
-            let mut stats = self.execution_stats.lock().unwrap();
+            let mut stats = self.lock_execution_stats()?;
             stats.extend(imported_stats);
         }
-        
+
         Ok(())
     }
 }

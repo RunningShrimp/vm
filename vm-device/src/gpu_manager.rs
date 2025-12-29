@@ -1,8 +1,9 @@
+//! 统一的 GPU 管理器
+//!
+//! 支持 GPU Passthrough、Mediated Device Passthrough 和 WGPU，
+//! 提供优先级降级和用户选择功能
+
 pub mod mdev;
-///! 统一的 GPU 管理器
-///!
-///! 支持 GPU Passthrough、Mediated Device Passthrough 和 WGPU，
-///! 提供优先级降级和用户选择功能
 pub mod passthrough;
 pub mod wgpu_backend;
 
@@ -77,7 +78,7 @@ impl GpuBackend {
                 format!(
                     "{:?} GPU at {}",
                     pt.get_info().vendor,
-                    pt.get_info().pci_address.to_string()
+                    pt.get_info().pci_address
                 )
             }
             GpuBackend::Mdev(mdev) => {
@@ -129,17 +130,16 @@ impl UnifiedGpuManager {
         let passthrough_gpus = passthrough::scan_available_gpus();
         for gpu_info in passthrough_gpus {
             // 尝试创建 passthrough 实例
-            if let Ok(info) = self.create_pci_device_info(&gpu_info) {
-                if let Ok(pt) = GpuPassthrough::new(gpu_info.pci_address, info) {
-                    if pt.is_available() {
-                        self.available_backends.push(GpuBackend::Passthrough(pt));
-                        log::info!(
-                            "Found GPU Passthrough: {:?} at {}",
-                            gpu_info.vendor,
-                            gpu_info.pci_address.to_string()
-                        );
-                    }
-                }
+            if let Ok(info) = self.create_pci_device_info(&gpu_info)
+                && let Ok(pt) = GpuPassthrough::new(gpu_info.pci_address, info)
+                && pt.is_available()
+            {
+                self.available_backends.push(GpuBackend::Passthrough(pt));
+                log::info!(
+                    "Found GPU Passthrough: {:?} at {}",
+                    gpu_info.vendor,
+                    gpu_info.pci_address
+                );
             }
         }
 
@@ -151,7 +151,7 @@ impl UnifiedGpuManager {
                     let mdev = GpuMdev::new(address, config.mdev_type, config.type_id.clone());
                     if mdev.is_available() {
                         self.available_backends.push(GpuBackend::Mdev(mdev));
-                        log::info!("Found mdev GPU: {} at {}", config.name, address.to_string());
+                        log::info!("Found mdev GPU: {} at {}", config.name, address);
                     }
                 }
             }

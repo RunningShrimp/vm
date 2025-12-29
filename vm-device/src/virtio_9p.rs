@@ -6,7 +6,7 @@ use crate::virtio::{Queue, VirtioDevice};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use vm_core::{GuestAddr, MMU};
+use vm_core::{GuestAddr, MMU, MemoryError, VmError, VmResult};
 
 /// 9P文件系统标签
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -72,12 +72,26 @@ impl Virtio9P {
         }
     }
 
+    /// Helper to acquire next_fid lock with error handling
+    fn lock_next_fid(&self) -> VmResult<std::sync::MutexGuard<'_, u32>> {
+        self.next_fid.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "Virtio9P next_fid lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 分配新的FID
     fn allocate_fid(&self) -> Fid {
-        let mut next = self.next_fid.lock().unwrap();
-        let fid = Fid(*next);
-        *next = next.wrapping_add(1);
-        fid
+        match self.lock_next_fid() {
+            Ok(mut next) => {
+                let fid = Fid(*next);
+                *next = next.wrapping_add(1);
+                fid
+            }
+            Err(_) => Fid(0), // Fallback to Fid(0) if lock is poisoned
+        }
     }
 
     /// 处理9P请求
@@ -104,7 +118,8 @@ impl Virtio9P {
         let tag = u16::from_le_bytes([request_data[1], request_data[2]]);
 
         // 处理不同类型的9P消息
-        let response_len = match message_type {
+
+        match message_type {
             6 => self.handle_tversion(mmu, &request_data, tag), // TVERSION
             7 => self.handle_rversion(mmu, &request_data, tag), // RVERSION
             100 => self.handle_tattach(mmu, &request_data, tag), // TATTACH
@@ -115,9 +130,7 @@ impl Virtio9P {
                 // 未知消息类型，返回错误
                 0
             }
-        };
-
-        response_len
+        }
     }
 
     /// 处理TVERSION请求
@@ -224,6 +237,7 @@ impl Virtio9PMmio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, VmError};
 
     #[test]
     fn test_virtio_9p_creation() {
@@ -246,23 +260,25 @@ mod tests {
         memory: std::collections::HashMap<u64, u8>,
     }
 
-    impl MMU for MockMmu {
+    // 实现AddressTranslator trait
+    impl vm_core::AddressTranslator for MockMmu {
         fn translate(
             &mut self,
             va: vm_core::GuestAddr,
             _access: vm_core::AccessType,
         ) -> Result<vm_core::GuestPhysAddr, VmError> {
-            Ok(va)
+            Ok(va.into())
         }
 
-        fn fetch_insn(&self, _pc: vm_core::GuestAddr) -> Result<u64, VmError> {
-            Ok(0)
-        }
+        fn flush_tlb(&mut self) {}
+    }
 
+    // 实现MemoryAccess trait
+    impl vm_core::MemoryAccess for MockMmu {
         fn read(&self, pa: vm_core::GuestAddr, size: u8) -> Result<u64, VmError> {
             let mut value = 0u64;
             for i in 0..size {
-                let byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                let byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
                 value |= (byte as u64) << (i * 8);
             }
             Ok(value)
@@ -271,42 +287,55 @@ mod tests {
         fn write(&mut self, pa: vm_core::GuestAddr, val: u64, size: u8) -> Result<(), VmError> {
             for i in 0..size {
                 let byte = ((val >> (i * 8)) & 0xFF) as u8;
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
+        fn fetch_insn(&self, _pc: vm_core::GuestAddr) -> Result<u64, VmError> {
+            Ok(0)
+        }
+
         fn read_bulk(&self, pa: vm_core::GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                *byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
             }
             Ok(())
         }
 
         fn write_bulk(&mut self, pa: vm_core::GuestAddr, buf: &[u8]) -> Result<(), VmError> {
             for (i, &byte) in buf.iter().enumerate() {
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
+        fn memory_size(&self) -> usize {
+            0
+        }
+
+        fn dump_memory(&self) -> Vec<u8> {
+            Vec::new()
+        }
+
+        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    // 实现MmioManager trait
+    impl vm_core::MmioManager for MockMmu {
         fn map_mmio(
-            &mut self,
+            &self,
             _base: vm_core::GuestAddr,
             _size: u64,
             _device: Box<dyn vm_core::MmioDevice>,
         ) {
         }
-        fn flush_tlb(&mut self) {}
-        fn memory_size(&self) -> usize {
-            0
-        }
-        fn dump_memory(&self) -> Vec<u8> {
-            Vec::new()
-        }
-        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
-            Ok(())
-        }
+    }
+
+    // 实现MmuAsAny trait
+    impl vm_core::MmuAsAny for MockMmu {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }

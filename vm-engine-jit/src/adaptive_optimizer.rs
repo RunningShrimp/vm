@@ -1,8 +1,9 @@
+use crate::common::OptimizationStats;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use vm_ir::{IRBlock, IROp, RegId};
-use crate::common::{OptimizationStats, CacheStats};
+use vm_ir::{IRBlock, RegId};
 
+#[allow(dead_code)]
 pub struct AdaptiveOptimizer {
     config: AdaptiveOptimizerConfig,
     execution_history: HashMap<RegId, ExecutionHistory>,
@@ -128,7 +129,7 @@ impl BlockProfile {
         if self.execution_count < config.sampling_rate as u64 {
             return false;
         }
-        
+
         self.current_optimization != self.recommended_optimization
     }
 }
@@ -150,10 +151,12 @@ impl AdaptiveOptimizer {
         let sampling_rate = self.config.sampling_rate as u64;
         let hot_threshold = self.hot_threshold;
         let cold_threshold = self.cold_threshold;
-        
-        let profile = self.block_profiles.entry(block_id)
+
+        let profile = self
+            .block_profiles
+            .entry(block_id)
             .or_insert_with(|| BlockProfile::new(block_id));
-        
+
         let recommended_level = if profile.execution_count < sampling_rate {
             OptimizationLevel::Basic
         } else if profile.execution_count >= hot_threshold {
@@ -165,7 +168,7 @@ impl AdaptiveOptimizer {
         } else {
             OptimizationLevel::Basic
         };
-        
+
         let needs_recompile = recommended_level != profile.current_optimization;
         if needs_recompile && self.config.enable_adaptive_recompilation {
             profile.current_optimization = recommended_level.clone();
@@ -177,20 +180,24 @@ impl AdaptiveOptimizer {
     }
 
     pub fn record_execution(&mut self, block_id: u64, execution_time_ns: u64) {
-        let profile = self.block_profiles.entry(block_id)
+        let profile = self
+            .block_profiles
+            .entry(block_id)
             .or_insert_with(|| BlockProfile::new(block_id));
         profile.record_execution(execution_time_ns);
-        
+
         let execution_count = profile.execution_count;
-        
+
         if execution_count >= self.config.sampling_rate as u64 {
             if execution_count as f64 > self.hot_threshold as f64 * 2.0 {
-                let new_hot_threshold = (self.hot_threshold as f64 * (1.0 - self.config.adjustment_factor)) as u64;
+                let new_hot_threshold =
+                    (self.hot_threshold as f64 * (1.0 - self.config.adjustment_factor)) as u64;
                 self.hot_threshold = new_hot_threshold.max(self.config.min_threshold);
             }
 
             if execution_count as f64 > self.cold_threshold as f64 * 2.0 {
-                let new_cold_threshold = (self.cold_threshold as f64 * (1.0 + self.config.adjustment_factor)) as u64;
+                let new_cold_threshold =
+                    (self.cold_threshold as f64 * (1.0 + self.config.adjustment_factor)) as u64;
                 self.cold_threshold = new_cold_threshold.min(self.config.max_threshold);
             }
         }
@@ -214,7 +221,7 @@ impl AdaptiveOptimizer {
 
     pub fn analyze_hotspots(&self) -> Vec<HotspotInfo> {
         let mut hotspots = Vec::new();
-        
+
         for profile in self.block_profiles.values() {
             if profile.execution_count >= self.hot_threshold {
                 hotspots.push(HotspotInfo {
@@ -227,7 +234,8 @@ impl AdaptiveOptimizer {
         }
 
         hotspots.sort_by(|a, b| {
-            b.execution_count.cmp(&a.execution_count)
+            b.execution_count
+                .cmp(&a.execution_count)
                 .then_with(|| a.avg_time_ns.cmp(&b.avg_time_ns))
         });
 
@@ -281,6 +289,7 @@ impl Default for DefaultAdaptiveOptimizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_ir::IROp;
 
     #[test]
     fn test_adaptive_optimizer_creation() {
@@ -294,7 +303,7 @@ mod tests {
     fn test_optimization_levels() {
         let config = AdaptiveOptimizerConfig::default();
         let mut optimizer = AdaptiveOptimizer::new(config);
-        
+
         let block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
             ops: vec![IROp::MovImm { dst: 0, imm: 42 }],
@@ -317,7 +326,7 @@ mod tests {
 
         optimizer.record_execution(0x1000, 100);
         optimizer.record_execution(0x1000, 100);
-        
+
         let (hot, cold) = optimizer.get_current_thresholds();
         assert_eq!(hot, 100);
         assert_eq!(cold, 10);
@@ -327,7 +336,7 @@ mod tests {
     fn test_hotspot_detection() {
         let config = AdaptiveOptimizerConfig::default();
         let mut optimizer = AdaptiveOptimizer::new(config);
-        
+
         optimizer.record_execution(0x1000, 100);
         for _ in 0..150 {
             optimizer.record_execution(0x2000, 50);

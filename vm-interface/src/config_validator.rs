@@ -10,7 +10,11 @@ pub enum ConfigValidationError {
     /// 内存大小无效
     InvalidMemorySize { size: usize, min: usize, max: usize },
     /// vCPU数量无效
-    InvalidVcpuCount { count: usize, min: usize, max: usize },
+    InvalidVcpuCount {
+        count: usize,
+        min: usize,
+        max: usize,
+    },
     /// 架构不支持
     UnsupportedArchitecture { arch: GuestArch },
     /// 执行模式与架构不兼容
@@ -142,7 +146,10 @@ impl ConfigValidator {
         if matches!(mode, ExecMode::HardwareAssisted) {
             // 这里可以根据实际支持的架构进行调整
             match arch {
-                GuestArch::Riscv64 | GuestArch::Arm64 | GuestArch::X86_64 => {
+                GuestArch::Riscv64
+                | GuestArch::Arm64
+                | GuestArch::X86_64
+                | GuestArch::PowerPC64 => {
                     // 所有架构都支持加速模式
                 }
             }
@@ -221,47 +228,67 @@ mod tests {
     #[test]
     fn test_validate_memory_size() {
         let validator = ConfigValidator::default();
-        let mut config = VmConfig::default();
 
         // 测试有效内存大小
-        config.memory_size = 128 * 1024 * 1024; // 128MB
+        let config = VmConfig {
+            memory_size: 128 * 1024 * 1024, // 128MB
+            ..Default::default()
+        };
         assert!(validator.validate(&config).is_ok());
 
         // 测试内存太小
-        config.memory_size = 1024; // 1KB
+        let config = VmConfig {
+            memory_size: 1024, // 1KB
+            ..Default::default()
+        };
         assert!(validator.validate(&config).is_err());
 
         // 测试内存太大
-        config.memory_size = 512 * 1024 * 1024 * 1024; // 512GB
+        let config = VmConfig {
+            memory_size: 512 * 1024 * 1024 * 1024, // 512GB
+            ..Default::default()
+        };
         assert!(validator.validate(&config).is_err());
     }
 
     #[test]
     fn test_validate_vcpu_count() {
         let validator = ConfigValidator::default();
-        let mut config = VmConfig::default();
 
         // 测试有效vCPU数量
-        config.vcpu_count = 4;
+        let config = VmConfig {
+            vcpu_count: 4,
+            ..Default::default()
+        };
         assert!(validator.validate(&config).is_ok());
 
         // 测试vCPU数量为0
-        config.vcpu_count = 0;
+        let config = VmConfig {
+            vcpu_count: 0,
+            ..Default::default()
+        };
         assert!(validator.validate(&config).is_err());
 
         // 测试vCPU数量太大
-        config.vcpu_count = 1000;
+        let config = VmConfig {
+            vcpu_count: 1000,
+            ..Default::default()
+        };
         assert!(validator.validate(&config).is_err());
     }
 
     #[test]
     fn test_validate_and_fix() {
         let validator = ConfigValidator::default();
-        let mut config = VmConfig::default();
 
         // 设置无效的内存大小
-        config.memory_size = 512; // 太小
-        let fixed_config = validator.validate_and_fix(config).unwrap();
+        let config = VmConfig {
+            memory_size: 512, // 太小
+            ..Default::default()
+        };
+        let fixed_config = validator
+            .validate_and_fix(config)
+            .expect("validate_and_fix should succeed for fixable config");
         assert_eq!(fixed_config.memory_size, validator.min_memory_size);
     }
 }

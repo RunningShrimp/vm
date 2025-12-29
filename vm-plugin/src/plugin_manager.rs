@@ -160,16 +160,28 @@ impl PluginManager {
         }
 
         // 检查权限
-        self.security_manager
-            .read()
-            .unwrap()
-            .check_permissions(&metadata.permissions)?;
+        {
+            let security = self.security_manager.read().map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: format!("Failed to acquire security manager lock: {}", e),
+                    current: "lock_failed".to_string(),
+                    expected: "locked".to_string(),
+                })
+            })?;
+            security.check_permissions(&metadata.permissions)?;
+        }
 
         // 解析依赖
-        self.dependency_resolver
-            .write()
-            .unwrap()
-            .resolve_dependencies(&metadata)?;
+        {
+            let mut resolver = self.dependency_resolver.write().map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: format!("Failed to acquire dependency resolver lock: {}", e),
+                    current: "lock_failed".to_string(),
+                    expected: "locked".to_string(),
+                })
+            })?;
+            resolver.resolve_dependencies(&metadata)?;
+        }
 
         // 创建插件实例
         let mut instance = PluginInstance {
@@ -188,10 +200,16 @@ impl PluginManager {
 
         // 创建通信通道
         let (channel, _handle) = PluginChannel::new();
-        self.plugin_channels
-            .write()
-            .unwrap()
-            .insert(metadata.id.clone(), channel);
+        {
+            let mut channels = self.plugin_channels.write().map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: format!("Failed to acquire plugin channels lock: {}", e),
+                    current: "lock_failed".to_string(),
+                    expected: "locked".to_string(),
+                })
+            })?;
+            channels.insert(metadata.id.clone(), channel);
+        }
 
         // 初始化插件上下文
         let plugin_context = self.context.clone();
@@ -209,10 +227,16 @@ impl PluginManager {
         self.loaded_libraries.insert(plugin_id.clone(), library);
 
         // 注册到依赖解析器
-        self.dependency_resolver
-            .write()
-            .unwrap()
-            .register_plugin(plugin_id.clone(), metadata.version.clone());
+        {
+            let mut resolver = self.dependency_resolver.write().map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: format!("Failed to acquire dependency resolver lock: {}", e),
+                    current: "lock_failed".to_string(),
+                    expected: "locked".to_string(),
+                })
+            })?;
+            resolver.register_plugin(plugin_id.clone(), metadata.version.clone());
+        }
 
         Ok(plugin_id)
     }
@@ -228,16 +252,31 @@ impl PluginManager {
             }
 
             // 移除通信通道
-            self.plugin_channels.write().unwrap().remove(plugin_id);
+            {
+                let mut channels = self.plugin_channels.write().map_err(|e| {
+                    VmError::Core(vm_core::CoreError::InvalidState {
+                        message: format!("Failed to acquire plugin channels lock: {}", e),
+                        current: "lock_failed".to_string(),
+                        expected: "locked".to_string(),
+                    })
+                })?;
+                channels.remove(plugin_id);
+            }
 
             // 移除库（会触发卸载）
             self.loaded_libraries.remove(plugin_id);
 
             // 从依赖解析器注销
-            self.dependency_resolver
-                .write()
-                .unwrap()
-                .unregister_plugin(plugin_id);
+            {
+                let mut resolver = self.dependency_resolver.write().map_err(|e| {
+                    VmError::Core(vm_core::CoreError::InvalidState {
+                        message: format!("Failed to acquire dependency resolver lock: {}", e),
+                        current: "lock_failed".to_string(),
+                        expected: "locked".to_string(),
+                    })
+                })?;
+                resolver.unregister_plugin(plugin_id);
+            }
 
             instance.state = PluginState::Unloaded;
         }
@@ -253,7 +292,14 @@ impl PluginManager {
         message_type: String,
         data: serde_json::Value,
     ) -> Result<(), VmError> {
-        let channels = self.plugin_channels.read().unwrap();
+        let channels = self.plugin_channels.read().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Failed to acquire plugin channels lock: {}", e),
+                current: "lock_failed".to_string(),
+                expected: "locked".to_string(),
+            })
+        })?;
+
         if let Some(channel) = channels.get(to) {
             let message = PluginMessage {
                 from: from.to_string(),
@@ -284,7 +330,14 @@ impl PluginManager {
         message_type: String,
         data: serde_json::Value,
     ) -> Result<(), VmError> {
-        let channels = self.plugin_channels.read().unwrap();
+        let channels = self.plugin_channels.read().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Failed to acquire plugin channels lock: {}", e),
+                current: "lock_failed".to_string(),
+                expected: "locked".to_string(),
+            })
+        })?;
+
         let message = PluginMessage {
             from: from.to_string(),
             to: None,
@@ -339,7 +392,16 @@ impl PluginManager {
         }
 
         // 发布到事件总线
-        self.context.event_bus.write().unwrap().publish(&event);
+        {
+            let mut event_bus = self.context.event_bus.write().map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: format!("Failed to acquire event bus lock: {}", e),
+                    current: "lock_failed".to_string(),
+                    expected: "locked".to_string(),
+                })
+            })?;
+            event_bus.publish(&event);
+        }
 
         Ok(())
     }
@@ -729,23 +791,72 @@ impl PluginManager {
     /// 处理所有插件的消息
     pub async fn process_plugin_messages(&mut self) -> Result<(), VmError> {
         let channels = self.plugin_channels.clone();
-        let mut channel_handles = channels.write().unwrap();
 
-        // 获取需要处理的插件ID列表
-        let plugin_ids: Vec<String> = channel_handles.keys().cloned().collect();
+        // 获取需要处理的插件ID列表（释放锁后再处理）
+        let plugin_ids: Vec<String> = {
+            let channel_handles = channels.read().map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: format!("Failed to acquire plugin channels lock: {}", e),
+                    current: "lock_failed".to_string(),
+                    expected: "locked".to_string(),
+                })
+            })?;
+            channel_handles.keys().cloned().collect()
+        };
 
         for plugin_id in plugin_ids {
-            if let Some(instance) = self.loaded_plugins.get_mut(&plugin_id)
-                && let Some(ref mut plugin) = instance.handle
-                && let Some(channel) = channel_handles.get_mut(&plugin_id)
-            {
-                // 处理该插件的消息
-                if let Err(e) = channel.process_messages(&plugin_id, plugin.as_mut()).await {
+            // 获取插件的可变引用
+            let has_plugin = if let Some(instance) = self.loaded_plugins.get_mut(&plugin_id) {
+                instance.handle.is_some()
+            } else {
+                false
+            };
+
+            if has_plugin {
+                // 获取插件的句柄和通道
+                let (plugin_id_copy, mut channel) = {
+                    let mut channel_handles = channels.write().map_err(|e| {
+                        VmError::Core(vm_core::CoreError::InvalidState {
+                            message: format!("Failed to acquire plugin channels lock: {}", e),
+                            current: "lock_failed".to_string(),
+                            expected: "locked".to_string(),
+                        })
+                    })?;
+                    if let Some(channel) = channel_handles.remove(&plugin_id) {
+                        // 创建一个新的通道来替换被移除的
+                        let (new_channel, _) = PluginChannel::new();
+                        channel_handles.insert(plugin_id.clone(), new_channel);
+                        (plugin_id.clone(), channel)
+                    } else {
+                        continue;
+                    }
+                };
+
+                // 重新获取插件句柄
+                let mut plugin: Option<Box<dyn crate::Plugin>> = {
+                    if let Some(instance) = self.loaded_plugins.get_mut(&plugin_id_copy) {
+                        instance.handle.take()
+                    } else {
+                        None
+                    }
+                };
+
+                // 处理该插件的消息（在没有锁的情况下）
+                if let Some(ref mut p) = plugin
+                    && let Err(e) = channel.process_messages(&plugin_id_copy, p.as_mut()).await
+                {
                     tracing::warn!(
                         "Failed to process messages for plugin {}: {:?}",
-                        plugin_id,
+                        plugin_id_copy,
                         e
                     );
+                }
+
+                // 将插件句柄放回
+                if let Some(p) = plugin
+                    && let Some(instance) = self.loaded_plugins.get_mut(&plugin_id_copy)
+                {
+                    instance.handle = Some(p);
                 }
             }
         }

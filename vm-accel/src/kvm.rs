@@ -1,223 +1,297 @@
 //! Linux KVM 加速后端完整实现
 //!
 //! 支持 Intel VT-x, AMD-V 和 ARM 虚拟化扩展
+//!
+//! ## 模块结构
+//!
+//! 此文件使用模块级特性门（module-level gating）来减少特性门数量：
+//! - `kvm_backend`: 包含所有 KVM 特定实现（当启用 "kvm" 特性时）
+//! - 当 "kvm" 特性未启用时，使用桩实现返回错误
+//!
+//! 这种模式将原来的 ~17 个特性门减少到 1 个模块级特性门。
 
 use super::{Accel, AccelError};
 use std::collections::HashMap;
 use vm_core::{GuestRegs, MMU};
 
+// ============================================================================
+// KVM 后端实现 - 仅在启用 "kvm" 特性时编译
+// ============================================================================
 #[cfg(feature = "kvm")]
-use kvm_bindings::*;
-#[cfg(feature = "kvm")]
-use kvm_ioctls::{Kvm, VcpuExit, VcpuFd, VmFd};
+pub mod kvm_backend {
+    //! KVM 后端的完整实现
+    //!
+    //! 此模块包含所有 KVM 特定的代码，包括：
+    //! - KVM vCPU 包装和操作
+    //! - 内存映射和管理
+    //! - I/O 和 MMIO 处理
 
-/// KVM vCPU 包装
-pub struct KvmVcpu {
-    #[cfg(feature = "kvm")]
-    fd: VcpuFd,
-    id: u32,
-    #[cfg(feature = "kvm")]
-    run_mmap_size: usize,
+    use super::*;
+    use kvm_bindings::*;
+    use kvm_ioctls::{Kvm, VcpuExit, VcpuFd, VmFd};
+
+    /// KVM vCPU 包装
+    pub struct KvmVcpu {
+        pub fd: VcpuFd,
+        pub id: u32,
+        pub run_mmap_size: usize,
+    }
+
+    impl KvmVcpu {
+        pub fn new(vm: &VmFd, id: u32) -> Result<Self, AccelError> {
+            let vcpu = vm
+                .create_vcpu(id as u64)
+                .map_err(|e| AccelError::CreateVcpuFailed(format!("KVM create_vcpu failed: {}", e)))?;
+
+            let run_mmap_size = vm
+                .get_vcpu_mmap_size()
+                .map_err(|e| AccelError::CreateVcpuFailed(format!("Failed to get mmap size: {}", e)))?;
+
+            Ok(Self {
+                fd: vcpu,
+                id,
+                run_mmap_size,
+            })
+        }
+
+        /// 获取通用寄存器 - x86_64
+        #[cfg(target_arch = "x86_64")]
+        pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
+            let regs = self
+                .fd
+                .get_regs()
+                .map_err(|e| AccelError::GetRegsFailed(format!("KVM get_regs failed: {}", e)))?;
+
+            let mut gpr = [0u64; 32];
+            gpr[0] = regs.rax;
+            gpr[1] = regs.rcx;
+            gpr[2] = regs.rdx;
+            gpr[3] = regs.rbx;
+            gpr[4] = regs.rsp;
+            gpr[5] = regs.rbp;
+            gpr[6] = regs.rsi;
+            gpr[7] = regs.rdi;
+            gpr[8] = regs.r8;
+            gpr[9] = regs.r9;
+            gpr[10] = regs.r10;
+            gpr[11] = regs.r11;
+            gpr[12] = regs.r12;
+            gpr[13] = regs.r13;
+            gpr[14] = regs.r14;
+            gpr[15] = regs.r15;
+
+            Ok(GuestRegs {
+                pc: regs.rip,
+                sp: regs.rsp,
+                fp: regs.rbp,
+                gpr,
+            })
+        }
+
+        /// 获取通用寄存器 - aarch64
+        #[cfg(target_arch = "aarch64")]
+        pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
+            let mut regs = kvm_bindings::kvm_regs::default();
+            self.fd
+                .get_regs(&mut regs)
+                .map_err(|e| AccelError::GetRegsFailed(format!("KVM get_regs failed: {}", e)))?;
+
+            let mut gpr = [0u64; 32];
+            gpr[..31].copy_from_slice(&regs.regs[..31]);
+
+            Ok(GuestRegs {
+                pc: regs.pc,
+                sp: regs.sp,
+                fp: regs.regs[29], // x29 is FP on ARM64
+                gpr,
+            })
+        }
+
+        /// 设置通用寄存器 - x86_64
+        #[cfg(target_arch = "x86_64")]
+        pub fn set_regs(&mut self, regs: &GuestRegs) -> Result<(), AccelError> {
+            let kvm_regs = kvm_regs {
+                rax: regs.gpr[0],
+                rcx: regs.gpr[1],
+                rdx: regs.gpr[2],
+                rbx: regs.gpr[3],
+                rsp: regs.sp,
+                rbp: regs.fp,
+                rsi: regs.gpr[6],
+                rdi: regs.gpr[7],
+                r8: regs.gpr[8],
+                r9: regs.gpr[9],
+                r10: regs.gpr[10],
+                r11: regs.gpr[11],
+                r12: regs.gpr[12],
+                r13: regs.gpr[13],
+                r14: regs.gpr[14],
+                r15: regs.gpr[15],
+                rip: regs.pc,
+                rflags: 0x2, // Reserved bit must be 1
+            };
+
+            self.fd
+                .set_regs(&kvm_regs)
+                .map_err(|e| AccelError::SetRegsFailed(format!("KVM set_regs failed: {}", e)))?;
+
+            Ok(())
+        }
+
+        /// 设置通用寄存器 - aarch64
+        #[cfg(target_arch = "aarch64")]
+        pub fn set_regs(&mut self, regs: &GuestRegs) -> Result<(), AccelError> {
+            let mut kvm_regs = kvm_bindings::kvm_regs::default();
+            kvm_regs.regs[..31].copy_from_slice(&regs.gpr[..31]);
+            kvm_regs.sp = regs.sp;
+            kvm_regs.pc = regs.pc;
+            kvm_regs.pstate = 0x3c5; // EL1h, DAIF masked
+
+            self.fd
+                .set_regs(&kvm_regs)
+                .map_err(|e| AccelError::SetRegsFailed(format!("KVM set_regs failed: {}", e)))?;
+
+            Ok(())
+        }
+
+        /// 运行 vCPU
+        pub fn run(&mut self) -> Result<VcpuExit, AccelError> {
+            self.fd
+                .run()
+                .map_err(|e| AccelError::RunFailed(format!("KVM vcpu run failed: {}", e)))
+        }
+    }
+
+    /// KVM 加速器
+    pub struct AccelKvm {
+        pub kvm: Option<Kvm>,
+        pub vm: Option<VmFd>,
+        pub vcpus: Vec<KvmVcpu>,
+        pub memory_regions: HashMap<u32, (u64, u64)>,
+        pub next_slot: u32,
+    }
+
+    impl AccelKvm {
+        pub fn new() -> Self {
+            Self {
+                kvm: None,
+                vm: None,
+                vcpus: Vec::new(),
+                memory_regions: HashMap::new(),
+                next_slot: 0,
+            }
+        }
+
+        /// 检查 KVM 是否可用
+        pub fn is_available() -> bool {
+            std::path::Path::new("/dev/kvm").exists()
+        }
+    }
 }
 
-impl KvmVcpu {
-    #[cfg(feature = "kvm")]
-    pub fn new(vm: &VmFd, id: u32) -> Result<Self, AccelError> {
-        let vcpu = vm
-            .create_vcpu(id as u64)
-            .map_err(|e| AccelError::CreateVcpuFailed(format!("KVM create_vcpu failed: {}", e)))?;
+// ============================================================================
+// KVM 后端桩实现 - 当 "kvm" 特性未启用时使用
+// ============================================================================
+#[cfg(not(feature = "kvm"))]
+pub mod kvm_backend {
+    //! KVM 后端的桩实现
+    //!
+    //! 当 "kvm" 特性未启用时，所有方法返回 "不支持" 错误。
+    //! 这保持了 API 的一致性，同时避免编译失败。
 
-        let run_mmap_size = vm
-            .get_vcpu_mmap_size()
-            .map_err(|e| AccelError::CreateVcpuFailed(format!("Failed to get mmap size: {}", e)))?;
+    use super::*;
 
-        Ok(Self {
-            fd: vcpu,
-            id,
-            run_mmap_size,
-        })
+    /// KVM vCPU 桩实现
+    pub struct KvmVcpu {
+        pub id: u32,
     }
 
-    #[cfg(not(feature = "kvm"))]
-    pub fn new(_vm: &(), id: u32) -> Result<Self, AccelError> {
-        Ok(Self { id })
+    impl KvmVcpu {
+        pub fn new(_vm: &(), id: u32) -> Result<Self, AccelError> {
+            Ok(Self { id })
+        }
+
+        pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
+            Err(AccelError::NotSupported(
+                "KVM feature not enabled".to_string(),
+            ))
+        }
+
+        pub fn set_regs(&mut self, _regs: &GuestRegs) -> Result<(), AccelError> {
+            Err(AccelError::NotSupported(
+                "KVM feature not enabled".to_string(),
+            ))
+        }
+
+        pub fn run(&mut self) -> Result<(), AccelError> {
+            Err(AccelError::NotSupported(
+                "KVM feature not enabled".to_string(),
+            ))
+        }
     }
 
-    /// 获取通用寄存器
-    #[cfg(all(feature = "kvm", target_arch = "x86_64"))]
-    pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
-        let regs = self
-            .fd
-            .get_regs()
-            .map_err(|e| AccelError::GetRegsFailed(format!("KVM get_regs failed: {}", e)))?;
-
-        let mut gpr = [0u64; 32];
-        gpr[0] = regs.rax;
-        gpr[1] = regs.rcx;
-        gpr[2] = regs.rdx;
-        gpr[3] = regs.rbx;
-        gpr[4] = regs.rsp;
-        gpr[5] = regs.rbp;
-        gpr[6] = regs.rsi;
-        gpr[7] = regs.rdi;
-        gpr[8] = regs.r8;
-        gpr[9] = regs.r9;
-        gpr[10] = regs.r10;
-        gpr[11] = regs.r11;
-        gpr[12] = regs.r12;
-        gpr[13] = regs.r13;
-        gpr[14] = regs.r14;
-        gpr[15] = regs.r15;
-
-        Ok(GuestRegs {
-            pc: regs.rip,
-            sp: regs.rsp,
-            fp: regs.rbp,
-            gpr,
-        })
+    /// KVM 加速器桩实现
+    pub struct AccelKvm {
+        pub vcpus: Vec<KvmVcpu>,
     }
 
-    #[cfg(all(feature = "kvm", target_arch = "aarch64"))]
-    pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
-        let mut regs = kvm_bindings::kvm_regs::default();
-        self.fd
-            .get_regs(&mut regs)
-            .map_err(|e| AccelError::GetRegsFailed(format!("KVM get_regs failed: {}", e)))?;
+    impl AccelKvm {
+        pub fn new() -> Self {
+            Self {
+                vcpus: Vec::new(),
+            }
+        }
 
-        let mut gpr = [0u64; 32];
-        gpr[..31].copy_from_slice(&regs.regs[..31]);
-
-        Ok(GuestRegs {
-            pc: regs.pc,
-            sp: regs.sp,
-            fp: regs.regs[29], // x29 is FP on ARM64
-            gpr,
-        })
-    }
-
-    #[cfg(not(feature = "kvm"))]
-    pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
-        Err(AccelError::NotSupported(
-            "KVM feature not enabled".to_string(),
-        ))
-    }
-
-    /// 设置通用寄存器
-    #[cfg(all(feature = "kvm", target_arch = "x86_64"))]
-    pub fn set_regs(&mut self, regs: &GuestRegs) -> Result<(), AccelError> {
-        let kvm_regs = kvm_regs {
-            rax: regs.gpr[0],
-            rcx: regs.gpr[1],
-            rdx: regs.gpr[2],
-            rbx: regs.gpr[3],
-            rsp: regs.sp,
-            rbp: regs.fp,
-            rsi: regs.gpr[6],
-            rdi: regs.gpr[7],
-            r8: regs.gpr[8],
-            r9: regs.gpr[9],
-            r10: regs.gpr[10],
-            r11: regs.gpr[11],
-            r12: regs.gpr[12],
-            r13: regs.gpr[13],
-            r14: regs.gpr[14],
-            r15: regs.gpr[15],
-            rip: regs.pc,
-            rflags: 0x2, // Reserved bit must be 1
-        };
-
-        self.fd
-            .set_regs(&kvm_regs)
-            .map_err(|e| AccelError::SetRegsFailed(format!("KVM set_regs failed: {}", e)))?;
-
-        Ok(())
-    }
-
-    #[cfg(all(feature = "kvm", target_arch = "aarch64"))]
-    pub fn set_regs(&mut self, regs: &GuestRegs) -> Result<(), AccelError> {
-        let mut kvm_regs = kvm_bindings::kvm_regs::default();
-        kvm_regs.regs[..31].copy_from_slice(&regs.gpr[..31]);
-        kvm_regs.sp = regs.sp;
-        kvm_regs.pc = regs.pc;
-        kvm_regs.pstate = 0x3c5; // EL1h, DAIF masked
-
-        self.fd
-            .set_regs(&kvm_regs)
-            .map_err(|e| AccelError::SetRegsFailed(format!("KVM set_regs failed: {}", e)))?;
-
-        Ok(())
-    }
-
-    #[cfg(not(feature = "kvm"))]
-    pub fn set_regs(&mut self, _regs: &GuestRegs) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported(
-            "KVM feature not enabled".to_string(),
-        ))
-    }
-
-    /// 运行 vCPU
-    #[cfg(feature = "kvm")]
-    pub fn run(&mut self) -> Result<VcpuExit, AccelError> {
-        self.fd
-            .run()
-            .map_err(|e| AccelError::RunFailed(format!("KVM vcpu run failed: {}", e)))
-    }
-
-    #[cfg(not(feature = "kvm"))]
-    pub fn run(&mut self) -> Result<(), AccelError> {
-        Err(AccelError::NotSupported(
-            "KVM feature not enabled".to_string(),
-        ))
+        /// 检查 KVM 是否可用（始终返回 false）
+        pub fn is_available() -> bool {
+            false
+        }
     }
 }
 
-/// KVM 加速器
+// ============================================================================
+// 对外暴露的统一接口
+// ============================================================================
+
+/// 导出 KVM vCPU 类型
+pub use kvm_backend::KvmVcpu;
+
+/// KVM 加速器（统一类型）
 pub struct AccelKvm {
     #[cfg(feature = "kvm")]
-    kvm: Option<Kvm>,
-    #[cfg(feature = "kvm")]
-    vm: Option<VmFd>,
-
-    vcpus: Vec<KvmVcpu>,
-    memory_regions: HashMap<u32, (u64, u64)>, // slot -> (gpa, size)
-    next_slot: u32,
+    inner: kvm_backend::AccelKvm,
+    #[cfg(not(feature = "kvm"))]
+    inner: kvm_backend::AccelKvm,
 }
 
 impl AccelKvm {
     pub fn new() -> Self {
         Self {
-            #[cfg(feature = "kvm")]
-            kvm: None,
-            #[cfg(feature = "kvm")]
-            vm: None,
-            vcpus: Vec::new(),
-            memory_regions: HashMap::new(),
-            next_slot: 0,
+            inner: kvm_backend::AccelKvm::new(),
         }
     }
 
     /// 检查 KVM 是否可用
-    #[cfg(feature = "kvm")]
     pub fn is_available() -> bool {
-        std::path::Path::new("/dev/kvm").exists()
-    }
-
-    #[cfg(not(feature = "kvm"))]
-    pub fn is_available() -> bool {
-        false
+        kvm_backend::AccelKvm::is_available()
     }
 }
+
+// ============================================================================
+// Accel trait 实现 - 统一接口
+// ============================================================================
 
 impl Accel for AccelKvm {
     fn init(&mut self) -> Result<(), AccelError> {
         #[cfg(feature = "kvm")]
         {
-            if !Self::is_available() {
+            if !kvm_backend::AccelKvm::is_available() {
                 return Err(AccelError::NotAvailable(
                     "KVM device /dev/kvm not found".to_string(),
                 ));
             }
 
+            use kvm_ioctls::Kvm;
             let kvm = Kvm::new()
                 .map_err(|e| AccelError::InitFailed(format!("Failed to open KVM: {}", e)))?;
 
@@ -235,8 +309,8 @@ impl Accel for AccelKvm {
                 .create_vm()
                 .map_err(|e| AccelError::CreateVmFailed(format!("Failed to create VM: {}", e)))?;
 
-            self.kvm = Some(kvm);
-            self.vm = Some(vm);
+            self.inner.kvm = Some(kvm);
+            self.inner.vm = Some(vm);
 
             log::info!("KVM accelerator initialized successfully");
             Ok(())
@@ -253,13 +327,15 @@ impl Accel for AccelKvm {
     fn create_vcpu(&mut self, id: u32) -> Result<(), AccelError> {
         #[cfg(feature = "kvm")]
         {
+            use kvm_ioctls::VmFd;
             let vm = self
+                .inner
                 .vm
                 .as_ref()
                 .ok_or_else(|| AccelError::NotInitialized("VM not initialized".to_string()))?;
 
-            let vcpu = KvmVcpu::new(vm, id)?;
-            self.vcpus.push(vcpu);
+            let vcpu = kvm_backend::KvmVcpu::new(vm, id)?;
+            self.inner.vcpus.push(vcpu);
 
             log::info!("Created KVM vCPU {}", id);
             Ok(())
@@ -276,13 +352,16 @@ impl Accel for AccelKvm {
     fn map_memory(&mut self, gpa: u64, hva: u64, size: u64, _flags: u32) -> Result<(), AccelError> {
         #[cfg(feature = "kvm")]
         {
+            use kvm_bindings::kvm_userspace_memory_region;
+
             let vm = self
+                .inner
                 .vm
                 .as_mut()
                 .ok_or_else(|| AccelError::NotInitialized("VM not initialized".to_string()))?;
 
-            let slot = self.next_slot;
-            self.next_slot += 1;
+            let slot = self.inner.next_slot;
+            self.inner.next_slot += 1;
 
             let mem_region = kvm_userspace_memory_region {
                 slot,
@@ -298,7 +377,7 @@ impl Accel for AccelKvm {
                 })?;
             }
 
-            self.memory_regions.insert(slot, (gpa, size));
+            self.inner.memory_regions.insert(slot, (gpa, size));
 
             log::debug!(
                 "Mapped memory: GPA 0x{:x}, size 0x{:x}, slot {}",
@@ -320,13 +399,17 @@ impl Accel for AccelKvm {
     fn unmap_memory(&mut self, gpa: u64, size: u64) -> Result<(), AccelError> {
         #[cfg(feature = "kvm")]
         {
+            use kvm_bindings::kvm_userspace_memory_region;
+
             let vm = self
+                .inner
                 .vm
                 .as_mut()
                 .ok_or_else(|| AccelError::NotInitialized("VM not initialized".to_string()))?;
 
             // 查找对应的 slot
             let slot = self
+                .inner
                 .memory_regions
                 .iter()
                 .find(|(_, &(region_gpa, region_size))| region_gpa == gpa && region_size == size)
@@ -349,7 +432,7 @@ impl Accel for AccelKvm {
                 })?;
             }
 
-            self.memory_regions.remove(&slot);
+            self.inner.memory_regions.remove(&slot);
 
             log::debug!("Unmapped memory: GPA 0x{:x}, slot {}", gpa, slot);
             Ok(())
@@ -474,7 +557,10 @@ impl Accel for AccelKvm {
     fn run_vcpu(&mut self, vcpu_id: u32, _mmu: &mut dyn MMU) -> Result<(), AccelError> {
         #[cfg(feature = "kvm")]
         {
+            use kvm_ioctls::VcpuExit;
+
             let vcpu = self
+                .inner
                 .vcpus
                 .get_mut(vcpu_id as usize)
                 .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
@@ -521,6 +607,7 @@ impl Accel for AccelKvm {
 
     fn get_regs(&self, vcpu_id: u32) -> Result<GuestRegs, AccelError> {
         let vcpu = self
+            .inner
             .vcpus
             .get(vcpu_id as usize)
             .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
@@ -529,6 +616,7 @@ impl Accel for AccelKvm {
 
     fn set_regs(&mut self, vcpu_id: u32, regs: &GuestRegs) -> Result<(), AccelError> {
         let vcpu = self
+            .inner
             .vcpus
             .get_mut(vcpu_id as usize)
             .ok_or_else(|| AccelError::InvalidVcpuId(vcpu_id))?;
@@ -546,6 +634,9 @@ impl Default for AccelKvm {
     }
 }
 
+// ============================================================================
+// 测试模块
+// ============================================================================
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2,10 +2,45 @@
 //!
 //! 提供采样、火焰图和时间线功能
 
-use std::collections::{HashMap, BTreeMap};
-use std::sync::{Arc, Mutex};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
+
+/// 性能分析器错误类型
+#[derive(Debug, Clone)]
+pub enum ProfilerError {
+    /// 锁获取失败
+    LockFailed(String),
+    /// 序列化错误
+    SerializationError(String),
+    /// 其他错误
+    Other(String),
+}
+
+impl std::fmt::Display for ProfilerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProfilerError::LockFailed(msg) => write!(f, "Profiler lock failed: {}", msg),
+            ProfilerError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
+            ProfilerError::Other(msg) => write!(f, "Profiler error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ProfilerError {}
+
+impl<T> From<PoisonError<MutexGuard<'_, T>>> for ProfilerError {
+    fn from(err: PoisonError<MutexGuard<'_, T>>) -> Self {
+        ProfilerError::LockFailed(format!("Mutex poisoned: {}", err))
+    }
+}
+
+impl From<serde_json::Error> for ProfilerError {
+    fn from(err: serde_json::Error) -> Self {
+        ProfilerError::SerializationError(format!("{}", err))
+    }
+}
 
 /// 采样配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +89,7 @@ pub struct SamplePoint {
 }
 
 /// 调用栈帧
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct StackFrame {
     /// 函数/操作名称
     pub name: String,
@@ -62,6 +97,81 @@ pub struct StackFrame {
     pub start_time: Instant,
     /// 子帧
     pub children: Vec<StackFrame>,
+}
+
+impl Serialize for StackFrame {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("StackFrame", 3)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("start_time", &self.start_time.elapsed().as_nanos())?;
+        state.serialize_field("children", &self.children)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for StackFrame {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{MapAccess, Visitor};
+        struct StackFrameVisitor;
+
+        impl<'de> Visitor<'de> for StackFrameVisitor {
+            type Value = StackFrame;
+
+            fn expecting(&self, _formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(_formatter, "struct StackFrame")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut name = None;
+                let mut elapsed_ns = None;
+                let mut children = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "name" => {
+                            name = Some(map.next_value()?);
+                        }
+                        "start_time" => {
+                            elapsed_ns = Some(map.next_value()?);
+                        }
+                        "children" => {
+                            children = Some(map.next_value()?);
+                        }
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                let name = name.ok_or_else(|| serde::de::Error::missing_field("name"))?;
+                let elapsed_ns =
+                    elapsed_ns.ok_or_else(|| serde::de::Error::missing_field("start_time"))?;
+                let children = children.unwrap_or_default();
+
+                Ok(StackFrame {
+                    name,
+                    start_time: Instant::now() - Duration::from_nanos(elapsed_ns),
+                    children,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "StackFrame",
+            &["name", "start_time", "children"],
+            StackFrameVisitor,
+        )
+    }
 }
 
 impl StackFrame {
@@ -74,7 +184,8 @@ impl StackFrame {
     }
 
     pub fn duration(&self) -> Duration {
-        let end = self.children
+        let end = self
+            .children
             .iter()
             .map(|c| c.start_time)
             .max()
@@ -106,17 +217,22 @@ impl Profiler {
         }
     }
 
+    /// 获取配置
+    pub fn config(&self) -> &ProfilerConfig {
+        &self.config
+    }
+
     /// 开始记录一个函数/操作
     pub fn enter(&mut self, name: String) {
         let frame = StackFrame::new(name.clone());
+        self.current_frame = Some(frame.clone());
         self.call_stack.push(frame);
-        self.current_frame = Some(frame);
         self.stats.total_entries += 1;
     }
 
     /// 结束记录当前函数/操作
     pub fn exit(&mut self, name: &str) {
-        if let Some(mut frame) = self.current_frame.take() {
+        if let Some(frame) = self.current_frame.take() {
             if frame.name != name {
                 eprintln!("Warning: Mismatched exit: {} != {}", name, frame.name);
             }
@@ -166,10 +282,19 @@ impl Profiler {
         for sample in &self.samples {
             let mut current = &mut root;
             for _ in 0..sample.depth {
-                if current.children.is_empty() {
-                    current.children.push(FlamegraphNode::new(sample.name.clone()));
+                // Look for an existing child with the same name, or create a new one
+                let child_idx = current.children.iter().position(|c| c.name == sample.name);
+                if let Some(idx) = child_idx {
+                    let _len = current.children.len();
+                    current = &mut current.children[idx];
+                } else {
+                    // Create new child for this sample name
+                    current
+                        .children
+                        .push(FlamegraphNode::new(sample.name.clone()));
+                    let len = current.children.len();
+                    current = &mut current.children[len - 1];
                 }
-                current = current.children.last_mut().unwrap();
             }
             current.value += sample.duration_ns;
         }
@@ -185,12 +310,15 @@ impl Profiler {
             let start = sample.timestamp_ns;
             let end = start + sample.duration_ns;
 
-            events.entry(start).or_insert_with(Vec::new).push(TimelineEvent {
-                name: sample.name.clone(),
-                start,
-                end,
-                depth: sample.depth,
-            });
+            events
+                .entry(start)
+                .or_insert_with(Vec::new)
+                .push(TimelineEvent {
+                    name: sample.name.clone(),
+                    start,
+                    end,
+                    depth: sample.depth,
+                });
         }
 
         TimelineData { events }
@@ -237,7 +365,7 @@ impl FlamegraphData {
         svg.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         svg.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\">\n");
 
-        self.render_node(&self.root, 0, 0, 100, &mut svg);
+        self.render_node(&self.root, 0.0, 0.0, 100.0, &mut svg);
 
         svg.push_str("</svg>");
         svg
@@ -271,7 +399,9 @@ impl FlamegraphData {
     }
 
     fn color_for_name(&self, name: &str) -> String {
-        let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+        let hash = name
+            .bytes()
+            .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
         let r = (hash & 0xFF0000) >> 16;
         let g = (hash & 0x00FF00) >> 8;
         let b = hash & 0x0000FF;
@@ -297,7 +427,7 @@ pub struct TimelineData {
 impl TimelineData {
     /// 转换为 JSON 格式
     pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
+        serde_json::to_string(self).unwrap_or_else(|_| String::from("{}"))
     }
 }
 
@@ -313,29 +443,50 @@ impl ThreadSafeProfiler {
         }
     }
 
+    /// Helper method to lock the inner profiler
+    fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, Profiler>, ProfilerError> {
+        self.inner
+            .lock()
+            .map_err(|e| ProfilerError::LockFailed(format!("{}", e)))
+    }
+
     pub fn enter(&self, name: String) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.enter(name);
+        if let Ok(mut inner) = self.lock_inner() {
+            inner.enter(name);
+        }
+        // Silent failure on lock error - appropriate for profiling operations
     }
 
     pub fn exit(&self, name: &str) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.exit(name);
+        if let Ok(mut inner) = self.lock_inner() {
+            inner.exit(name);
+        }
+        // Silent failure on lock error - appropriate for profiling operations
     }
 
     pub fn samples(&self) -> Vec<SamplePoint> {
-        let inner = self.inner.lock().unwrap();
-        inner.samples().to_vec()
+        match self.lock_inner() {
+            Ok(inner) => inner.samples().to_vec(),
+            Err(_) => Vec::new(), // Return empty on error
+        }
     }
 
     pub fn generate_flamegraph(&self) -> FlamegraphData {
-        let inner = self.inner.lock().unwrap();
-        inner.generate_flamegraph()
+        match self.lock_inner() {
+            Ok(inner) => inner.generate_flamegraph(),
+            Err(_) => FlamegraphData {
+                root: FlamegraphNode::new("error".to_string()),
+            },
+        }
     }
 
     pub fn generate_timeline(&self) -> TimelineData {
-        let inner = self.inner.lock().unwrap();
-        inner.generate_timeline()
+        match self.lock_inner() {
+            Ok(inner) => inner.generate_timeline(),
+            Err(_) => TimelineData {
+                events: BTreeMap::new(),
+            },
+        }
     }
 }
 
@@ -360,7 +511,7 @@ impl<'a> Drop for ProfilerScope<'a> {
 
 impl Profiler {
     /// 创建作用域
-    pub fn scope(&mut self, name: String) -> ProfilerScope {
+    pub fn scope(&mut self, name: String) -> ProfilerScope<'_> {
         ProfilerScope::new(self, name)
     }
 }

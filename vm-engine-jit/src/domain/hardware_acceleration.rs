@@ -1,7 +1,203 @@
-//! Hardware acceleration bounded context
-//! 
+//! # Hardware Acceleration Bounded Context
+//!
 //! This module defines the hardware acceleration domain, including hardware detection,
 //! feature support, and acceleration strategies for JIT compilation.
+//!
+//! ## Overview
+//!
+//! The hardware acceleration bounded context provides a unified interface for
+//! leveraging hardware acceleration features, including SIMD, GPU, FPGA, and NPU
+//! acceleration for JIT compilation and execution.
+//!
+//! ## Key Components
+//!
+//! ### Acceleration Types
+//!
+//! - **SIMD**: CPU vector instructions (SSE, AVX, NEON, SVE)
+//! - **GPU**: Graphics processing unit acceleration
+//! - **FPGA**: Field-programmable gate array acceleration
+//! - **NPU**: Neural processing unit for ML workloads
+//! - **ASIC**: Application-specific integrated circuits
+//! - **Custom**: Vendor-specific acceleration
+//!
+//! ### SIMD Instruction Sets
+//!
+//! #### x86_64
+//! - **SSE/AVX/AVX-512**: Intel/AMD vector extensions
+//! - **MMX**: Legacy multimedia extensions
+//!
+//! #### ARM64
+//! - **NEON**: Advanced SIMD
+//! - **SVE**: Scalable Vector Extension
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Hardware Acceleration
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::hardware_acceleration::{
+//!     HardwareAccelerationService, HardwareAccelerationConfig, AccelerationType
+//! };
+//!
+//! let mut service = HardwareAccelerationService::new();
+//!
+//! let config = HardwareAccelerationConfig {
+//!     enable_acceleration: true,
+//!     preferred_type: AccelerationType::SIMD,
+//!     fallback_to_software: true,
+//!     enable_auto_detection: true,
+//!     ..Default::default()
+//! };
+//!
+//! let accel_id = service.create_context(config);
+//! service.initialize(accel_id)?;
+//! ```
+//!
+//! ### Detecting Hardware Capabilities
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::hardware_acceleration::{HardwareAccelerationContext, HardwareCapabilities};
+//!
+//! let context = HardwareAccelerationContext::new(config);
+//! context.initialize()?;
+//!
+//! println!("CPU cores: {}", context.capabilities.cpu_cores);
+//! println!("SIMD sets: {:?}", context.capabilities.simd_instruction_sets);
+//! println!("GPU vendor: {:?}", context.capabilities.gpu_vendor);
+//! ```
+//!
+//! ### Executing with Acceleration
+//!
+//! ```ignore
+//! let operation = vec![0x01, 0x02, 0x03, 0x04];
+//! let result = service.execute_operation(accel_id, &operation)?;
+//! ```
+//!
+//! ### Analyzing Acceleration Performance
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::hardware_acceleration::analysis;
+//!
+//! let context = service.get_context(accel_id)?;
+//! let ctx = context.read().unwrap();
+//!
+//! let report = analysis::analyze_acceleration_performance(&ctx);
+//! println!("Throughput: {:.2} ops/s", report.throughput_ops_per_sec);
+//! println!("Acceleration type: {}", report.acceleration_type);
+//! ```
+//!
+//! ## Acceleration Lifecycle
+//!
+//! ```text
+//! NotInitialized -> Initializing -> Ready -> InUse -> Ready
+//!                       |              |
+//!                       v              v
+//!                    Error         Disabled
+//! ```
+//!
+//! - **NotInitialized**: Context created, not yet initialized
+//! - **Initializing**: Detecting and initializing hardware
+//! - **Ready**: Hardware ready for operations
+//! - **InUse**: Currently executing an operation
+//! - **Error**: Initialization or operation failed
+//! - **Disabled**: Explicitly disabled or unavailable
+//!
+//! ## SIMD Acceleration
+//!
+//! ### Detection
+//!
+//! Automatic detection of CPU SIMD capabilities:
+//! - Queries CPUID (x86_64)
+//! - Uses system calls (ARM64)
+//! - Returns available instruction sets
+//!
+//! ### Usage
+//!
+//! SIMD acceleration is transparent:
+//! 1. Detect available instruction sets
+//! 2. Generate optimized code paths
+//! 3. Fall back to scalar if unavailable
+//!
+//! ### Performance
+//!
+//! Typical speedup factors:
+//! - SSE: 2-4x for float operations
+//! - AVX2: 4-8x for float operations
+//! - AVX-512: 8-16x for float operations
+//! - NEON: 2-4x for ARM platforms
+//!
+//! ## GPU Acceleration
+//!
+//! ### Currently
+//!
+//! GPU acceleration is a placeholder for future implementation:
+//! - Detection structure is in place
+//! - Vendor identification supported
+//! - Integration points defined
+//!
+//! ### Future Support
+//!
+//! Planned GPU vendors:
+//! - **NVIDIA**: CUDA support
+//! - **AMD**: ROCm/HIP support
+//! - **Intel**: OneAPI support
+//! - **Apple**: Metal support
+//!
+//! ## Fallback Strategy
+//!
+//! When hardware acceleration is unavailable:
+//!
+//! ```ignore
+//! let config = HardwareAccelerationConfig {
+//!     preferred_type: AccelerationType::SIMD,
+//!     fallback_to_software: true,  // Important!
+//!     ..Default::default()
+//! };
+//! ```
+//!
+//! If `fallback_to_software` is `false`, initialization will fail when hardware is unavailable.
+//!
+//! ## Domain-Driven Design Applied
+//!
+//! ### Entities
+//!
+//! - `HardwareAccelerationContext`: Aggregate root with lifecycle
+//! - Unique acceleration context per configuration
+//!
+//! ### Value Objects
+//!
+//! - `HardwareCapabilities`: Immutable hardware features
+//! - `HardwareAccelerationConfig`: Immutable configuration
+//! - `HardwareAccelerationStats`: Performance statistics
+//!
+//! ### Domain Services
+//!
+//! - `HardwareAccelerationService`: Manages acceleration contexts
+//! - `analysis` module: Performance analysis tools
+//!
+//! ## Integration Points
+//!
+//! ### With Compilation Domain
+//!
+//! - Generates SIMD-accelerated code
+//! - Selects instruction sets based on capabilities
+//!
+//! ### With Optimization Domain
+//!
+//! - Vectorization passes use SIMD capabilities
+//! - Targets specific instruction sets
+//!
+//! ### With Execution Domain
+//!
+//! - Executes accelerated code paths
+//! - Reports acceleration statistics
+//!
+//! ## Performance Considerations
+//!
+//! - **Initialization**: Hardware detection has overhead
+//! - **Code Size**: SIMD code may be larger
+//! - **Fallback**: Scalar fallback slower but functional
+//! - **Detection**: Cache detection results
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -14,8 +210,10 @@ pub type HardwareAccelerationId = u64;
 
 /// Hardware acceleration type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum AccelerationType {
     /// No hardware acceleration
+    #[default]
     None,
     /// SIMD acceleration
     SIMD,
@@ -31,11 +229,6 @@ pub enum AccelerationType {
     Custom,
 }
 
-impl Default for AccelerationType {
-    fn default() -> Self {
-        AccelerationType::None
-    }
-}
 
 impl std::fmt::Display for AccelerationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,8 +246,10 @@ impl std::fmt::Display for AccelerationType {
 
 /// SIMD instruction set
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum SIMDInstructionSet {
     /// No SIMD support
+    #[default]
     None,
     /// MMX
     MMX,
@@ -84,11 +279,6 @@ pub enum SIMDInstructionSet {
     Custom,
 }
 
-impl Default for SIMDInstructionSet {
-    fn default() -> Self {
-        SIMDInstructionSet::None
-    }
-}
 
 impl std::fmt::Display for SIMDInstructionSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -113,8 +303,10 @@ impl std::fmt::Display for SIMDInstructionSet {
 
 /// GPU vendor
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum GPUVendor {
     /// Unknown vendor
+    #[default]
     Unknown,
     /// NVIDIA
     NVIDIA,
@@ -132,11 +324,6 @@ pub enum GPUVendor {
     Custom,
 }
 
-impl Default for GPUVendor {
-    fn default() -> Self {
-        GPUVendor::Unknown
-    }
-}
 
 impl std::fmt::Display for GPUVendor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -155,8 +342,10 @@ impl std::fmt::Display for GPUVendor {
 
 /// Hardware acceleration status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum AccelerationStatus {
     /// Not initialized
+    #[default]
     NotInitialized,
     /// Initializing
     Initializing,
@@ -170,11 +359,6 @@ pub enum AccelerationStatus {
     Disabled,
 }
 
-impl Default for AccelerationStatus {
-    fn default() -> Self {
-        AccelerationStatus::NotInitialized
-    }
-}
 
 impl std::fmt::Display for AccelerationStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -942,13 +1126,13 @@ mod tests {
         assert!(context.error_message.is_none());
         
         // Initialize
-        context.initialize().unwrap();
+        context.initialize().expect("Test failed: Failed to initialize hardware acceleration context");
         assert_eq!(context.status, AccelerationStatus::Ready);
         assert!(context.init_time.is_some());
         
         // Execute operation
         let operation = vec![1, 2, 3, 4, 5];
-        let result = context.execute_operation(&operation).unwrap();
+        let result = context.execute_operation(&operation).expect("Test failed: Failed to execute operation on hardware acceleration context");
         assert_eq!(result, operation);
         assert_eq!(context.stats.total_operations, 1);
         assert_eq!(context.stats.successful_operations, 1);
@@ -964,15 +1148,15 @@ mod tests {
         assert!(service.get_context(acceleration_id).is_some());
         
         // Initialize
-        service.initialize(acceleration_id).unwrap();
+        service.initialize(acceleration_id).expect("Test failed: Failed to initialize hardware acceleration service");
         
         // Execute operation
         let operation = vec![1, 2, 3, 4, 5];
-        let result = service.execute_operation(acceleration_id, &operation).unwrap();
+        let result = service.execute_operation(acceleration_id, &operation).expect("Test failed: Failed to execute operation on hardware acceleration service");
         assert_eq!(result, operation);
         
         // Get stats
-        let stats = service.get_stats(acceleration_id).unwrap();
+        let stats = service.get_stats(acceleration_id).expect("Test failed: Failed to get hardware acceleration service stats");
         assert_eq!(stats.total_operations, 1);
         assert_eq!(stats.successful_operations, 1);
         
@@ -987,12 +1171,12 @@ mod tests {
         let mut context = HardwareAccelerationContext::new(config);
         
         // Initialize
-        context.initialize().unwrap();
+        context.initialize().expect("Test failed: Failed to initialize hardware acceleration context for analysis");
         
         // Execute operations
         for _ in 0..10 {
             let operation = vec![1, 2, 3, 4, 5];
-            context.execute_operation(&operation).unwrap();
+            context.execute_operation(&operation).expect("Test failed: Failed to execute operation for hardware acceleration analysis");
         }
         
         // Analyze performance

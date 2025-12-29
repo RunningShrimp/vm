@@ -2,7 +2,7 @@
 //!
 //! 提供集中化的配置管理，支持运行时配置更新和验证。
 
-use crate::VmError;
+use crate::{ConfigListener, VmError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -51,7 +51,7 @@ pub struct ConfigManager {
     /// 验证器
     validators: HashMap<String, Box<dyn ConfigValidator + Send + Sync>>,
     /// 配置监听器
-    listeners: Vec<Box<dyn Fn(&str, &ConfigItem) + Send + Sync>>,
+    listeners: Vec<ConfigListener>,
 }
 
 impl Default for ConfigManager {
@@ -333,12 +333,20 @@ mod tests {
                 true,
                 "Test configuration".to_string(),
             )
-            .unwrap();
+            .expect("Failed to set config");
 
         // 获取配置
-        let item = manager.get("test_key").unwrap().unwrap();
+        let item = manager
+            .get("test_key")
+            .expect("Failed to get config")
+            .expect("Config item not found");
         assert_eq!(item.key, "test_key");
-        assert_eq!(item.value.as_str().unwrap(), "test_value");
+        assert_eq!(
+            item.value
+                .as_str()
+                .expect("Config value should be a string"),
+            "test_value"
+        );
     }
 
     #[test]
@@ -347,16 +355,18 @@ mod tests {
         let config = TestConfig { value: 100 };
 
         // 保存配置
-        config.save_to_config_manager(&manager).unwrap();
+        config
+            .save_to_config_manager(&manager)
+            .expect("Failed to save config");
 
         // 加载配置
-        let loaded = TestConfig::from_config_manager(&manager).unwrap();
+        let loaded = TestConfig::from_config_manager(&manager).expect("Failed to load config");
         assert_eq!(loaded.value, 100);
     }
 
     #[test]
     fn test_config_validation() {
-        let manager = ConfigManager::new();
+        let _manager = ConfigManager::new();
         let invalid_config = TestConfig { value: -1 };
 
         // 验证应该失败

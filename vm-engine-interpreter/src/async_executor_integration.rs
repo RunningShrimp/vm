@@ -5,20 +5,22 @@
 use crate::Interpreter;
 use crate::async_executor::AsyncExecStats;
 use crate::async_executor::AsyncExecutor;
-use parking_lot::Mutex;
 use std::sync::Arc;
 use vm_core::ExecutionEngine;
 use vm_core::{ExecResult, MMU};
 use vm_ir::IRBlock;
+
+#[cfg(test)]
+use vm_ir::{IRBuilder, IROp, Terminator};
 
 /// 异步执行引擎包装器
 ///
 /// 提供统一的异步执行接口，支持配置化的异步执行策略
 pub struct AsyncExecutorWrapper {
     /// 内部解释器
-    interpreter: Arc<Mutex<Interpreter>>,
+    interpreter: Arc<tokio::sync::Mutex<Interpreter>>,
     /// 统计信息
-    stats: Arc<Mutex<AsyncExecStats>>,
+    stats: Arc<tokio::sync::Mutex<AsyncExecStats>>,
     /// Yield 间隔
     yield_interval: u64,
 }
@@ -27,8 +29,8 @@ impl AsyncExecutorWrapper {
     /// 创建新的异步执行引擎包装器
     pub fn new(yield_interval: u64) -> Self {
         Self {
-            interpreter: Arc::new(Mutex::new(Interpreter::new())),
-            stats: Arc::new(Mutex::new(AsyncExecStats::default())),
+            interpreter: Arc::new(tokio::sync::Mutex::new(Interpreter::new())),
+            stats: Arc::new(tokio::sync::Mutex::new(AsyncExecStats::default())),
             yield_interval,
         }
     }
@@ -39,7 +41,7 @@ impl AsyncExecutorWrapper {
         mmu: &mut dyn MMU,
         block: &IRBlock,
     ) -> Result<ExecResult, String> {
-        let mut interp = self.interpreter.lock();
+        let mut interp = self.interpreter.lock().await;
         interp.execute_block_async(mmu, block).await
     }
 
@@ -50,7 +52,7 @@ impl AsyncExecutorWrapper {
         block: &IRBlock,
         max_steps: u64,
     ) -> Result<ExecResult, String> {
-        let mut interp = self.interpreter.lock();
+        let mut interp = self.interpreter.lock().await;
         interp
             .run_steps_async(mmu, block, max_steps, self.yield_interval)
             .await
@@ -58,32 +60,40 @@ impl AsyncExecutorWrapper {
 
     /// 获取统计信息
     pub fn stats(&self) -> AsyncExecStats {
-        self.stats.lock().clone()
+        tokio::task::block_in_place(|| self.stats.blocking_lock().clone())
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        *self.stats.lock() = AsyncExecStats::default();
+        tokio::task::block_in_place(|| {
+            *self.stats.blocking_lock() = AsyncExecStats::default();
+        });
     }
 
     /// 设置寄存器
     pub fn set_reg(&self, idx: usize, val: u64) {
-        self.interpreter.lock().set_reg(idx as u32, val);
+        tokio::task::block_in_place(|| {
+            self.interpreter.blocking_lock().set_reg(idx as u32, val);
+        });
     }
 
     /// 获取寄存器值
     pub fn get_reg(&self, idx: usize) -> u64 {
-        self.interpreter.lock().get_reg(idx as u32)
+        tokio::task::block_in_place(|| self.interpreter.blocking_lock().get_reg(idx as u32))
     }
 
     /// 设置 PC
     pub fn set_pc(&self, pc: u64) {
-        self.interpreter.lock().set_pc(vm_core::GuestAddr(pc));
+        tokio::task::block_in_place(|| {
+            self.interpreter
+                .blocking_lock()
+                .set_pc(vm_core::GuestAddr(pc));
+        });
     }
 
     /// 获取 PC
     pub fn get_pc(&self) -> u64 {
-        self.interpreter.lock().get_pc().0
+        tokio::task::block_in_place(|| self.interpreter.blocking_lock().get_pc().0)
     }
 }
 
@@ -163,7 +173,6 @@ pub async fn benchmark_async_vs_sync(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_ir::{IRBuilder, IROp, Terminator};
     use vm_mem::SoftMmu;
 
     #[tokio::test]
@@ -171,9 +180,9 @@ mod tests {
         let executor = AsyncExecutorWrapper::new(100);
         let mut mmu = SoftMmu::new(1024 * 1024, false);
 
-        let mut builder = IRBuilder::new(0x1000);
-        builder.add_op(IROp::MovImm { dst: 0, imm: 42 });
-        builder.set_terminator(Terminator::Ret);
+        let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
+        builder.push(IROp::MovImm { dst: 0, imm: 42 });
+        builder.set_term(Terminator::Ret);
         let block = builder.build();
 
         let result = executor.execute_block_async(&mut mmu, &block).await;
@@ -184,14 +193,14 @@ mod tests {
     async fn test_performance_comparison() {
         let mut mmu = SoftMmu::new(1024 * 1024, false);
 
-        let mut builder = IRBuilder::new(0x1000);
+        let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
         for i in 0..10 {
-            builder.add_op(IROp::MovImm {
+            builder.push(IROp::MovImm {
                 dst: i,
                 imm: i as u64,
             });
         }
-        builder.set_terminator(Terminator::Ret);
+        builder.set_term(Terminator::Ret);
         let block = builder.build();
 
         let comparison = benchmark_async_vs_sync(&mut mmu, &block, 100, 10).await;

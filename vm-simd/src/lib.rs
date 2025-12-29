@@ -770,6 +770,15 @@ mod platform {
         SubU,
     }
 
+    /// 使用SSE2指令执行向量二元运算（加法或减法）
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持SSE2指令集（由`#[target_feature(enable = "sse2")]`保证）
+    /// - `element_size`参数必须是1、2、4或8之一
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     #[target_feature(enable = "sse2")]
     unsafe fn sse_binop(a: u64, b: u64, element_size: u8, op: BinOp) -> Option<u64> {
         let va = _mm_cvtsi64_si128(a as i64);
@@ -796,6 +805,15 @@ mod platform {
         Some(_mm_cvtsi128_si64(res) as u64)
     }
 
+    /// 使用SSE2指令执行饱和算术运算（无符号饱和加法或减法）
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持SSE2指令集（由`#[target_feature(enable = "sse2")]`保证）
+    /// - `element_size`参数必须是1或2之一
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     #[target_feature(enable = "sse2")]
     unsafe fn sse_sat_op(a: u64, b: u64, element_size: u8, op: SatOp) -> Option<u64> {
         let va = _mm_cvtsi64_si128(a as i64);
@@ -814,6 +832,15 @@ mod platform {
         Some(_mm_cvtsi128_si64(res) as u64)
     }
 
+    /// 使用SSE2指令执行逐元素最小值或最大值计算（无符号）
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持SSE2指令集（由`#[target_feature(enable = "sse2")]`保证）
+    /// - `element_size`参数必须是1
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     #[target_feature(enable = "sse2")]
     unsafe fn sse_minmax(a: u64, b: u64, element_size: u8, is_min: bool) -> Option<u64> {
         let va = _mm_cvtsi64_si128(a as i64);
@@ -831,6 +858,15 @@ mod platform {
         Some(_mm_cvtsi128_si64(res) as u64)
     }
 
+    /// 使用SSE2指令执行逐元素乘法运算
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持SSE2指令集（由`#[target_feature(enable = "sse2")]`保证）
+    /// - `element_size`参数必须是2或4之一
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     #[target_feature(enable = "sse2")]
     unsafe fn sse_mul(a: u64, b: u64, element_size: u8) -> Option<u64> {
         let va = _mm_cvtsi64_si128(a as i64);
@@ -843,6 +879,16 @@ mod platform {
         Some(_mm_cvtsi128_si64(res) as u64)
     }
 
+    /// 使用AVX2指令执行256位向量二元运算（加法或减法）
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持AVX2指令集（由`#[target_feature(enable = "avx2")]`保证）
+    /// - `element_size`参数必须是1、2、4或8之一
+    /// - `a`和`b`必须是指向有效内存区域的指针，至少包含4个u64元素（32字节）
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     #[target_feature(enable = "avx2")]
     unsafe fn avx_binop(
         a: &[u64; 4],
@@ -876,6 +922,16 @@ mod platform {
         Some(out)
     }
 
+    /// 使用AVX2指令执行256位向量乘法运算
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持AVX2指令集（由`#[target_feature(enable = "avx2")]`保证）
+    /// - `element_size`参数必须是2或4之一
+    /// - `a`和`b`必须是指向有效内存区域的指针，至少包含4个u64元素（32字节）
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     #[target_feature(enable = "avx2")]
     unsafe fn avx_mul(a: &[u64; 4], b: &[u64; 4], element_size: u8) -> Option<[u64; 4]> {
         let va = _mm256_loadu_si256(a.as_ptr() as *const __m256i);
@@ -890,9 +946,18 @@ mod platform {
         Some(out)
     }
 
-    // AVX-512 实现：由于 Rust 标准库对 AVX-512 intrinsics 的支持有限，
-    // 我们使用两个 AVX2 256-bit 操作来模拟 512-bit 操作
-    // 注意：真正的 AVX-512 实现需要使用内联汇编或第三方库
+    /// 使用两个AVX2指令模拟512位向量二元运算（加法或减法）
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持AVX2指令集（由`#[target_feature(enable = "avx2")]`保证）
+    /// - `element_size`参数必须是1、2、4或8之一
+    /// - `a`和`b`必须是指向有效内存区域的指针，至少包含8个u64元素（64字节）
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
+    ///
+    /// 注意：真正的AVX-512实现需要使用内联汇编或第三方库
     #[target_feature(enable = "avx2")]
     unsafe fn avx512_binop(
         a: &[u64; 8],
@@ -912,6 +977,16 @@ mod platform {
         Some([lo[0], lo[1], lo[2], lo[3], hi[0], hi[1], hi[2], hi[3]])
     }
 
+    /// 使用两个AVX2指令模拟512位向量乘法运算
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持AVX2指令集（由`#[target_feature(enable = "avx2")]`保证）
+    /// - `element_size`参数必须是2或4之一
+    /// - `a`和`b`必须是指向有效内存区域的指针，至少包含8个u64元素（64字节）
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     #[target_feature(enable = "avx2")]
     unsafe fn avx512_mul(a: &[u64; 8], b: &[u64; 8], element_size: u8) -> Option<[u64; 8]> {
         let lo_a = [a[0], a[1], a[2], a[3]];
@@ -1148,6 +1223,15 @@ mod platform {
         Sub,
     }
 
+    /// 使用NEON指令执行64位向量二元运算（加法或减法）
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持ARM NEON指令集
+    /// - `element_size`参数必须是1、2、4或8之一
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     unsafe fn neon_binop(a: u64, b: u64, element_size: u8, op: NeonOp) -> Option<u64> {
         match element_size {
             1 => unsafe {
@@ -1185,6 +1269,15 @@ mod platform {
         }
     }
 
+    /// 使用NEON指令执行64位向量乘法运算
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持ARM NEON指令集
+    /// - `element_size`参数必须是1、2或4之一
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     unsafe fn neon_mul(a: u64, b: u64, element_size: u8) -> Option<u64> {
         match element_size {
             1 => unsafe {
@@ -1209,6 +1302,15 @@ mod platform {
         }
     }
 
+    /// 使用NEON指令执行饱和算术运算（无符号饱和加法或减法）
+    ///
+    /// # Safety
+    ///
+    /// 调用此函数必须满足以下条件：
+    /// - CPU必须支持ARM NEON指令集
+    /// - `element_size`参数必须是1或2之一
+    ///
+    /// 违反这些条件将导致未定义行为（UB）。
     unsafe fn neon_sat_op(
         a: u64,
         b: u64,

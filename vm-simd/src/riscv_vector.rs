@@ -114,11 +114,11 @@ impl VectorMask {
 /// 128位向量 = 4个单精度浮点数或2个双精度浮点数
 pub fn vfadd_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
     let mut result = [0f32; 4];
-    for i in 0..4 {
+    for (i, (a_val, b_val)) in a.iter().zip(b.iter()).enumerate() {
         if mask.test(i) {
-            result[i] = a[i] + b[i];
+            result[i] = a_val + b_val;
         } else {
-            result[i] = a[i]; // 未激活的元素保持原值
+            result[i] = *a_val; // 未激活的元素保持原值
         }
     }
     result
@@ -127,11 +127,11 @@ pub fn vfadd_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
 /// RISC-V Vector 向量浮点减法 (VFSUB, 128位向量)
 pub fn vfsub_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
     let mut result = [0f32; 4];
-    for i in 0..4 {
+    for (i, (a_val, b_val)) in a.iter().zip(b.iter()).enumerate() {
         if mask.test(i) {
-            result[i] = a[i] - b[i];
+            result[i] = a_val - b_val;
         } else {
-            result[i] = a[i];
+            result[i] = *a_val;
         }
     }
     result
@@ -140,11 +140,11 @@ pub fn vfsub_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
 /// RISC-V Vector 向量浮点乘法 (VFMUL, 128位向量)
 pub fn vfmul_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
     let mut result = [0f32; 4];
-    for i in 0..4 {
+    for (i, (a_val, b_val)) in a.iter().zip(b.iter()).enumerate() {
         if mask.test(i) {
-            result[i] = a[i] * b[i];
+            result[i] = a_val * b_val;
         } else {
-            result[i] = a[i];
+            result[i] = *a_val;
         }
     }
     result
@@ -153,11 +153,11 @@ pub fn vfmul_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
 /// RISC-V Vector 向量浮点除法 (VFDIV, 128位向量)
 pub fn vfdiv_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
     let mut result = [0f32; 4];
-    for i in 0..4 {
+    for (i, (a_val, b_val)) in a.iter().zip(b.iter()).enumerate() {
         if mask.test(i) {
-            result[i] = a[i] / b[i];
+            result[i] = a_val / b_val;
         } else {
-            result[i] = a[i];
+            result[i] = *a_val;
         }
     }
     result
@@ -166,9 +166,9 @@ pub fn vfdiv_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> [f32; 4] {
 /// RISC-V Vector 向量浮点比较相等 (VFCMEQ, 128位向量)
 pub fn vfcmpeq_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> VectorMask {
     let mut result = VectorMask::new(4);
-    for i in 0..4 {
+    for (i, (a_val, b_val)) in a.iter().zip(b.iter()).enumerate() {
         if mask.test(i) {
-            result.set_bit(i, a[i] == b[i]);
+            result.set_bit(i, a_val == b_val);
         }
     }
     result
@@ -177,9 +177,9 @@ pub fn vfcmpeq_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> VectorMask 
 /// RISC-V Vector 向量浮点比较大于 (VFCMGT, 128位向量)
 pub fn vfcmgt_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> VectorMask {
     let mut result = VectorMask::new(4);
-    for i in 0..4 {
+    for (i, (a_val, b_val)) in a.iter().zip(b.iter()).enumerate() {
         if mask.test(i) {
-            result.set_bit(i, a[i] > b[i]);
+            result.set_bit(i, a_val > b_val);
         }
     }
     result
@@ -188,9 +188,9 @@ pub fn vfcmgt_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> VectorMask {
 /// RISC-V Vector 向量浮点比较大于等于 (VFCMGE, 128位向量)
 pub fn vfcmge_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> VectorMask {
     let mut result = VectorMask::new(4);
-    for i in 0..4 {
+    for (i, (a_val, b_val)) in a.iter().zip(b.iter()).enumerate() {
         if mask.test(i) {
-            result.set_bit(i, a[i] >= b[i]);
+            result.set_bit(i, a_val >= b_val);
         }
     }
     result
@@ -199,9 +199,13 @@ pub fn vfcmge_f32(a: &[f32; 4], b: &[f32; 4], mask: &VectorMask) -> VectorMask {
 /// RISC-V Vector 向量归约求和 (VREDSUM)
 pub fn vredsum_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut sum = 0f32;
-    for i in 0..a.len().min(mask.get_bits().len()) {
+    for (i, val) in a
+        .iter()
+        .enumerate()
+        .take(a.len().min(mask.get_bits().len()))
+    {
         if mask.test(i) {
-            sum += a[i];
+            sum += *val;
         }
     }
     sum
@@ -212,9 +216,13 @@ pub fn vredmax_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut max_val = f32::NEG_INFINITY;
     let mut found = false;
 
-    for i in 0..a.len().min(mask.get_bits().len()) {
-        if mask.test(i) && (!found || a[i] > max_val) {
-            max_val = a[i];
+    for (i, val) in a
+        .iter()
+        .enumerate()
+        .take(a.len().min(mask.get_bits().len()))
+    {
+        if mask.test(i) && (!found || *val > max_val) {
+            max_val = *val;
             found = true;
         }
     }
@@ -227,9 +235,13 @@ pub fn vredmin_f32(a: &[f32], mask: &VectorMask) -> f32 {
     let mut min_val = f32::INFINITY;
     let mut found = false;
 
-    for i in 0..a.len().min(mask.get_bits().len()) {
-        if mask.test(i) && (!found || a[i] < min_val) {
-            min_val = a[i];
+    for (i, val) in a
+        .iter()
+        .enumerate()
+        .take(a.len().min(mask.get_bits().len()))
+    {
+        if mask.test(i) && (!found || *val < min_val) {
+            min_val = *val;
             found = true;
         }
     }
@@ -338,7 +350,7 @@ impl VectorRegisterFile {
         for reg in &mut regs {
             reg.write(VectorRegister::new());
         }
-        let registers = unsafe { std::mem::transmute(regs) };
+        let registers: [VectorRegister; 32] = unsafe { std::mem::transmute(regs) };
         Self {
             registers,
             vl: VectorLength::new(0),

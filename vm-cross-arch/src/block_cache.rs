@@ -32,22 +32,22 @@ impl SourceBlockKey {
         block: &IRBlock,
     ) -> Self {
         use std::hash::{Hash, Hasher};
-        
+
         // 计算块的哈希值
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        
+
         // 哈希块的关键属性
         start_pc.hash(&mut hasher);
         block.ops.len().hash(&mut hasher);
-        
+
         // 哈希每个操作
         for op in &block.ops {
             op.hash(&mut hasher);
         }
-        
+
         // 哈希终结符
         block.term.hash(&mut hasher);
-        
+
         let block_hash = hasher.finish();
 
         Self {
@@ -72,11 +72,11 @@ impl Hash for SourceBlockKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheReplacementPolicy {
     /// 最近最少使用（LRU）
-    LRU,
+    Lru,
     /// 先进先出（FIFO）
-    FIFO,
+    Fifo,
     /// 最不经常使用（LFU）
-    LFU,
+    Lfu,
     /// 随机替换
     Random,
 }
@@ -187,7 +187,7 @@ impl CrossArchBlockCache {
             // 更新访问信息
             self.update_access_info(key);
             self.stats.hits += 1;
-            
+
             // 返回不可变引用
             self.cache.get(key)
         } else {
@@ -218,12 +218,12 @@ impl CrossArchBlockCache {
         block: &IRBlock,
     ) -> Result<TranslationResult, super::TranslationError> {
         // 创建缓存键
-        let key = SourceBlockKey::new(
-            SourceArch::from(translator.source_arch()),
-            TargetArch::from(translator.target_arch()),
-            block.start_pc,
-            block,
-        );
+        let source_arch = SourceArch::try_from(translator.source_arch())
+            .map_err(|_| super::TranslationError::UnsupportedArchitecturePair)?;
+        let target_arch = TargetArch::try_from(translator.target_arch())
+            .map_err(|_| super::TranslationError::UnsupportedArchitecturePair)?;
+
+        let key = SourceBlockKey::new(source_arch, target_arch, block.start_pc, block);
 
         // 尝试从缓存获取
         if let Some(cached_block) = self.lookup(&key) {
@@ -237,10 +237,8 @@ impl CrossArchBlockCache {
         let result = translator.translate_block_internal(block)?;
 
         // 创建翻译块并缓存
-        let translated_block = TranslatedBlock::new(
-            result.instructions.clone(),
-            result.stats.clone(),
-        );
+        let translated_block =
+            TranslatedBlock::new(result.instructions.clone(), result.stats.clone());
         self.insert(key, translated_block);
 
         Ok(result)
@@ -278,15 +276,15 @@ impl CrossArchBlockCache {
         }
 
         let key_to_evict = match self.policy {
-            CacheReplacementPolicy::LRU => {
+            CacheReplacementPolicy::Lru => {
                 // 找到最久未访问的块
                 self.lru_order.first().cloned()
             }
-            CacheReplacementPolicy::FIFO => {
+            CacheReplacementPolicy::Fifo => {
                 // 找到最早插入的块
                 self.fifo_queue.first().cloned()
             }
-            CacheReplacementPolicy::LFU => {
+            CacheReplacementPolicy::Lfu => {
                 // 找到访问次数最少的块
                 self.access_counts
                     .iter()
@@ -316,13 +314,13 @@ impl CrossArchBlockCache {
     /// 初始化访问信息
     fn initialize_access_info(&mut self, key: &SourceBlockKey) {
         match self.policy {
-            CacheReplacementPolicy::LRU => {
+            CacheReplacementPolicy::Lru => {
                 self.lru_order.push(key.clone());
             }
-            CacheReplacementPolicy::FIFO => {
+            CacheReplacementPolicy::Fifo => {
                 self.fifo_queue.push(key.clone());
             }
-            CacheReplacementPolicy::LFU => {
+            CacheReplacementPolicy::Lfu => {
                 self.access_counts.insert(key.clone(), 1);
             }
             CacheReplacementPolicy::Random => {
@@ -334,22 +332,22 @@ impl CrossArchBlockCache {
     /// 更新访问信息
     fn update_access_info(&mut self, key: &SourceBlockKey) {
         match self.policy {
-            CacheReplacementPolicy::LRU => {
+            CacheReplacementPolicy::Lru => {
                 // 移动到LRU列表末尾（最近使用）
                 if let Some(pos) = self.lru_order.iter().position(|k| k == key) {
                     self.lru_order.remove(pos);
                     self.lru_order.push(key.clone());
                 }
             }
-            CacheReplacementPolicy::LFU => {
+            CacheReplacementPolicy::Lfu => {
                 // 增加访问计数
                 *self.access_counts.entry(key.clone()).or_insert(0) += 1;
             }
-            CacheReplacementPolicy::FIFO | CacheReplacementPolicy::Random => {
+            CacheReplacementPolicy::Fifo | CacheReplacementPolicy::Random => {
                 // FIFO和随机策略不需要更新访问信息
             }
         }
-        
+
         // 更新缓存中的块访问信息
         if let Some(block) = self.cache.get_mut(key) {
             block.mark_accessed();
@@ -359,13 +357,13 @@ impl CrossArchBlockCache {
     /// 移除访问信息
     fn remove_access_info(&mut self, key: &SourceBlockKey) {
         match self.policy {
-            CacheReplacementPolicy::LRU => {
+            CacheReplacementPolicy::Lru => {
                 self.lru_order.retain(|k| k != key);
             }
-            CacheReplacementPolicy::FIFO => {
+            CacheReplacementPolicy::Fifo => {
                 self.fifo_queue.retain(|k| k != key);
             }
-            CacheReplacementPolicy::LFU => {
+            CacheReplacementPolicy::Lfu => {
                 self.access_counts.remove(key);
             }
             CacheReplacementPolicy::Random => {
@@ -400,39 +398,51 @@ mod tests {
 
     #[test]
     fn test_cache_lru_policy() {
-        let mut cache = CrossArchBlockCache::new(2, CacheReplacementPolicy::LRU);
-        
+        let mut cache = CrossArchBlockCache::new(2, CacheReplacementPolicy::Lru);
+
         // 创建测试块
         let mut builder1 = IRBuilder::new(0x1000);
-        builder1.push(IROp::Add { dst: 0, src1: 1, src2: 2 });
+        builder1.push(IROp::Add {
+            dst: 0,
+            src1: 1,
+            src2: 2,
+        });
         let block1 = builder1.build();
-        
+
         let mut builder2 = IRBuilder::new(0x2000);
-        builder2.push(IROp::Sub { dst: 0, src1: 1, src2: 2 });
+        builder2.push(IROp::Sub {
+            dst: 0,
+            src1: 1,
+            src2: 2,
+        });
         let block2 = builder2.build();
-        
+
         let mut builder3 = IRBuilder::new(0x3000);
-        builder3.push(IROp::Mul { dst: 0, src1: 1, src2: 2 });
+        builder3.push(IROp::Mul {
+            dst: 0,
+            src1: 1,
+            src2: 2,
+        });
         let block3 = builder3.build();
 
         // 插入两个块
         let key1 = SourceBlockKey::new(SourceArch::X86_64, TargetArch::ARM64, 0x1000, &block1);
         let key2 = SourceBlockKey::new(SourceArch::X86_64, TargetArch::ARM64, 0x2000, &block2);
-        
+
         let translated_block1 = TranslatedBlock::new(vec![], Default::default());
         let translated_block2 = TranslatedBlock::new(vec![], Default::default());
-        
+
         cache.insert(key1.clone(), translated_block1);
         cache.insert(key2.clone(), translated_block2);
-        
+
         // 访问第一个块（使其成为最近使用）
         cache.lookup(&key1);
-        
+
         // 插入第三个块，应该替换最久未使用的块（key2）
         let key3 = SourceBlockKey::new(SourceArch::X86_64, TargetArch::ARM64, 0x3000, &block3);
         let translated_block3 = TranslatedBlock::new(vec![], Default::default());
         cache.insert(key3, translated_block3);
-        
+
         // 验证key1仍在缓存中，key2被替换
         assert!(cache.lookup(&key1).is_some());
         assert!(cache.lookup(&key2).is_none());
@@ -441,32 +451,36 @@ mod tests {
 
     #[test]
     fn test_cache_stats() {
-        let mut cache = CrossArchBlockCache::new(10, CacheReplacementPolicy::LRU);
-        
+        let mut cache = CrossArchBlockCache::new(10, CacheReplacementPolicy::Lru);
+
         // 初始统计
         assert_eq!(cache.stats().hits, 0);
         assert_eq!(cache.stats().misses, 0);
         assert_eq!(cache.stats().hit_rate(), 0.0);
-        
+
         // 创建测试块
         let mut builder = IRBuilder::new(0x1000);
-        builder.push(IROp::Add { dst: 0, src1: 1, src2: 2 });
+        builder.push(IROp::Add {
+            dst: 0,
+            src1: 1,
+            src2: 2,
+        });
         let block = builder.build();
-        
+
         let key = SourceBlockKey::new(SourceArch::X86_64, TargetArch::ARM64, 0x1000, &block);
-        
+
         // 未命中
         assert!(cache.lookup(&key).is_none());
         assert_eq!(cache.stats().misses, 1);
-        
+
         // 插入块
         let translated_block = TranslatedBlock::new(vec![], Default::default());
         cache.insert(key.clone(), translated_block);
-        
+
         // 命中
         assert!(cache.lookup(&key).is_some());
         assert_eq!(cache.stats().hits, 1);
-        
+
         // 验证命中率
         assert_eq!(cache.stats().hit_rate(), 0.5); // 1 hit / (1 hit + 1 miss)
     }

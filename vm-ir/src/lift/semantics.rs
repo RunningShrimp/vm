@@ -6,10 +6,6 @@ use crate::lift::decoder::{ISA, Instruction, OperandType};
 use crate::lift::{LiftResult, LiftingContext};
 use vm_core::{CoreError, VmError};
 
-// TODO: Migrate these modules later if needed, for now we will implement stubs or comment out imports if they don't exist yet
-// use crate::arm64_semantics::ARM64SemanticsImpl;
-// use crate::riscv64_semantics::RISCV64SemanticsImpl;
-
 /// 指令语义 Trait
 pub trait Semantics {
     /// 将指令抬升为 LLVM IR
@@ -105,8 +101,7 @@ impl FlagsState {
 }
 
 /// x86-64 指令语义实现
-pub struct X86_64Semantics {
-}
+pub struct X86_64Semantics {}
 
 impl Default for X86_64Semantics {
     fn default() -> Self {
@@ -116,8 +111,7 @@ impl Default for X86_64Semantics {
 
 impl X86_64Semantics {
     pub fn new() -> Self {
-        Self {
-        }
+        Self {}
     }
 
     fn operand_to_ir(&self, op: &OperandType) -> LiftResult<String> {
@@ -328,13 +322,11 @@ store i64 %pop_value, i64* {}"#,
 
     fn lift_imul(&self, instr: &Instruction, ctx: &mut LiftingContext) -> LiftResult<String> {
         if instr.operands.len() < 2 {
-            return Err(
-                VmError::Core(CoreError::DecodeError {
-                    message: "IMUL requires at least 2 operands".to_string(),
-                    position: None,
-                    module: "vm-ir".to_string(),
-                }),
-            );
+            return Err(VmError::Core(CoreError::DecodeError {
+                message: "IMUL requires at least 2 operands".to_string(),
+                position: None,
+                module: "vm-ir".to_string(),
+            }));
         }
 
         let dst = self.operand_to_ir(&instr.operands[0])?;
@@ -684,10 +676,10 @@ store i64 %pop_value, i64* {}"#,
     fn lift_adc(&self, instr: &Instruction, ctx: &mut LiftingContext) -> LiftResult<String> {
         if instr.operands.len() != 2 {
             return Err(VmError::Core(CoreError::DecodeError {
-            message: "ADD requires 2 operands".to_string(),
-            position: None,
-            module: "vm-ir".to_string(),
-        }));
+                message: "ADD requires 2 operands".to_string(),
+                position: None,
+                module: "vm-ir".to_string(),
+            }));
         }
 
         let dst = self.operand_to_ir(&instr.operands[0])?;
@@ -994,8 +986,16 @@ impl Semantics for X86_64Semantics {
 
 /// ARM64 指令语义实现（框架）
 pub struct ARM64SemanticsImpl;
+impl Default for ARM64SemanticsImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ARM64SemanticsImpl {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 impl Semantics for ARM64SemanticsImpl {
     fn lift(&self, instr: &Instruction, _ctx: &mut LiftingContext) -> LiftResult<String> {
@@ -1011,8 +1011,16 @@ impl Semantics for ARM64SemanticsImpl {
 /// RISC-V 指令语义实现（框架）
 pub struct RISCV64Semantics;
 pub struct RISCV64SemanticsImpl;
+impl Default for RISCV64SemanticsImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RISCV64SemanticsImpl {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Semantics for RISCV64Semantics {
@@ -1095,7 +1103,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift add instruction");
         assert!(ir.contains("add i64"));
         assert!(ir.contains("@shadow_ZF"));
     }
@@ -1114,7 +1124,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift mov instruction");
         assert!(ir.contains("store i64"));
     }
 
@@ -1125,7 +1137,9 @@ mod tests {
 
         let instr = Instruction::new("nop".to_string(), vec![], 1);
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift nop instruction");
         assert!(ir.contains("donothing"));
     }
 
@@ -1143,7 +1157,9 @@ mod tests {
             3,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift imul instruction");
         assert!(ir.contains("mul i64"));
     }
 
@@ -1161,7 +1177,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift xor instruction");
         assert!(ir.contains("xor i64"));
     }
 
@@ -1179,7 +1197,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift or instruction");
         assert!(ir.contains("or i64"));
     }
 
@@ -1197,7 +1217,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift and instruction");
         assert!(ir.contains("and i64"));
     }
 
@@ -1215,7 +1237,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift test instruction");
         assert!(ir.contains("and i64"));
     }
 
@@ -1233,7 +1257,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift shl instruction");
         assert!(ir.contains("shl i64"));
     }
 
@@ -1251,7 +1277,9 @@ mod tests {
             2,
         );
 
-        let ir = semantics.lift(&instr, &mut ctx).unwrap();
+        let ir = semantics
+            .lift(&instr, &mut ctx)
+            .expect("should lift shr instruction");
         assert!(ir.contains("lshr i64"));
     }
 

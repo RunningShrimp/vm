@@ -2,9 +2,12 @@
 //!
 //! 实现高性能的无锁共享状态管理，用于多线程环境下的状态同步
 
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
 use super::LockFreeQueue;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+
+/// 状态订阅者类型别名
+type SubscriberMap<T> = std::collections::HashMap<usize, Box<dyn StateSubscriber<T> + Send + Sync>>;
 
 /// 共享状态版本号
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,10 +21,7 @@ pub struct StateVersion {
 impl StateVersion {
     /// 创建新的版本号
     pub fn new() -> Self {
-        Self {
-            major: 0,
-            minor: 0,
-        }
+        Self { major: 0, minor: 0 }
     }
 
     /// 创建指定版本号
@@ -39,9 +39,16 @@ impl StateVersion {
     pub fn increment_minor(&mut self) {
         self.minor += 1;
     }
+}
 
-    /// 比较版本号
-    pub fn cmp(&self, other: &StateVersion) -> std::cmp::Ordering {
+impl PartialOrd for StateVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for StateVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         if self.major < other.major {
             std::cmp::Ordering::Less
         } else if self.major > other.major {
@@ -114,10 +121,10 @@ impl<T: Clone + Send + Sync> LockFreeSharedState<T> {
     /// 读取状态
     pub fn read(&self) -> StateSnapshot<T> {
         self.read_count.fetch_add(1, Ordering::Relaxed);
-        
+
         let ptr = self.current.load(Ordering::Acquire);
         let snapshot = unsafe { &*ptr };
-        
+
         StateSnapshot {
             data: snapshot.data.clone(),
             version: snapshot.version,
@@ -131,34 +138,37 @@ impl<T: Clone + Send + Sync> LockFreeSharedState<T> {
         F: FnMut(&T) -> T,
     {
         self.update_count.fetch_add(1, Ordering::Relaxed);
-        
+
         loop {
             let old_ptr = self.current.load(Ordering::Acquire);
             let old_snapshot = unsafe { &*old_ptr };
-            
+
             // 创建新状态
             let new_data = updater(&old_snapshot.data);
             let mut new_version = old_snapshot.version;
             new_version.increment_minor();
-            
+
             let new_snapshot = StateSnapshot::new(new_data, new_version);
             let new_ptr = Box::into_raw(Box::new(new_snapshot));
-            
+
             // 尝试更新状态
-            if self.current.compare_exchange_weak(
-                old_ptr,
-                new_ptr,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ).is_ok() {
+            if self
+                .current
+                .compare_exchange_weak(old_ptr, new_ptr, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
                 // 更新成功，释放旧状态
-                unsafe { let _ = Box::from_raw(old_ptr); }
-                
+                unsafe {
+                    let _ = Box::from_raw(old_ptr);
+                }
+
                 return unsafe { (*new_ptr).clone() };
             }
-            
+
             // CAS失败，释放新状态并重试
-            unsafe { let _ = Box::from_raw(new_ptr); }
+            unsafe {
+                let _ = Box::from_raw(new_ptr);
+            }
         }
     }
 
@@ -169,39 +179,42 @@ impl<T: Clone + Send + Sync> LockFreeSharedState<T> {
         P: Fn(&T) -> bool,
     {
         self.update_count.fetch_add(1, Ordering::Relaxed);
-        
+
         loop {
             let old_ptr = self.current.load(Ordering::Acquire);
             let old_snapshot = unsafe { &*old_ptr };
-            
+
             // 检查条件
             if !predicate(&old_snapshot.data) {
                 return None;
             }
-            
+
             // 创建新状态
             let new_data = updater(&old_snapshot.data);
             let mut new_version = old_snapshot.version;
             new_version.increment_minor();
-            
+
             let new_snapshot = StateSnapshot::new(new_data, new_version);
             let new_ptr = Box::into_raw(Box::new(new_snapshot));
-            
+
             // 尝试更新状态
-            if self.current.compare_exchange_weak(
-                old_ptr,
-                new_ptr,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ).is_ok() {
+            if self
+                .current
+                .compare_exchange_weak(old_ptr, new_ptr, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
                 // 更新成功，释放旧状态
-                unsafe { let _ = Box::from_raw(old_ptr); }
-                
+                unsafe {
+                    let _ = Box::from_raw(old_ptr);
+                }
+
                 return Some(unsafe { (*new_ptr).clone() });
             }
-            
+
             // CAS失败，释放新状态并重试
-            unsafe { let _ = Box::from_raw(new_ptr); }
+            unsafe {
+                let _ = Box::from_raw(new_ptr);
+            }
         }
     }
 
@@ -224,7 +237,9 @@ impl<T: Send + Sync> Drop for LockFreeSharedState<T> {
     fn drop(&mut self) {
         let ptr = self.current.load(Ordering::Relaxed);
         if !ptr.is_null() {
-            unsafe { let _ = Box::from_raw(ptr); }
+            unsafe {
+                let _ = Box::from_raw(ptr);
+            }
         }
     }
 }
@@ -260,11 +275,11 @@ impl<T: Clone + Send + Sync> StripedSharedState<T> {
     /// 创建指定分片数量的分片共享状态
     pub fn with_shards(initial_state: T, shard_count: usize) -> Self {
         let mut shards = Vec::with_capacity(shard_count);
-        
+
         for _ in 0..shard_count {
             shards.push(LockFreeSharedState::new(initial_state.clone()));
         }
-        
+
         Self {
             shards,
             shard_count,
@@ -281,7 +296,10 @@ impl<T: Clone + Send + Sync> StripedSharedState<T> {
     where
         F: Fn(&T) -> T + Clone,
     {
-        self.shards.iter().map(|shard| shard.update(updater.clone())).collect()
+        self.shards
+            .iter()
+            .map(|shard| shard.update(updater.clone()))
+            .collect()
     }
 
     /// 更新指定分片
@@ -338,17 +356,17 @@ impl<T: Clone + Send + Sync> RwLockState<T> {
                 std::thread::yield_now();
                 continue;
             }
-            
+
             // 增加读取计数
             self.read_count.fetch_add(1, Ordering::Relaxed);
-            
+
             // 读取状态
             let ptr = self.current.load(Ordering::Acquire);
             let data = unsafe { (*ptr).clone() };
-            
+
             // 减少读取计数
             self.read_count.fetch_sub(1, Ordering::Relaxed);
-            
+
             return data;
         }
     }
@@ -359,35 +377,36 @@ impl<T: Clone + Send + Sync> RwLockState<T> {
         F: FnOnce(&T) -> T,
     {
         // 获取写入锁
-        while self.write_lock.compare_exchange_weak(
-            false,
-            true,
-            Ordering::Acquire,
-            Ordering::Relaxed,
-        ).is_err() {
+        while self
+            .write_lock
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             std::thread::yield_now();
         }
-        
+
         // 等待所有读取完成
         while self.read_count.load(Ordering::Relaxed) > 0 {
             std::thread::yield_now();
         }
-        
+
         // 更新状态
         let old_ptr = self.current.load(Ordering::Acquire);
         let old_data = unsafe { &*old_ptr };
         let new_data = updater(old_data);
         let new_ptr = Box::into_raw(Box::new(new_data.clone()));
-        
+
         // 更新指针
         self.current.store(new_ptr, Ordering::Release);
-        
+
         // 释放写入锁
         self.write_lock.store(false, Ordering::Release);
-        
+
         // 释放旧数据
-        unsafe { let _ = Box::from_raw(old_ptr); }
-        
+        unsafe {
+            let _ = Box::from_raw(old_ptr);
+        }
+
         new_data
     }
 }
@@ -396,7 +415,9 @@ impl<T: Send + Sync> Drop for RwLockState<T> {
     fn drop(&mut self) {
         let ptr = self.current.load(Ordering::Relaxed);
         if !ptr.is_null() {
-            unsafe { let _ = Box::from_raw(ptr); }
+            unsafe {
+                let _ = Box::from_raw(ptr);
+            }
         }
     }
 }
@@ -411,7 +432,7 @@ pub struct StateManager<T: Send + Sync> {
     /// 状态变更队列
     change_queue: Arc<LockFreeQueue<StateChange<T>>>,
     /// 状态订阅者
-    subscribers: Arc<std::sync::RwLock<std::collections::HashMap<usize, Box<dyn StateSubscriber<T> + Send + Sync>>>>,
+    subscribers: Arc<std::sync::RwLock<SubscriberMap<T>>>,
     /// 下一个订阅者ID
     next_subscriber_id: AtomicUsize,
 }
@@ -444,8 +465,6 @@ pub trait StateSubscriber<T> {
     fn on_state_change(&self, change: &StateChange<T>);
 }
 
-
-
 impl<T: Clone + Send + Sync + 'static> StateManager<T> {
     /// 创建新的状态管理器
     pub fn new(initial_state: T) -> Self {
@@ -455,6 +474,24 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
             subscribers: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             next_subscriber_id: AtomicUsize::new(0),
         }
+    }
+
+    /// Helper to acquire subscribers read lock with error handling
+    fn lock_subscribers_read(
+        &self,
+    ) -> Result<std::sync::RwLockReadGuard<'_, SubscriberMap<T>>, String> {
+        self.subscribers
+            .read()
+            .map_err(|e| format!("Subscribers read lock is poisoned: {:?}", e))
+    }
+
+    /// Helper to acquire subscribers write lock with error handling
+    fn lock_subscribers_write(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, SubscriberMap<T>>, String> {
+        self.subscribers
+            .write()
+            .map_err(|e| format!("Subscribers write lock is poisoned: {:?}", e))
     }
 
     /// 读取当前状态
@@ -470,7 +507,7 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
         // 使用内部方法避免移动问题
         let current_snapshot = self.shared_state.read();
         let current_data = current_snapshot.data.clone();
-        
+
         let new_snapshot = self.shared_state.update(|old_data| {
             // old_data用于内部版本控制和CAS操作的原子性保证
             let updated = updater(&current_data);
@@ -478,20 +515,20 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
             let _old_ref = &old_data;
             updated
         });
-        
+
         // 创建状态变更
         let change = StateChange {
             change_type: StateChangeType::Update,
             data: new_snapshot.data.clone(),
             timestamp: new_snapshot.timestamp,
         };
-        
+
         // 添加到变更队列
         let _ = self.change_queue.push(change.clone());
-        
+
         // 通知订阅者
         self.notify_subscribers(&change);
-        
+
         new_snapshot
     }
 
@@ -504,7 +541,7 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
         // 使用内部方法避免移动问题
         let current_snapshot = self.shared_state.read();
         let current_data = current_snapshot.data.clone();
-        
+
         if predicate(&current_snapshot.data) {
             let new_snapshot = self.shared_state.update(|old_data| {
                 // old_data用于条件更新的原子性保证，记录更新前的状态
@@ -512,20 +549,20 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
                 let _old_ref = &old_data;
                 updated
             });
-            
+
             // 创建状态变更
             let change = StateChange {
                 change_type: StateChangeType::Conditional,
                 data: new_snapshot.data.clone(),
                 timestamp: new_snapshot.timestamp,
             };
-            
+
             // 添加到变更队列
             let _ = self.change_queue.push(change.clone());
-            
+
             // 通知订阅者
             self.notify_subscribers(&change);
-            
+
             Some(new_snapshot)
         } else {
             None
@@ -535,20 +572,20 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
     /// 替换状态
     pub fn replace_state(&self, new_state: T) -> StateSnapshot<T> {
         let new_snapshot = self.shared_state.update(|_| new_state.clone());
-        
+
         // 创建状态变更
         let change = StateChange {
             change_type: StateChangeType::Replace,
             data: new_state.clone(),
             timestamp: new_snapshot.timestamp,
         };
-        
+
         // 添加到变更队列
         let _ = self.change_queue.push(change.clone());
-        
+
         // 通知订阅者
         self.notify_subscribers(&change);
-        
+
         new_snapshot
     }
 
@@ -559,35 +596,44 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
     {
         let subscriber_id = self.next_subscriber_id.fetch_add(1, Ordering::Relaxed);
         let boxed_subscriber: Box<dyn StateSubscriber<T> + Send + Sync> = Box::new(subscriber);
-        
-        let mut subscribers = self.subscribers.write().unwrap();
-        subscribers.insert(subscriber_id, boxed_subscriber);
-        
+
+        if let Ok(mut subscribers) = self.lock_subscribers_write() {
+            subscribers.insert(subscriber_id, boxed_subscriber);
+        }
+
         subscriber_id
     }
 
     /// 取消订阅
-    pub fn unsubscribe(&self, subscriber_id: usize) -> Option<Box<dyn StateSubscriber<T> + Send + Sync>> {
-        let mut subscribers = self.subscribers.write().unwrap();
-        subscribers.remove(&subscriber_id)
+    pub fn unsubscribe(
+        &self,
+        subscriber_id: usize,
+    ) -> Option<Box<dyn StateSubscriber<T> + Send + Sync>> {
+        match self.lock_subscribers_write() {
+            Ok(mut subscribers) => subscribers.remove(&subscriber_id),
+            Err(_) => None,
+        }
     }
 
     /// 获取状态变更历史
     pub fn get_change_history(&self) -> Vec<StateChange<T>> {
         let mut changes = Vec::new();
-        
+
         while let Some(change) = self.change_queue.try_pop() {
             changes.push(change);
         }
-        
+
         changes
     }
 
     /// 获取统计信息
     pub fn get_stats(&self) -> StateManagerStats {
         let shared_stats = self.shared_state.get_stats();
-        let subscriber_count = self.subscribers.read().unwrap().len();
-        
+        let subscriber_count = match self.lock_subscribers_read() {
+            Ok(subscribers) => subscribers.len(),
+            Err(_) => 0,
+        };
+
         StateManagerStats {
             shared_stats,
             subscriber_count,
@@ -598,10 +644,10 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
     /// 通知订阅者
     fn notify_subscribers(&self, change: &StateChange<T>) {
         // 简化实现：实际可能需要更复杂的机制
-        let subscribers = self.subscribers.read().unwrap();
-        
-        for subscriber in subscribers.values() {
-            subscriber.on_state_change(change);
+        if let Ok(subscribers) = self.lock_subscribers_read() {
+            for subscriber in subscribers.values() {
+                subscriber.on_state_change(change);
+            }
         }
     }
 }
@@ -626,85 +672,85 @@ mod tests {
     #[test]
     fn test_lockfree_shared_state() {
         let state = LockFreeSharedState::new(0);
-        
+
         // 测试读取
         let snapshot = state.read();
         assert_eq!(snapshot.data, 0);
         assert_eq!(snapshot.version, StateVersion::new());
-        
+
         // 测试更新
         let new_snapshot = state.update(|x| x + 1);
         assert_eq!(new_snapshot.data, 1);
         assert_eq!(new_snapshot.version.minor, 1);
-        
+
         // 验证状态已更新
         let current_snapshot = state.read();
         assert_eq!(current_snapshot.data, 1);
-        
+
         println!("无锁共享状态测试通过");
     }
 
     #[test]
     fn test_striped_shared_state() {
         let state = StripedSharedState::new(0);
-        
+
         // 测试读取
         let snapshots = state.read();
         assert_eq!(snapshots.len(), 16);
         for snapshot in &snapshots {
             assert_eq!(snapshot.data, 0);
         }
-        
+
         // 测试更新
         let new_snapshots = state.update_all(|x| x + 1);
         assert_eq!(new_snapshots.len(), 16);
         for snapshot in &new_snapshots {
             assert_eq!(snapshot.data, 1);
         }
-        
+
         println!("分片共享状态测试通过");
     }
 
     #[test]
     fn test_rwlock_state() {
         let state = Arc::new(RwLockState::new(0));
-        
+
         // 测试读取
         let value = state.read();
         assert_eq!(value, 0);
-        
+
         // 测试写入
         let new_value = state.write(|x| x + 1);
         assert_eq!(new_value, 1);
-        
+
         // 验证状态已更新
         let current_value = state.read();
         assert_eq!(current_value, 1);
-        
+
         println!("读写锁状态测试通过");
     }
 
     #[test]
     fn test_state_manager() {
         let manager = Arc::new(StateManager::new(0));
-        
+
         // 测试读取状态
         let snapshot = manager.read_state();
         assert_eq!(snapshot.data, 0);
-        
+
         // 测试更新状态
         let new_snapshot = manager.update(|x| x + 1);
         assert_eq!(new_snapshot.data, 1);
-        
+
         // 验证状态已更新
         let current_snapshot = manager.read_state();
         assert_eq!(current_snapshot.data, 1);
-        
+
         // 测试状态变更历史
         let changes = manager.get_change_history();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].data, 1);
-        
+
         println!("状态管理器测试通过");
     }
 
@@ -712,7 +758,7 @@ mod tests {
     fn test_concurrent_state_access() {
         let state = Arc::new(LockFreeSharedState::new(0));
         let mut handles = Vec::new();
-        
+
         // 读取线程
         for _i in 0..4 {
             let state = state.clone();
@@ -723,7 +769,7 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         // 写入线程
         for i in 0..4 {
             let state = state.clone();
@@ -734,16 +780,18 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         // 等待所有线程完成
         for handle in handles {
-            handle.join().unwrap();
+            handle
+                .join()
+                .expect("concurrent state access thread should not panic");
         }
-        
+
         // 验证最终状态
         let final_snapshot = state.read();
         println!("最终状态: {}", final_snapshot.data);
-        
+
         println!("并发状态访问测试通过");
     }
 }

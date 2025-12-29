@@ -461,34 +461,34 @@ mod tests {
     #[test]
     fn test_execution_manager_create_context() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).unwrap();
+        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
         assert!(manager.get_context(1).is_some());
     }
 
     #[test]
     fn test_execution_manager_delete_context() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).unwrap();
-        manager.delete_context(1).unwrap();
+        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
+        manager.delete_context(1).expect("Failed to delete context");
         assert!(manager.get_context(1).is_none());
     }
 
     #[test]
     fn test_execution_manager_schedule() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).unwrap();
-        manager.schedule(1, ExecutionPriority::High).unwrap();
+        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
+        manager.schedule(1, ExecutionPriority::High).expect("Failed to schedule context");
         assert!(manager.next_context().is_some());
     }
 
     #[test]
     fn test_execution_manager_complete_execution() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).unwrap();
-        manager.next_context().unwrap();
-        let ctx = manager.get_context_mut(1).unwrap();
+        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
+        manager.next_context().expect("Failed to get next context");
+        let ctx = manager.get_context_mut(1).expect("Failed to get context");
         ctx.instructions_executed = 1000;
-        manager.complete_execution(1).unwrap();
+        manager.complete_execution(1).expect("Failed to complete execution");
         assert_eq!(manager.get_statistics().successful_executions, 1);
     }
 }

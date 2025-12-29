@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 parking_lot = "0.12"
-async-executor = { path = "../async-executor" }
+vm-executors = { path = "../vm-executors" }
 tiered-compiler = { path = "../tiered-compiler" }
 
 [dev-dependencies]

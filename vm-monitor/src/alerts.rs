@@ -132,6 +132,24 @@ pub struct ParallelAlertMetrics {
     pub parallel_ops: u64,
 }
 
+/// 告警创建信息
+pub struct AlertCreateInfo<'a> {
+    /// 告警类型
+    pub alert_type: AlertType,
+    /// 告警级别
+    pub level: AlertLevel,
+    /// 告警标题
+    pub title: &'a str,
+    /// 告警描述
+    pub description: &'a str,
+    /// 当前值
+    pub current_value: f64,
+    /// 阈值
+    pub threshold: f64,
+    /// 系统指标
+    pub metrics: &'a SystemMetrics,
+}
+
 impl AlertManager {
     /// 创建新的告警管理器
     pub fn new(thresholds: AlertThresholds) -> Self {
@@ -166,19 +184,20 @@ impl AlertManager {
         if metrics.jit_metrics.execution_rate < self.thresholds.jit_execution_rate {
             let alert_key = "jit_execution_rate";
             if !self.is_in_cooldown(alert_key, now) {
-                self.create_alert(
-                    AlertType::JitExecutionRate,
-                    AlertLevel::Warning,
-                    "JIT执行速度低于阈值",
-                    &format!(
-                        "当前JIT执行速度: {:.2} execs/sec，阈值: {:.2} execs/sec",
-                        metrics.jit_metrics.execution_rate, self.thresholds.jit_execution_rate
-                    ),
-                    metrics.jit_metrics.execution_rate,
-                    self.thresholds.jit_execution_rate,
+                let description = format!(
+                    "当前JIT执行速度: {:.2} execs/sec，阈值: {:.2} execs/sec",
+                    metrics.jit_metrics.execution_rate, self.thresholds.jit_execution_rate
+                );
+                let alert_info = AlertCreateInfo {
+                    alert_type: AlertType::JitExecutionRate,
+                    level: AlertLevel::Warning,
+                    title: "JIT执行速度低于阈值",
+                    description: &description,
+                    current_value: metrics.jit_metrics.execution_rate,
+                    threshold: self.thresholds.jit_execution_rate,
                     metrics,
-                )
-                .await;
+                };
+                self.create_alert(alert_info).await;
                 self.set_cooldown(alert_key, now, Duration::from_secs(300)); // 5分钟冷却
             }
         }
@@ -187,19 +206,20 @@ impl AlertManager {
         if metrics.tlb_metrics.hit_rate < self.thresholds.tlb_hit_rate {
             let alert_key = "tlb_hit_rate";
             if !self.is_in_cooldown(alert_key, now) {
-                self.create_alert(
-                    AlertType::TlbHitRate,
-                    AlertLevel::Warning,
-                    "TLB命中率低于阈值",
-                    &format!(
-                        "当前TLB命中率: {:.2}%，阈值: {:.2}%",
-                        metrics.tlb_metrics.hit_rate, self.thresholds.tlb_hit_rate
-                    ),
-                    metrics.tlb_metrics.hit_rate,
-                    self.thresholds.tlb_hit_rate,
+                let description = format!(
+                    "当前TLB命中率: {:.2}%，阈值: {:.2}%",
+                    metrics.tlb_metrics.hit_rate, self.thresholds.tlb_hit_rate
+                );
+                let alert_info = AlertCreateInfo {
+                    alert_type: AlertType::TlbHitRate,
+                    level: AlertLevel::Warning,
+                    title: "TLB命中率低于阈值",
+                    description: &description,
+                    current_value: metrics.tlb_metrics.hit_rate,
+                    threshold: self.thresholds.tlb_hit_rate,
                     metrics,
-                )
-                .await;
+                };
+                self.create_alert(alert_info).await;
                 self.set_cooldown(alert_key, now, Duration::from_secs(300));
             }
         }
@@ -209,20 +229,21 @@ impl AlertManager {
         if memory_usage_ratio * 100.0 > self.thresholds.memory_usage_rate {
             let alert_key = "memory_usage";
             if !self.is_in_cooldown(alert_key, now) {
-                self.create_alert(
-                    AlertType::MemoryUsage,
-                    AlertLevel::Critical,
-                    "内存使用率过高",
-                    &format!(
-                        "当前内存使用率: {:.2}%，阈值: {:.2}%",
-                        memory_usage_ratio * 100.0,
-                        self.thresholds.memory_usage_rate
-                    ),
+                let description = format!(
+                    "当前内存使用率: {:.2}%，阈值: {:.2}%",
                     memory_usage_ratio * 100.0,
-                    self.thresholds.memory_usage_rate,
+                    self.thresholds.memory_usage_rate
+                );
+                let alert_info = AlertCreateInfo {
+                    alert_type: AlertType::MemoryUsage,
+                    level: AlertLevel::Critical,
+                    title: "内存使用率过高",
+                    description: &description,
+                    current_value: memory_usage_ratio * 100.0,
+                    threshold: self.thresholds.memory_usage_rate,
                     metrics,
-                )
-                .await;
+                };
+                self.create_alert(alert_info).await;
                 self.set_cooldown(alert_key, now, Duration::from_secs(600)); // 10分钟冷却
             }
         }
@@ -252,49 +273,40 @@ impl AlertManager {
     }
 
     /// 创建告警
-    async fn create_alert(
-        &self,
-        alert_type: AlertType,
-        level: AlertLevel,
-        title: &str,
-        description: &str,
-        current_value: f64,
-        threshold: f64,
-        metrics: &SystemMetrics,
-    ) {
+    async fn create_alert(&self, info: AlertCreateInfo<'_>) {
         let alert = Alert {
             id: Uuid::new_v4().to_string(),
-            alert_type,
-            level: level.clone(),
-            title: title.to_string(),
-            description: description.to_string(),
-            current_value,
-            threshold,
+            alert_type: info.alert_type,
+            level: info.level.clone(),
+            title: info.title.to_string(),
+            description: info.description.to_string(),
+            current_value: info.current_value,
+            threshold: info.threshold,
             created_at: Utc::now(),
             acknowledged_at: None,
             active: true,
             metrics: AlertMetrics {
                 jit: Some(JitAlertMetrics {
-                    execution_rate: metrics.jit_metrics.execution_rate,
-                    compilation_cache_size: metrics.jit_metrics.hot_blocks_count as u64,
-                    compilation_rate: metrics.jit_metrics.compilation_rate,
+                    execution_rate: info.metrics.jit_metrics.execution_rate,
+                    compilation_cache_size: info.metrics.jit_metrics.hot_blocks_count as u64,
+                    compilation_rate: info.metrics.jit_metrics.compilation_rate,
                 }),
                 tlb: Some(TlbAlertMetrics {
-                    hit_rate: metrics.tlb_metrics.hit_rate,
-                    lookup_count: metrics.tlb_metrics.total_lookups,
-                    hit_count: metrics.tlb_metrics.total_hits,
-                    entries: metrics.tlb_metrics.current_entries as u64,
+                    hit_rate: info.metrics.tlb_metrics.hit_rate,
+                    lookup_count: info.metrics.tlb_metrics.total_lookups,
+                    hit_count: info.metrics.tlb_metrics.total_hits,
+                    entries: info.metrics.tlb_metrics.current_entries as u64,
                 }),
                 memory: Some(MemoryAlertMetrics {
-                    usage_ratio: metrics.memory_metrics.usage_rate / 100.0,
-                    allocation_rate: metrics.memory_metrics.allocation_rate,
-                    read_write_ops: metrics.memory_metrics.total_reads
-                        + metrics.memory_metrics.total_writes,
+                    usage_ratio: info.metrics.memory_metrics.usage_rate / 100.0,
+                    allocation_rate: info.metrics.memory_metrics.allocation_rate,
+                    read_write_ops: info.metrics.memory_metrics.total_reads
+                        + info.metrics.memory_metrics.total_writes,
                 }),
                 parallel: Some(ParallelAlertMetrics {
-                    efficiency: metrics.parallel_metrics.efficiency_score,
-                    active_vcpus: metrics.parallel_metrics.active_vcpu_count as u32,
-                    parallel_ops: metrics.parallel_metrics.total_parallel_operations,
+                    efficiency: info.metrics.parallel_metrics.efficiency_score,
+                    active_vcpus: info.metrics.parallel_metrics.active_vcpu_count as u32,
+                    parallel_ops: info.metrics.parallel_metrics.total_parallel_operations,
                 }),
             },
         };
@@ -320,8 +332,8 @@ impl AlertManager {
             "Alert created: {} - {} (Value: {:.2}, Threshold: {:.2})",
             alert.id,
             alert.title,
-            current_value,
-            threshold
+            info.current_value,
+            info.threshold
         );
     }
 

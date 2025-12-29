@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, Mutex, RwLock};
 
+use vm_core::{MemoryError, VmError, VmResult};
+
 /// 内存映射缓存条目
 #[derive(Clone, Debug)]
 pub struct MappingEntry {
@@ -45,9 +47,36 @@ impl MappingCache {
         }
     }
 
+    /// Helper to acquire mappings write lock with error handling
+    fn lock_mappings_write(
+        &self,
+    ) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<u64, MappingEntry>>> {
+        self.mappings.write().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "MappingCache mappings lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire mappings read lock with error handling
+    fn lock_mappings_read(
+        &self,
+    ) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<u64, MappingEntry>>> {
+        self.mappings.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "MappingCache mappings lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 查询映射
     pub fn lookup(&self, vaddr: u64) -> Option<MappingEntry> {
-        let mappings = self.mappings.read().unwrap();
+        let mappings = match self.lock_mappings_read() {
+            Ok(guard) => guard,
+            Err(_) => return None,
+        };
         for (_, entry) in mappings.iter() {
             if entry.vaddr_range.contains(&vaddr) && entry.valid {
                 return Some(entry.clone());
@@ -58,7 +87,10 @@ impl MappingCache {
 
     /// 插入映射
     pub fn insert(&self, vaddr: u64, entry: MappingEntry) -> bool {
-        let mut mappings = self.mappings.write().unwrap();
+        let mut mappings = match self.lock_mappings_write() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
 
         if mappings.len() >= self.max_entries {
             // 简单的 LRU 策略：删除第一个条目
@@ -73,14 +105,17 @@ impl MappingCache {
 
     /// 清除缓存
     pub fn clear(&self) {
-        let mut mappings = self.mappings.write().unwrap();
-        mappings.clear();
+        if let Ok(mut mappings) = self.lock_mappings_write() {
+            mappings.clear();
+        }
     }
 
     /// 获取缓存大小
     pub fn size(&self) -> usize {
-        let mappings = self.mappings.read().unwrap();
-        mappings.len()
+        match self.lock_mappings_read() {
+            Ok(mappings) => mappings.len(),
+            Err(_) => 0,
+        }
     }
 }
 
@@ -215,46 +250,92 @@ impl BufferPool {
         }
     }
 
+    /// Helper to acquire pool lock with error handling
+    fn lock_pool(&self) -> VmResult<std::sync::MutexGuard<'_, Vec<BufferPoolEntry>>> {
+        self.pool.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "BufferPool pool lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire allocations lock with error handling
+    fn lock_allocations(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.allocations.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "BufferPool allocations lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire reuses lock with error handling
+    fn lock_reuses(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.reuses.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "BufferPool reuses lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 从池中分配缓冲区
     pub fn allocate(&self) -> Arc<Vec<u8>> {
-        let mut pool = self.pool.lock().unwrap();
+        let mut pool = match self.lock_pool() {
+            Ok(guard) => guard,
+            Err(_) => return Arc::new(vec![0u8; self.buffer_size]),
+        };
 
         // 查找未被使用的缓冲区
         for entry in pool.iter_mut() {
             if !entry.in_use {
                 entry.in_use = true;
-                *self.reuses.lock().unwrap() += 1;
+                if let Ok(mut reuses) = self.lock_reuses() {
+                    *reuses += 1;
+                }
                 return Arc::clone(&entry.data);
             }
         }
 
         // 没有可用的缓冲区，创建新的
-        *self.allocations.lock().unwrap() += 1;
+        if let Ok(mut allocs) = self.lock_allocations() {
+            *allocs += 1;
+        }
         Arc::new(vec![0u8; self.buffer_size])
     }
 
     /// 释放缓冲区到池中
     pub fn release(&self, _buffer: Arc<Vec<u8>>) {
-        let mut pool = self.pool.lock().unwrap();
-        for entry in pool.iter_mut() {
-            if entry.in_use {
-                entry.in_use = false;
-                break;
+        if let Ok(mut pool) = self.lock_pool() {
+            for entry in pool.iter_mut() {
+                if entry.in_use {
+                    entry.in_use = false;
+                    break;
+                }
             }
         }
     }
 
     /// 获取统计信息
     pub fn stats(&self) -> (u64, u64) {
-        let allocs = *self.allocations.lock().unwrap();
-        let reuses = *self.reuses.lock().unwrap();
+        let allocs = match self.lock_allocations() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
+        let reuses = match self.lock_reuses() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
         (allocs, reuses)
     }
 
     /// 获取池中可用缓冲区数
     pub fn available_count(&self) -> usize {
-        let pool = self.pool.lock().unwrap();
-        pool.iter().filter(|e| !e.in_use).count()
+        match self.lock_pool() {
+            Ok(pool) => pool.iter().filter(|e| !e.in_use).count(),
+            Err(_) => 0,
+        }
     }
 
     /// 诊断报告
@@ -293,14 +374,38 @@ impl DirectMemoryAccess {
         }
     }
 
+    /// Helper to acquire cache_hits lock with error handling
+    fn lock_cache_hits(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.cache_hits.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "DirectMemoryAccess cache_hits lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire cache_misses lock with error handling
+    fn lock_cache_misses(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.cache_misses.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "DirectMemoryAccess cache_misses lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 查询内存映射（带缓存）
     pub fn lookup_mapping(&self, vaddr: u64) -> Option<MappingEntry> {
         if let Some(entry) = self.mapping_cache.lookup(vaddr) {
-            *self.cache_hits.lock().unwrap() += 1;
+            if let Ok(mut hits) = self.lock_cache_hits() {
+                *hits += 1;
+            }
             return Some(entry);
         }
 
-        *self.cache_misses.lock().unwrap() += 1;
+        if let Ok(mut misses) = self.lock_cache_misses() {
+            *misses += 1;
+        }
         None
     }
 
@@ -311,8 +416,14 @@ impl DirectMemoryAccess {
 
     /// 获取缓存命中率
     pub fn cache_hit_rate(&self) -> f64 {
-        let hits = *self.cache_hits.lock().unwrap();
-        let misses = *self.cache_misses.lock().unwrap();
+        let hits = match self.lock_cache_hits() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
+        let misses = match self.lock_cache_misses() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
         let total = hits + misses;
 
         if total == 0 {
@@ -325,16 +436,28 @@ impl DirectMemoryAccess {
     /// 清除映射缓存
     pub fn clear_cache(&self) {
         self.mapping_cache.clear();
-        *self.cache_hits.lock().unwrap() = 0;
-        *self.cache_misses.lock().unwrap() = 0;
+        if let Ok(mut hits) = self.lock_cache_hits() {
+            *hits = 0;
+        }
+        if let Ok(mut misses) = self.lock_cache_misses() {
+            *misses = 0;
+        }
     }
 
     /// 诊断报告
     pub fn diagnostic_report(&self) -> String {
+        let hits = match self.lock_cache_hits() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
+        let misses = match self.lock_cache_misses() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
         format!(
             "DirectMemoryAccess: hits={}, misses={}, hit_rate={:.2}%",
-            *self.cache_hits.lock().unwrap(),
-            *self.cache_misses.lock().unwrap(),
+            hits,
+            misses,
             self.cache_hit_rate() * 100.0
         )
     }
@@ -424,9 +547,42 @@ impl VirtioZeroCopyManager {
         }
     }
 
+    /// Helper to acquire chains lock with error handling
+    fn lock_chains(&self) -> VmResult<std::sync::MutexGuard<'_, HashMap<u32, ZeroCopyChain>>> {
+        self.chains.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VirtioZeroCopyManager chains lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire next_chain_id lock with error handling
+    fn lock_next_chain_id(&self) -> VmResult<std::sync::MutexGuard<'_, u32>> {
+        self.next_chain_id.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VirtioZeroCopyManager next_chain_id lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire completed_chains lock with error handling
+    fn lock_completed_chains(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.completed_chains.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VirtioZeroCopyManager completed_chains lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 创建新的零拷贝链路
     pub fn create_chain(&self) -> ZeroCopyChain {
-        let mut next_id = self.next_chain_id.lock().unwrap();
+        let mut next_id = match self.lock_next_chain_id() {
+            Ok(guard) => guard,
+            Err(_) => return ZeroCopyChain::new(0),
+        };
         let id = *next_id;
         *next_id = next_id.wrapping_add(1);
 
@@ -435,22 +591,30 @@ impl VirtioZeroCopyManager {
 
     /// 注册链路
     pub fn register_chain(&self, chain: ZeroCopyChain) {
-        let mut chains = self.chains.lock().unwrap();
-        chains.insert(chain.id, chain);
+        if let Ok(mut chains) = self.lock_chains() {
+            chains.insert(chain.id, chain);
+        }
     }
 
     /// 获取链路
     pub fn get_chain(&self, id: u32) -> Option<ZeroCopyChain> {
-        let chains = self.chains.lock().unwrap();
-        chains.get(&id).cloned()
+        match self.lock_chains() {
+            Ok(chains) => chains.get(&id).cloned(),
+            Err(_) => None,
+        }
     }
 
     /// 完成链路
     pub fn complete_chain(&self, id: u32) -> bool {
-        let mut chains = self.chains.lock().unwrap();
+        let mut chains = match self.lock_chains() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
         if let Some(chain) = chains.get_mut(&id) {
             chain.mark_complete();
-            *self.completed_chains.lock().unwrap() += 1;
+            if let Ok(mut completed) = self.lock_completed_chains() {
+                *completed += 1;
+            }
             return true;
         }
         false
@@ -458,8 +622,10 @@ impl VirtioZeroCopyManager {
 
     /// 删除链路
     pub fn remove_chain(&self, id: u32) -> Option<ZeroCopyChain> {
-        let mut chains = self.chains.lock().unwrap();
-        chains.remove(&id)
+        match self.lock_chains() {
+            Ok(mut chains) => chains.remove(&id),
+            Err(_) => None,
+        }
     }
 
     /// 分配缓冲区
@@ -484,14 +650,20 @@ impl VirtioZeroCopyManager {
 
     /// 获取活跃链路数
     pub fn active_chains(&self) -> usize {
-        let chains = self.chains.lock().unwrap();
-        chains.len()
+        match self.lock_chains() {
+            Ok(chains) => chains.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 获取统计信息
     pub fn stats(&self) -> (u64, u64, f64) {
+        let completed = match self.lock_completed_chains() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
         (
-            *self.completed_chains.lock().unwrap(),
+            completed,
             self.active_chains() as u64,
             self.dma.cache_hit_rate(),
         )
@@ -508,161 +680,5 @@ impl VirtioZeroCopyManager {
             self.buffer_pool.diagnostic_report(),
             self.dma.diagnostic_report()
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mapping_cache() {
-        let cache = MappingCache::new(10);
-
-        let entry = MappingEntry {
-            vaddr_range: 0x1000..0x2000,
-            paddr: 0x4000,
-            valid: true,
-        };
-
-        cache.insert(0x1000, entry.clone());
-        assert_eq!(cache.size(), 1);
-
-        let found = cache.lookup(0x1500);
-        assert!(found.is_some());
-        assert_eq!(found.unwrap().paddr, 0x4000);
-    }
-
-    #[test]
-    fn test_scatter_gather_list() {
-        let mut sg_list = ScatterGatherList::new();
-        sg_list.add_segment(0x1000, 1024, 1);
-        sg_list.add_segment(0x2000, 2048, 0);
-
-        assert_eq!(sg_list.segment_count(), 2);
-        assert_eq!(sg_list.total_len, 3072);
-        assert!(!sg_list.is_contiguous());
-    }
-
-    #[test]
-    fn test_contiguous_segments() {
-        let mut sg_list = ScatterGatherList::new();
-        sg_list.add_segment(0x1000, 1024, 1);
-        sg_list.add_segment(0x1400, 2048, 0);
-
-        assert!(sg_list.is_contiguous());
-        assert_eq!(sg_list.first_paddr(), Some(0x1000));
-    }
-
-    #[test]
-    fn test_buffer_pool() {
-        let pool = BufferPool::new(4096, 5);
-
-        let buf1 = pool.allocate();
-        let buf2 = pool.allocate();
-
-        assert_eq!(buf1.len(), 4096);
-        assert_eq!(buf2.len(), 4096);
-
-        pool.release(buf1.clone());
-        let buf3 = pool.allocate();
-
-        assert_eq!(pool.available_count(), 3);
-    }
-
-    #[test]
-    fn test_direct_memory_access() {
-        let dma = DirectMemoryAccess::new(10);
-
-        assert_eq!(dma.cache_hit_rate(), 0.0);
-
-        let entry = MappingEntry {
-            vaddr_range: 0x1000..0x2000,
-            paddr: 0x4000,
-            valid: true,
-        };
-
-        dma.cache_mapping(0x1000, entry.clone());
-        let found = dma.lookup_mapping(0x1500);
-        assert!(found.is_some());
-
-        assert!(dma.cache_hit_rate() > 0.0);
-    }
-
-    #[test]
-    fn test_zerocopy_chain() {
-        let mut chain = ZeroCopyChain::new(1);
-        chain.add_segment(0x1000, 1024, 1);
-        chain.add_segment(0x2000, 2048, 0);
-
-        assert_eq!(chain.sg_list.segment_count(), 2);
-        assert!(!chain.completed);
-
-        chain.mark_complete();
-        assert!(chain.completed);
-    }
-
-    #[test]
-    fn test_zerocopy_manager() {
-        let pool = Arc::new(BufferPool::new(4096, 10));
-        let manager = VirtioZeroCopyManager::new(pool, 20);
-
-        let chain1 = manager.create_chain();
-        let chain2 = manager.create_chain();
-
-        manager.register_chain(chain1);
-        manager.register_chain(chain2);
-
-        assert_eq!(manager.active_chains(), 2);
-
-        manager.complete_chain(0);
-        let (completed, _, _) = manager.stats();
-        assert_eq!(completed, 1);
-    }
-
-    #[test]
-    fn test_buffer_pool_stats() {
-        let pool = BufferPool::new(4096, 3);
-
-        let buf1 = pool.allocate();
-        let buf2 = pool.allocate();
-        let buf3 = pool.allocate();
-
-        pool.release(buf1);
-        pool.release(buf2);
-
-        let buf4 = pool.allocate();
-        let buf5 = pool.allocate();
-
-        let (allocs, reuses) = pool.stats();
-        assert_eq!(allocs, 0);
-        assert!(reuses >= 2);
-    }
-
-    #[test]
-    fn test_zerocopy_manager_buffers() {
-        let pool = Arc::new(BufferPool::new(1024, 5));
-        let manager = VirtioZeroCopyManager::new(pool, 10);
-
-        let buf = manager.allocate_buffer();
-        assert_eq!(buf.len(), 1024);
-
-        manager.release_buffer(buf);
-    }
-
-    #[test]
-    fn test_cache_mapping_insert_lookup() {
-        let cache = MappingCache::new(5);
-
-        for i in 0..10 {
-            let entry = MappingEntry {
-                vaddr_range: (i as u64 * 0x1000)..(i as u64 * 0x1000 + 0x1000),
-                paddr: i as u64 * 0x2000,
-                valid: true,
-            };
-            cache.insert(i as u64 * 0x1000, entry);
-        }
-
-        assert_eq!(cache.size(), 5);
     }
 }

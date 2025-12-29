@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
+use vm_core::{MemoryError, VmError, VmResult};
+
 /// vhost 特性标志
 pub const VHOST_F_LOG_ALL: u64 = 1 << 0;
 pub const VHOST_USER_F_PROTOCOL_FEATURES: u64 = 1 << 10;
@@ -49,9 +51,46 @@ impl VhostMemoryMap {
         }
     }
 
+    /// Helper to acquire regions write lock with error handling
+    fn lock_regions_write(
+        &self,
+    ) -> VmResult<std::sync::RwLockWriteGuard<'_, Vec<VhostMemoryRegion>>> {
+        self.regions.write().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostMemoryMap regions lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire regions read lock with error handling
+    fn lock_regions_read(
+        &self,
+    ) -> VmResult<std::sync::RwLockReadGuard<'_, Vec<VhostMemoryRegion>>> {
+        self.regions.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostMemoryMap regions lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire total_size lock with error handling
+    fn lock_total_size(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.total_size.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostMemoryMap total_size lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 添加内存区域
     pub fn add_region(&self, region: VhostMemoryRegion) -> bool {
-        let mut regions = self.regions.write().unwrap();
+        let mut regions = match self.lock_regions_write() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
 
         // 检查是否有重叠
         for existing in regions.iter() {
@@ -60,14 +99,21 @@ impl VhostMemoryMap {
             }
         }
 
-        *self.total_size.lock().unwrap() += region.size;
+        let mut total_size = match self.lock_total_size() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+        *total_size += region.size;
         regions.push(region);
         true
     }
 
     /// 查询内存区域
     pub fn lookup_region(&self, gpa: u64) -> Option<VhostMemoryRegion> {
-        let regions = self.regions.read().unwrap();
+        let regions = match self.lock_regions_read() {
+            Ok(guard) => guard,
+            Err(_) => return None,
+        };
         for region in regions.iter() {
             if gpa >= region.guest_addr && gpa < region.guest_addr + region.size {
                 return Some(region.clone());
@@ -85,8 +131,10 @@ impl VhostMemoryMap {
 
     /// 获取区域数
     pub fn region_count(&self) -> usize {
-        let regions = self.regions.read().unwrap();
-        regions.len()
+        match self.lock_regions_read() {
+            Ok(regions) => regions.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 检查区域是否重叠
@@ -98,14 +146,20 @@ impl VhostMemoryMap {
 
     /// 清除所有区域
     pub fn clear(&self) {
-        let mut regions = self.regions.write().unwrap();
-        regions.clear();
-        *self.total_size.lock().unwrap() = 0;
+        if let Ok(mut regions) = self.lock_regions_write() {
+            regions.clear();
+        }
+        if let Ok(mut total_size) = self.lock_total_size() {
+            *total_size = 0;
+        }
     }
 
     /// 获取总大小
     pub fn total_size(&self) -> u64 {
-        *self.total_size.lock().unwrap()
+        match self.lock_total_size() {
+            Ok(total_size) => *total_size,
+            Err(_) => 0,
+        }
     }
 }
 
@@ -365,6 +419,50 @@ impl VhostFrontend {
         }
     }
 
+    /// Helper to acquire virt_queues write lock with error handling
+    fn lock_virt_queues_write(
+        &self,
+    ) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<u32, VhostVirtQueue>>> {
+        self.virt_queues.write().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostFrontend virt_queues lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire virt_queues read lock with error handling
+    fn lock_virt_queues_read(
+        &self,
+    ) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<u32, VhostVirtQueue>>> {
+        self.virt_queues.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostFrontend virt_queues lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire messages_processed lock with error handling
+    fn lock_messages_processed(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.messages_processed.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostFrontend messages_processed lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire feature_negotiations lock with error handling
+    fn lock_feature_negotiations(&self) -> VmResult<std::sync::MutexGuard<'_, u64>> {
+        self.feature_negotiations.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostFrontend feature_negotiations lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 获取支持的特性
     pub fn get_features(&self) -> u64 {
         self.supported_features
@@ -373,8 +471,11 @@ impl VhostFrontend {
     /// 协商特性
     pub fn negotiate_features(&mut self, backend_features: u64) -> u64 {
         let negotiated = self.supported_features & backend_features;
-        self.negotiated_features.store(negotiated, std::sync::atomic::Ordering::Relaxed);
-        *self.feature_negotiations.lock().unwrap() += 1;
+        self.negotiated_features
+            .store(negotiated, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut count) = self.lock_feature_negotiations() {
+            *count += 1;
+        }
         negotiated
     }
 
@@ -385,52 +486,58 @@ impl VhostFrontend {
 
     /// 设置虚拟队列
     pub fn set_virt_queue(&self, index: u32, queue: VhostVirtQueue) {
-        let mut queues = self.virt_queues.write().unwrap();
-        queues.insert(index, queue);
+        if let Ok(mut queues) = self.lock_virt_queues_write() {
+            queues.insert(index, queue);
+        }
     }
 
     /// 获取虚拟队列
     pub fn get_virt_queue(&self, index: u32) -> Option<VhostVirtQueue> {
-        let queues = self.virt_queues.read().unwrap();
-        queues.get(&index).cloned()
+        match self.lock_virt_queues_read() {
+            Ok(queues) => queues.get(&index).cloned(),
+            Err(_) => None,
+        }
     }
 
     /// 处理后端消息
     pub fn handle_backend_message(&self, message: &VhostMessage) -> bool {
-        *self.messages_processed.lock().unwrap() += 1;
-        
+        if let Ok(mut processed) = self.lock_messages_processed() {
+            *processed += 1;
+        }
+
         // 根据消息类型进行相应的处理
         match message.msg_type {
             // 处理特性协商消息
             VhostMessageType::SetFeatures => {
-                *self.feature_negotiations.lock().unwrap() += 1;
+                if let Ok(mut count) = self.lock_feature_negotiations() {
+                    *count += 1;
+                }
                 // 更新协商的特性
-                self.negotiated_features.store(
-                    message.payload,
-                    std::sync::atomic::Ordering::Relaxed
-                );
-            },
+                self.negotiated_features
+                    .store(message.payload, std::sync::atomic::Ordering::Relaxed);
+            }
             // 处理队列更新消息
             VhostMessageType::SetVringAddr => {
                 if let Some(queue_idx) = message.queue_index {
                     // 验证队列索引的有效性
-                    let queues = self.virt_queues.read().unwrap();
-                    if queues.contains_key(&queue_idx) {
+                    if let Ok(queues) = self.lock_virt_queues_read()
+                        && queues.contains_key(&queue_idx)
+                    {
                         // 可以在这里添加队列更新逻辑
                     }
                 }
-            },
+            }
             // 处理队列通知消息
             VhostMessageType::SetVringCall => {
                 // 处理队列通知更新
                 let _ = message.payload; // 记录状态
-            },
+            }
             // 其他消息类型
             _ => {
                 // 忽略其他消息类型
             }
         }
-        
+
         true
     }
 
@@ -441,22 +548,31 @@ impl VhostFrontend {
 
     /// 获取队列数
     pub fn queue_count(&self) -> usize {
-        let queues = self.virt_queues.read().unwrap();
-        queues.len()
+        match self.lock_virt_queues_read() {
+            Ok(queues) => queues.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 获取统计信息
     pub fn stats(&self) -> (u64, u64) {
-        (
-            *self.messages_processed.lock().unwrap(),
-            *self.feature_negotiations.lock().unwrap(),
-        )
+        let messages = match self.lock_messages_processed() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
+        let features = match self.lock_feature_negotiations() {
+            Ok(guard) => *guard,
+            Err(_) => 0,
+        };
+        (messages, features)
     }
 
     /// 诊断报告
     pub fn diagnostic_report(&self) -> String {
         let (messages, negotiations) = self.stats();
-        let negotiated = self.negotiated_features.load(std::sync::atomic::Ordering::Relaxed);
+        let negotiated = self
+            .negotiated_features
+            .load(std::sync::atomic::Ordering::Relaxed);
         format!(
             "VhostFrontend: features={:016x}, negotiated={:016x}, queues={}, messages={}, negotiations={}",
             self.supported_features,
@@ -488,21 +604,73 @@ impl VhostServiceManager {
         }
     }
 
+    /// Helper to acquire active_connections lock with error handling
+    fn lock_active_connections(&self) -> VmResult<std::sync::MutexGuard<'_, usize>> {
+        self.active_connections.lock().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostServiceManager active_connections lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire memory_cache write lock with error handling
+    fn lock_memory_cache_write(
+        &self,
+    ) -> VmResult<std::sync::RwLockWriteGuard<'_, HashMap<u64, VhostMemoryRegion>>> {
+        self.memory_cache.write().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostServiceManager memory_cache lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire memory_cache read lock with error handling
+    fn lock_memory_cache_read(
+        &self,
+    ) -> VmResult<std::sync::RwLockReadGuard<'_, HashMap<u64, VhostMemoryRegion>>> {
+        self.memory_cache.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostServiceManager memory_cache lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
+    /// Helper to acquire frontend read lock with error handling
+    fn lock_frontend_read(&self) -> VmResult<std::sync::RwLockReadGuard<'_, VhostFrontend>> {
+        self.frontend.read().map_err(|_| {
+            VmError::Memory(MemoryError::PageTableError {
+                message: "VhostServiceManager frontend lock is poisoned".to_string(),
+                level: None,
+            })
+        })
+    }
+
     /// 建立连接
     pub fn connect(&self) -> bool {
-        let mut conns = self.active_connections.lock().unwrap();
-        *conns += 1;
-        true
+        match self.lock_active_connections() {
+            Ok(mut conns) => {
+                *conns += 1;
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// 断开连接
     pub fn disconnect(&self) -> bool {
-        let mut conns = self.active_connections.lock().unwrap();
-        if *conns > 0 {
-            *conns -= 1;
-            return true;
+        match self.lock_active_connections() {
+            Ok(mut conns) => {
+                if *conns > 0 {
+                    *conns -= 1;
+                    return true;
+                }
+                false
+            }
+            Err(_) => false,
         }
-        false
     }
 
     /// 获取前端控制器
@@ -512,29 +680,42 @@ impl VhostServiceManager {
 
     /// 获取活跃连接数
     pub fn active_connections(&self) -> usize {
-        *self.active_connections.lock().unwrap()
+        match self.lock_active_connections() {
+            Ok(conns) => *conns,
+            Err(_) => 0,
+        }
     }
 
     /// 缓存内存区域
     pub fn cache_memory_region(&self, gpa: u64, region: VhostMemoryRegion) {
-        let mut cache = self.memory_cache.write().unwrap();
-        cache.insert(gpa, region);
+        if let Ok(mut cache) = self.lock_memory_cache_write() {
+            cache.insert(gpa, region);
+        }
     }
 
     /// 查询缓存的内存区域
     pub fn lookup_cached_region(&self, gpa: u64) -> Option<VhostMemoryRegion> {
-        let cache = self.memory_cache.read().unwrap();
-        cache.get(&gpa).cloned()
+        match self.lock_memory_cache_read() {
+            Ok(cache) => cache.get(&gpa).cloned(),
+            Err(_) => None,
+        }
     }
 
     /// 诊断报告
     pub fn diagnostic_report(&self) -> String {
-        let frontend = self.frontend.read().unwrap();
+        let frontend = match self.lock_frontend_read() {
+            Ok(f) => f,
+            Err(_) => return "VhostServiceManager: Error - frontend lock poisoned".to_string(),
+        };
+        let cache_count = match self.lock_memory_cache_read() {
+            Ok(cache) => cache.len(),
+            Err(_) => 0,
+        };
         format!(
             "VhostServiceManager: connections={}, {}\n  Memory regions cached: {}",
             self.active_connections(),
             frontend.diagnostic_report(),
-            self.memory_cache.read().unwrap().len()
+            cache_count
         )
     }
 }
@@ -559,7 +740,8 @@ mod tests {
 
         let found = map.lookup_region(0x1500);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().guest_addr, 0x1000);
+        let region = found.expect("Region should be found");
+        assert_eq!(region.guest_addr, 0x1000);
     }
 
     #[test]
@@ -599,7 +781,7 @@ mod tests {
 
         let uva = map.gpa_to_uva(0x1500);
         assert!(uva.is_some());
-        assert_eq!(uva.unwrap(), 0x7ffff500);
+        assert_eq!(uva.expect("UVA should be found"), 0x7ffff500);
     }
 
     #[test]
@@ -610,7 +792,7 @@ mod tests {
 
         let from_flag = VhostFeature::from_flag(flag);
         assert!(from_flag.is_some());
-        assert_eq!(from_flag.unwrap(), feature);
+        assert_eq!(from_flag.expect("Feature should be converted"), feature);
     }
 
     #[test]
@@ -656,7 +838,7 @@ mod tests {
 
         let retrieved = frontend.get_virt_queue(0);
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().index, 0);
+        assert_eq!(retrieved.expect("Queue should be retrieved").index, 0);
     }
 
     #[test]
@@ -697,7 +879,10 @@ mod tests {
 
         let cached = manager.lookup_cached_region(0x1000);
         assert!(cached.is_some());
-        assert_eq!(cached.unwrap().guest_addr, 0x1000);
+        assert_eq!(
+            cached.expect("Cached region should be found").guest_addr,
+            0x1000
+        );
     }
 
     #[test]

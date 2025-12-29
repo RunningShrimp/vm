@@ -89,6 +89,23 @@ pub struct PerformanceStats {
     pub total_codegen_time_us: u64,
 }
 
+impl Default for PerformanceStats {
+    fn default() -> Self {
+        Self {
+            avg_compilation_time_us: 0.0,
+            min_compilation_time_us: 0,
+            max_compilation_time_us: 0,
+            compilation_time_stddev: 0.0,
+            avg_memory_usage_bytes: 0.0,
+            peak_memory_usage_bytes: 0,
+            avg_cache_hit_rate: 0.0,
+            total_compilations: 0,
+            total_optimization_time_us: 0,
+            total_codegen_time_us: 0,
+        }
+    }
+}
+
 /// 热点分析结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotspotAnalysis {
@@ -100,6 +117,17 @@ pub struct HotspotAnalysis {
     pub hotspot_compilation_times: HashMap<u64, u64>,
     /// 热点优化收益
     pub hotspot_optimization_benefits: HashMap<u64, f64>,
+}
+
+impl Default for HotspotAnalysis {
+    fn default() -> Self {
+        Self {
+            hotspot_addresses: Vec::new(),
+            execution_frequencies: HashMap::new(),
+            hotspot_compilation_times: HashMap::new(),
+            hotspot_optimization_benefits: HashMap::new(),
+        }
+    }
 }
 
 /// 性能分析器
@@ -120,9 +148,9 @@ impl JITPerformanceProfiler {
     /// 创建新的性能分析器
     pub fn new(jit_engine: Arc<Mutex<JITEngine>>, config: ProfilerConfig) -> Self {
         // 确保输出目录存在
-        fs::create_dir_all(&config.output_directory).unwrap_or_else(|e| {
+        if let Err(e) = fs::create_dir_all(&config.output_directory) {
             eprintln!("警告：无法创建输出目录 {}: {}", config.output_directory, e);
-        });
+        }
 
         Self {
             jit_engine,
@@ -133,9 +161,23 @@ impl JITPerformanceProfiler {
         }
     }
 
+    /// 辅助方法：获取is_profiling锁
+    fn lock_is_profiling(&self) -> Result<std::sync::MutexGuard<'_, bool>, String> {
+        self.is_profiling
+            .lock()
+            .map_err(|e| format!("获取is_profiling锁失败: {}", e))
+    }
+
+    /// 辅助方法：获取performance_data锁
+    fn lock_performance_data(&self) -> Result<std::sync::MutexGuard<'_, VecDeque<PerformanceDataPoint>>, String> {
+        self.performance_data
+            .lock()
+            .map_err(|e| format!("获取performance_data锁失败: {}", e))
+    }
+
     /// 开始性能分析
     pub fn start_profiling(&self) -> Result<(), String> {
-        let mut is_profiling = self.is_profiling.lock().unwrap();
+        let mut is_profiling = self.lock_is_profiling()?;
         if *is_profiling {
             return Err("性能分析已在运行中".to_string());
         }
@@ -144,7 +186,7 @@ impl JITPerformanceProfiler {
 
         // 清空之前的数据
         {
-            let mut data = self.performance_data.lock().unwrap();
+            let mut data = self.lock_performance_data()?;
             data.clear();
         }
 
@@ -155,16 +197,32 @@ impl JITPerformanceProfiler {
         let is_profiling = self.is_profiling.clone();
 
         std::thread::spawn(move || {
-            while *is_profiling.lock().unwrap() {
+            loop {
+                // 检查是否继续分析
+                let should_continue = match is_profiling.lock() {
+                    Ok(guard) => *guard,
+                    Err(_) => break, // 锁获取失败，退出线程
+                };
+
+                if !should_continue {
+                    break;
+                }
+
                 let data_point = Self::collect_performance_data(&jit_engine);
-                
+
                 {
-                    let mut data = performance_data.lock().unwrap();
-                    data.push_back(data_point);
-                    
-                    // 限制数据点数量
-                    while data.len() > config.max_samples {
-                        data.pop_front();
+                    match performance_data.lock() {
+                        Ok(mut data) => {
+                            data.push_back(data_point);
+
+                            // 限制数据点数量
+                            while data.len() > config.max_samples {
+                                data.pop_front();
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("警告：获取performance_data锁失败: {}", e);
+                        }
                     }
                 }
 
@@ -177,7 +235,7 @@ impl JITPerformanceProfiler {
 
     /// 停止性能分析
     pub fn stop_profiling(&self) -> Result<(), String> {
-        let mut is_profiling = self.is_profiling.lock().unwrap();
+        let mut is_profiling = self.lock_is_profiling()?;
         if !*is_profiling {
             return Err("性能分析未在运行".to_string());
         }
@@ -206,21 +264,16 @@ impl JITPerformanceProfiler {
 
     /// 获取性能统计信息
     pub fn get_performance_stats(&self) -> PerformanceStats {
-        let data = self.performance_data.lock().unwrap();
-        
+        let data = match self.lock_performance_data() {
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!("警告：获取性能数据失败: {}", e);
+                return PerformanceStats::default();
+            }
+        };
+
         if data.is_empty() {
-            return PerformanceStats {
-                avg_compilation_time_us: 0.0,
-                min_compilation_time_us: 0,
-                max_compilation_time_us: 0,
-                compilation_time_stddev: 0.0,
-                avg_memory_usage_bytes: 0.0,
-                peak_memory_usage_bytes: 0,
-                avg_cache_hit_rate: 0.0,
-                total_compilations: 0,
-                total_optimization_time_us: 0,
-                total_codegen_time_us: 0,
-            };
+            return PerformanceStats::default();
         }
 
         let compilation_times: Vec<u64> = data.iter().map(|d| d.compilation_time_us).collect();
@@ -228,9 +281,9 @@ impl JITPerformanceProfiler {
         let cache_hit_rates: Vec<f64> = data.iter().map(|d| d.cache_hit_rate).collect();
 
         let avg_compilation_time = compilation_times.iter().sum::<u64>() as f64 / compilation_times.len() as f64;
-        let min_compilation_time = *compilation_times.iter().min().unwrap();
-        let max_compilation_time = *compilation_times.iter().max().unwrap();
-        
+        let min_compilation_time = compilation_times.iter().copied().min().unwrap_or(0);
+        let max_compilation_time = compilation_times.iter().copied().max().unwrap_or(0);
+
         // 计算标准差
         let variance = compilation_times.iter()
             .map(|&time| (time as f64 - avg_compilation_time).powi(2))
@@ -238,7 +291,7 @@ impl JITPerformanceProfiler {
         let compilation_time_stddev = variance.sqrt();
 
         let avg_memory_usage = memory_usages.iter().sum::<u64>() as f64 / memory_usages.len() as f64;
-        let peak_memory_usage = *memory_usages.iter().max().unwrap();
+        let peak_memory_usage = memory_usages.iter().copied().max().unwrap_or(0);
         let avg_cache_hit_rate = cache_hit_rates.iter().sum::<f64>() / cache_hit_rates.len() as f64;
 
         PerformanceStats {
@@ -257,8 +310,14 @@ impl JITPerformanceProfiler {
 
     /// 执行热点分析
     pub fn analyze_hotspots(&self) -> HotspotAnalysis {
-        let data = self.performance_data.lock().unwrap();
-        
+        let _data = match self.lock_performance_data() {
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!("警告：获取性能数据失败: {}", e);
+                return HotspotAnalysis::default();
+            }
+        };
+
         // 模拟热点分析
         let mut hotspot_addresses = Vec::new();
         let mut execution_frequencies = HashMap::new();
@@ -314,14 +373,14 @@ impl JITPerformanceProfiler {
         // 热点分析
         report.push_str("## 热点分析\n");
         report.push_str(&format!("- 热点代码块数量: {}\n", hotspot_analysis.hotspot_addresses.len()));
-        
+
         if !hotspot_analysis.hotspot_addresses.is_empty() {
             report.push_str("\n### 热点代码块详情\n");
             for &addr in &hotspot_analysis.hotspot_addresses {
-                let freq = hotspot_analysis.execution_frequencies.get(&addr).unwrap_or(&0);
-                let comp_time = hotspot_analysis.hotspot_compilation_times.get(&addr).unwrap_or(&0);
-                let benefit = hotspot_analysis.hotspot_optimization_benefits.get(&addr).unwrap_or(&0.0);
-                
+                let freq = hotspot_analysis.execution_frequencies.get(&addr).copied().unwrap_or(0);
+                let comp_time = hotspot_analysis.hotspot_compilation_times.get(&addr).copied().unwrap_or(0);
+                let benefit = hotspot_analysis.hotspot_optimization_benefits.get(&addr).copied().unwrap_or(0.0);
+
                 report.push_str(&format!(
                     "- 地址 0x{:x}: 执行频率 {}, 编译时间 {} μs, 优化收益 {:.2}x\n",
                     addr, freq, comp_time, benefit
@@ -353,14 +412,14 @@ impl JITPerformanceProfiler {
 
     /// 保存性能数据
     pub fn save_performance_data(&self, filename: &str) -> Result<(), String> {
-        let data = self.performance_data.lock().unwrap();
+        let data = self.lock_performance_data()?;
         let json = serde_json::to_string_pretty(&*data)
             .map_err(|e| format!("序列化失败: {}", e))?;
-        
+
         let filepath = format!("{}/{}", self.config.output_directory, filename);
         fs::write(&filepath, json)
             .map_err(|e| format!("写入文件失败: {}", e))?;
-        
+
         Ok(())
     }
 
@@ -379,26 +438,26 @@ impl JITPerformanceProfiler {
         let filepath = format!("{}/{}", self.config.output_directory, filename);
         let json = fs::read_to_string(&filepath)
             .map_err(|e| format!("读取文件失败: {}", e))?;
-        
+
         let data: VecDeque<PerformanceDataPoint> = serde_json::from_str(&json)
             .map_err(|e| format!("反序列化失败: {}", e))?;
-        
+
         {
-            let mut current_data = self.performance_data.lock().unwrap();
+            let mut current_data = self.lock_performance_data()?;
             *current_data = data;
         }
-        
+
         Ok(())
     }
 
     /// 导出CSV格式数据
     pub fn export_csv(&self, filename: &str) -> Result<(), String> {
-        let data = self.performance_data.lock().unwrap();
+        let data = self.lock_performance_data()?;
         let filepath = format!("{}/{}", self.config.output_directory, filename);
-        
+
         let mut csv_content = String::new();
         csv_content.push_str("timestamp,compilation_time_us,optimization_time_us,codegen_time_us,memory_usage_bytes,cache_size_bytes,cache_hit_rate,active_compilations,hotspot_blocks\n");
-        
+
         for data_point in data.iter() {
             csv_content.push_str(&format!(
                 "{},{},{},{},{},{},{},{},{}\n",
@@ -413,18 +472,20 @@ impl JITPerformanceProfiler {
                 data_point.hotspot_blocks
             ));
         }
-        
+
         fs::write(&filepath, csv_content)
             .map_err(|e| format!("写入CSV文件失败: {}", e))?;
-        
+
         Ok(())
     }
 
     /// 实时性能监控
     pub fn start_realtime_monitoring(&self) -> Result<(), String> {
-        if *self.is_profiling.lock().unwrap() {
+        let is_profiling = self.lock_is_profiling()?;
+        if *is_profiling {
             return Err("性能分析已在运行中".to_string());
         }
+        drop(is_profiling);
 
         let performance_data = self.performance_data.clone();
         let config = self.config.clone();
@@ -433,7 +494,7 @@ impl JITPerformanceProfiler {
         std::thread::spawn(move || {
             loop {
                 let stats = Self::calculate_realtime_stats(&performance_data);
-                
+
                 // 打印实时统计信息
                 println!("=== JIT实时性能监控 ===");
                 println!("平均编译时间: {:.2} μs", stats.avg_compilation_time_us);
@@ -441,7 +502,7 @@ impl JITPerformanceProfiler {
                 println!("缓存命中率: {:.2}%", stats.avg_cache_hit_rate * 100.0);
                 println!("活跃编译任务: {}", stats.total_compilations);
                 println!("========================");
-                
+
                 std::thread::sleep(Duration::from_secs(5));
             }
         });
@@ -451,21 +512,16 @@ impl JITPerformanceProfiler {
 
     /// 计算实时统计信息
     fn calculate_realtime_stats(performance_data: &Arc<Mutex<VecDeque<PerformanceDataPoint>>>) -> PerformanceStats {
-        let data = performance_data.lock().unwrap();
-        
+        let data = match performance_data.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                eprintln!("警告：获取性能数据锁失败");
+                return PerformanceStats::default();
+            }
+        };
+
         if data.is_empty() {
-            return PerformanceStats {
-                avg_compilation_time_us: 0.0,
-                min_compilation_time_us: 0,
-                max_compilation_time_us: 0,
-                compilation_time_stddev: 0.0,
-                avg_memory_usage_bytes: 0.0,
-                peak_memory_usage_bytes: 0,
-                avg_cache_hit_rate: 0.0,
-                total_compilations: 0,
-                total_optimization_time_us: 0,
-                total_codegen_time_us: 0,
-            };
+            return PerformanceStats::default();
         }
 
         let recent_data: Vec<_> = data.iter().rev().take(100).collect();
@@ -474,16 +530,16 @@ impl JITPerformanceProfiler {
         let cache_hit_rates: Vec<f64> = recent_data.iter().map(|d| d.cache_hit_rate).collect();
 
         let avg_compilation_time = compilation_times.iter().sum::<u64>() as f64 / compilation_times.len() as f64;
-        let min_compilation_time = *compilation_times.iter().min().unwrap();
-        let max_compilation_time = *compilation_times.iter().max().unwrap();
-        
+        let min_compilation_time = compilation_times.iter().copied().min().unwrap_or(0);
+        let max_compilation_time = compilation_times.iter().copied().max().unwrap_or(0);
+
         let variance = compilation_times.iter()
             .map(|&time| (time as f64 - avg_compilation_time).powi(2))
             .sum::<f64>() / compilation_times.len() as f64;
         let compilation_time_stddev = variance.sqrt();
 
         let avg_memory_usage = memory_usages.iter().sum::<u64>() as f64 / memory_usages.len() as f64;
-        let peak_memory_usage = *memory_usages.iter().max().unwrap();
+        let peak_memory_usage = memory_usages.iter().copied().max().unwrap_or(0);
         let avg_cache_hit_rate = cache_hit_rates.iter().sum::<f64>() / cache_hit_rates.len() as f64;
 
         PerformanceStats {

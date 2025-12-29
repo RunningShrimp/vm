@@ -7,13 +7,14 @@
 //! - 报告生成
 
 pub mod collector;
-pub mod storage;
+pub mod config;
 pub mod detector;
 pub mod reporter;
-pub mod config;
+pub mod storage;
 
 pub use collector::{PerformanceCollector, PerformanceMetrics};
-pub use storage::{PerformanceStorage, SqlitePerformanceStorage};
+pub use config::ReportFormat;
+pub use config::{MetricThreshold, RegressionDetectorConfig};
 pub use detector::{RegressionDetector, RegressionResult, RegressionSeverity};
-pub use reporter::RegressionReporter; pub use config::ReportFormat;
-pub use config::{RegressionDetectorConfig, MetricThreshold};
+pub use reporter::RegressionReporter;
+pub use storage::{PerformanceStorage, SqlitePerformanceStorage};

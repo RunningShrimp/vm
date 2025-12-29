@@ -335,17 +335,19 @@ mod tests {
     // 模拟 MMIO 设备
     struct DummyDevice;
     impl MmioDevice for DummyDevice {
-        fn read(&self, _offset: u64, _size: u8) -> u64 {
-            0
+        fn read(&self, _offset: u64, _size: u8) -> vm_core::VmResult<u64> {
+            Ok(0)
         }
-        fn write(&mut self, _offset: u64, _val: u64, _size: u8) {}
+        fn write(&mut self, _offset: u64, _val: u64, _size: u8) -> vm_core::VmResult<()> {
+            Ok(())
+        }
     }
 
     #[test]
     fn test_hotplug_manager() {
-        let manager = HotplugManager::new(0x10000000, 0x10000000);
+        let manager = HotplugManager::new(vm_core::GuestAddr(0x10000000), 0x10000000);
 
-        let info = DeviceInfo::new("test0", DeviceType::Block, 0, 0x1000);
+        let info = DeviceInfo::new("test0", DeviceType::Block, vm_core::GuestAddr(0), 0x1000);
         let device = Box::new(DummyDevice);
 
         manager
@@ -357,7 +359,7 @@ mod tests {
         let info = manager
             .get_device_info("test0")
             .expect("Failed to get device info");
-        assert_ne!(info.base_addr, 0); // 应该已分配地址
+        assert_ne!(info.base_addr, vm_core::GuestAddr(0)); // 应该已分配地址
 
         manager
             .remove_device("test0")
@@ -367,10 +369,10 @@ mod tests {
 
     #[test]
     fn test_address_allocation() {
-        let manager = HotplugManager::new(0x10000000, 0x10000000);
+        let manager = HotplugManager::new(vm_core::GuestAddr(0x10000000), 0x10000000);
 
-        let info1 = DeviceInfo::new("dev1", DeviceType::Block, 0, 0x1000);
-        let info2 = DeviceInfo::new("dev2", DeviceType::Network, 0, 0x2000);
+        let info1 = DeviceInfo::new("dev1", DeviceType::Block, vm_core::GuestAddr(0), 0x1000);
+        let info2 = DeviceInfo::new("dev2", DeviceType::Network, vm_core::GuestAddr(0), 0x2000);
 
         manager
             .add_device(info1, Box::new(DummyDevice))
@@ -387,15 +389,25 @@ mod tests {
             .expect("Failed to get dev2 info");
 
         // 地址不应该重叠
-        assert!(dev1_info.base_addr + dev1_info.size <= dev2_info.base_addr);
+        assert!(dev1_info.base_addr.0 + dev1_info.size <= dev2_info.base_addr.0);
     }
 
     #[test]
     fn test_address_conflict() {
-        let manager = HotplugManager::new(0x10000000, 0x10000000);
+        let manager = HotplugManager::new(vm_core::GuestAddr(0x10000000), 0x10000000);
 
-        let info1 = DeviceInfo::new("dev1", DeviceType::Block, 0x10000000, 0x1000);
-        let info2 = DeviceInfo::new("dev2", DeviceType::Network, 0x10000000, 0x1000);
+        let info1 = DeviceInfo::new(
+            "dev1",
+            DeviceType::Block,
+            vm_core::GuestAddr(0x10000000),
+            0x1000,
+        );
+        let info2 = DeviceInfo::new(
+            "dev2",
+            DeviceType::Network,
+            vm_core::GuestAddr(0x10000000),
+            0x1000,
+        );
 
         manager
             .add_device(info1, Box::new(DummyDevice))

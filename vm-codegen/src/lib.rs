@@ -6,11 +6,16 @@ use std::collections::HashMap;
 use vm_core::{Decoder, GuestAddr, MMU, VmError};
 use vm_ir::{IRBlock, IRBuilder, Terminator};
 
+/// 模式处理器类型别名
+type PatternHandler<F> = Box<dyn Fn(&mut IRBuilder, u64, &F) -> Result<(), VmError> + Send + Sync>;
+
+/// 指令工厂类型别名
+type InstructionFactory<I> = Box<dyn Fn(&str, GuestAddr, bool, bool) -> I + Send + Sync>;
+
 // 导出前端生成器
 pub mod frontend_generator;
 pub use frontend_generator::{
-    FrontendCodeGenerator, GenericInstruction,
-    create_instruction_spec, create_instruction_set
+    FrontendCodeGenerator, GenericInstruction, create_instruction_set, create_instruction_spec,
 };
 
 /// 指令字段提取器
@@ -37,8 +42,7 @@ impl FieldExtractor for StandardFieldExtractor {
 
 /// 指令模式匹配器
 pub struct PatternMatcher<F: FieldExtractor> {
-    patterns:
-        HashMap<u64, Box<dyn Fn(&mut IRBuilder, u64, &F) -> Result<(), VmError> + Send + Sync>>,
+    patterns: HashMap<u64, PatternHandler<F>>,
     extractor: F,
 }
 
@@ -77,14 +81,11 @@ impl<F: FieldExtractor> PatternMatcher<F> {
 /// 通用指令解码器
 pub struct GenericDecoder<F: FieldExtractor, I> {
     matcher: PatternMatcher<F>,
-    instruction_factory: Box<dyn Fn(&str, GuestAddr, bool, bool) -> I + Send + Sync>,
+    instruction_factory: InstructionFactory<I>,
 }
 
 impl<F: FieldExtractor + 'static, I> GenericDecoder<F, I> {
-    pub fn new(
-        extractor: F,
-        instruction_factory: Box<dyn Fn(&str, GuestAddr, bool, bool) -> I + Send + Sync>,
-    ) -> Self {
+    pub fn new(extractor: F, instruction_factory: InstructionFactory<I>) -> Self {
         Self {
             matcher: PatternMatcher::new(extractor),
             instruction_factory,
@@ -277,7 +278,6 @@ impl InstructionSet {
 }
 
 /// 宏辅助函数
-
 /// 创建指令规范
 #[macro_export]
 macro_rules! instruction_spec {
@@ -335,14 +335,14 @@ mod tests {
             0x14000000, // B指令opcode
             |builder, insn, extractor| {
                 let imm26 = extractor.extract_field(insn, 0, 26) as i32;
-                let offset = ((imm26 << 6) as i32 >> 6) * 4;
+                let offset = ((imm26 << 6) >> 6) * 4;
                 let target = builder.pc().wrapping_add(offset as u64);
                 builder.set_term(Terminator::Jmp { target });
                 Ok(())
             },
         );
 
-        let mut builder = IRBuilder::new(0x1000);
+        let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
 
         // 测试匹配
         let b_insn = 0x14000000; // B指令

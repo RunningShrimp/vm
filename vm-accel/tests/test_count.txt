@@ -1,0 +1,9 @@
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests
+: $(grep -c '#\[test\]' ) tests

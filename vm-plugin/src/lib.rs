@@ -27,6 +27,9 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use vm_core::VmError;
 
+/// 插件事件监听器类型
+pub type PluginEventListener = Box<dyn FnMut(&PluginEvent) + Send + Sync>;
+
 /// 插件ID类型
 pub type PluginId = String;
 
@@ -276,7 +279,7 @@ pub struct PluginStatus {
 ///
 /// 提供插件间的事件发布和订阅机制。
 pub struct PluginEventBus {
-    subscribers: HashMap<String, Vec<Box<dyn FnMut(&PluginEvent) + Send + Sync>>>,
+    subscribers: HashMap<String, Vec<PluginEventListener>>,
     /// 事件统计
     stats: EventBusStats,
 }
@@ -593,7 +596,6 @@ mod tests {
     #[test]
     fn test_plugin_event_bus() {
         let mut event_bus = PluginEventBus::new();
-        let mut received_events = Vec::new();
 
         // 订阅事件
         // Use Arc and Mutex to handle shared mutable state in the closure
@@ -601,8 +603,10 @@ mod tests {
         let received_events = Arc::new(Mutex::new(Vec::new()));
         let cloned_events = received_events.clone();
 
-        event_bus.subscribe("test", move |event| {
-            cloned_events.lock().unwrap().push(event.clone());
+        event_bus.subscribe("vm.started", move |event| {
+            if let Ok(mut events) = cloned_events.lock() {
+                events.push(event.clone());
+            }
         });
 
         // 发布事件
@@ -612,8 +616,12 @@ mod tests {
         event_bus.publish(&event);
 
         // 检查事件是否被接收
-        assert_eq!(received_events.lock().unwrap().len(), 1);
-        match &received_events.lock().unwrap()[0] {
+        let events = received_events
+            .lock()
+            .map_err(|e| std::format!("Failed to acquire lock: {:?}", e))
+            .expect("Lock should not be poisoned");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
             PluginEvent::VmStarted { vm_id } => assert_eq!(vm_id, "test_vm"),
             _ => panic!("Unexpected event type"),
         }

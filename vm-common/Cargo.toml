@@ -2,12 +2,27 @@
 name = "vm-common"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Virtual Machine Common Services - Event System, Logging, Configuration, and Error Handling"
 
 [dependencies]
-# No external dependencies for now
+log = { workspace = true, features = ["std"] }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+parking_lot = { workspace = true }
+
+[lib]
+name = "vm_common"
+path = "src/lib.rs"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+default = ["std"]
+# Standard library support (includes all utility modules)
+std = []
 
 [[bench]]
 name = "lockfree_hashmap"
@@ -17,7 +32,6 @@ harness = false
 name = "lockfree_queue"
 harness = false
 
-[features]
-default = ["std"]
-std = []
-no_std = []
+[[bench]]
+name = "lockfree_resize"
+harness = false

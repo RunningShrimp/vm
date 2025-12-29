@@ -10,21 +10,89 @@ use super::di_service_descriptor::{
     DIError, ServiceDescriptor, ServiceInstance, ServiceLifetime, Scope, ScopeManager,
     ServiceProvider,
 };
+use crate::CoreError;
 
 /// 服务容器核心实现
 #[derive(Clone)]
 pub struct ServiceContainer {
     /// 已注册的服务描述符
     services: Arc<RwLock<HashMap<TypeId, Arc<Box<dyn ServiceDescriptor>>>>>,
-    
+
     /// 单例服务实例缓存
     singleton_instances: Arc<RwLock<HashMap<TypeId, ServiceInstance>>>,
-    
+
     /// 作用域管理器
     scope_manager: Arc<RwLock<ScopeManager>>,
-    
+
     /// 当前解析路径（用于循环依赖检测）
     resolving: Arc<RwLock<Vec<TypeId>>>,
+}
+
+// Helper methods for lock operations with proper error handling
+impl ServiceContainer {
+    /// Acquire read lock on services with error handling
+    fn lock_services_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<TypeId, Arc<Box<dyn ServiceDescriptor>>>>, CoreError> {
+        self.services.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on services: {}", e),
+            operation: "lock_services_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on services with error handling
+    fn lock_services_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<TypeId, Arc<Box<dyn ServiceDescriptor>>>>, CoreError> {
+        self.services.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on services: {}", e),
+            operation: "lock_services_write".to_string(),
+        })
+    }
+
+    /// Acquire read lock on singleton_instances with error handling
+    fn lock_singletons_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<TypeId, ServiceInstance>>, CoreError> {
+        self.singleton_instances.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on singleton instances: {}", e),
+            operation: "lock_singletons_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on singleton_instances with error handling
+    fn lock_singletons_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<TypeId, ServiceInstance>>, CoreError> {
+        self.singleton_instances.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on singleton instances: {}", e),
+            operation: "lock_singletons_write".to_string(),
+        })
+    }
+
+    /// Acquire read lock on scope_manager with error handling
+    fn lock_scope_manager_read(&self) -> Result<std::sync::RwLockReadGuard<'_, ScopeManager>, CoreError> {
+        self.scope_manager.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on scope manager: {}", e),
+            operation: "lock_scope_manager_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on scope_manager with error handling
+    fn lock_scope_manager_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, ScopeManager>, CoreError> {
+        self.scope_manager.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on scope manager: {}", e),
+            operation: "lock_scope_manager_write".to_string(),
+        })
+    }
+
+    /// Acquire read lock on resolving with error handling
+    fn lock_resolving_read(&self) -> Result<std::sync::RwLockReadGuard<'_, Vec<TypeId>>, CoreError> {
+        self.resolving.read().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire read lock on resolving: {}", e),
+            operation: "lock_resolving_read".to_string(),
+        })
+    }
+
+    /// Acquire write lock on resolving with error handling
+    fn lock_resolving_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Vec<TypeId>>, CoreError> {
+        self.resolving.write().map_err(|e| CoreError::Concurrency {
+            message: format!("Failed to acquire write lock on resolving: {}", e),
+            operation: "lock_resolving_write".to_string(),
+        })
+    }
 }
 
 impl ServiceContainer {
@@ -41,15 +109,16 @@ impl ServiceContainer {
     /// 注册服务描述符
     pub fn register_descriptor(&self, descriptor: Box<dyn ServiceDescriptor>) -> Result<(), DIError> {
         let type_id = descriptor.service_type();
-        let mut services = self.services.write().unwrap();
-        
+        let mut services = self.lock_services_write()
+            .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
+
         // 检查是否已注册
         if services.contains_key(&type_id) {
             return Err(DIError::InvalidServiceConfiguration(
                 format!("Service already registered: {:?}", type_id),
             ));
         }
-        
+
         services.insert(type_id, Arc::new(descriptor));
         Ok(())
     }
@@ -58,36 +127,39 @@ impl ServiceContainer {
     pub fn get_service_by_id(&self, type_id: TypeId) -> Result<Option<Arc<dyn Any + Send + Sync>>, DIError> {
         // 检查循环依赖
         {
-            let mut resolving = self.resolving.write().unwrap();
+            let mut resolving = self.lock_resolving_write()
+                .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
             if let Some(pos) = resolving.iter().position(|&t| t == type_id) {
                 let cycle = resolving[pos..].to_vec();
                 return Err(DIError::CircularDependency(cycle));
             }
             resolving.push(type_id);
         }
-        
+
         let result = self.get_service_internal(type_id);
-        
+
         // 清理解析路径
         {
-            let mut resolving = self.resolving.write().unwrap();
+            let mut resolving = self.lock_resolving_write()
+                .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
             resolving.pop();
         }
-        
+
         result
     }
     
     /// 内部服务获取实现
     fn get_service_internal(&self, type_id: TypeId) -> Result<Option<Arc<dyn Any + Send + Sync>>, DIError> {
         // 获取服务描述符，避免克隆问题
-        let services = self.services.read().unwrap();
+        let services = self.lock_services_read()
+            .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
         let descriptor = services.get(&type_id);
-        
+
         let descriptor = match descriptor {
             Some(desc) => desc,
             None => return Ok(None),
         };
-        
+
         // 根据生命周期获取实例
         match descriptor.lifetime() {
             ServiceLifetime::Singleton => self.get_singleton_instance(type_id, descriptor),
@@ -104,13 +176,14 @@ impl ServiceContainer {
     ) -> Result<Option<Arc<dyn Any + Send + Sync>>, DIError> {
         // 检查缓存
         {
-            let instances = self.singleton_instances.read().unwrap();
+            let instances = self.lock_singletons_read()
+                .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
             if let Some(instance) = instances.get(&type_id) {
                 // 将Any转换为Arc<dyn Any>
                 if let Some(arc_any) = instance.as_any().downcast_ref::<Arc<dyn Any + Send + Sync>>() {
                     return Ok(Some(Arc::clone(arc_any)));
                 }
-                
+
                 // 如果不是Arc包装的，需要转换
                 // 这里需要更复杂的处理，暂时返回错误
                 return Err(DIError::ServiceCreationFailed(
@@ -118,20 +191,21 @@ impl ServiceContainer {
                 ));
             }
         }
-        
+
         // 创建新实例
         let instance = descriptor.create_instance(self)?;
         let arc_instance: Arc<dyn Any + Send + Sync> = Arc::from(instance);
-        
+
         // 缓存实例
         {
-            let mut instances = self.singleton_instances.write().unwrap();
+            let mut instances = self.lock_singletons_write()
+                .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
             instances.insert(
                 type_id,
                 ServiceInstance::new(Box::new(arc_instance.clone()), ServiceLifetime::Singleton),
             );
         }
-        
+
         Ok(Some(arc_instance))
     }
     
@@ -153,10 +227,11 @@ impl ServiceContainer {
     ) -> Result<Option<Arc<dyn Any + Send + Sync>>, DIError> {
         // 获取当前作用域
         let scope = {
-            let scope_manager = self.scope_manager.read().unwrap();
+            let scope_manager = self.lock_scope_manager_read()
+                .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
             scope_manager.current_scope().cloned()
         };
-        
+
         let scope = match scope {
             Some(s) => s,
             None => {
@@ -164,7 +239,7 @@ impl ServiceContainer {
                 return self.create_transient_instance(descriptor);
             }
         };
-        
+
         // 检查作用域中是否已有实例
         if let Some(instance) = scope.get_service(type_id) {
             // 转换为Arc
@@ -172,58 +247,68 @@ impl ServiceContainer {
                 return Ok(Some(Arc::clone(arc_any)));
             }
         }
-        
+
         // 创建新实例
         let instance = descriptor.create_instance(self)?;
         let arc_instance: Arc<dyn Any + Send + Sync> = Arc::from(instance);
-        
+
         // 注册到作用域
         scope.register_service(
             type_id,
             ServiceInstance::new(Box::new(arc_instance.clone()), ServiceLifetime::Scoped),
         );
-        
+
         Ok(Some(arc_instance))
     }
     
     /// 创建新作用域
     pub fn create_scope(&self) -> Result<Scope, DIError> {
-        let mut scope_manager = self.scope_manager.write().unwrap();
+        let mut scope_manager = self.lock_scope_manager_write()
+            .map_err(|e| DIError::ServiceCreationFailed(format!("Lock acquisition failed: {}", e)))?;
         Ok(scope_manager.create_scope())
     }
-    
+
     /// 销毁作用域
     pub fn destroy_scope(&self, scope_id: u64) {
-        let mut scope_manager = self.scope_manager.write().unwrap();
-        scope_manager.destroy_scope(scope_id);
+        if let Ok(mut scope_manager) = self.lock_scope_manager_write() {
+            scope_manager.destroy_scope(scope_id);
+        }
+        // Silently fail if lock cannot be acquired
     }
     
     /// 检查服务是否已注册
     pub fn is_registered(&self, type_id: TypeId) -> bool {
-        let services = self.services.read().unwrap();
-        services.contains_key(&type_id)
+        match self.lock_services_read() {
+            Ok(services) => services.contains_key(&type_id),
+            Err(_) => false,
+        }
     }
-    
+
     /// 获取所有已注册的服务类型
     pub fn registered_services(&self) -> Vec<TypeId> {
-        let services = self.services.read().unwrap();
-        services.keys().cloned().collect()
+        match self.lock_services_read() {
+            Ok(services) => services.keys().cloned().collect(),
+            Err(_) => Vec::new(),
+        }
     }
-    
+
     /// 清除所有服务（主要用于测试）
     pub fn clear(&self) {
-        let mut services = self.services.write().unwrap();
-        let mut instances = self.singleton_instances.write().unwrap();
-        let mut scope_manager = self.scope_manager.write().unwrap();
-        
-        services.clear();
-        instances.clear();
-        
-        // 清除所有作用域
-        let scopes = scope_manager.current_scope().cloned();
-        if let Some(scope) = scopes {
-            scope_manager.destroy_scope(scope.id());
+        if let (Ok(mut services), Ok(mut instances), Ok(mut scope_manager)) = (
+            self.lock_services_write(),
+            self.lock_singletons_write(),
+            self.lock_scope_manager_write(),
+        ) {
+            services.clear();
+            instances.clear();
+
+            // 清除所有作用域
+            let scopes = scope_manager.current_scope().cloned();
+            if let Some(scope) = scopes {
+                scope_manager.destroy_scope(scope.id());
+            }
         }
+        // Silently fail if locks cannot be acquired
     }
     
     /// 预热服务（提前创建单例实例）
@@ -238,14 +323,19 @@ impl ServiceContainer {
     
     /// 获取容器统计信息
     pub fn stats(&self) -> ContainerStats {
-        let services = self.services.read().unwrap();
-        let instances = self.singleton_instances.read().unwrap();
-        let scope_manager = self.scope_manager.read().unwrap();
-        
-        ContainerStats {
-            registered_services: services.len(),
-            singleton_instances: instances.len(),
-            active_scopes: if scope_manager.current_scope().is_some() { 1 } else { 0 },
+        match (self.lock_services_read(), self.lock_singletons_read(), self.lock_scope_manager_read()) {
+            (Ok(services), Ok(instances), Ok(scope_manager)) => {
+                ContainerStats {
+                    registered_services: services.len(),
+                    singleton_instances: instances.len(),
+                    active_scopes: if scope_manager.current_scope().is_some() { 1 } else { 0 },
+                }
+            }
+            _ => ContainerStats {
+                registered_services: 0,
+                singleton_instances: 0,
+                active_scopes: 0,
+            },
         }
     }
 }

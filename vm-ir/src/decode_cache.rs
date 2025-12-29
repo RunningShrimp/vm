@@ -175,7 +175,10 @@ mod tests {
         // 查询缓存
         let result = cache.get(0x1000, 8);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().len(), 2);
+        assert_eq!(
+            result.expect("cache should contain entry for 0x1000").len(),
+            2
+        );
     }
 
     #[test]

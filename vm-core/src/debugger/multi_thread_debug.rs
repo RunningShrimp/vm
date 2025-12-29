@@ -271,6 +271,137 @@ pub struct ThreadPerformanceStats {
     pub last_update: std::time::SystemTime,
 }
 
+// Lock helper methods for MultiThreadDebugger
+impl MultiThreadDebugger {
+    /// Helper method to acquire thread_states write lock
+    fn lock_thread_states_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<u32, ThreadState>>, VmError> {
+        self.thread_states.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_states write lock: {}", e),
+            operation: "lock_thread_states_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire thread_states read lock
+    fn lock_thread_states_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<u32, ThreadState>>, VmError> {
+        self.thread_states.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_states read lock: {}", e),
+            operation: "lock_thread_states_read".to_string(),
+        })
+    }
+
+    /// Helper method to acquire thread_states_by_native write lock
+    fn lock_thread_states_by_native_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<ThreadId, ThreadState>>, VmError> {
+        self.thread_states_by_native.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_states_by_native write lock: {}", e),
+            operation: "lock_thread_states_by_native_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire thread_states_by_native read lock
+    fn lock_thread_states_by_native_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<ThreadId, ThreadState>>, VmError> {
+        self.thread_states_by_native.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_states_by_native read lock: {}", e),
+            operation: "lock_thread_states_by_native_read".to_string(),
+        })
+    }
+
+    /// Helper method to acquire thread_breakpoints write lock
+    fn lock_thread_breakpoints_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<u64, ThreadBreakpoint>>, VmError> {
+        self.thread_breakpoints.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_breakpoints write lock: {}", e),
+            operation: "lock_thread_breakpoints_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire thread_breakpoints read lock
+    fn lock_thread_breakpoints_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<u64, ThreadBreakpoint>>, VmError> {
+        self.thread_breakpoints.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_breakpoints read lock: {}", e),
+            operation: "lock_thread_breakpoints_read".to_string(),
+        })
+    }
+
+    /// Helper method to acquire thread_events write lock
+    fn lock_thread_events_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Vec<ThreadEvent>>, VmError> {
+        self.thread_events.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_events write lock: {}", e),
+            operation: "lock_thread_events_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire thread_events read lock
+    fn lock_thread_events_read(&self) -> Result<std::sync::RwLockReadGuard<'_, Vec<ThreadEvent>>, VmError> {
+        self.thread_events.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire thread_events read lock: {}", e),
+            operation: "lock_thread_events_read".to_string(),
+        })
+    }
+
+    /// Helper method to acquire next_thread_id write lock
+    fn lock_next_thread_id_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, u32>, VmError> {
+        self.next_thread_id.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire next_thread_id write lock: {}", e),
+            operation: "lock_next_thread_id_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire next_breakpoint_id write lock
+    fn lock_next_breakpoint_id_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, u64>, VmError> {
+        self.next_breakpoint_id.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire next_breakpoint_id write lock: {}", e),
+            operation: "lock_next_breakpoint_id_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire current_thread write lock
+    fn lock_current_thread_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Option<u32>>, VmError> {
+        self.current_thread.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire current_thread write lock: {}", e),
+            operation: "lock_current_thread_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire current_thread read lock
+    fn lock_current_thread_read(&self) -> Result<std::sync::RwLockReadGuard<'_, Option<u32>>, VmError> {
+        self.current_thread.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire current_thread read lock: {}", e),
+            operation: "lock_current_thread_read".to_string(),
+        })
+    }
+
+    /// Helper method to acquire state_history write lock
+    fn lock_state_history_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<u32, VecDeque<ThreadExecutionState>>>, VmError> {
+        self.state_history.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire state_history write lock: {}", e),
+            operation: "lock_state_history_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire state_history read lock
+    fn lock_state_history_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<u32, VecDeque<ThreadExecutionState>>>, VmError> {
+        self.state_history.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire state_history read lock: {}", e),
+            operation: "lock_state_history_read".to_string(),
+        })
+    }
+
+    /// Helper method to acquire performance_stats write lock
+    fn lock_performance_stats_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<u32, ThreadPerformanceStats>>, VmError> {
+        self.performance_stats.write().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire performance_stats write lock: {}", e),
+            operation: "lock_performance_stats_write".to_string(),
+        })
+    }
+
+    /// Helper method to acquire performance_stats read lock
+    fn lock_performance_stats_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<u32, ThreadPerformanceStats>>, VmError> {
+        self.performance_stats.read().map_err(|e| VmError::Core(crate::error::CoreError::Concurrency {
+            message: format!("Failed to acquire performance_stats read lock: {}", e),
+            operation: "lock_performance_stats_read".to_string(),
+        })
+    }
+}
+
 impl MultiThreadDebugger {
     /// Create a new multi-threading debugger
     pub fn new(config: MultiThreadDebugConfig) -> Self {
@@ -297,7 +428,7 @@ impl MultiThreadDebugger {
     ) -> VmResult<u32> {
         // Check thread limit
         {
-            let thread_states = self.thread_states.read().unwrap();
+            let thread_states = self.lock_thread_states_read()?;
             if thread_states.len() >= self.config.max_threads {
                 return Err(VmError::Core(crate::error::CoreError::InvalidState {
                     message: format!("Maximum thread count {} exceeded", self.config.max_threads),
@@ -308,7 +439,7 @@ impl MultiThreadDebugger {
         }
 
         // Generate thread ID
-        let mut next_id = self.next_thread_id.write().unwrap();
+        let mut next_id = self.lock_next_thread_id_write()?;
         let thread_id = *next_id;
         *next_id += 1;
 
@@ -332,24 +463,24 @@ impl MultiThreadDebugger {
 
         // Add to thread states
         {
-            let mut thread_states = self.thread_states.write().unwrap();
+            let mut thread_states = self.lock_thread_states_write()?;
             thread_states.insert(thread_id, thread_state.clone());
         }
 
         {
-            let mut thread_states_by_native = self.thread_states_by_native.write().unwrap();
+            let mut thread_states_by_native = self.lock_thread_states_by_native_write()?;
             thread_states_by_native.insert(native_thread_id, thread_state.clone());
         }
 
         // Initialize state history
         if self.config.enable_state_tracking {
-            let mut state_history = self.state_history.write().unwrap();
+            let mut state_history = self.lock_state_history_write()?;
             state_history.insert(thread_id, VecDeque::new());
         }
 
         // Initialize performance stats
         if self.config.enable_performance_monitoring {
-            let mut performance_stats = self.performance_stats.write().unwrap();
+            let mut performance_stats = self.lock_performance_stats_write()?;
             performance_stats.insert(thread_id, ThreadPerformanceStats {
                 thread_id,
                 total_execution_time_ns: 0,
@@ -364,7 +495,7 @@ impl MultiThreadDebugger {
 
         // Record thread creation event
         {
-            let mut thread_events = self.thread_events.write().unwrap();
+            let mut thread_events = self.lock_thread_events_write()?;
             thread_events.push(ThreadEvent::ThreadCreated {
                 thread_id,
                 native_thread_id,
@@ -380,7 +511,7 @@ impl MultiThreadDebugger {
     pub fn unregister_thread(&self, thread_id: u32, exit_code: i32) -> VmResult<ThreadState> {
         // Get thread state
         let thread_state = {
-            let mut thread_states = self.thread_states.write().unwrap();
+            let mut thread_states = self.lock_thread_states_write()?;
             thread_states.remove(&thread_id)
                 .ok_or_else(|| VmError::Core(crate::error::CoreError::InvalidState {
                     message: format!("Thread {} not found", thread_id),
@@ -391,31 +522,31 @@ impl MultiThreadDebugger {
 
         // Remove from native thread mapping
         {
-            let mut thread_states_by_native = self.thread_states_by_native.write().unwrap();
+            let mut thread_states_by_native = self.lock_thread_states_by_native_write()?;
             thread_states_by_native.remove(&thread_state.native_thread_id);
         }
 
         // Remove thread-specific breakpoints
         if self.config.enable_thread_breakpoints {
-            let mut thread_breakpoints = self.thread_breakpoints.write().unwrap();
+            let mut thread_breakpoints = self.lock_thread_breakpoints_write()?;
             thread_breakpoints.retain(|_, bp| bp.thread_id != thread_id);
         }
 
         // Remove state history
         if self.config.enable_state_tracking {
-            let mut state_history = self.state_history.write().unwrap();
+            let mut state_history = self.lock_state_history_write()?;
             state_history.remove(&thread_id);
         }
 
         // Remove performance stats
         if self.config.enable_performance_monitoring {
-            let mut performance_stats = self.performance_stats.write().unwrap();
+            let mut performance_stats = self.lock_performance_stats_write()?;
             performance_stats.remove(&thread_id);
         }
 
         // Record thread termination event
         {
-            let mut thread_events = self.thread_events.write().unwrap();
+            let mut thread_events = self.lock_thread_events_write()?;
             thread_events.push(ThreadEvent::ThreadTerminated {
                 thread_id,
                 exit_code,
@@ -425,7 +556,7 @@ impl MultiThreadDebugger {
 
         // Clear current thread if this was it
         {
-            let mut current_thread = self.current_thread.write().unwrap();
+            let mut current_thread = self.lock_current_thread_write()?;
             if *current_thread == Some(thread_id) {
                 *current_thread = None;
             }
@@ -436,19 +567,19 @@ impl MultiThreadDebugger {
 
     /// Get thread state by ID
     pub fn get_thread_state(&self, thread_id: u32) -> VmResult<Option<ThreadState>> {
-        let thread_states = self.thread_states.read().unwrap();
+        let thread_states = self.lock_thread_states_read()?;
         Ok(thread_states.get(&thread_id).cloned())
     }
 
     /// Get thread state by native thread ID
     pub fn get_thread_state_by_native(&self, native_thread_id: ThreadId) -> VmResult<Option<ThreadState>> {
-        let thread_states_by_native = self.thread_states_by_native.read().unwrap();
+        let thread_states_by_native = self.lock_thread_states_by_native_read()?;
         Ok(thread_states_by_native.get(&native_thread_id).cloned())
     }
 
     /// Get all thread states
     pub fn get_all_threads(&self) -> VmResult<Vec<ThreadState>> {
-        let thread_states = self.thread_states.read().unwrap();
+        let thread_states = self.lock_thread_states_read()?;
         Ok(thread_states.values().cloned().collect())
     }
 
@@ -456,7 +587,7 @@ impl MultiThreadDebugger {
     pub fn set_current_thread(&self, thread_id: Option<u32>) -> VmResult<()> {
         if let Some(id) = thread_id {
             // Verify thread exists
-            let thread_states = self.thread_states.read().unwrap();
+            let thread_states = self.lock_thread_states_read()?;
             if !thread_states.contains_key(&id) {
                 return Err(VmError::Core(crate::error::CoreError::InvalidState {
                     message: format!("Thread {} not found", id),
@@ -466,14 +597,17 @@ impl MultiThreadDebugger {
             }
         }
 
-        let mut current_thread = self.current_thread.write().unwrap();
+        let mut current_thread = self.lock_current_thread_write()?;
         *current_thread = thread_id;
         Ok(())
     }
 
     /// Get current thread
     pub fn get_current_thread(&self) -> Option<u32> {
-        *self.current_thread.read().unwrap()
+        match self.lock_current_thread_read() {
+            Ok(guard) => *guard,
+            Err(_) => None,
+        }
     }
 
     /// Update thread execution state
@@ -483,7 +617,7 @@ impl MultiThreadDebugger {
         new_state: ThreadExecutionState,
     ) -> VmResult<()> {
         let old_state = {
-            let mut thread_states = self.thread_states.write().unwrap();
+            let mut thread_states = self.lock_thread_states_write()?;
             if let Some(thread_state) = thread_states.get_mut(&thread_id) {
                 let old_state = thread_state.execution_state;
                 thread_state.execution_state = new_state;
@@ -500,7 +634,7 @@ impl MultiThreadDebugger {
 
         // Update state history
         if self.config.enable_state_tracking {
-            let mut state_history = self.state_history.write().unwrap();
+            let mut state_history = self.lock_state_history_write()?;
             if let Some(history) = state_history.get_mut(&thread_id) {
                 history.push_back(new_state);
                 if history.len() > self.config.state_history_size {
@@ -511,7 +645,7 @@ impl MultiThreadDebugger {
 
         // Record state change event
         if self.config.enable_context_switch_tracking {
-            let mut thread_events = self.thread_events.write().unwrap();
+            let mut thread_events = self.lock_thread_events_write()?;
             thread_events.push(ThreadEvent::ThreadStateChanged {
                 thread_id,
                 old_state,
@@ -529,7 +663,7 @@ impl MultiThreadDebugger {
         thread_id: u32,
         registers: HashMap<String, u64>,
     ) -> VmResult<()> {
-        let mut thread_states = self.thread_states.write().unwrap();
+        let mut thread_states = self.lock_thread_states_write()?;
         if let Some(thread_state) = thread_states.get_mut(&thread_id) {
             thread_state.registers = registers;
             thread_state.last_activity = std::time::SystemTime::now();
@@ -549,7 +683,7 @@ impl MultiThreadDebugger {
         thread_id: u32,
         ip: GuestAddr,
     ) -> VmResult<()> {
-        let mut thread_states = self.thread_states.write().unwrap();
+        let mut thread_states = self.lock_thread_states_write()?;
         if let Some(thread_state) = thread_states.get_mut(&thread_id) {
             thread_state.instruction_pointer = ip;
             thread_state.last_activity = std::time::SystemTime::now();
@@ -579,7 +713,7 @@ impl MultiThreadDebugger {
         }
 
         // Generate breakpoint ID
-        let mut next_id = self.next_breakpoint_id.write().unwrap();
+        let mut next_id = self.lock_next_breakpoint_id_write()?;
         let breakpoint_id = *next_id;
         *next_id += 1;
 
@@ -596,7 +730,7 @@ impl MultiThreadDebugger {
 
         // Add to breakpoints
         {
-            let mut thread_breakpoints = self.thread_breakpoints.write().unwrap();
+            let mut thread_breakpoints = self.lock_thread_breakpoints_write()?;
             thread_breakpoints.insert(breakpoint_id, thread_breakpoint);
         }
 
@@ -605,7 +739,7 @@ impl MultiThreadDebugger {
 
     /// Remove thread-specific breakpoint
     pub fn remove_thread_breakpoint(&self, breakpoint_id: u64) -> VmResult<ThreadBreakpoint> {
-        let mut thread_breakpoints = self.thread_breakpoints.write().unwrap();
+        let mut thread_breakpoints = self.lock_thread_breakpoints_write()?;
         thread_breakpoints.remove(&breakpoint_id)
             .ok_or_else(|| VmError::Core(crate::error::CoreError::InvalidState {
                 message: format!("Thread breakpoint {} not found", breakpoint_id),
@@ -624,28 +758,32 @@ impl MultiThreadDebugger {
             return Vec::new();
         }
 
-        let thread_breakpoints = self.thread_breakpoints.read().unwrap();
-        let mut triggered_breakpoints = Vec::new();
+        match self.lock_thread_breakpoints_read() {
+            Ok(thread_breakpoints) => {
+                let mut triggered_breakpoints = Vec::new();
 
-        for breakpoint in thread_breakpoints.values() {
-            if breakpoint.thread_id == thread_id && 
-               breakpoint.address == address && 
-               breakpoint.enabled {
-                
-                // Check thread-specific condition
-                let should_trigger = if let Some(ref condition) = breakpoint.thread_condition {
-                    self.evaluate_thread_condition(condition, thread_id)
-                } else {
-                    true
-                };
+                for breakpoint in thread_breakpoints.values() {
+                    if breakpoint.thread_id == thread_id &&
+                       breakpoint.address == address &&
+                       breakpoint.enabled {
 
-                if should_trigger {
-                    triggered_breakpoints.push(breakpoint.clone());
+                        // Check thread-specific condition
+                        let should_trigger = if let Some(ref condition) = breakpoint.thread_condition {
+                            self.evaluate_thread_condition(condition, thread_id)
+                        } else {
+                            true
+                        };
+
+                        if should_trigger {
+                            triggered_breakpoints.push(breakpoint.clone());
+                        }
+                    }
                 }
-            }
-        }
 
-        triggered_breakpoints
+                triggered_breakpoints
+            }
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Record thread synchronization event
@@ -659,7 +797,7 @@ impl MultiThreadDebugger {
             return Ok(());
         }
 
-        let mut thread_events = self.thread_events.write().unwrap();
+        let mut thread_events = self.lock_thread_events_write()?;
         thread_events.push(ThreadEvent::ThreadSynchronization {
             thread_id,
             sync_type,
@@ -672,8 +810,10 @@ impl MultiThreadDebugger {
 
     /// Get thread events
     pub fn get_thread_events(&self) -> Vec<ThreadEvent> {
-        let thread_events = self.thread_events.read().unwrap();
-        thread_events.clone()
+        match self.lock_thread_events_read() {
+            Ok(events) => events.clone(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Get thread state history
@@ -682,11 +822,15 @@ impl MultiThreadDebugger {
             return Vec::new();
         }
 
-        let state_history = self.state_history.read().unwrap();
-        if let Some(history) = state_history.get(&thread_id) {
-            history.iter().cloned().collect()
-        } else {
-            Vec::new()
+        match self.lock_state_history_read() {
+            Ok(state_history) => {
+                if let Some(history) = state_history.get(&thread_id) {
+                    history.iter().cloned().collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            Err(_) => Vec::new(),
         }
     }
 
@@ -696,39 +840,57 @@ impl MultiThreadDebugger {
             return None;
         }
 
-        let performance_stats = self.performance_stats.read().unwrap();
-        performance_stats.get(&thread_id).cloned()
+        match self.lock_performance_stats_read() {
+            Ok(performance_stats) => performance_stats.get(&thread_id).cloned(),
+            Err(_) => None,
+        }
     }
 
     /// Get multi-threading statistics
     pub fn get_statistics(&self) -> MultiThreadDebugStatistics {
-        let thread_states = self.thread_states.read().unwrap();
-        let thread_events = self.thread_events.read().unwrap();
-        let thread_breakpoints = self.thread_breakpoints.read().unwrap();
-        let performance_stats = self.performance_stats.read().unwrap();
+        let (total_threads, active_threads, stopped_threads, total_execution_time, total_wait_time, total_context_switches, average_cpu_usage) = match (
+            self.lock_thread_states_read(),
+            self.lock_performance_stats_read()
+        ) {
+            (Ok(thread_states), Ok(performance_stats)) => {
+                let active = thread_states.values()
+                    .filter(|t| t.status == ThreadStatus::Active)
+                    .count();
+                let stopped = thread_states.values()
+                    .filter(|t| t.execution_state == ThreadExecutionState::Stopped)
+                    .count();
+                let exec_time: u64 = performance_stats.values()
+                    .map(|stats| stats.total_execution_time_ns)
+                    .sum();
+                let wait_time: u64 = performance_stats.values()
+                    .map(|stats| stats.total_wait_time_ns)
+                    .sum();
+                let switches: u64 = performance_stats.values()
+                    .map(|stats| stats.context_switches)
+                    .sum();
+                let avg_cpu = if thread_states.len() > 0 {
+                    performance_stats.values()
+                        .map(|stats| stats.cpu_usage_percent)
+                        .sum::<f64>() / thread_states.len() as f64
+                } else {
+                    0.0
+                };
 
-        let total_threads = thread_states.len();
-        let active_threads = thread_states.values()
-            .filter(|t| t.status == ThreadStatus::Active)
-            .count();
-        let stopped_threads = thread_states.values()
-            .filter(|t| t.execution_state == ThreadExecutionState::Stopped)
-            .count();
-        let total_breakpoints = thread_breakpoints.len();
-        let enabled_breakpoints = thread_breakpoints.values()
-            .filter(|bp| bp.enabled)
-            .count();
+                (thread_states.len(), active, stopped, exec_time, wait_time, switches, avg_cpu)
+            }
+            _ => (0, 0, 0, 0, 0, 0, 0.0),
+        };
 
-        // Calculate performance statistics
-        let total_execution_time: u64 = performance_stats.values()
-            .map(|stats| stats.total_execution_time_ns)
-            .sum();
-        let total_wait_time: u64 = performance_stats.values()
-            .map(|stats| stats.total_wait_time_ns)
-            .sum();
-        let total_context_switches: u64 = performance_stats.values()
-            .map(|stats| stats.context_switches)
-            .sum();
+        let (total_breakpoints, enabled_breakpoints) = match self.lock_thread_breakpoints_read() {
+            Ok(breakpoints) => {
+                let total = breakpoints.len();
+                let enabled = breakpoints.values()
+                    .filter(|bp| bp.enabled)
+                    .count();
+                (total, enabled)
+            }
+            Err(_) => (0, 0),
+        };
 
         MultiThreadDebugStatistics {
             total_threads,
@@ -739,38 +901,35 @@ impl MultiThreadDebugger {
             total_execution_time_ns: total_execution_time,
             total_wait_time_ns: total_wait_time,
             total_context_switches,
-            average_cpu_usage: if total_threads > 0 {
-                performance_stats.values()
-                    .map(|stats| stats.cpu_usage_percent)
-                    .sum::<f64>() / total_threads as f64
-            } else {
-                0.0
-            },
+            average_cpu_usage,
         }
     }
 
     /// Evaluate thread condition
     fn evaluate_thread_condition(&self, condition: &ThreadCondition, thread_id: u32) -> bool {
-        let thread_states = self.thread_states.read().unwrap();
-        
-        if let Some(thread_state) = thread_states.get(&thread_id) {
-            match condition {
-                ThreadCondition::ThreadState { state } => thread_state.execution_state == *state,
-                ThreadCondition::ThreadPriority { priority } => thread_state.priority == *priority,
-                ThreadCondition::CpuAffinity { cpu_id } => {
-                    thread_state.cpu_affinity
-                        .as_ref()
-                        .map_or(false, |affinity| affinity.contains(cpu_id))
-                }
-                ThreadCondition::And { conditions } => {
-                    conditions.iter().all(|c| self.evaluate_thread_condition(c, thread_id))
-                }
-                ThreadCondition::Or { conditions } => {
-                    conditions.iter().any(|c| self.evaluate_thread_condition(c, thread_id))
+        match self.lock_thread_states_read() {
+            Ok(thread_states) => {
+                if let Some(thread_state) = thread_states.get(&thread_id) {
+                    match condition {
+                        ThreadCondition::ThreadState { state } => thread_state.execution_state == *state,
+                        ThreadCondition::ThreadPriority { priority } => thread_state.priority == *priority,
+                        ThreadCondition::CpuAffinity { cpu_id } => {
+                            thread_state.cpu_affinity
+                                .as_ref()
+                                .map_or(false, |affinity| affinity.contains(cpu_id))
+                        }
+                        ThreadCondition::And { conditions } => {
+                            conditions.iter().all(|c| self.evaluate_thread_condition(c, thread_id))
+                        }
+                        ThreadCondition::Or { conditions } => {
+                            conditions.iter().any(|c| self.evaluate_thread_condition(c, thread_id))
+                        }
+                    }
+                } else {
+                    false
                 }
             }
-        } else {
-            false
+            Err(_) => false,
         }
     }
 }
@@ -820,15 +979,16 @@ mod tests {
             native_id,
             Some("test_thread".to_string()),
             ThreadPriority::Normal,
-        ).unwrap();
+        ).expect("Failed to register thread");
 
         assert_eq!(thread_id, 1);
 
         // Check thread state
-        let thread_state = debugger.get_thread_state(thread_id).unwrap();
+        let thread_state = debugger.get_thread_state(thread_id).expect("Failed to get thread state");
         assert!(thread_state.is_some());
-        assert_eq!(thread_state.unwrap().thread_id, thread_id);
-        assert_eq!(thread_state.unwrap().name, Some("test_thread".to_string()));
+        let state = thread_state.expect("Thread state is None");
+        assert_eq!(state.thread_id, thread_id);
+        assert_eq!(state.name, Some("test_thread".to_string()));
     }
 
     #[test]
@@ -841,10 +1001,10 @@ mod tests {
             native_id,
             Some("test_thread".to_string()),
             ThreadPriority::Normal,
-        ).unwrap();
+        ).expect("Failed to register thread");
 
         // Update thread state
-        debugger.update_thread_state(thread_id, ThreadExecutionState::Stopped).unwrap();
+        debugger.update_thread_state(thread_id, ThreadExecutionState::Stopped).expect("Failed to update thread state");
 
         // Check state history
         let history = debugger.get_thread_state_history(thread_id);
@@ -862,17 +1022,17 @@ mod tests {
             native_id,
             Some("test_thread".to_string()),
             ThreadPriority::Normal,
-        ).unwrap();
+        ).expect("Failed to register thread");
 
         // Add thread-specific breakpoint
         let bp_id = debugger.add_thread_breakpoint(
             thread_id,
             0x1000,
             crate::debugger::enhanced_breakpoints::BreakpointType::Execution,
-            Some(ThreadCondition::ThreadState { 
-                state: ThreadExecutionState::Running 
+            Some(ThreadCondition::ThreadState {
+                state: ThreadExecutionState::Running
             }),
-        ).unwrap();
+        ).expect("Failed to add thread breakpoint");
 
         // Check breakpoints
         let triggered_bps = debugger.check_thread_breakpoints(thread_id, 0x1000);
@@ -890,11 +1050,12 @@ mod tests {
             native_id,
             Some("test_thread".to_string()),
             ThreadPriority::Normal,
-        ).unwrap();
+        ).expect("Failed to register thread");
 
         // Get performance stats
         let stats = debugger.get_thread_performance_stats(thread_id);
         assert!(stats.is_some());
-        assert_eq!(stats.unwrap().thread_id, thread_id);
+        let stats = stats.expect("Stats is None");
+        assert_eq!(stats.thread_id, thread_id);
     }
 }

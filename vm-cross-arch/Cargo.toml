@@ -11,30 +11,50 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+# Core dependencies (keep)
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
-vm-frontend-x86_64 = { path = "../vm-frontend-x86_64" }
-vm-frontend-arm64 = { path = "../vm-frontend-arm64" }
-vm-frontend-riscv64 = { path = "../vm-frontend-riscv64" }
-vm-engine-interpreter = { path = "../vm-engine-interpreter" }
-vm-mem = { path = "../vm-mem" }
-vm-runtime = { path = "../vm-runtime" }
-vm-engine-jit = { path = "../vm-engine-jit" }
-vm-encoding = { path = "../vm-encoding" }
-vm-register = { path = "../vm-register" }
-vm-memory-access = { path = "../vm-memory-access" }
-num_cpus = "1.17"
-vm-instruction-patterns = { path = "../vm-instruction-patterns" }
-vm-optimization = { path = "../vm-optimization" }
-vm-error = { path = "../vm-error" }
-thiserror = "2.0"
+vm-cross-arch-support = { path = "../vm-cross-arch-support" }
+
+# Optional execution engines (feature-gated)
+vm-engine-interpreter = { path = "../vm-engine-interpreter", optional = true }
+vm-engine-jit = { path = "../vm-engine-jit", optional = true }
+
+# Optional memory support (feature-gated)
+vm-mem = { path = "../vm-mem", optional = true }
+
+# Optional runtime support (feature-gated, for GC)
+vm-runtime = { path = "../vm-runtime", optional = true }
+
+# Optional GC support (feature-gated)
+vm-optimizers = { path = "../vm-optimizers", optional = true }
+vm-boot = { path = "../vm-boot", optional = true }
+
+# Optional frontend decoders (feature-gated)
+vm-frontend = { path = "../vm-frontend", optional = true }
+
+# Utility dependencies (keep - actually used)
+thiserror = { workspace = true }
 tracing = "0.1"
-bincode = "2.0"
 fastrand = "2.0"
+num_cpus = "1.16"
+cfg-if = "1.0"
 
 [features]
 default = []
-jit = []
+
+# Execution engine features
+interpreter = ["vm-engine-interpreter"]
+jit = ["vm-engine-jit", "vm-mem"]
+
+# Component features (can be combined as needed)
+memory = ["vm-mem"]
+runtime = ["vm-runtime"]
+gc = ["vm-optimizers", "vm-boot"]
+frontend = ["vm-frontend"]
+
+# All features combined (execution + memory + runtime + frontend + gc)
+all = ["interpreter", "jit", "memory", "runtime", "frontend", "gc"]
 
 [dev-dependencies]
 vm-tests = { path = "../vm-tests" }

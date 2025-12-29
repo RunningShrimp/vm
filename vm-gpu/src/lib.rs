@@ -71,6 +71,9 @@ pub enum CommandQueueError {
 
     #[error("Invalid command")]
     InvalidCommand,
+
+    #[error("Lock poisoned")]
+    LockPoisoned,
 }
 
 /// GPU命令队列状态
@@ -128,35 +131,59 @@ impl GpuCommandQueue {
         }
     }
 
+    // Helper methods for safe lock operations
+    fn lock_queue(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, VecDeque<GpuCommand>>, CommandQueueError> {
+        self.queue
+            .lock()
+            .map_err(|_| CommandQueueError::LockPoisoned)
+    }
+
+    fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, GpuQueueState>, CommandQueueError> {
+        self.state
+            .lock()
+            .map_err(|_| CommandQueueError::LockPoisoned)
+    }
+
+    fn lock_stats(&self) -> Result<std::sync::MutexGuard<'_, GpuQueueStats>, CommandQueueError> {
+        self.stats
+            .lock()
+            .map_err(|_| CommandQueueError::LockPoisoned)
+    }
+
     /// 启动命令队列
     pub fn start(&self) {
-        let mut state = self.state.lock().unwrap();
-        *state = GpuQueueState::Running;
+        if let Ok(mut state) = self.lock_state() {
+            *state = GpuQueueState::Running;
+        }
     }
 
     /// 暂停命令队列
     pub fn pause(&self) {
-        let mut state = self.state.lock().unwrap();
-        *state = GpuQueueState::Paused;
+        if let Ok(mut state) = self.lock_state() {
+            *state = GpuQueueState::Paused;
+        }
     }
 
     /// 停止命令队列
     pub fn stop(&self) {
-        let mut state = self.state.lock().unwrap();
-        *state = GpuQueueState::Error;
+        if let Ok(mut state) = self.lock_state() {
+            *state = GpuQueueState::Error;
+        }
     }
 
     /// 提交单个命令
     pub fn submit(&self, command: GpuCommand) -> Result<(), CommandQueueError> {
-        let mut queue = self.queue.lock().unwrap();
-        let state = self.state.lock().unwrap();
+        let mut queue = self.lock_queue()?;
+        let state = self.lock_state()?;
 
         if *state != GpuQueueState::Running {
             return Err(CommandQueueError::QueueError);
         }
 
         if queue.len() >= self.max_size {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.lock_stats()?;
             stats.overflow_count += 1;
             drop(stats);
             return Err(CommandQueueError::QueueFull);
@@ -165,7 +192,7 @@ impl GpuCommandQueue {
         queue.push_back(command);
         let current_depth = queue.len() as u64;
 
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.lock_stats()?;
         stats.total_submitted += 1;
         if current_depth > stats.max_queue_depth {
             stats.max_queue_depth = current_depth;
@@ -181,16 +208,16 @@ impl GpuCommandQueue {
 
     /// 批量提交命令
     pub fn submit_batch(&self, commands: Vec<GpuCommand>) -> Result<usize, CommandQueueError> {
-        let mut queue = self.queue.lock().unwrap();
-        let state = self.state.lock().unwrap();
+        let mut queue = self.lock_queue()?;
+        let state = self.lock_state()?;
 
         if *state != GpuQueueState::Running {
             return Err(CommandQueueError::QueueError);
         }
 
         let available_space = self.max_size - queue.len();
-        if available_space <= 0 {
-            let mut stats = self.stats.lock().unwrap();
+        if available_space == 0 {
+            let mut stats = self.lock_stats()?;
             stats.overflow_count += 1;
             drop(stats);
             return Err(CommandQueueError::QueueFull);
@@ -200,7 +227,7 @@ impl GpuCommandQueue {
         queue.extend(commands.into_iter().take(submit_count));
         let current_depth = queue.len() as u64;
 
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.lock_stats()?;
         stats.total_submitted += submit_count as u64;
         if current_depth > stats.max_queue_depth {
             stats.max_queue_depth = current_depth;
@@ -216,7 +243,7 @@ impl GpuCommandQueue {
 
     /// 出队命令（阻塞模式）
     pub fn dequeue(&self, timeout: Option<Duration>) -> Option<GpuCommand> {
-        let queue = self.queue.lock().unwrap();
+        let queue = self.lock_queue().ok()?;
 
         match timeout {
             Some(dur) => {
@@ -243,7 +270,10 @@ impl GpuCommandQueue {
     where
         F: FnMut(&GpuCommand) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>,
     {
-        let mut queue = self.queue.lock().unwrap();
+        let mut queue = match self.lock_queue() {
+            Ok(q) => q,
+            Err(_) => return 0,
+        };
         let mut processed_count = 0;
 
         while let Some(command) = queue.pop_front() {
@@ -251,14 +281,18 @@ impl GpuCommandQueue {
                 Ok(_) => processed_count += 1,
                 Err(e) => {
                     error!("Failed to process command: {}", e);
-                    let mut state = self.state.lock().unwrap();
-                    *state = GpuQueueState::Error;
+                    if let Ok(mut state) = self.lock_state() {
+                        *state = GpuQueueState::Error;
+                    }
                     break;
                 }
             }
 
             let wait_time = command.submit_time.elapsed().as_micros() as u64;
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = match self.lock_stats() {
+                Ok(s) => s,
+                Err(_) => break,
+            };
             stats.total_completed += 1;
 
             // 更新平均等待时间
@@ -271,12 +305,24 @@ impl GpuCommandQueue {
 
     /// 获取队列统计信息
     pub fn get_stats(&self) -> GpuQueueStats {
-        self.stats.lock().unwrap().clone()
+        match self.lock_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => GpuQueueStats {
+                total_submitted: 0,
+                total_completed: 0,
+                avg_wait_time_us: 0,
+                max_queue_depth: 0,
+                overflow_count: 0,
+            },
+        }
     }
 
     /// 获取队列状态
     pub fn get_state(&self) -> GpuQueueState {
-        *self.state.lock().unwrap()
+        match self.lock_state() {
+            Ok(state) => *state,
+            Err(_) => GpuQueueState::Error,
+        }
     }
 }
 
@@ -380,12 +426,41 @@ impl GpuMemoryAllocator {
         }
     }
 
+    // Helper methods for safe lock operations
+    fn lock_devices(
+        &self,
+    ) -> Result<
+        std::sync::MutexGuard<'_, HashMap<String, GpuDeviceInfo>>,
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    > {
+        self.devices.lock().map_err(|_| "Lock poisoned".into())
+    }
+
+    fn lock_allocations(
+        &self,
+    ) -> Result<
+        std::sync::MutexGuard<'_, HashMap<String, GpuMemoryBlock>>,
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    > {
+        self.allocations.lock().map_err(|_| "Lock poisoned".into())
+    }
+
+    fn lock_memory_stats(
+        &self,
+    ) -> Result<
+        std::sync::MutexGuard<'_, GpuMemoryStats>,
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    > {
+        self.memory_stats.lock().map_err(|_| "Lock poisoned".into())
+    }
+
     /// 初始化分配器
     pub fn initialize(
         &self,
         devices: &HashMap<String, GpuDeviceInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut device_map = self.devices.lock().unwrap();
+        let mut device_map = self.lock_devices()?;
+        let mut stats = self.lock_memory_stats()?;
 
         // 计算总内存
         let total = devices
@@ -395,7 +470,6 @@ impl GpuMemoryAllocator {
             .values()
             .fold(0, |acc, info| acc + info.available_memory);
 
-        let mut stats = self.memory_stats.lock().unwrap();
         stats.total_memory = total;
         stats.available_memory = available;
 
@@ -410,23 +484,22 @@ impl GpuMemoryAllocator {
         device_id: &str,
         size: u64,
     ) -> Result<GpuMemoryBlock, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.lock_devices()?;
         let device_info = devices.get(device_id).ok_or("Device not found")?;
 
-        let mut stats = self.memory_stats.lock().unwrap();
+        let mut stats = self.lock_memory_stats()?;
         if size > device_info.available_memory || size > stats.available_memory {
             return Err("Insufficient memory".into());
         }
 
         // 生成内存块ID和地址
-        let block_id = format!(
-            "block_{}_{}",
-            device_id,
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                format!("Time error: {}", e).into()
+            })?
+            .as_nanos();
+        let block_id = format!("block_{}_{}", device_id, timestamp);
         let gpu_address = (device_info.total_memory - device_info.available_memory) + 0x1000000;
 
         let memory_block = GpuMemoryBlock {
@@ -437,7 +510,7 @@ impl GpuMemoryAllocator {
             device_id: device_id.to_string(),
         };
 
-        let mut allocations = self.allocations.lock().unwrap();
+        let mut allocations = self.lock_allocations()?;
         allocations.insert(block_id.clone(), memory_block.clone());
 
         // 更新统计信息
@@ -459,7 +532,7 @@ impl GpuMemoryAllocator {
         block.cpu_address = cpu_address;
 
         // 更新分配记录
-        let mut allocations = self.allocations.lock().unwrap();
+        let mut allocations = self.lock_allocations()?;
         allocations.insert(block.block_id.clone(), block.clone());
 
         Ok(block)
@@ -470,12 +543,12 @@ impl GpuMemoryAllocator {
         &self,
         block_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut allocations = self.allocations.lock().unwrap();
+        let mut allocations = self.lock_allocations()?;
         let block = allocations
             .remove(block_id)
             .ok_or("Memory block not found")?;
 
-        let mut stats = self.memory_stats.lock().unwrap();
+        let mut stats = self.lock_memory_stats()?;
         stats.allocated_memory -= block.size;
         stats.available_memory += block.size;
         stats.allocation_count -= 1;
@@ -485,7 +558,15 @@ impl GpuMemoryAllocator {
 
     /// 获取内存统计信息
     pub fn get_memory_stats(&self) -> GpuMemoryStats {
-        self.memory_stats.lock().unwrap().clone()
+        match self.lock_memory_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => GpuMemoryStats {
+                total_memory: 0,
+                allocated_memory: 0,
+                available_memory: 0,
+                allocation_count: 0,
+            },
+        }
     }
 }
 
@@ -515,6 +596,27 @@ impl GpuDeviceSimulator {
             memory_allocator,
         }
     }
+
+    // Helper methods for safe lock operations
+    fn lock_memory_blocks(
+        &self,
+    ) -> Result<
+        std::sync::MutexGuard<'_, HashMap<String, GpuMemoryBlock>>,
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    > {
+        self.memory_blocks
+            .lock()
+            .map_err(|_| "Lock poisoned".into())
+    }
+
+    fn lock_state(
+        &self,
+    ) -> Result<
+        std::sync::MutexGuard<'_, GpuQueueState>,
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    > {
+        self.state.lock().map_err(|_| "Lock poisoned".into())
+    }
 }
 
 #[async_trait::async_trait]
@@ -522,7 +624,7 @@ impl GpuDevice for GpuDeviceSimulator {
     async fn initialize(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state()?;
         *state = GpuQueueState::Running;
         self.command_queue.start();
         Ok(())
@@ -533,7 +635,7 @@ impl GpuDevice for GpuDeviceSimulator {
     }
 
     async fn stop(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state()?;
         *state = GpuQueueState::Error;
         self.command_queue.stop();
         Ok(())
@@ -568,7 +670,7 @@ impl GpuDevice for GpuDeviceSimulator {
         let block = self
             .memory_allocator
             .allocate(&self.device_info.device_id, size)?;
-        let mut blocks = self.memory_blocks.lock().unwrap();
+        let mut blocks = self.lock_memory_blocks()?;
         blocks.insert(block.block_id.clone(), block.clone());
         Ok(block)
     }
@@ -577,7 +679,7 @@ impl GpuDevice for GpuDeviceSimulator {
         &mut self,
         block_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut blocks = self.memory_blocks.lock().unwrap();
+        let mut blocks = self.lock_memory_blocks()?;
         blocks.remove(block_id);
         self.memory_allocator.free_memory(block_id)
     }
@@ -586,7 +688,7 @@ impl GpuDevice for GpuDeviceSimulator {
         &mut self,
         block_id: &str,
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut blocks = self.memory_blocks.lock().unwrap();
+        let mut blocks = self.lock_memory_blocks()?;
         let block = blocks.get_mut(block_id).ok_or("Memory block not found")?;
 
         // 模拟CPU映射
@@ -599,7 +701,7 @@ impl GpuDevice for GpuDeviceSimulator {
         &mut self,
         block_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut blocks = self.memory_blocks.lock().unwrap();
+        let mut blocks = self.lock_memory_blocks()?;
         let block = blocks.get_mut(block_id).ok_or("Memory block not found")?;
         block.cpu_address = None;
         Ok(())
@@ -627,7 +729,10 @@ impl GpuDevice for GpuDeviceSimulator {
     }
 
     fn get_device_state(&self) -> GpuQueueState {
-        *self.state.lock().unwrap()
+        match self.lock_state() {
+            Ok(state) => *state,
+            Err(_) => GpuQueueState::Error,
+        }
     }
 
     fn get_stats(&self) -> GpuQueueStats {
@@ -682,9 +787,34 @@ impl UnifiedGpuManager {
         }
     }
 
+    // Helper methods for safe lock operations
+    fn lock_available_backends(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, HashMap<String, GpuMode>>, GpuManagerError> {
+        self.available_backends
+            .lock()
+            .map_err(|_| GpuManagerError::ScanBackendError("Lock poisoned".to_string()))
+    }
+
+    fn lock_selected_backend(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Option<(String, GpuMode)>>, GpuManagerError> {
+        self.selected_backend
+            .lock()
+            .map_err(|_| GpuManagerError::SelectBackendError("Lock poisoned".to_string()))
+    }
+
+    fn lock_preferred_mode(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Option<GpuMode>>, GpuManagerError> {
+        self.preferred_mode
+            .lock()
+            .map_err(|_| GpuManagerError::SelectBackendError("Lock poisoned".to_string()))
+    }
+
     /// 扫描可用的GPU后端
     pub fn scan_backends(&self) -> Result<(), GpuManagerError> {
-        let mut backends = self.available_backends.lock().unwrap();
+        let mut backends = self.lock_available_backends()?;
 
         // 模拟后端扫描
         backends.insert("wgpu".to_string(), GpuMode::Wgpu);
@@ -699,14 +829,15 @@ impl UnifiedGpuManager {
 
     /// 设置偏好的GPU模式
     pub fn set_preferred_mode(&self, mode: GpuMode) {
-        let mut preferred = self.preferred_mode.lock().unwrap();
-        *preferred = Some(mode);
+        if let Ok(mut preferred) = self.lock_preferred_mode() {
+            *preferred = Some(mode);
+        }
     }
 
     /// 自动选择最佳GPU后端
     pub fn auto_select(&self) -> Result<(), GpuManagerError> {
-        let backends = self.available_backends.lock().unwrap();
-        let preferred = self.preferred_mode.lock().unwrap();
+        let backends = self.lock_available_backends()?;
+        let preferred = self.lock_preferred_mode()?;
 
         let selected = if let Some(mode) = *preferred {
             // 按偏好模式选择
@@ -719,7 +850,7 @@ impl UnifiedGpuManager {
 
         let (backend_name, backend_mode) = selected.ok_or(GpuManagerError::NoBackendAvailable)?;
 
-        let mut selected_backend = self.selected_backend.lock().unwrap();
+        let mut selected_backend = self.lock_selected_backend()?;
         *selected_backend = Some((backend_name.clone(), *backend_mode));
 
         Ok(())
@@ -727,7 +858,7 @@ impl UnifiedGpuManager {
 
     /// 初始化选中的GPU后端
     pub fn initialize_selected(&self) -> Result<(), GpuManagerError> {
-        let selected = self.selected_backend.lock().unwrap();
+        let selected = self.lock_selected_backend()?;
 
         if selected.is_none() {
             return Err(GpuManagerError::NoBackendSelected);

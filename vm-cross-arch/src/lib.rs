@@ -62,8 +62,8 @@
 //!
 //! // 创建转换器
 //! let translator = ArchTranslator::with_config(
-//!     SourceArch::X86_64, 
-//!     TargetArch::ARM64, 
+//!     SourceArch::X86_64,
+//!     TargetArch::ARM64,
 //!     config
 //! );
 //!
@@ -115,79 +115,118 @@
 //! - SIMD指令: V (向量扩展)
 //! - 系统指令: ECALL, EBREAK
 
-mod auto_executor;
+mod adaptive_optimizer;
 mod block_cache;
-mod refactored_encoder;
 mod cache_optimizer;
-mod cross_arch_aot;
-mod cross_arch_runtime;
 mod encoder;
 mod instruction_parallelism;
 mod instruction_patterns;
-mod integration;
 mod ir_optimizer;
 mod memory_alignment_optimizer;
 mod optimized_register_allocator;
 mod os_support;
 mod performance_optimizer;
+mod powerpc;
 mod register_mapping;
 mod runtime;
 mod smart_register_allocator;
 mod target_specific_optimizer;
-mod adaptive_optimizer;
+mod translation_impl;
 mod translator;
 mod types;
-mod translation_impl;
-mod unified_executor;
 mod vm_service_ext;
-mod powerpc;
 
-pub use auto_executor::{AutoExecutor, UnifiedDecoder};
-pub use block_cache::{CacheReplacementPolicy, CrossArchBlockCache, SourceBlockKey, TranslatedBlock};
-pub use cache_optimizer::{CacheConfig, CacheOptimizer, CachePolicy};
-pub use cross_arch_aot::{CrossArchAotCompiler, CrossArchAotConfig, CrossArchAotStats};
-pub use instruction_parallelism::{
-    DependencyType, DependencyEdge, InstructionNode, ParallelGroup, ResourceRequirements,
-    ParallelismStats, InstructionParallelizer
-};
-pub use memory_alignment_optimizer::{
-    AlignmentInfo, Endianness, EndiannessConversionStrategy, MemoryAccessPattern,
-    MemoryAlignmentOptimizer, MemoryOptimizationStats as OptimizationStats, IROpExt
-};
-pub use ir_optimizer::{
-    IROptimizer, OptimizationStats as IROptimizationStats, SubExpression, BinaryOp, UnaryOp, Operand
-};
-pub use target_specific_optimizer::{
-    TargetSpecificOptimizer, OptimizationStats as TargetOptimizationStats
-};
+// Execution-dependent modules (feature-gated)
+#[cfg(any(feature = "interpreter", feature = "jit"))]
+mod auto_executor;
+
+#[cfg(feature = "jit")]
+mod cross_arch_aot;
+
+#[cfg(any(feature = "jit", feature = "memory"))]
+mod cross_arch_runtime;
+
+#[cfg(any(feature = "interpreter", feature = "jit"))]
+mod integration;
+
+#[cfg(feature = "jit")]
+mod unified_executor;
+
+// Test modules (always compiled for doctests/examples)
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+#[cfg(feature = "memory")]
+mod integration_tests;
+
 pub use adaptive_optimizer::{
-    AdaptiveOptimizer, OptimizationStats as AdaptiveOptimizationStats, HotspotDetector, Hotspot,
-    PerformanceProfiler, PerformanceData, PerformanceTrend, ProfilingConfig, ProfilingSession,
-    PerformanceSample, TieredCompiler, CompilationTier, TieredCompilationStrategy,
-    TierTriggerCondition, CompilationRecord, DynamicRecompiler, RecompilationStrategy,
-    RecompilationRecord, CachedCode
+    AdaptiveOptimizer, CachedCode, CompilationRecord, CompilationTier, DynamicRecompiler, Hotspot,
+    HotspotDetector, OptimizationStats as AdaptiveOptimizationStats, PerformanceData,
+    PerformanceProfiler, PerformanceSample, PerformanceTrend, ProfilingConfig, ProfilingSession,
+    RecompilationRecord, RecompilationStrategy, TierTriggerCondition, TieredCompilationStrategy,
+    TieredCompiler,
 };
-pub use optimized_register_allocator::{OptimizedRegisterMapper, RegisterLifetime, RegisterCopy, TempRegisterUsage};
+pub use block_cache::{
+    CacheReplacementPolicy, CrossArchBlockCache, SourceBlockKey, TranslatedBlock,
+};
+pub use cache_optimizer::{CacheConfig, CacheOptimizer, CachePolicy};
+
+// Execution-dependent exports (feature-gated)
+#[cfg(any(feature = "interpreter", feature = "jit"))]
+pub use auto_executor::{AutoExecutor, UnifiedDecoder};
+
+#[cfg(feature = "jit")]
+pub use cross_arch_aot::{CrossArchAotCompiler, CrossArchAotConfig, CrossArchAotStats};
+
+#[cfg(any(feature = "jit", feature = "memory"))]
 pub use cross_arch_runtime::{
     AotIntegrationConfig, CrossArchRuntime, CrossArchRuntimeConfig, GcIntegrationConfig,
     JitIntegrationConfig,
 };
-pub use encoder::{ArchEncoder, Arm64Encoder, Riscv64Encoder, X86_64Encoder};
+pub use encoder::{ArchEncoder, Arm64Encoder, PowerPCEncoder, Riscv64Encoder, X86_64Encoder};
+pub use instruction_parallelism::{
+    DependencyEdge, DependencyType, InstructionNode, InstructionParallelizer, ParallelGroup,
+    ParallelismStats, ResourceRequirements,
+};
+#[cfg(any(feature = "interpreter", feature = "jit"))]
 pub use integration::{CrossArchVm, CrossArchVmBuilder};
+pub use ir_optimizer::{
+    BinaryOp, IROptimizer, Operand, OptimizationStats as IROptimizationStats, SubExpression,
+    UnaryOp,
+};
+pub use memory_alignment_optimizer::{
+    AlignmentInfo, Endianness, EndiannessConversionStrategy, IROpExt, MemoryAccessPattern,
+    MemoryAlignmentOptimizer, MemoryOptimizationStats as OptimizationStats,
+};
+pub use optimized_register_allocator::{
+    OptimizedRegisterMapper, RegisterCopy, RegisterLifetime, TempRegisterUsage,
+};
 pub use os_support::{
     DeviceEmulator, DeviceType, InterruptController, LinuxSyscallHandler, SyscallHandler,
 };
 pub use performance_optimizer::{PerformanceConfig, PerformanceOptimizer};
 pub use register_mapping::{RegisterMapper, RegisterMapping};
+pub use runtime::{CrossArchConfig, CrossArchStrategy, HostArch};
 pub use smart_register_allocator::{
     CallingConvention, InterferenceNode, RegisterAllocationStats, RegisterClass, RegisterInfo,
     SmartRegisterMapper,
 };
-pub use runtime::{CrossArchConfig, CrossArchStrategy, HostArch};
-pub use translator::{ArchTranslator};
-pub use types::{SourceArch, TargetArch, TranslationError, TranslationOutcome};
+pub use target_specific_optimizer::{
+    OptimizationStats as TargetOptimizationStats, TargetSpecificOptimizer,
+};
 pub use translation_impl::{TargetInstruction, TranslationResult, TranslationStats};
+pub use translator::ArchTranslator;
+pub use types::{SourceArch, TargetArch, TranslationError, TranslationOutcome};
+
+#[cfg(feature = "jit")]
 pub use unified_executor::{ExecutionStats, UnifiedExecutor};
 pub use vm_service_ext::{VmConfigExt, create_auto_vm_config};
 
-pub use vm_encoder::Architecture;
+// Re-export Architecture from vm_cross_arch_support
+pub use vm_cross_arch_support::encoding::Architecture;
+
+// PowerPC support
+pub use powerpc::{
+    PowerPCDecoder, PowerPCEncoder as PowerPCEncoderDecoder, PowerPCOpcode, PowerPCReg,
+};

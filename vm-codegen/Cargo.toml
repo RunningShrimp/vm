@@ -14,6 +14,10 @@ categories.workspace = true
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 
+bincode = { version = "2.0.1", features = ["serde"] }
+miniz_oxide = { version = "0.7" }
+serde = { workspace = true }
+
 [[example]]
 name = "arm64_instructions"
 path = "examples/arm64_instructions.rs"

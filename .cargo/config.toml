@@ -1,5 +1,5 @@
 # Cargo配置文件
-# 用于配置代码覆盖率工具和其他开发工具
+# 用于配置代码覆盖率工具、基准测试和其他开发工具
 
 [build]
 # 启用调试信息以支持代码覆盖率
@@ -8,4 +8,21 @@ rustflags = ["-C", "debuginfo=1"]
 [target.'cfg(all())']
 # 覆盖率工具配置
 rustflags = ["-C", "debuginfo=1"]
+
+[bench]
+# Benchmark settings
+# Enable unstable bench features
+# This allows for more advanced benchmarking features
+
+[profile.bench]
+# Benchmark profile configuration
+# Inherits from release but with additional optimizations
+inherits = "release"
+debug = true
+strip = false
+lto = true
+codegen-units = 1
+
+# Criterion-specific settings (used by cargo-criterion)
+# These settings help with consistent benchmark results
 

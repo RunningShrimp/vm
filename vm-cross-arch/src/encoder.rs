@@ -22,6 +22,18 @@ pub trait ArchEncoder {
 /// x86-64 编码器
 pub struct X86_64Encoder;
 
+impl Default for X86_64Encoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl X86_64Encoder {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 impl ArchEncoder for X86_64Encoder {
     fn architecture(&self) -> Architecture {
         Architecture::X86_64
@@ -363,6 +375,18 @@ impl ArchEncoder for X86_64Encoder {
 
 /// ARM64 编码器
 pub struct Arm64Encoder;
+
+impl Default for Arm64Encoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Arm64Encoder {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 impl ArchEncoder for Arm64Encoder {
     fn architecture(&self) -> Architecture {
@@ -721,6 +745,18 @@ impl ArchEncoder for Arm64Encoder {
 
 /// RISC-V64 编码器
 pub struct Riscv64Encoder;
+
+impl Default for Riscv64Encoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Riscv64Encoder {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 impl ArchEncoder for Riscv64Encoder {
     fn architecture(&self) -> Architecture {
@@ -1160,7 +1196,7 @@ fn encode_x86_load(
     bytes.push(0x8B); // MOV r64, r/m64
     // 简化：假设offset在32位范围内
     if offset == 0 {
-        bytes.push((0x00 | ((dst & 7) << 3) | (base & 7)) as u8);
+        bytes.push((((dst & 7) << 3) | (base & 7)) as u8);
     } else {
         bytes.push((0x40 | ((dst & 7) << 3) | (base & 7)) as u8); // ModR/M with disp8
         bytes.extend_from_slice(&(offset as i32).to_le_bytes());
@@ -1185,7 +1221,7 @@ fn encode_x86_store(
     let mut bytes = vec![0x48 | ((src & 8) >> 3) as u8];
     bytes.push(0x89); // MOV r/m64, r64
     if offset == 0 {
-        bytes.push((0x00 | ((src & 7) << 3) | (base & 7)) as u8);
+        bytes.push((((src & 7) << 3) | (base & 7)) as u8);
     } else {
         bytes.push((0x40 | ((src & 7) << 3) | (base & 7)) as u8);
         bytes.extend_from_slice(&(offset as i32).to_le_bytes());
@@ -1213,9 +1249,9 @@ fn encode_arm64_add(
     // sf  0  0  0  1  0  1  1  0  0  0  sh  0  Rm  0  0  0  0  0  0  Rn   Rd
     // 1   0  0  0  1  0  1  1  0  0  0  0   0  Rm  0  0  0  0  0  0  Rn   Rd
     let word: u32 = 0x8B000000 // base opcode
-        | ((dst & 0x1F) as u32) // Rd
-        | (((src1 & 0x1F) as u32) << 5) // Rn
-        | (((src2 & 0x1F) as u32) << 16); // Rm
+        | (dst & 0x1F) // Rd
+        | ((src1 & 0x1F) << 5) // Rn
+        | ((src2 & 0x1F) << 16); // Rm
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -1232,9 +1268,9 @@ fn encode_arm64_sub(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: SUB Xd, Xn, Xm
     let word: u32 = 0xCB000000 // base opcode
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -1251,15 +1287,15 @@ fn encode_arm64_add_imm(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: ADD Xd, Xn, #imm
     // 限制：imm必须是12位立即数或可以编码为移位立即数
-    let imm12 = if imm >= 0 && imm < 4096 {
+    let imm12 = if (0..4096).contains(&imm) {
         imm as u32
     } else {
         return Err(TranslationError::ImmediateTooLarge { imm });
     };
 
     let word: u32 = 0x91000000 // base opcode
-        | ((dst & 0x1F) as u32)
-        | (((src & 0x1F) as u32) << 5)
+        | (dst & 0x1F)
+        | ((src & 0x1F) << 5)
         | ((imm12 & 0xFFF) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -1277,7 +1313,7 @@ fn encode_arm64_mov_imm(dst: RegId, imm: u64) -> Result<Vec<TargetInstruction>, 
     // 检查是否可以单指令编码（16位对齐的立即数）
     if imm & 0xFFFF == imm {
         // MOVZ Xd, #imm, LSL #0
-        let word: u32 = 0xD2800000 | ((dst & 0x1F) as u32) | (((imm & 0xFFFF) as u32) << 5);
+        let word: u32 = 0xD2800000 | (dst & 0x1F) | (((imm & 0xFFFF) as u32) << 5);
         instructions.push(TargetInstruction {
             bytes: word.to_le_bytes().to_vec(),
             length: 4,
@@ -1288,7 +1324,7 @@ fn encode_arm64_mov_imm(dst: RegId, imm: u64) -> Result<Vec<TargetInstruction>, 
     } else {
         // 需要MOVZ + MOVK组合
         // MOVZ设置低16位
-        let word1: u32 = 0xD2800000 | ((dst & 0x1F) as u32) | (((imm & 0xFFFF) as u32) << 5);
+        let word1: u32 = 0xD2800000 | (dst & 0x1F) | (((imm & 0xFFFF) as u32) << 5);
         instructions.push(TargetInstruction {
             bytes: word1.to_le_bytes().to_vec(),
             length: 4,
@@ -1301,10 +1337,8 @@ fn encode_arm64_mov_imm(dst: RegId, imm: u64) -> Result<Vec<TargetInstruction>, 
         for shift in 1..4 {
             let bits = (imm >> (shift * 16)) & 0xFFFF;
             if bits != 0 {
-                let word: u32 = 0xF2800000
-                    | ((dst & 0x1F) as u32)
-                    | ((bits as u32) << 5)
-                    | ((shift as u32) << 21);
+                let word: u32 =
+                    0xF2800000 | (dst & 0x1F) | ((bits as u32) << 5) | ((shift as u32) << 21);
                 instructions.push(TargetInstruction {
                     bytes: word.to_le_bytes().to_vec(),
                     length: 4,
@@ -1327,15 +1361,12 @@ fn encode_arm64_load(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: LDR Xd, [Xn, #offset]
     // 限制：offset必须是12位对齐的立即数
-    if offset < 0 || offset >= 32768 || (offset % (size as i64)) != 0 {
+    if !(0..32768).contains(&offset) || (offset % (size as i64)) != 0 {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
     let imm12 = (offset / (size as i64)) as u32;
-    let word: u32 = 0xF9400000
-        | ((dst & 0x1F) as u32)
-        | (((base & 0x1F) as u32) << 5)
-        | ((imm12 & 0xFFF) << 10);
+    let word: u32 = 0xF9400000 | (dst & 0x1F) | ((base & 0x1F) << 5) | ((imm12 & 0xFFF) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -1352,15 +1383,12 @@ fn encode_arm64_store(
     size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: STR Xs, [Xn, #offset]
-    if offset < 0 || offset >= 32768 || (offset % (size as i64)) != 0 {
+    if !(0..32768).contains(&offset) || (offset % (size as i64)) != 0 {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
     let imm12 = (offset / (size as i64)) as u32;
-    let word: u32 = 0xF9000000
-        | ((src & 0x1F) as u32)
-        | (((base & 0x1F) as u32) << 5)
-        | ((imm12 & 0xFFF) << 10);
+    let word: u32 = 0xF9000000 | (src & 0x1F) | ((base & 0x1F) << 5) | ((imm12 & 0xFFF) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -1382,9 +1410,9 @@ fn encode_riscv_add(
     // funct7        rs2        rs1   funct3  rd   opcode
     // 0000000       xsrc2      xsrc1 000     xd   0110011
     let word: u32 = 0x00000033 // base opcode
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -1401,9 +1429,9 @@ fn encode_riscv_sub(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: SUB xd, xsrc1, xsrc2
     let word: u32 = 0x40000033 // funct7 = 0100000
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -1420,14 +1448,14 @@ fn encode_riscv_addi(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: ADDI xd, xsrc, imm
     // imm是12位有符号立即数
-    if imm < -2048 || imm >= 2048 {
+    if !(-2048..2048).contains(&imm) {
         return Err(TranslationError::ImmediateTooLarge { imm });
     }
 
     let imm12 = (imm as u32) & 0xFFF;
     let word: u32 = 0x00000013 // base opcode
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src & 0x1F) as u32) << 15)
+        | ((dst & 0x1F) << 7)
+        | ((src & 0x1F) << 15)
         | ((imm12 & 0xFFF) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -1445,7 +1473,7 @@ fn encode_riscv_mov_imm(dst: RegId, imm: u64) -> Result<Vec<TargetInstruction>, 
     // LUI设置高20位
     let imm20 = ((imm >> 12) & 0xFFFFF) as u32;
     let word1: u32 = 0x00000037 // LUI opcode
-        | (((dst & 0x1F) as u32) << 7)
+        | ((dst & 0x1F) << 7)
         | ((imm20 & 0xFFFFF) << 12);
     instructions.push(TargetInstruction {
         bytes: word1.to_le_bytes().to_vec(),
@@ -1459,8 +1487,8 @@ fn encode_riscv_mov_imm(dst: RegId, imm: u64) -> Result<Vec<TargetInstruction>, 
     let imm12 = (imm & 0xFFF) as u32;
     if imm12 != 0 {
         let word2: u32 = 0x00000013 // ADDI opcode
-            | (((dst & 0x1F) as u32) << 7)
-            | (((dst & 0x1F) as u32) << 15)
+            | ((dst & 0x1F) << 7)
+            | ((dst & 0x1F) << 15)
             | ((imm12 & 0xFFF) << 20);
         instructions.push(TargetInstruction {
             bytes: word2.to_le_bytes().to_vec(),
@@ -1482,14 +1510,14 @@ fn encode_riscv_load(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: LD xd, offset(xbase)
     // offset是12位有符号立即数
-    if offset < -2048 || offset >= 2048 {
+    if !(-2048..2048).contains(&offset) {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
     let imm12 = (offset as u32) & 0xFFF;
     let word: u32 = 0x00000003 // LOAD opcode
-        | (((dst & 0x1F) as u32) << 7)
-        | (((base & 0x1F) as u32) << 15)
+        | ((dst & 0x1F) << 7)
+        | ((base & 0x1F) << 15)
         | (0b011 << 12) // funct3 for LD (64-bit)
         | ((imm12 & 0xFFF) << 20);
     Ok(TargetInstruction {
@@ -1508,7 +1536,7 @@ fn encode_riscv_store(
     _size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: SD xsrc, offset(xbase)
-    if offset < -2048 || offset >= 2048 {
+    if !(-2048..2048).contains(&offset) {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
@@ -1517,9 +1545,9 @@ fn encode_riscv_store(
     let imm_lo = imm12 & 0x1F;
     let word: u32 = 0x00000023 // STORE opcode
         | (imm_lo << 7)
-        | (((base & 0x1F) as u32) << 15)
+        | ((base & 0x1F) << 15)
         | (0b011 << 12) // funct3 for SD (64-bit)
-        | (((src & 0x1F) as u32) << 20)
+        | ((src & 0x1F) << 20)
         | (imm_hi << 25);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -1542,7 +1570,7 @@ fn encode_x86_simd_add(
     // 或 VADDPD/VADDPS (AVX)
     // 简化实现：使用SSE2指令
     match element_size {
-        1 | 2 | 4 | 8 => {},
+        1 | 2 | 4 | 8 => {}
         _ => {
             return Err(TranslationError::UnsupportedOperation {
                 op: format!("SIMD add with element_size {}", element_size),
@@ -1618,11 +1646,8 @@ fn encode_x86_simd_mul(
             });
         }
     }
-    if element_size == 4 {
-        bytes.push((0xC0 | ((dst & 0xF) << 3) | (src2 & 0xF)) as u8);
-    } else {
-        bytes.push((0xC0 | ((dst & 0xF) << 3) | (src2 & 0xF)) as u8);
-    }
+    // PMUL instruction encoding (same for all element sizes)
+    bytes.push((0xC0 | ((dst & 0xF) << 3) | (src2 & 0xF)) as u8);
 
     Ok(vec![TargetInstruction {
         bytes: bytes.clone(),
@@ -1933,7 +1958,7 @@ fn encode_x86_atomic_cmpxchg(
 
     // CMPXCHG [base], new
     let mut bytes = vec![0x48, 0x0F, 0xB1];
-    bytes.push((0x00 | ((new & 7) << 3) | (base & 7)) as u8);
+    bytes.push((((new & 7) << 3) | (base & 7)) as u8);
     instructions.push(TargetInstruction {
         bytes: bytes.clone(),
         length: 4,
@@ -1974,9 +1999,9 @@ fn encode_arm64_simd_add(
     // 0  1  0 0 1 1 1 0  size  0 1 0 0 0 0  Vm 0 0 0 1 1 1  Vn  Vd
     let word: u32 = 0x4E208400
         | ((size as u32) << 22)
-        | ((dst & 0x1F) as u32)
-        | ((src1 & 0x1F) as u32) << 5
-        | ((src2 & 0x1F) as u32) << 16;
+        | (dst & 0x1F)
+        | (src1 & 0x1F) << 5
+        | (src2 & 0x1F) << 16;
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2010,9 +2035,9 @@ fn encode_arm64_simd_sub(
 
     let word: u32 = 0x4E208C00
         | ((size as u32) << 22)
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2044,9 +2069,9 @@ fn encode_arm64_simd_mul(
 
     let word: u32 = 0x4E209C00
         | ((size as u32) << 22)
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2068,10 +2093,7 @@ fn encode_arm64_fadd(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FADD Dd, Dn, Dm (双精度)
-    let word: u32 = 0x4E60D400
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60D400 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2086,10 +2108,7 @@ fn encode_arm64_fsub(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E60D800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60D800 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2104,10 +2123,7 @@ fn encode_arm64_fmul(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E60DC00
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60DC00 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2122,10 +2138,7 @@ fn encode_arm64_fdiv(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E60E400
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60E400 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2141,10 +2154,7 @@ fn encode_arm64_fadds(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FADD Sd, Sn, Sm (单精度)
-    let word: u32 = 0x4E20D400
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20D400 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2159,10 +2169,7 @@ fn encode_arm64_fsubs(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20D800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20D800 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2177,10 +2184,7 @@ fn encode_arm64_fmuls(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20DC00
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20DC00 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2195,10 +2199,7 @@ fn encode_arm64_fdivs(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20E400
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20E400 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2209,7 +2210,7 @@ fn encode_arm64_fdivs(
 }
 
 fn encode_arm64_fsqrt(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EE1E800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EE1E800 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2220,7 +2221,7 @@ fn encode_arm64_fsqrt(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 }
 
 fn encode_arm64_fsqrts(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EA1E800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EA1E800 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -2268,9 +2269,9 @@ fn encode_arm64_atomic_rmw(
 
     let word: u32 = opcode
         | ((size_bits as u32) << 30)
-        | ((dst & 0x1F) as u32)
-        | (((base & 0x1F) as u32) << 5)
-        | (((src & 0x1F) as u32) << 16);
+        | (dst & 0x1F)
+        | ((base & 0x1F) << 5)
+        | ((src & 0x1F) << 16);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2304,10 +2305,10 @@ fn encode_arm64_atomic_cmpxchg(
     // CAS Xs, Xt, [Xn]
     let word: u32 = 0x48E00000
         | ((size_bits as u32) << 30)
-        | ((dst & 0x1F) as u32)
-        | (((base & 0x1F) as u32) << 5)
-        | (((expected & 0x1F) as u32) << 16)
-        | (((new & 0x1F) as u32) << 0);
+        | (dst & 0x1F)
+        | ((base & 0x1F) << 5)
+        | ((expected & 0x1F) << 16)
+        | (new & 0x1F);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2341,10 +2342,7 @@ fn encode_arm64_ldxr(
         }
     };
 
-    let word: u32 = 0x085F8000
-        | ((size_bits as u32) << 30)
-        | ((dst & 0x1F) as u32)
-        | (((base & 0x1F) as u32) << 5);
+    let word: u32 = 0x085F8000 | ((size_bits as u32) << 30) | (dst & 0x1F) | ((base & 0x1F) << 5);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2381,9 +2379,9 @@ fn encode_arm64_stxr(
 
     let word: u32 = 0x08008000
         | ((size_bits as u32) << 30)
-        | ((dst_flag & 0x1F) as u32)
-        | (((base & 0x1F) as u32) << 5)
-        | (((src & 0x1F) as u32) << 16);
+        | (dst_flag & 0x1F)
+        | ((base & 0x1F) << 5)
+        | ((src & 0x1F) << 16);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2409,10 +2407,9 @@ fn encode_riscv_simd_add(
     // funct6    vm   vs2    vs1  0 0 0 0 1 1  vd  0 1 0 0 1 1 1
     // 000000    0    vs2    vs1  0 0 0 0 1 1  vd  0 1 0 0 1 1 1
     let word: u32 = 0x00000057 // Vector opcode
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (0b000000 << 26); // funct6 for VADD.VV
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20); // funct6 for VADD.VV
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2430,9 +2427,9 @@ fn encode_riscv_simd_sub(
     _element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let word: u32 = 0x00000057
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (0b000010 << 26); // funct6 for VSUB.VV
 
     Ok(vec![TargetInstruction {
@@ -2451,9 +2448,9 @@ fn encode_riscv_simd_mul(
     _element_size: u8,
 ) -> Result<Vec<TargetInstruction>, TranslationError> {
     let word: u32 = 0x00000057
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (0b100101 << 26); // funct6 for VMUL.VV
 
     Ok(vec![TargetInstruction {
@@ -2473,11 +2470,8 @@ fn encode_riscv_fadd(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FADD.D (双精度)
-    let word: u32 = 0x02000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (0b0000000 << 25); // funct7 for FADD.D
+    let word: u32 =
+        0x02000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20); // funct7 for FADD.D
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2493,10 +2487,8 @@ fn encode_riscv_fsub(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x0A000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x0A000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2512,10 +2504,8 @@ fn encode_riscv_fmul(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x12000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x12000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2531,10 +2521,8 @@ fn encode_riscv_fdiv(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x1A000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x1A000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2551,10 +2539,8 @@ fn encode_riscv_fadds(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FADD.S (单精度)
-    let word: u32 = 0x00000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x00000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2570,10 +2556,8 @@ fn encode_riscv_fsubs(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x08000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x08000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2589,10 +2573,8 @@ fn encode_riscv_fmuls(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x10000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x10000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2608,10 +2590,8 @@ fn encode_riscv_fdivs(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x18000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x18000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2623,7 +2603,7 @@ fn encode_riscv_fdivs(
 }
 
 fn encode_riscv_fsqrt(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x5A000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0x5A000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2635,7 +2615,7 @@ fn encode_riscv_fsqrt(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 }
 
 fn encode_riscv_fsqrts(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x58000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0x58000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2688,9 +2668,9 @@ fn encode_riscv_atomic_rmw(
     let word: u32 = 0x0000202F // AMO opcode
         | ((funct5 as u32) << 27)
         | ((size_bits as u32) << 12)
-        | (((dst & 0x1F) as u32) << 7)
-        | (((base & 0x1F) as u32) << 15)
-        | (((src & 0x1F) as u32) << 20);
+        | ((dst & 0x1F) << 7)
+        | ((base & 0x1F) << 15)
+        | ((src & 0x1F) << 20);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2720,10 +2700,10 @@ fn encode_riscv_atomic_cmpxchg(
     // LR.W/D: Load Reserved
     let size_bits = if size == 8 { 0b011 } else { 0b010 };
     let lr_word: u32 = 0x0000202F
-        | ((0b00010 as u32) << 27) // funct5 for LR
+        | (0b00010_u32 << 27) // funct5 for LR
         | ((size_bits as u32) << 12)
-        | (((dst & 0x1F) as u32) << 7)
-        | (((base & 0x1F) as u32) << 15);
+        | ((dst & 0x1F) << 7)
+        | ((base & 0x1F) << 15);
     instructions.push(TargetInstruction {
         bytes: lr_word.to_le_bytes().to_vec(),
         length: 4,
@@ -2743,11 +2723,11 @@ fn encode_riscv_atomic_cmpxchg(
 
     // SC.W/D: Store Conditional
     let sc_word: u32 = 0x0000202F
-        | ((0b00011 as u32) << 27) // funct5 for SC
+        | (0b00011_u32 << 27) // funct5 for SC
         | ((size_bits as u32) << 12)
-        | (((expected & 0x1F) as u32) << 7) // 结果寄存器
-        | (((base & 0x1F) as u32) << 15)
-        | (((new & 0x1F) as u32) << 20);
+        | ((expected & 0x1F) << 7) // 结果寄存器
+        | ((base & 0x1F) << 15)
+        | ((new & 0x1F) << 20);
     instructions.push(TargetInstruction {
         bytes: sc_word.to_le_bytes().to_vec(),
         length: 4,
@@ -2778,10 +2758,10 @@ fn encode_riscv_lr(
 
     let size_bits = if size == 8 { 0b011 } else { 0b010 };
     let word: u32 = 0x0000202F
-        | ((0b00010 as u32) << 27)
+        | (0b00010_u32 << 27)
         | ((size_bits as u32) << 12)
-        | (((dst & 0x1F) as u32) << 7)
-        | (((base & 0x1F) as u32) << 15);
+        | ((dst & 0x1F) << 7)
+        | ((base & 0x1F) << 15);
 
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -2811,11 +2791,11 @@ fn encode_riscv_sc(
 
     let size_bits = if size == 8 { 0b011 } else { 0b010 };
     let word: u32 = 0x0000202F
-        | ((0b00011 as u32) << 27)
+        | (0b00011_u32 << 27)
         | ((size_bits as u32) << 12)
-        | (((dst_flag & 0x1F) as u32) << 7)
-        | (((base & 0x1F) as u32) << 15)
-        | (((src & 0x1F) as u32) << 20);
+        | ((dst_flag & 0x1F) << 7)
+        | ((base & 0x1F) << 15)
+        | ((src & 0x1F) << 20);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -3478,7 +3458,7 @@ fn encode_x86_fload(
     // x86-64: MOVSD xmm, [base + offset] 或 MOVSS
     let prefix = if size == 8 { 0xF2 } else { 0xF3 };
     let mut bytes = vec![prefix as u8, 0x0F, 0x10];
-    bytes.push((0x00 | ((dst & 0xF) << 3) | (base & 7)) as u8);
+    bytes.push((((dst & 0xF) << 3) | (base & 7)) as u8);
     if offset != 0 {
         bytes.push(0x40); // ModR/M with disp8
         bytes.extend_from_slice(&(offset as i32).to_le_bytes());
@@ -3507,7 +3487,7 @@ fn encode_x86_fstore(
     // x86-64: MOVSD [base + offset], xmm 或 MOVSS
     let prefix = if size == 8 { 0xF2 } else { 0xF3 };
     let mut bytes = vec![prefix as u8, 0x0F, 0x11];
-    bytes.push((0x00 | ((src & 0xF) << 3) | (base & 7)) as u8);
+    bytes.push((((src & 0xF) << 3) | (base & 7)) as u8);
     if offset != 0 {
         bytes.push(0x40);
         bytes.extend_from_slice(&(offset as i32).to_le_bytes());
@@ -3552,9 +3532,9 @@ fn encode_arm64_simd_addsat(
     let opcode = if signed { 0x4E200C00 } else { 0x4E202C00 }; // SQADD/UQADD
     let word: u32 = opcode
         | ((size as u32) << 22)
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -3594,9 +3574,9 @@ fn encode_arm64_simd_subsat(
     let opcode = if signed { 0x4E202C00 } else { 0x4E203C00 }; // SQSUB/UQSUB
     let word: u32 = opcode
         | ((size as u32) << 22)
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -3623,10 +3603,10 @@ fn encode_arm64_fmadd(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMADD Dd, Dn, Dm, Da
     let word: u32 = 0x4F60E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3644,10 +3624,10 @@ fn encode_arm64_fmsub(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMSUB Dd, Dn, Dm, Da
     let word: u32 = 0x4F60E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10)
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10)
         | (1 << 15); // negate src3
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -3666,10 +3646,10 @@ fn encode_arm64_fnmadd(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FNMADD Dd, Dn, Dm, Da
     let word: u32 = 0x4F60E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10)
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10)
         | (1 << 30); // negate product
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -3688,10 +3668,10 @@ fn encode_arm64_fnmsub(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FNMSUB Dd, Dn, Dm, Da
     let word: u32 = 0x4F60E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10)
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10)
         | (1 << 30)
         | (1 << 15); // negate both
     Ok(TargetInstruction {
@@ -3711,10 +3691,10 @@ fn encode_arm64_fmadds(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMADD Sd, Sn, Sm, Sa
     let word: u32 = 0x4F20E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3731,10 +3711,10 @@ fn encode_arm64_fmsubs(
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x4F20E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10)
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10)
         | (1 << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -3752,10 +3732,10 @@ fn encode_arm64_fnmadds(
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x4F20E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10)
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10)
         | (1 << 30);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -3773,10 +3753,10 @@ fn encode_arm64_fnmsubs(
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x4F20E800
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16)
-        | (((src3 & 0x1F) as u32) << 10)
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16)
+        | ((src3 & 0x1F) << 10)
         | (1 << 30)
         | (1 << 15);
     Ok(TargetInstruction {
@@ -3797,7 +3777,7 @@ fn encode_arm64_fcmp(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCMP Dn, Dm + CSET (简化实现)
     // 实际需要多条指令：FCMP + CSET
-    let word: u32 = 0x4E60E200 | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60E200 | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3813,7 +3793,7 @@ fn encode_arm64_fcmplt(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCMP + CSET MI (if less than)
-    let word: u32 = 0x4E60E200 | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60E200 | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3828,7 +3808,7 @@ fn encode_arm64_fcmple(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E60E200 | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60E200 | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3843,7 +3823,7 @@ fn encode_arm64_fcmps(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20E200 | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20E200 | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3858,7 +3838,7 @@ fn encode_arm64_fcmplts(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20E200 | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20E200 | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3873,7 +3853,7 @@ fn encode_arm64_fcmples(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20E200 | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20E200 | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3891,10 +3871,7 @@ fn encode_arm64_fmin(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMIN Dd, Dn, Dm
-    let word: u32 = 0x4E60E400
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60E400 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3910,10 +3887,7 @@ fn encode_arm64_fmax(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMAX Dd, Dn, Dm
-    let word: u32 = 0x4E60E500
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E60E500 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3928,10 +3902,7 @@ fn encode_arm64_fmins(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20E400
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20E400 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3946,10 +3917,7 @@ fn encode_arm64_fmaxs(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4E20E500
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+    let word: u32 = 0x4E20E500 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3963,7 +3931,7 @@ fn encode_arm64_fmaxs(
 
 fn encode_arm64_fabs(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FABS Dd, Dn
-    let word: u32 = 0x4EE0E800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EE0E800 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3975,7 +3943,7 @@ fn encode_arm64_fabs(dst: RegId, src: RegId) -> Result<TargetInstruction, Transl
 
 fn encode_arm64_fneg(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FNEG Dd, Dn
-    let word: u32 = 0x4EE0E900 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EE0E900 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3986,7 +3954,7 @@ fn encode_arm64_fneg(dst: RegId, src: RegId) -> Result<TargetInstruction, Transl
 }
 
 fn encode_arm64_fabss(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EA0E800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EA0E800 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -3997,7 +3965,7 @@ fn encode_arm64_fabss(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 }
 
 fn encode_arm64_fnegs(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EA0E900 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EA0E900 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4011,7 +3979,7 @@ fn encode_arm64_fnegs(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_fcvtzs(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCVTZS Wd, Sn (F32 -> I32)
-    let word: u32 = 0x4E21D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4E21D800 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4023,7 +3991,7 @@ fn encode_arm64_fcvtzs(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_arm64_scvtf(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: SCVTF Sd, Wn (I32 -> F32)
-    let word: u32 = 0x4E21D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16); // to-float bit
+    let word: u32 = 0x4E21D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16); // to-float bit
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4035,7 +4003,7 @@ fn encode_arm64_scvtf(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_fcvtzs64(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCVTZS Xd, Dn (F64 -> I64)
-    let word: u32 = 0x4EE1D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EE1D800 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4047,7 +4015,7 @@ fn encode_arm64_fcvtzs64(dst: RegId, src: RegId) -> Result<TargetInstruction, Tr
 
 fn encode_arm64_scvtf64(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: SCVTF Dd, Xn (I64 -> F64)
-    let word: u32 = 0x4EE1D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16);
+    let word: u32 = 0x4EE1D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4059,7 +4027,7 @@ fn encode_arm64_scvtf64(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_arm64_fcvts(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCVT Sd, Dn (F64 -> F32)
-    let word: u32 = 0x4E21D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 22); // double precision source
+    let word: u32 = 0x4E21D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 22); // double precision source
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4071,7 +4039,7 @@ fn encode_arm64_fcvts(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_fcvtd(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCVT Dd, Sn (F32 -> F64)
-    let word: u32 = 0x4EE1D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 22); // single precision source
+    let word: u32 = 0x4EE1D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 22); // single precision source
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4090,14 +4058,13 @@ fn encode_arm64_fload(
     size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: LDR Dd, [Xn, #offset] 或 LDR Sd
-    if offset < 0 || offset >= 32768 || (offset % (size as i64)) != 0 {
+    if !(0..32768).contains(&offset) || (offset % (size as i64)) != 0 {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
     let imm12 = (offset / (size as i64)) as u32;
     let opcode = if size == 8 { 0xFD400000 } else { 0xBD400000 }; // LDR D/S
-    let word: u32 =
-        opcode | ((dst & 0x1F) as u32) | (((base & 0x1F) as u32) << 5) | ((imm12 & 0xFFF) << 10);
+    let word: u32 = opcode | (dst & 0x1F) | ((base & 0x1F) << 5) | ((imm12 & 0xFFF) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4120,14 +4087,13 @@ fn encode_arm64_fstore(
     size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: STR Ds, [Xn, #offset] 或 STR Ss
-    if offset < 0 || offset >= 32768 || (offset % (size as i64)) != 0 {
+    if !(0..32768).contains(&offset) || (offset % (size as i64)) != 0 {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
     let imm12 = (offset / (size as i64)) as u32;
     let opcode = if size == 8 { 0xFD000000 } else { 0xBD000000 }; // STR D/S
-    let word: u32 =
-        opcode | ((src & 0x1F) as u32) | (((base & 0x1F) as u32) << 5) | ((imm12 & 0xFFF) << 10);
+    let word: u32 = opcode | (src & 0x1F) | ((base & 0x1F) << 5) | ((imm12 & 0xFFF) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4155,9 +4121,9 @@ fn encode_riscv_simd_addsat(
     // RISC-V: VSADDU.VV/VSADD.VV (饱和加法)
     let funct6 = if signed { 0b100000 } else { 0b100001 }; // VSADD/VSADDU
     let word: u32 = 0x00000057
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | ((funct6 as u32) << 26);
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -4184,9 +4150,9 @@ fn encode_riscv_simd_subsat(
     // RISC-V: VSSUB.VV/VSSUBU.VV (饱和减法)
     let funct6 = if signed { 0b100010 } else { 0b100011 }; // VSSUB/VSSUBU
     let word: u32 = 0x00000057
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | ((funct6 as u32) << 26);
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -4213,10 +4179,10 @@ fn encode_riscv_fmadd(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMADD.D
     let word: u32 = 0x02000043
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4234,10 +4200,10 @@ fn encode_riscv_fmsub(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMSUB.D
     let word: u32 = 0x02000047
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4255,10 +4221,10 @@ fn encode_riscv_fnmadd(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FNMADD.D
     let word: u32 = 0x0200004F
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4276,10 +4242,10 @@ fn encode_riscv_fnmsub(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FNMSUB.D
     let word: u32 = 0x0200004B
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4297,10 +4263,10 @@ fn encode_riscv_fmadds(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMADD.S
     let word: u32 = 0x00000043
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4317,10 +4283,10 @@ fn encode_riscv_fmsubs(
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x00000047
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4337,10 +4303,10 @@ fn encode_riscv_fnmadds(
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x0000004F
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4357,10 +4323,10 @@ fn encode_riscv_fnmsubs(
     src3: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x0000004B
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (((src3 & 0x1F) as u32) << 27);
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
+        | ((src3 & 0x1F) << 27);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4378,10 +4344,8 @@ fn encode_riscv_feq(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FEQ.D
-    let word: u32 = 0xA2002053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0xA2002053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4397,10 +4361,8 @@ fn encode_riscv_flt(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FLT.D
-    let word: u32 = 0xA2001053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0xA2001053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4416,10 +4378,8 @@ fn encode_riscv_fle(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FLE.D
-    let word: u32 = 0xA2000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0xA2000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4435,10 +4395,8 @@ fn encode_riscv_feqs(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FEQ.S
-    let word: u32 = 0xA0002053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0xA0002053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4453,10 +4411,8 @@ fn encode_riscv_flts(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0xA0001053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0xA0001053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4471,10 +4427,8 @@ fn encode_riscv_fles(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0xA0000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0xA0000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4492,10 +4446,8 @@ fn encode_riscv_fmin(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMIN.D
-    let word: u32 = 0x2A000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x2A000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4512,9 +4464,9 @@ fn encode_riscv_fmax(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMAX.D
     let word: u32 = 0x2A000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (1 << 12); // funct3 bit for MAX
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -4530,10 +4482,8 @@ fn encode_riscv_fmins(
     src1: RegId,
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x28000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20);
+    let word: u32 =
+        0x28000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4549,9 +4499,9 @@ fn encode_riscv_fmaxs(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x28000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (1 << 12);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -4566,11 +4516,8 @@ fn encode_riscv_fmaxs(
 
 fn encode_riscv_fabs(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FSGNJX.D with same source (FABS)
-    let word: u32 = 0x22000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src & 0x1F) as u32) << 15)
-        | (((src & 0x1F) as u32) << 20)
-        | (1 << 12); // funct3 for FSGNJX
+    let word: u32 =
+        0x22000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15) | ((src & 0x1F) << 20) | (1 << 12); // funct3 for FSGNJX
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4582,11 +4529,8 @@ fn encode_riscv_fabs(dst: RegId, src: RegId) -> Result<TargetInstruction, Transl
 
 fn encode_riscv_fneg(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FSGNJN.D with same source (FNEG)
-    let word: u32 = 0x22000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src & 0x1F) as u32) << 15)
-        | (((src & 0x1F) as u32) << 20)
-        | (2 << 12); // funct3 for FSGNJN
+    let word: u32 =
+        0x22000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15) | ((src & 0x1F) << 20) | (2 << 12); // funct3 for FSGNJN
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4597,11 +4541,8 @@ fn encode_riscv_fneg(dst: RegId, src: RegId) -> Result<TargetInstruction, Transl
 }
 
 fn encode_riscv_fabss(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x20000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src & 0x1F) as u32) << 15)
-        | (((src & 0x1F) as u32) << 20)
-        | (1 << 12);
+    let word: u32 =
+        0x20000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15) | ((src & 0x1F) << 20) | (1 << 12);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4612,11 +4553,8 @@ fn encode_riscv_fabss(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 }
 
 fn encode_riscv_fnegs(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x20000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src & 0x1F) as u32) << 15)
-        | (((src & 0x1F) as u32) << 20)
-        | (2 << 12);
+    let word: u32 =
+        0x20000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15) | ((src & 0x1F) << 20) | (2 << 12);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4630,7 +4568,7 @@ fn encode_riscv_fnegs(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_riscv_fcvtws(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.W.S (F32 -> I32 signed)
-    let word: u32 = 0xC0000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xC0000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4642,7 +4580,7 @@ fn encode_riscv_fcvtws(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fcvtsw(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.S.W (I32 signed -> F32)
-    let word: u32 = 0xD0000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xD0000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4654,7 +4592,7 @@ fn encode_riscv_fcvtsw(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fcvtld(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.L.D (F64 -> I64 signed)
-    let word: u32 = 0xC2000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xC2000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4666,7 +4604,7 @@ fn encode_riscv_fcvtld(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fcvtdl(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.D.L (I64 signed -> F64)
-    let word: u32 = 0xD2000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xD2000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4678,7 +4616,7 @@ fn encode_riscv_fcvtdl(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fcvtsd(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.S.D (F64 -> F32)
-    let word: u32 = 0x40100053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0x40100053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4690,7 +4628,7 @@ fn encode_riscv_fcvtsd(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fcvtds(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.D.S (F32 -> F64)
-    let word: u32 = 0x42000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0x42000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -4709,15 +4647,15 @@ fn encode_riscv_fload(
     size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FLD (F64) 或 FLW (F32)
-    if offset < -2048 || offset >= 2048 {
+    if !(-2048..2048).contains(&offset) {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
     let imm12 = (offset as u32) & 0xFFF;
     let funct3 = if size == 8 { 0b011 } else { 0b010 }; // FLD/FLW
     let word: u32 = 0x00000007 // LOAD-FP opcode
-        | (((dst & 0x1F) as u32) << 7)
-        | (((base & 0x1F) as u32) << 15)
+        | ((dst & 0x1F) << 7)
+        | ((base & 0x1F) << 15)
         | ((funct3 as u32) << 12)
         | ((imm12 & 0xFFF) << 20);
     Ok(TargetInstruction {
@@ -4742,7 +4680,7 @@ fn encode_riscv_fstore(
     size: u8,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FSD (F64) 或 FSW (F32)
-    if offset < -2048 || offset >= 2048 {
+    if !(-2048..2048).contains(&offset) {
         return Err(TranslationError::InvalidOffset { offset });
     }
 
@@ -4752,9 +4690,9 @@ fn encode_riscv_fstore(
     let funct3 = if size == 8 { 0b011 } else { 0b010 }; // FSD/FSW
     let word: u32 = 0x00000027 // STORE-FP opcode
         | (imm_lo << 7)
-        | (((base & 0x1F) as u32) << 15)
+        | ((base & 0x1F) << 15)
         | ((funct3 as u32) << 12)
-        | (((src & 0x1F) as u32) << 20)
+        | ((src & 0x1F) << 20)
         | (imm_hi << 25);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -5179,9 +5117,9 @@ fn encode_arm64_simd_mulsat(
     let opcode = if signed { 0x4E20B400 } else { 0x4E209C00 }; // SQDMULH/MUL
     let word: u32 = opcode
         | ((size as u32) << 22)
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5)
-        | (((src2 & 0x1F) as u32) << 16);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5)
+        | ((src2 & 0x1F) << 16);
 
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -5202,8 +5140,8 @@ fn encode_arm64_fsgnj(
     // ARM64: 使用位操作实现符号复制
     // 简化：使用FABS + 条件选择
     let word: u32 = 0x4EE0E800 // FABS
-        | ((dst & 0x1F) as u32)
-        | (((src1 & 0x1F) as u32) << 5);
+        | (dst & 0x1F)
+        | ((src1 & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5219,7 +5157,7 @@ fn encode_arm64_fsgnjn(
     _src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FNEG (取反符号)
-    let word: u32 = 0x4EE0E900 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EE0E900 | (dst & 0x1F) | ((src1 & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5236,7 +5174,7 @@ fn encode_arm64_fsgnjx(
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: 符号异或（需要多条指令实现）
     // 简化：使用FNEG
-    let word: u32 = 0x4EE0E900 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EE0E900 | (dst & 0x1F) | ((src1 & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5251,7 +5189,7 @@ fn encode_arm64_fsgnjs(
     src1: RegId,
     _src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EA0E800 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EA0E800 | (dst & 0x1F) | ((src1 & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5267,7 +5205,7 @@ fn encode_arm64_fsgnjns(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FSGNJNS instruction uses src2's sign bit
-    let word: u32 = 0x4EA0E900 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 10);
+    let word: u32 = 0x4EA0E900 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5283,7 +5221,7 @@ fn encode_arm64_fsgnjxs(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FSGNJXS instruction uses src2's sign bit
-    let word: u32 = 0x4EA0E920 | ((dst & 0x1F) as u32) | (((src1 & 0x1F) as u32) << 5) | (((src2 & 0x1F) as u32) << 10);
+    let word: u32 = 0x4EA0E920 | (dst & 0x1F) | ((src1 & 0x1F) << 5) | ((src2 & 0x1F) << 10);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5299,8 +5237,8 @@ fn encode_arm64_fclass(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
     // ARM64: FRINTX + 比较指令组合实现分类
     // 简化实现
     let word: u32 = 0x4EE1E800 // FRINTX (round to exact)
-        | ((dst & 0x1F) as u32)
-        | (((src & 0x1F) as u32) << 5);
+        | (dst & 0x1F)
+        | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5311,7 +5249,7 @@ fn encode_arm64_fclass(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 }
 
 fn encode_arm64_fclasss(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
-    let word: u32 = 0x4EA1E800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EA1E800 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5325,7 +5263,7 @@ fn encode_arm64_fclasss(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_arm64_fmvxw(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMOV Wd, Sn (F32 -> I32)
-    let word: u32 = 0x4E21E000 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4E21E000 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5337,7 +5275,7 @@ fn encode_arm64_fmvxw(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_fmvwx(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMOV Sd, Wn (I32 -> F32)
-    let word: u32 = 0x4E21E000 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16); // to-float bit
+    let word: u32 = 0x4E21E000 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16); // to-float bit
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5349,7 +5287,7 @@ fn encode_arm64_fmvwx(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_fmvxd(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMOV Xd, Dn (F64 -> I64)
-    let word: u32 = 0x4EE1E000 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5);
+    let word: u32 = 0x4EE1E000 | (dst & 0x1F) | ((src & 0x1F) << 5);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5361,7 +5299,7 @@ fn encode_arm64_fmvxd(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_fmvdx(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FMOV Dd, Xn (I64 -> F64)
-    let word: u32 = 0x4EE1E000 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16);
+    let word: u32 = 0x4EE1E000 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5375,7 +5313,7 @@ fn encode_arm64_fmvdx(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_fcvtzus(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCVTZU Wd, Sn (F32 -> I32 unsigned)
-    let word: u32 = 0x4E21D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16); // unsigned bit
+    let word: u32 = 0x4E21D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16); // unsigned bit
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5387,7 +5325,7 @@ fn encode_arm64_fcvtzus(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_arm64_fcvtzus64(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: FCVTZU Xd, Dn (F64 -> I64 unsigned)
-    let word: u32 = 0x4EE1D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16);
+    let word: u32 = 0x4EE1D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5399,8 +5337,7 @@ fn encode_arm64_fcvtzus64(dst: RegId, src: RegId) -> Result<TargetInstruction, T
 
 fn encode_arm64_ucvtf(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: UCVTF Sd, Wn (I32 unsigned -> F32)
-    let word: u32 =
-        0x4E21D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16) | (1 << 17); // unsigned + to-float
+    let word: u32 = 0x4E21D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16) | (1 << 17); // unsigned + to-float
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5412,8 +5349,7 @@ fn encode_arm64_ucvtf(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_arm64_ucvtf64(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // ARM64: UCVTF Dd, Xn (I64 unsigned -> F64)
-    let word: u32 =
-        0x4EE1D800 | ((dst & 0x1F) as u32) | (((src & 0x1F) as u32) << 5) | (1 << 16) | (1 << 17);
+    let word: u32 = 0x4EE1D800 | (dst & 0x1F) | ((src & 0x1F) << 5) | (1 << 16) | (1 << 17);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5438,20 +5374,25 @@ fn encode_riscv_simd_mulsat(
     } else {
         0b100111 // VMULU.VV - 无符号乘法
     };
-    
+
     let word: u32 = 0x00000057
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | ((funct6 as u32) << 26);
-    
+
     // 注意：RISC-V本身没有直接的饱和乘法指令，需要后续处理
     // 这里简化实现，使用普通乘法指令
     Ok(vec![TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
-        mnemonic: format!("{}.vv v{}, v{}, v{}", 
-            if signed { "vmul" } else { "vmulu" }, dst, src1, src2),
+        mnemonic: format!(
+            "{}.vv v{}, v{}, v{}",
+            if signed { "vmul" } else { "vmulu" },
+            dst,
+            src1,
+            src2
+        ),
         is_control_flow: false,
         is_memory_op: false,
     }])
@@ -5465,11 +5406,8 @@ fn encode_riscv_fsgnj(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FSGNJ.D
-    let word: u32 = 0x22000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (0b000 << 12); // funct3 for FSGNJ
+    let word: u32 =
+        0x22000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20); // funct3 for FSGNJ
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5486,9 +5424,9 @@ fn encode_riscv_fsgnjn(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FSGNJN.D
     let word: u32 = 0x22000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (0b001 << 12); // funct3 for FSGNJN
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -5506,9 +5444,9 @@ fn encode_riscv_fsgnjx(
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FSGNJX.D
     let word: u32 = 0x22000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (0b010 << 12); // funct3 for FSGNJX
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -5525,11 +5463,8 @@ fn encode_riscv_fsgnjs(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FSGNJ.S
-    let word: u32 = 0x20000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
-        | (0b000 << 12);
+    let word: u32 =
+        0x20000053 | ((dst & 0x1F) << 7) | ((src1 & 0x1F) << 15) | ((src2 & 0x1F) << 20);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5545,9 +5480,9 @@ fn encode_riscv_fsgnjns(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x20000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (0b001 << 12);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -5564,9 +5499,9 @@ fn encode_riscv_fsgnjxs(
     src2: RegId,
 ) -> Result<TargetInstruction, TranslationError> {
     let word: u32 = 0x20000053
-        | (((dst & 0x1F) as u32) << 7)
-        | (((src1 & 0x1F) as u32) << 15)
-        | (((src2 & 0x1F) as u32) << 20)
+        | ((dst & 0x1F) << 7)
+        | ((src1 & 0x1F) << 15)
+        | ((src2 & 0x1F) << 20)
         | (0b010 << 12);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
@@ -5581,7 +5516,7 @@ fn encode_riscv_fsgnjxs(
 
 fn encode_riscv_fclass(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCLASS.D
-    let word: u32 = 0xE2001053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xE2001053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5593,7 +5528,7 @@ fn encode_riscv_fclass(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fclasss(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCLASS.S
-    let word: u32 = 0xE0001053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xE0001053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5607,7 +5542,7 @@ fn encode_riscv_fclasss(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fmvxw(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMV.X.W (F32 -> I32)
-    let word: u32 = 0xE0000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xE0000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5619,7 +5554,7 @@ fn encode_riscv_fmvxw(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_riscv_fmvwx(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMV.W.X (I32 -> F32)
-    let word: u32 = 0xF0000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xF0000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5631,7 +5566,7 @@ fn encode_riscv_fmvwx(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_riscv_fmvxd(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMV.X.D (F64 -> I64)
-    let word: u32 = 0xE2000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xE2000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5643,7 +5578,7 @@ fn encode_riscv_fmvxd(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_riscv_fmvdx(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FMV.D.X (I64 -> F64)
-    let word: u32 = 0xF2000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xF2000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5657,7 +5592,7 @@ fn encode_riscv_fmvdx(dst: RegId, src: RegId) -> Result<TargetInstruction, Trans
 
 fn encode_riscv_fcvtwus(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.WU.S (F32 -> I32 unsigned)
-    let word: u32 = 0xC0100053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xC0100053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5669,7 +5604,7 @@ fn encode_riscv_fcvtwus(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fcvtlus(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.LU.S (F32 -> I64 unsigned)
-    let word: u32 = 0xC0300053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xC0300053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5681,7 +5616,7 @@ fn encode_riscv_fcvtlus(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fcvtswu(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.S.WU (I32 unsigned -> F32)
-    let word: u32 = 0xD0100053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xD0100053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5693,7 +5628,7 @@ fn encode_riscv_fcvtswu(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fcvtslu(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.S.LU (I64 unsigned -> F32)
-    let word: u32 = 0xD0300053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xD0300053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5705,7 +5640,7 @@ fn encode_riscv_fcvtslu(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fcvtwd(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.W.D (F64 -> I32 signed)
-    let word: u32 = 0xC2000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xC2000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5717,7 +5652,7 @@ fn encode_riscv_fcvtwd(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fcvtwud(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.WU.D (F64 -> I32 unsigned)
-    let word: u32 = 0xC2100053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xC2100053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5729,7 +5664,7 @@ fn encode_riscv_fcvtwud(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fcvtlud(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.LU.D (F64 -> I64 unsigned)
-    let word: u32 = 0xC2300053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xC2300053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5741,7 +5676,7 @@ fn encode_riscv_fcvtlud(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fcvtdw(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.D.W (I32 signed -> F64)
-    let word: u32 = 0xD2000053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xD2000053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5753,7 +5688,7 @@ fn encode_riscv_fcvtdw(dst: RegId, src: RegId) -> Result<TargetInstruction, Tran
 
 fn encode_riscv_fcvtdwu(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.D.WU (I32 unsigned -> F64)
-    let word: u32 = 0xD2100053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xD2100053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5765,7 +5700,7 @@ fn encode_riscv_fcvtdwu(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 
 fn encode_riscv_fcvtdlu(dst: RegId, src: RegId) -> Result<TargetInstruction, TranslationError> {
     // RISC-V: FCVT.D.LU (I64 unsigned -> F64)
-    let word: u32 = 0xD2300053 | (((dst & 0x1F) as u32) << 7) | (((src & 0x1F) as u32) << 15);
+    let word: u32 = 0xD2300053 | ((dst & 0x1F) << 7) | ((src & 0x1F) << 15);
     Ok(TargetInstruction {
         bytes: word.to_le_bytes().to_vec(),
         length: 4,
@@ -5776,7 +5711,10 @@ fn encode_riscv_fcvtdlu(dst: RegId, src: RegId) -> Result<TargetInstruction, Tra
 }
 
 // ========== x86-64 大向量操作编码实现 ==========
-
+// SIMD encoding functions in this section require many parameters to describe vector operations
+// (destination registers, source registers, element size, signedness, etc.)
+// These parameters are all necessary and do not form logical groups.
+#[allow(clippy::too_many_arguments)]
 fn encode_x86_vec128_add(
     dst_lo: RegId,
     dst_hi: RegId,
@@ -5791,26 +5729,23 @@ fn encode_x86_vec128_add(
     let mut instructions = Vec::new();
 
     // 低64位
-    instructions.extend(
-        if signed {
-            encode_x86_simd_addsat(dst_lo, src1_lo, src2_lo, element_size, signed)?
-        } else {
-            encode_x86_simd_add(dst_lo, src1_lo, src2_lo, element_size)?
-        }
-    );
+    instructions.extend(if signed {
+        encode_x86_simd_addsat(dst_lo, src1_lo, src2_lo, element_size, signed)?
+    } else {
+        encode_x86_simd_add(dst_lo, src1_lo, src2_lo, element_size)?
+    });
 
     // 高64位
-    instructions.extend(
-        if signed {
-            encode_x86_simd_addsat(dst_hi, src1_hi, src2_hi, element_size, signed)?
-        } else {
-            encode_x86_simd_add(dst_hi, src1_hi, src2_hi, element_size)?
-        }
-    );
+    instructions.extend(if signed {
+        encode_x86_simd_addsat(dst_hi, src1_hi, src2_hi, element_size, signed)?
+    } else {
+        encode_x86_simd_add(dst_hi, src1_hi, src2_hi, element_size)?
+    });
 
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_x86_vec256_add(
     dst0: RegId,
     dst1: RegId,
@@ -5832,38 +5767,31 @@ fn encode_x86_vec256_add(
 
     // 使用AVX VADDPD/VADDPS (如果支持)
     // 简化：分别处理每个64位段
-    instructions.extend(
-        if signed {
-            encode_x86_simd_addsat(dst0, src10, src20, element_size, signed)?
-        } else {
-            encode_x86_simd_add(dst0, src10, src20, element_size)?
-        }
-    );
-    instructions.extend(
-        if signed {
-            encode_x86_simd_addsat(dst1, src11, src21, element_size, signed)?
-        } else {
-            encode_x86_simd_add(dst1, src11, src21, element_size)?
-        }
-    );
-    instructions.extend(
-        if signed {
-            encode_x86_simd_addsat(dst2, src12, src22, element_size, signed)?
-        } else {
-            encode_x86_simd_add(dst2, src12, src22, element_size)?
-        }
-    );
-    instructions.extend(
-        if signed {
-            encode_x86_simd_addsat(dst3, src13, src23, element_size, signed)?
-        } else {
-            encode_x86_simd_add(dst3, src13, src23, element_size)?
-        }
-    );
+    instructions.extend(if signed {
+        encode_x86_simd_addsat(dst0, src10, src20, element_size, signed)?
+    } else {
+        encode_x86_simd_add(dst0, src10, src20, element_size)?
+    });
+    instructions.extend(if signed {
+        encode_x86_simd_addsat(dst1, src11, src21, element_size, signed)?
+    } else {
+        encode_x86_simd_add(dst1, src11, src21, element_size)?
+    });
+    instructions.extend(if signed {
+        encode_x86_simd_addsat(dst2, src12, src22, element_size, signed)?
+    } else {
+        encode_x86_simd_add(dst2, src12, src22, element_size)?
+    });
+    instructions.extend(if signed {
+        encode_x86_simd_addsat(dst3, src13, src23, element_size, signed)?
+    } else {
+        encode_x86_simd_add(dst3, src13, src23, element_size)?
+    });
 
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_x86_vec256_sub(
     dst0: RegId,
     dst1: RegId,
@@ -5890,6 +5818,7 @@ fn encode_x86_vec256_sub(
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_x86_vec256_mul(
     dst0: RegId,
     dst1: RegId,
@@ -5917,7 +5846,8 @@ fn encode_x86_vec256_mul(
 }
 
 // ========== ARM64 大向量操作编码实现 ==========
-
+// SIMD encoding functions in this section require many parameters (see x86-64 section above)
+#[allow(clippy::too_many_arguments)]
 fn encode_arm64_vec128_add(
     dst_lo: RegId,
     dst_hi: RegId,
@@ -5947,6 +5877,7 @@ fn encode_arm64_vec128_add(
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_arm64_vec256_add(
     dst0: RegId,
     dst1: RegId,
@@ -5974,6 +5905,7 @@ fn encode_arm64_vec256_add(
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_arm64_vec256_sub(
     dst0: RegId,
     dst1: RegId,
@@ -6000,6 +5932,7 @@ fn encode_arm64_vec256_sub(
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_arm64_vec256_mul(
     dst0: RegId,
     dst1: RegId,
@@ -6028,6 +5961,7 @@ fn encode_arm64_vec256_mul(
 
 // ========== RISC-V64 大向量操作编码实现 ==========
 
+#[allow(clippy::too_many_arguments)]
 fn encode_riscv_vec128_add(
     dst_lo: RegId,
     dst_hi: RegId,
@@ -6057,6 +5991,7 @@ fn encode_riscv_vec128_add(
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_riscv_vec256_add(
     dst0: RegId,
     dst1: RegId,
@@ -6084,6 +6019,7 @@ fn encode_riscv_vec256_add(
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_riscv_vec256_sub(
     dst0: RegId,
     dst1: RegId,
@@ -6110,6 +6046,7 @@ fn encode_riscv_vec256_sub(
     Ok(instructions)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_riscv_vec256_mul(
     dst0: RegId,
     dst1: RegId,
@@ -6134,4 +6071,319 @@ fn encode_riscv_vec256_mul(
     instructions.extend(encode_riscv_simd_mul(dst3, src13, src23, element_size)?);
 
     Ok(instructions)
+}
+
+/// PowerPC 编码器
+pub struct PowerPCEncoder;
+
+impl Default for PowerPCEncoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PowerPCEncoder {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl ArchEncoder for PowerPCEncoder {
+    fn architecture(&self) -> Architecture {
+        // Note: PowerPC uses RISCV64 as placeholder since it's not in vm-error::Architecture yet
+        Architecture::RISCV64
+    }
+
+    fn encode_op(
+        &self,
+        op: &IROp,
+        _pc: GuestAddr,
+    ) -> Result<Vec<TargetInstruction>, TranslationError> {
+        match op {
+            // 算术运算
+            IROp::Add { dst, src1, src2 } => Ok(vec![encode_powerpc_add(*dst, *src1, *src2)?]),
+            IROp::Sub { dst, src1, src2 } => Ok(vec![encode_powerpc_sub(*dst, *src1, *src2)?]),
+            IROp::AddImm { dst, src, imm } => Ok(vec![encode_powerpc_addi(*dst, *src, *imm)?]),
+            IROp::MovImm { dst, imm } => {
+                // PowerPC doesn't have a direct mov immediate, use addi with r0
+                Ok(vec![encode_powerpc_addi(*dst, 0, *imm as i64)?])
+            }
+            // 内存操作
+            IROp::Load {
+                dst,
+                base,
+                offset,
+                size,
+                ..
+            } => Ok(vec![encode_powerpc_load(*dst, *base, *offset, *size)?]),
+            IROp::Store {
+                src,
+                base,
+                offset,
+                size,
+                ..
+            } => Ok(vec![encode_powerpc_store(*src, *base, *offset, *size)?]),
+            IROp::Mul {
+                dst, src1, src2, ..
+            } => Ok(vec![encode_powerpc_mul(*dst, *src1, *src2)?]),
+            IROp::Div {
+                dst,
+                src1,
+                src2,
+                signed,
+            } => Ok(vec![encode_powerpc_div(*dst, *src1, *src2, *signed)?]),
+            // 分支指令
+            IROp::Beq { src1, src2, target } => {
+                Ok(vec![encode_powerpc_beq(*src1, *src2, target.0)?])
+            }
+            IROp::Bne { src1, src2, target } => {
+                Ok(vec![encode_powerpc_bne(*src1, *src2, target.0)?])
+            }
+            IROp::Blt { src1, src2, target } => {
+                Ok(vec![encode_powerpc_blt(*src1, *src2, target.0)?])
+            }
+            IROp::Bge { src1, src2, target } => {
+                Ok(vec![encode_powerpc_bge(*src1, *src2, target.0)?])
+            }
+            _ => Err(TranslationError::UnsupportedOperation {
+                op: format!("{:?}", op),
+            }),
+        }
+    }
+}
+
+/// 编码 PowerPC ADD 指令
+fn encode_powerpc_add(
+    dst: RegId,
+    src1: RegId,
+    src2: RegId,
+) -> Result<TargetInstruction, TranslationError> {
+    let instr = (31u32 << 26) | (dst << 21) | (src1 << 16) | (src2 << 11) | (266u32 << 1);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("add r{}, r{}, r{}", dst, src1, src2),
+        is_control_flow: false,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC SUB 指令
+fn encode_powerpc_sub(
+    dst: RegId,
+    src1: RegId,
+    src2: RegId,
+) -> Result<TargetInstruction, TranslationError> {
+    let instr = (31u32 << 26) | (dst << 21) | (src1 << 16) | (src2 << 11) | (40u32 << 1);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("subf r{}, r{}, r{}", dst, src1, src2),
+        is_control_flow: false,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC ADDI 指令
+fn encode_powerpc_addi(
+    dst: RegId,
+    src: RegId,
+    imm: i64,
+) -> Result<TargetInstruction, TranslationError> {
+    if !(-32768..=32767).contains(&imm) {
+        return Err(TranslationError::ImmediateTooLarge { imm });
+    }
+
+    let simm = imm as u16;
+    let instr = (14u32 << 26) | (dst << 21) | (src << 16) | (simm as u32);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("addi r{}, r{}, {}", dst, src, imm),
+        is_control_flow: false,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC 加载指令
+fn encode_powerpc_load(
+    dst: RegId,
+    base: RegId,
+    offset: i64,
+    size: u8,
+) -> Result<TargetInstruction, TranslationError> {
+    if !(-32768..=32767).contains(&offset) {
+        return Err(TranslationError::InvalidOffset { offset });
+    }
+
+    let opcode = match size {
+        1 => 34, // LBZ
+        2 => 40, // LHZ
+        4 => 32, // LWZ
+        _ => {
+            return Err(TranslationError::UnsupportedOperation {
+                op: format!("load size {}", size),
+            });
+        }
+    };
+
+    let uoffset = offset as u16;
+    let instr = (opcode << 26) | (dst << 21) | (base << 16) | (uoffset as u32);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("load r{}, [r{} + {}]", dst, base, offset),
+        is_control_flow: false,
+        is_memory_op: true,
+    })
+}
+
+/// 编码 PowerPC 存储指令
+fn encode_powerpc_store(
+    src: RegId,
+    base: RegId,
+    offset: i64,
+    size: u8,
+) -> Result<TargetInstruction, TranslationError> {
+    if !(-32768..=32767).contains(&offset) {
+        return Err(TranslationError::InvalidOffset { offset });
+    }
+
+    let opcode = match size {
+        1 => 38, // STB
+        2 => 44, // STH
+        4 => 36, // STW
+        _ => {
+            return Err(TranslationError::UnsupportedOperation {
+                op: format!("store size {}", size),
+            });
+        }
+    };
+
+    let uoffset = offset as u16;
+    let instr = (opcode << 26) | (src << 21) | (base << 16) | (uoffset as u32);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("store r{}, [r{} + {}]", src, base, offset),
+        is_control_flow: false,
+        is_memory_op: true,
+    })
+}
+
+/// 编码 PowerPC MULLW 指令
+fn encode_powerpc_mul(
+    dst: RegId,
+    src1: RegId,
+    src2: RegId,
+) -> Result<TargetInstruction, TranslationError> {
+    let instr = (31u32 << 26) | (dst << 21) | (src1 << 16) | (src2 << 11) | (235u32 << 1);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("mullw r{}, r{}, r{}", dst, src1, src2),
+        is_control_flow: false,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC DIVW 指令
+fn encode_powerpc_div(
+    dst: RegId,
+    src1: RegId,
+    src2: RegId,
+    signed: bool,
+) -> Result<TargetInstruction, TranslationError> {
+    let ext_opcode = if signed { 491 } else { 459 };
+
+    let instr =
+        (31u32 << 26) | (dst << 21) | (src1 << 16) | (src2 << 11) | ((ext_opcode as u32) << 1);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!(
+            "{} r{}, r{}, r{}",
+            if signed { "divw" } else { "divwu" },
+            dst,
+            src1,
+            src2
+        ),
+        is_control_flow: false,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC 条件分支指令
+fn encode_powerpc_beq(
+    src1: RegId,
+    src2: RegId,
+    target: u64,
+) -> Result<TargetInstruction, TranslationError> {
+    let instr = (16u32 << 26) | ((0b01000u32) << 21);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("beq r{}, r{}, 0x{:x}", src1, src2, target),
+        is_control_flow: true,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC 条件分支不等指令
+fn encode_powerpc_bne(
+    src1: RegId,
+    src2: RegId,
+    target: u64,
+) -> Result<TargetInstruction, TranslationError> {
+    let instr = (16u32 << 26) | ((0b01000u32) << 21) | ((2u32) << 16);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("bne r{}, r{}, 0x{:x}", src1, src2, target),
+        is_control_flow: true,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC 小于分支指令
+fn encode_powerpc_blt(
+    src1: RegId,
+    src2: RegId,
+    target: u64,
+) -> Result<TargetInstruction, TranslationError> {
+    let instr = (16u32 << 26) | ((0b01000u32) << 21) | ((4u32) << 16);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("blt r{}, r{}, 0x{:x}", src1, src2, target),
+        is_control_flow: true,
+        is_memory_op: false,
+    })
+}
+
+/// 编码 PowerPC 大于等于分支指令
+fn encode_powerpc_bge(
+    src1: RegId,
+    src2: RegId,
+    target: u64,
+) -> Result<TargetInstruction, TranslationError> {
+    let instr = (16u32 << 26) | ((0b01000u32) << 21) | ((6u32) << 16);
+
+    Ok(TargetInstruction {
+        bytes: instr.to_be_bytes().to_vec(),
+        length: 4,
+        mnemonic: format!("bge r{}, r{}, 0x{:x}", src1, src2, target),
+        is_control_flow: true,
+        is_memory_op: false,
+    })
 }

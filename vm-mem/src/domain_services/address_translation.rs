@@ -3,7 +3,9 @@
 //! 提供虚拟地址到物理地址的转换逻辑，支持多种架构。
 
 use crate::GuestAddr;
-use crate::mmu::{MmuArch, PageTableFlags, PageWalkResult, PAGE_SIZE_1G, PAGE_SIZE_2M, PAGE_SIZE_4K};
+use crate::mmu::{
+    MmuArch, PAGE_SIZE_1G, PAGE_SIZE_2M, PAGE_SIZE_4K, PageTableFlags, PageWalkResult,
+};
 use vm_core::{AccessType, Fault, VmError};
 
 /// 地址转换领域服务
@@ -27,6 +29,11 @@ impl AddressTranslationDomainService {
             memory: Box::new(memory),
             arch,
         }
+    }
+
+    /// 获取架构类型
+    pub fn arch(&self) -> MmuArch {
+        self.arch
     }
 
     /// GVA -> GPA 地址转换
@@ -398,10 +405,9 @@ mod tests {
 
     #[test]
     fn test_address_translation_service_creation() {
-        let memory = |addr: GuestAddr, size: usize| -> Result<Vec<u8>, VmError> {
-            Ok(vec![0u8; size])
-        };
+        let memory =
+            |_addr: GuestAddr, size: usize| -> Result<Vec<u8>, VmError> { Ok(vec![0u8; size]) };
         let service = AddressTranslationDomainService::new(MmuArch::X86_64, memory);
-        assert_eq!(service.arch, MmuArch::X86_64);
+        assert_eq!(service.arch(), MmuArch::X86_64);
     }
 }

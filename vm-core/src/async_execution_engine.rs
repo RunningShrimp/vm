@@ -24,10 +24,10 @@
 //! }
 //! ```
 
+#![cfg(feature = "async")]
+
 #[allow(unused_imports)]
 use crate::{ExecResult, GuestAddr, VmError};
-
-#[cfg(feature = "async")]
 use async_trait::async_trait;
 
 /// 异步执行引擎trait
@@ -45,7 +45,6 @@ use async_trait::async_trait;
 /// - 如果执行引擎支持异步，应该同时实现`ExecutionEngine`和`AsyncExecutionEngine`
 /// - 异步版本可以避免阻塞，提高并发性能
 /// - 对于I/O密集型操作，优先使用异步版本
-#[cfg(feature = "async")]
 #[async_trait]
 pub trait AsyncExecutionEngine<B>: Send + Sync
 where
@@ -221,7 +220,6 @@ impl crate::MMU for NullMmu {
 // 注意：以下impl块被注释掉，因为我们需要重新实现适配器
 }
 
-#[cfg(feature = "async")]
 #[async_trait]
 impl<E, B> AsyncExecutionEngine<B> for ExecutionEngineAdapter<E>
 where

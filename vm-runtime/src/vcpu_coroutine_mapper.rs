@@ -31,10 +31,15 @@ impl VcpuCoroutineMapper {
         }
     }
 
+    /// Helper: 获取调度器锁
+    fn lock_scheduler(&self) -> Result<parking_lot::MutexGuard<'_, Scheduler>, String> {
+        Ok(self.scheduler.lock())
+    }
+
     /// 创建协程并映射到vCPU
     pub fn create_and_map_coroutine(&mut self, vcpu_id: u32) -> Result<Coroutine, String> {
-        let mut scheduler = self.scheduler.lock();
-        
+        let mut scheduler = self.lock_scheduler()?;
+
         // 检查vCPU是否存在
         if vcpu_id >= scheduler.vcpu_count() {
             return Err(format!("Invalid vCPU ID: {}", vcpu_id));
@@ -42,14 +47,14 @@ impl VcpuCoroutineMapper {
 
         // 创建协程
         let coro = scheduler.create_coroutine();
-        
+
         // 分配协程到vCPU
         scheduler.assign_to_vcpu(vcpu_id, coro.clone())?;
-        
+
         // 记录映射关系
         self.vcpu_to_coro.insert(vcpu_id, coro.id);
         self.coro_to_vcpu.insert(coro.id, vcpu_id);
-        
+
         Ok(coro)
     }
 
@@ -75,8 +80,8 @@ impl VcpuCoroutineMapper {
 
     /// 将协程从vCPU解绑并重新分配到新vCPU
     pub fn remap_coroutine(&mut self, coro_id: CoroutineId, new_vcpu_id: u32) -> Result<(), String> {
-        let mut scheduler = self.scheduler.lock();
-        
+        let scheduler = self.lock_scheduler()?;
+
         // 检查新vCPU是否存在
         if new_vcpu_id >= scheduler.vcpu_count() {
             return Err(format!("Invalid vCPU ID: {}", new_vcpu_id));
@@ -87,11 +92,11 @@ impl VcpuCoroutineMapper {
             // 解绑当前映射
             self.vcpu_to_coro.remove(current_vcpu);
         }
-        
+
         // 更新映射关系
         self.vcpu_to_coro.insert(new_vcpu_id, coro_id);
         self.coro_to_vcpu.insert(coro_id, new_vcpu_id);
-        
+
         Ok(())
     }
 
@@ -107,11 +112,20 @@ impl VcpuCoroutineMapper {
 
     /// 恢复暂停的协程
     pub fn resume_coroutines(&mut self) {
-        let mut scheduler = self.scheduler.lock();
-        
-        while let Some(mut coro) = self.suspended_coroutines.pop_front() {
-            coro.mark_ready();
-            scheduler.submit_coroutine(coro);
+        if let Ok(mut scheduler) = self.lock_scheduler() {
+            while let Some(mut coro) = self.suspended_coroutines.pop_front() {
+                coro.mark_ready();
+                scheduler.submit_coroutine(coro);
+            }
+        }
+        // 如果获取锁失败，静默失败（协程保持挂起状态）
+    }
+
+    /// Helper: 获取全局队列长度
+    pub fn global_queue_length(&self) -> usize {
+        match self.lock_scheduler() {
+            Ok(scheduler) => scheduler.global_queue_length(),
+            Err(_) => 0, // 如果获取锁失败，返回0
         }
     }
 }
@@ -123,27 +137,31 @@ mod tests {
     #[test]
     fn test_vcpu_coroutine_mapper_basic() {
         let mut mapper = VcpuCoroutineMapper::new(4);
-        
+
         // 创建并映射协程到vCPU 0
-        let coro1 = mapper.create_and_map_coroutine(0).unwrap();
+        let coro1 = mapper.create_and_map_coroutine(0)
+            .expect("Failed to create and map coroutine to vCPU 0");
         assert_eq!(mapper.get_coroutine_for_vcpu(0), Some(coro1.id));
         assert_eq!(mapper.get_vcpu_for_coroutine(coro1.id), Some(0));
-        
+
         // 创建并映射协程到vCPU 1
-        let coro2 = mapper.create_and_map_coroutine(1).unwrap();
+        let coro2 = mapper.create_and_map_coroutine(1)
+            .expect("Failed to create and map coroutine to vCPU 1");
         assert_eq!(mapper.get_coroutine_for_vcpu(1), Some(coro2.id));
     }
 
     #[test]
     fn test_vcpu_coroutine_remap() {
         let mut mapper = VcpuCoroutineMapper::new(4);
-        
+
         // 创建并映射协程到vCPU 0
-        let coro = mapper.create_and_map_coroutine(0).unwrap();
+        let coro = mapper.create_and_map_coroutine(0)
+            .expect("Failed to create and map coroutine to vCPU 0");
         assert_eq!(mapper.get_coroutine_for_vcpu(0), Some(coro.id));
-        
+
         // 重新映射到vCPU 1
-        mapper.remap_coroutine(coro.id, 1).unwrap();
+        mapper.remap_coroutine(coro.id, 1)
+            .expect("Failed to remap coroutine to vCPU 1");
         assert_eq!(mapper.get_coroutine_for_vcpu(0), None);
         assert_eq!(mapper.get_coroutine_for_vcpu(1), Some(coro.id));
     }
@@ -151,13 +169,15 @@ mod tests {
     #[test]
     fn test_vcpu_coroutine_unmap() {
         let mut mapper = VcpuCoroutineMapper::new(4);
-        
+
         // 创建并映射协程到vCPU 0
-        let coro = mapper.create_and_map_coroutine(0).unwrap();
+        let coro = mapper.create_and_map_coroutine(0)
+            .expect("Failed to create and map coroutine to vCPU 0");
         assert_eq!(mapper.get_coroutine_for_vcpu(0), Some(coro.id));
-        
+
         // 解绑协程
-        mapper.unmap_coroutine(coro.id).unwrap();
+        mapper.unmap_coroutine(coro.id)
+            .expect("Failed to unmap coroutine");
         assert_eq!(mapper.get_coroutine_for_vcpu(0), None);
         assert_eq!(mapper.get_vcpu_for_coroutine(coro.id), None);
     }
@@ -165,18 +185,18 @@ mod tests {
     #[test]
     fn test_suspend_resume_coroutines() {
         let mut mapper = VcpuCoroutineMapper::new(4);
-        
+
         // 创建并映射协程到vCPU 0
-        let coro = mapper.create_and_map_coroutine(0).unwrap();
-        
+        let coro = mapper.create_and_map_coroutine(0)
+            .expect("Failed to create and map coroutine to vCPU 0");
+
         // 暂停协程
         mapper.suspend_coroutine(coro);
-        
+
         // 恢复协程
         mapper.resume_coroutines();
-        
+
         // 检查协程是否已经提交到调度器
-        let scheduler = mapper.scheduler().lock();
-        assert_eq!(scheduler.global_queue_length(), 0); // 因为协程已经分配到vCPU本地队列
+        assert_eq!(mapper.global_queue_length(), 0); // 因为协程已经分配到vCPU本地队列
     }
 }

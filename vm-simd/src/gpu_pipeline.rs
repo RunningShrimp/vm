@@ -364,7 +364,8 @@ mod tests {
 
         let latency = task.latency_us();
         assert!(latency.is_some());
-        assert!(latency.unwrap() >= 10000);
+        let latency_val = latency.expect("Latency should be available");
+        assert!(latency_val >= 10000);
     }
 
     #[test]
@@ -392,7 +393,8 @@ mod tests {
 
         let dequeued = stream.dequeue_task();
         assert!(dequeued.is_some());
-        assert_eq!(dequeued.unwrap().id, 1);
+        let task = dequeued.expect("Dequeued task should be available");
+        assert_eq!(task.id, 1);
         assert_eq!(stream.get_queue_length(), 1);
     }
 
@@ -436,7 +438,8 @@ mod tests {
         // Next selection should prefer stream2
         let selected2 = lb.select_stream(&task);
         assert!(selected2.is_some());
-        assert_eq!(selected2.unwrap().id, 1);
+        let stream2 = selected2.expect("Selected stream should be available");
+        assert_eq!(stream2.id, 1);
     }
 
     #[test]
@@ -468,6 +471,7 @@ mod tests {
 
         let throughput = task.throughput_gbps();
         assert!(throughput.is_some());
-        assert!(throughput.unwrap() > 0.0);
+        let throughput_val = throughput.expect("Throughput should be available");
+        assert!(throughput_val > 0.0);
     }
 }

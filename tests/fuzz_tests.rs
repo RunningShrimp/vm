@@ -13,7 +13,7 @@ use vm_tests::test_utils::{MockMMU, IRBlockBuilder};
 fn fuzz_random_ir_blocks() {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let mut mmu = MockMMU::default();
+    let mut mmu = MockMMU::at_zero();
     let mut engine = Interpreter::new();
 
     for _ in 0..1000 {
@@ -113,7 +113,7 @@ fn fuzz_address_translation() {
 fn fuzz_edge_cases() {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let mut mmu = MockMMU::default();
+    let mut mmu = MockMMU::at_zero();
     let mut engine = Interpreter::new();
 
     // 测试边界值
@@ -160,7 +160,7 @@ fn fuzz_concurrent_execution() {
     use rand::Rng;
 
     let mut rng = rand::thread_rng();
-    let mmu = Arc::new(std::sync::Mutex::new(MockMMU::default()));
+    let mmu = Arc::new(std::sync::Mutex::new(MockMMU::at_zero()));
 
     let mut handles = Vec::new();
 
@@ -187,7 +187,7 @@ fn fuzz_concurrent_execution() {
 /// 模糊测试：大块执行
 #[test]
 fn fuzz_large_blocks() {
-    let mut mmu = MockMMU::default();
+    let mut mmu = MockMMU::at_zero();
     let mut engine = Interpreter::new();
 
     // 创建大IR块
@@ -235,7 +235,7 @@ fn fuzz_ir_generation_edge_cases() {
 fn fuzz_ir_operation_combinations() {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let mut mmu = MockMMU::default();
+    let mut mmu = MockMMU::at_zero();
     let mut engine = Interpreter::new();
 
     for _ in 0..1000 {
@@ -293,7 +293,7 @@ fn fuzz_ir_operation_combinations() {
 fn fuzz_ir_terminator_combinations() {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let mut mmu = MockMMU::default();
+    let mut mmu = MockMMU::at_zero();
     let mut engine = Interpreter::new();
 
     for _ in 0..500 {

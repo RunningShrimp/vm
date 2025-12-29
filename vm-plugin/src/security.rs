@@ -222,12 +222,24 @@ impl PluginResourceMonitor {
     /// 记录内存使用
     pub fn record_memory_usage(&self, plugin_id: &str, usage: u64) -> Result<(), VmError> {
         {
-            let mut memory = self.memory_usage.write().unwrap();
+            let mut memory = self.memory_usage.write().map_err(|e| {
+                VmError::Core(vm_core::CoreError::InvalidState {
+                    message: format!("Memory usage lock is poisoned: {:?}", e),
+                    current: "poisoned".to_string(),
+                    expected: "unlocked".to_string(),
+                })
+            })?;
             memory.insert(plugin_id.to_string(), usage);
         }
 
         // 检查内存限制
-        let security = self.security_manager.read().unwrap();
+        let security = self.security_manager.read().map_err(|e| {
+            VmError::Core(vm_core::CoreError::InvalidState {
+                message: format!("Security manager lock is poisoned: {:?}", e),
+                current: "poisoned".to_string(),
+                expected: "unlocked".to_string(),
+            })
+        })?;
         security.check_memory_limit(usage)?;
 
         Ok(())
@@ -235,23 +247,29 @@ impl PluginResourceMonitor {
 
     /// 记录CPU时间
     pub fn record_cpu_time(&self, plugin_id: &str, time: u64) {
-        let mut cpu = self.cpu_time.write().unwrap();
-        cpu.insert(plugin_id.to_string(), time);
+        if let Ok(mut cpu) = self.cpu_time.write() {
+            cpu.insert(plugin_id.to_string(), time);
+        }
     }
 
     /// 获取内存使用
     pub fn get_memory_usage(&self, plugin_id: &str) -> Option<u64> {
-        self.memory_usage.read().unwrap().get(plugin_id).copied()
+        self.memory_usage.read().ok()?.get(plugin_id).copied()
     }
 
     /// 获取CPU时间
     pub fn get_cpu_time(&self, plugin_id: &str) -> Option<u64> {
-        self.cpu_time.read().unwrap().get(plugin_id).copied()
+        self.cpu_time.read().ok()?.get(plugin_id).copied()
     }
 
     /// 清理插件资源记录
     pub fn cleanup(&self, plugin_id: &str) {
-        self.memory_usage.write().unwrap().remove(plugin_id);
-        self.cpu_time.write().unwrap().remove(plugin_id);
+        if let Ok(mut memory) = self.memory_usage.write() {
+            memory.remove(plugin_id);
+        }
+
+        if let Ok(mut cpu) = self.cpu_time.write() {
+            cpu.remove(plugin_id);
+        }
     }
 }

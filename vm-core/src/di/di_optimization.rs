@@ -36,28 +36,50 @@ where
             initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
-    
+
     /// 获取实例
     pub fn get(&self) -> T {
         if self.initialized.load(std::sync::atomic::Ordering::Acquire) {
-            let instance = self.instance.lock().unwrap();
-            return instance.as_ref().unwrap().clone();
+            match self.instance.lock() {
+                Ok(instance) => {
+                    return match instance.as_ref() {
+                        Some(val) => val.clone(),
+                        None => {
+                            // Fallback: if we're initialized but instance is None, recreate
+                            drop(instance);
+                            self.force_init_internal()
+                        }
+                    };
+                }
+                Err(_) => self.force_init_internal(),
+            }
         }
-        
-        let mut instance = self.instance.lock().unwrap();
-        if instance.is_none() {
-            *instance = Some((self.factory)());
-            self.initialized.store(true, std::sync::atomic::Ordering::Release);
-        }
-        
-        instance.as_ref().unwrap().clone()
+
+        self.force_init_internal()
     }
-    
+
+    fn force_init_internal(&self) -> T {
+        match self.instance.lock() {
+            Ok(mut instance) => {
+                if instance.is_none() {
+                    *instance = Some((self.factory)());
+                    self.initialized.store(true, std::sync::atomic::Ordering::Release);
+                }
+                // Safe: we just set instance to Some(_) above if it was None
+                instance.as_ref().expect("instance should be initialized").clone()
+            }
+            Err(_) => {
+                // If lock is poisoned, create a temporary instance using the factory
+                (self.factory)()
+            }
+        }
+    }
+
     /// 检查是否已初始化
     pub fn is_initialized(&self) -> bool {
         self.initialized.load(std::sync::atomic::Ordering::Acquire)
     }
-    
+
     /// 强制初始化
     pub fn force_init(&self) {
         let _ = self.get();
@@ -296,7 +318,7 @@ where
             stats: Arc::new(Mutex::new(PoolStats::default())),
         }
     }
-    
+
     /// 设置重置函数
     pub fn with_reset_fn<F>(mut self, reset_fn: F) -> Self
     where
@@ -305,69 +327,100 @@ where
         self.reset_fn = Some(Arc::new(reset_fn));
         self
     }
-    
+
     /// 获取对象
     pub fn acquire(&self) -> PooledObject<T> {
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_acquires += 1;
-        
-        let mut objects = self.objects.lock().unwrap();
-        if let Some(mut object) = objects.pop() {
-            stats.pool_hits += 1;
-            
-            // 重置对象
-            if let Some(ref reset_fn) = self.reset_fn {
-                reset_fn(&mut object);
+        match self.stats.lock() {
+            Ok(mut stats) => {
+                stats.total_acquires += 1;
+
+                match self.objects.lock() {
+                    Ok(mut objects) => {
+                        if let Some(mut object) = objects.pop() {
+                            stats.pool_hits += 1;
+
+                            // 重置对象
+                            if let Some(ref reset_fn) = self.reset_fn {
+                                reset_fn(&mut object);
+                            }
+
+                            self.current_size.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                            stats.current_size = self.current_size.load(std::sync::atomic::Ordering::SeqCst);
+
+                            PooledObject {
+                                object: Some(object),
+                                pool: self.clone(),
+                            }
+                        } else {
+                            stats.pool_misses += 1;
+
+                            PooledObject {
+                                object: Some((self.factory)()),
+                                pool: self.clone(),
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // Lock poisoned, create new object
+                        stats.pool_misses += 1;
+                        PooledObject {
+                            object: Some((self.factory)()),
+                            pool: self.clone(),
+                        }
+                    }
+                }
             }
-            
-            self.current_size.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-            stats.current_size = self.current_size.load(std::sync::atomic::Ordering::SeqCst);
-            
-            PooledObject {
-                object: Some(object),
-                pool: self.clone(),
-            }
-        } else {
-            stats.pool_misses += 1;
-            
-            PooledObject {
-                object: Some((self.factory)()),
-                pool: self.clone(),
+            Err(_) => {
+                // Stats lock poisoned, create new object without tracking
+                PooledObject {
+                    object: Some((self.factory)()),
+                    pool: self.clone(),
+                }
             }
         }
     }
-    
+
     /// 释放对象
     fn release_object(&self, object: T) {
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_releases += 1;
-        
         let current_size = self.current_size.load(std::sync::atomic::Ordering::SeqCst);
         if current_size < self.max_size {
-            let mut objects = self.objects.lock().unwrap();
-            objects.push(object);
-            self.current_size.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Ok(mut objects) = self.objects.lock() {
+                objects.push(object);
+                self.current_size.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        // Update stats separately
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.total_releases += 1;
             stats.current_size = self.current_size.load(std::sync::atomic::Ordering::SeqCst);
         }
     }
-    
+
     /// 获取统计信息
     pub fn stats(&self) -> PoolStats {
-        let stats = self.stats.lock().unwrap();
-        PoolStats {
-            current_size: self.current_size.load(std::sync::atomic::Ordering::SeqCst),
-            ..stats.clone()
+        match self.stats.lock() {
+            Ok(stats) => PoolStats {
+                current_size: self.current_size.load(std::sync::atomic::Ordering::SeqCst),
+                ..stats.clone()
+            },
+            Err(_) => PoolStats {
+                current_size: self.current_size.load(std::sync::atomic::Ordering::SeqCst),
+                ..Default::default()
+            },
         }
     }
-    
+
     /// 清空对象池
     pub fn clear(&self) {
-        let mut objects = self.objects.lock().unwrap();
-        objects.clear();
-        self.current_size.store(0, std::sync::atomic::Ordering::SeqCst);
-        
-        let mut stats = self.stats.lock().unwrap();
-        stats.current_size = 0;
+        if let Ok(mut objects) = self.objects.lock() {
+            objects.clear();
+            self.current_size.store(0, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.current_size = 0;
+        }
     }
 }
 
@@ -389,12 +442,12 @@ where
 {
     /// 获取对象引用
     pub fn get(&self) -> &T {
-        self.object.as_ref().unwrap()
+        self.object.as_ref().expect("PooledObject: object not available")
     }
-    
+
     /// 获取可变对象引用
     pub fn get_mut(&mut self) -> &mut T {
-        self.object.as_mut().unwrap()
+        self.object.as_mut().expect("PooledObject: object not available")
     }
 }
 
@@ -544,32 +597,51 @@ where
             stats: Arc::new(Mutex::new(CacheStats::default())),
         }
     }
-    
+
     /// 设置L2缓存
     pub fn with_l2_cache(mut self, cache: Arc<dyn CacheBackend<K, V>>) -> Self {
         self.l2_cache = Some(cache);
         self
     }
-    
+
     /// 设置L3缓存
     pub fn with_l3_cache(mut self, cache: Arc<dyn CacheBackend<K, V>>) -> Self {
         self.l3_cache = Some(cache);
         self
     }
-    
+
     /// 设置淘汰策略
     pub fn with_eviction_policy(mut self, policy: Arc<dyn EvictionPolicy<K>>) -> Self {
         self.eviction_policy = policy;
         self
     }
+
+    // Helper methods for lock operations
+    fn lock_l1_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<K, V>>, CacheError> {
+        self.l1_cache.read().map_err(|e| CacheError::BackendError(
+            format!("Failed to acquire L1 cache read lock: {}", e)
+        ))
+    }
+
+    fn lock_l1_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<K, V>>, CacheError> {
+        self.l1_cache.write().map_err(|e| CacheError::BackendError(
+            format!("Failed to acquire L1 cache write lock: {}", e)
+        ))
+    }
+
+    fn lock_stats(&self) -> Result<std::sync::MutexGuard<'_, CacheStats>, CacheError> {
+        self.stats.lock().map_err(|e| CacheError::BackendError(
+            format!("Failed to acquire stats lock: {}", e)
+        ))
+    }
     
     /// 获取值
     pub fn get(&self, key: &K) -> Result<Option<V>, CacheError> {
-        let mut stats = self.stats.lock().unwrap();
-        
+        let mut stats = self.lock_stats()?;
+
         // 尝试L1缓存
         {
-            let l1_cache = self.l1_cache.read().unwrap();
+            let l1_cache = self.lock_l1_read()?;
             if let Some(value) = l1_cache.get(key) {
                 stats.l1_hits += 1;
                 stats.total_hits += 1;
@@ -577,19 +649,19 @@ where
                 return Ok(Some(value.clone()));
             }
         }
-        
+
         stats.l1_misses += 1;
-        
+
         // 尝试L2缓存
         if let Some(ref l2_cache) = self.l2_cache {
             match l2_cache.get(key) {
                 Ok(Some(value)) => {
                     stats.l2_hits += 1;
                     stats.total_hits += 1;
-                    
+
                     // 回填L1缓存
                     self.put_l1(key.clone(), value.clone());
-                    
+
                     return Ok(Some(value));
                 }
                 Ok(None) => {
@@ -600,20 +672,20 @@ where
                 }
             }
         }
-        
+
         // 尝试L3缓存
         if let Some(ref l3_cache) = self.l3_cache {
             match l3_cache.get(key) {
                 Ok(Some(value)) => {
                     stats.l3_hits += 1;
                     stats.total_hits += 1;
-                    
+
                     // 回填L2和L1缓存
                     if let Some(ref l2_cache) = self.l2_cache {
                         let _ = l2_cache.set(key.clone(), value.clone());
                     }
                     self.put_l1(key.clone(), value.clone());
-                    
+
                     return Ok(Some(value));
                 }
                 Ok(None) => {
@@ -624,7 +696,7 @@ where
                 }
             }
         }
-        
+
         stats.total_misses += 1;
         Ok(None)
     }
@@ -651,71 +723,78 @@ where
     pub fn remove(&self, key: &K) -> Result<(), CacheError> {
         // 从L1缓存删除
         {
-            let mut l1_cache = self.l1_cache.write().unwrap();
+            let mut l1_cache = self.lock_l1_write()?;
             l1_cache.remove(key);
         }
-        
+
         // 从L2缓存删除
         if let Some(ref l2_cache) = self.l2_cache {
             l2_cache.remove(key)?;
         }
-        
+
         // 从L3缓存删除
         if let Some(ref l3_cache) = self.l3_cache {
             l3_cache.remove(key)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// 清空缓存
     pub fn clear(&self) -> Result<(), CacheError> {
         // 清空L1缓存
         {
-            let mut l1_cache = self.l1_cache.write().unwrap();
+            let mut l1_cache = self.lock_l1_write()?;
             l1_cache.clear();
         }
-        
+
         // 清空L2缓存
         if let Some(ref l2_cache) = self.l2_cache {
             l2_cache.clear()?;
         }
-        
+
         // 清空L3缓存
         if let Some(ref l3_cache) = self.l3_cache {
             l3_cache.clear()?;
         }
-        
+
         // 重置统计信息
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.lock_stats()?;
             *stats = CacheStats::default();
         }
-        
+
         Ok(())
     }
-    
+
     /// 获取统计信息
     pub fn stats(&self) -> CacheStats {
-        let stats = self.stats.lock().unwrap();
-        stats.clone()
+        match self.lock_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => CacheStats::default(),
+        }
     }
-    
+
     /// 放入L1缓存
     fn put_l1(&self, key: K, value: V) {
-        let mut l1_cache = self.l1_cache.write().unwrap();
-        
-        // 检查是否需要淘汰
-        if l1_cache.len() >= self.l1_max_size {
-            let keys: Vec<K> = l1_cache.keys().cloned().collect();
-            if let Some(victim_key) = self.eviction_policy.select_victim(&keys) {
-                l1_cache.remove(victim_key);
+        match self.lock_l1_write() {
+            Ok(mut l1_cache) => {
+                // 检查是否需要淘汰
+                if l1_cache.len() >= self.l1_max_size {
+                    let keys: Vec<K> = l1_cache.keys().cloned().collect();
+                    if let Some(victim_key) = self.eviction_policy.select_victim(&keys) {
+                        l1_cache.remove(victim_key);
+                    }
+                }
+
+                // 在插入之前先克隆key，以便在on_insert中使用
+                self.eviction_policy.on_insert(&key);
+                l1_cache.insert(key, value);
+            }
+            Err(_) => {
+                // Silently fail if lock is poisoned
             }
         }
-        
-        // 在插入之前先克隆key，以便在on_insert中使用
-        self.eviction_policy.on_insert(&key);
-        l1_cache.insert(key, value);
     }
 }
 
@@ -736,36 +815,42 @@ impl<K> LFUEvictionPolicy<K> {
 
 impl<K: Clone + Eq + std::hash::Hash + Send + Sync> EvictionPolicy<K> for LFUEvictionPolicy<K> {
     fn on_access(&self, key: &K) {
-        let mut frequencies = self.frequencies.write().unwrap();
-        *frequencies.entry(key.clone()).or_insert(0) += 1;
-    }
-    
-    fn on_insert(&self, key: &K) {
-        let mut frequencies = self.frequencies.write().unwrap();
-        frequencies.insert(key.clone(), 1);
-    }
-    
-    fn select_victim<'a>(&self, keys: &'a [K]) -> Option<&'a K> {
-        let frequencies = self.frequencies.read().unwrap();
-        let mut min_freq = u64::MAX;
-        let mut victim_key = None;
-        
-        for key in keys {
-            if let Some(&freq) = frequencies.get(key) {
-                if freq < min_freq {
-                    min_freq = freq;
-                    victim_key = Some(key);
-                }
-            } else {
-                // 如果没有记录，频率为0
-                if 0 < min_freq {
-                    min_freq = 0;
-                    victim_key = Some(key);
-                }
-            }
+        if let Ok(mut frequencies) = self.frequencies.write() {
+            *frequencies.entry(key.clone()).or_insert(0) += 1;
         }
-        
-        victim_key
+    }
+
+    fn on_insert(&self, key: &K) {
+        if let Ok(mut frequencies) = self.frequencies.write() {
+            frequencies.insert(key.clone(), 1);
+        }
+    }
+
+    fn select_victim<'a>(&self, keys: &'a [K]) -> Option<&'a K> {
+        match self.frequencies.read() {
+            Ok(frequencies) => {
+                let mut min_freq = u64::MAX;
+                let mut victim_key = None;
+
+                for key in keys {
+                    if let Some(&freq) = frequencies.get(key) {
+                        if freq < min_freq {
+                            min_freq = freq;
+                            victim_key = Some(key);
+                        }
+                    } else {
+                        // 如果没有记录，频率为0
+                        if 0 < min_freq {
+                            min_freq = 0;
+                            victim_key = Some(key);
+                        }
+                    }
+                }
+
+                victim_key
+            }
+            Err(_) => keys.first(),
+        }
     }
 }
 
@@ -823,49 +908,53 @@ impl ResourceCleaner {
             cleanup_thread: Arc::new(Mutex::new(None)),
         }
     }
-    
+
     /// 添加清理任务
     pub fn add_cleanup_task(&self, task: Box<dyn CleanupTask>) {
-        let mut tasks = self.cleanup_tasks.lock().unwrap();
-        tasks.push(task);
+        if let Ok(mut tasks) = self.cleanup_tasks.lock() {
+            tasks.push(task);
+        }
     }
-    
+
     /// 启动清理任务
     pub fn start(&self) {
         if self.running.load(std::sync::atomic::Ordering::Acquire) {
             return;
         }
-        
+
         self.running.store(true, std::sync::atomic::Ordering::Release);
-        
+
         let tasks = Arc::clone(&self.cleanup_tasks);
         let interval = self.cleanup_interval;
         let running = Arc::clone(&self.running);
-        
+
         let handle = std::thread::spawn(move || {
             while running.load(std::sync::atomic::Ordering::Acquire) {
                 std::thread::sleep(interval);
-                
-                let tasks = tasks.lock().unwrap();
-                for task in tasks.iter() {
-                    if let Err(e) = task.cleanup() {
-                        eprintln!("Cleanup task '{}' failed: {}", task.name(), e);
+
+                if let Ok(tasks) = tasks.lock() {
+                    for task in tasks.iter() {
+                        if let Err(e) = task.cleanup() {
+                            eprintln!("Cleanup task '{}' failed: {}", task.name(), e);
+                        }
                     }
                 }
             }
         });
-        
-        let mut thread_handle = self.cleanup_thread.lock().unwrap();
-        *thread_handle = Some(handle);
+
+        if let Ok(mut thread_handle) = self.cleanup_thread.lock() {
+            *thread_handle = Some(handle);
+        }
     }
-    
+
     /// 停止清理任务
     pub fn stop(&self) {
         self.running.store(false, std::sync::atomic::Ordering::Release);
-        
-        let mut thread_handle = self.cleanup_thread.lock().unwrap();
-        if let Some(handle) = thread_handle.take() {
-            let _ = handle.join();
+
+        if let Ok(mut thread_handle) = self.cleanup_thread.lock() {
+            if let Some(handle) = thread_handle.take() {
+                let _ = handle.join();
+            }
         }
     }
 }
@@ -919,11 +1008,11 @@ mod tests {
     #[test]
     fn test_multi_level_cache() {
         let cache = MultiLevelCache::<String, i32>::new(10);
-        
-        cache.set("key1".to_string(), 42).unwrap();
-        let value = cache.get(&"key1".to_string()).unwrap();
-        assert_eq!(value, Some(42));
-        
+
+        assert!(cache.set("key1".to_string(), 42).is_ok());
+        let value = cache.get(&"key1".to_string());
+        assert_eq!(value, Ok(Some(42)));
+
         let stats = cache.stats();
         assert_eq!(stats.l1_hits, 1);
         assert_eq!(stats.total_hits, 1);

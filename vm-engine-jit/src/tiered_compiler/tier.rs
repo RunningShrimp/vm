@@ -1,9 +1,10 @@
 use std::fmt;
 
 /// 编译层级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CompilationTier {
     /// Tier 1: 解释执行
+    #[default]
     Interpreter,
     /// Tier 2: 基础JIT编译
     Baseline,
@@ -43,12 +44,6 @@ impl fmt::Display for CompilationTier {
             CompilationTier::Baseline => write!(f, "Baseline JIT"),
             CompilationTier::Optimized => write!(f, "Optimized JIT"),
         }
-    }
-}
-
-impl Default for CompilationTier {
-    fn default() -> Self {
-        CompilationTier::Interpreter
     }
 }
 
@@ -158,7 +153,7 @@ impl TierPerformanceStats {
     pub fn update_interpreter(&mut self, instructions: u64, cycles: u64) {
         self.interpreter.executed_instructions += instructions;
         self.interpreter.executed_cycles += cycles;
-        self.interpreter.avg_cycles_per_instruction = 
+        self.interpreter.avg_cycles_per_instruction =
             self.interpreter.executed_cycles as f64 / self.interpreter.executed_instructions as f64;
     }
 
@@ -168,15 +163,15 @@ impl TierPerformanceStats {
             CompilationTier::Baseline => {
                 self.baseline.compilation_count += 1;
                 self.baseline.total_compilation_time_ns += time_ns;
-                self.baseline.avg_compilation_time_ns = 
+                self.baseline.avg_compilation_time_ns =
                     self.baseline.total_compilation_time_ns / self.baseline.compilation_count;
-            },
+            }
             CompilationTier::Optimized => {
                 self.optimized.compilation_count += 1;
                 self.optimized.total_compilation_time_ns += time_ns;
-                self.optimized.avg_compilation_time_ns = 
+                self.optimized.avg_compilation_time_ns =
                     self.optimized.total_compilation_time_ns / self.optimized.compilation_count;
-            },
+            }
             CompilationTier::Interpreter => {}
         }
     }
@@ -187,15 +182,15 @@ impl TierPerformanceStats {
             CompilationTier::Baseline => {
                 self.baseline.execution_count += 1;
                 self.baseline.total_execution_time_ns += time_ns;
-                self.baseline.avg_execution_time_ns = 
+                self.baseline.avg_execution_time_ns =
                     self.baseline.total_execution_time_ns / self.baseline.execution_count;
-            },
+            }
             CompilationTier::Optimized => {
                 self.optimized.execution_count += 1;
                 self.optimized.total_execution_time_ns += time_ns;
-                self.optimized.avg_execution_time_ns = 
+                self.optimized.avg_execution_time_ns =
                     self.optimized.total_execution_time_ns / self.optimized.execution_count;
-            },
+            }
             CompilationTier::Interpreter => {}
         }
     }

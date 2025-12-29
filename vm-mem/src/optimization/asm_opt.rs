@@ -58,6 +58,13 @@ pub unsafe fn tlb_lookup_x86_64(
 }
 
 /// TLB 查找优化（ARM64）
+///
+/// # Safety
+///
+/// Callers must ensure:
+/// - `tlb_entries` points to a valid array of at least `count` `AsmTlbEntry` elements
+/// - The memory pointed to by `tlb_entries` is accessible for the duration of this call
+/// - `count` accurately represents the number of entries in the array
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub unsafe fn tlb_lookup_aarch64(
@@ -243,6 +250,14 @@ pub unsafe fn cache_flush_x86_64(addr: *const u8, size: usize) {
     }
 }
 
+/// Cache flush for ARM64 architecture
+///
+/// # Safety
+///
+/// Callers must ensure:
+/// - `addr` points to a valid memory region of at least `size` bytes
+/// - The memory region is accessible for the duration of this call
+/// - `size` accurately represents the size of the memory region to flush
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub unsafe fn cache_flush_aarch64(addr: *const u8, size: usize) {

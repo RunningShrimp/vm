@@ -2,10 +2,14 @@
 //!
 //! 提供自动检测host/guest架构并选择合适的解码器和执行引擎的功能
 
+#[cfg(feature = "interpreter")]
 use super::{CrossArchConfig, CrossArchStrategy};
 use std::fmt;
 use vm_core::{ExecMode, ExecutionEngine, GuestAddr, GuestArch, MMU, VmError};
+
+#[cfg(feature = "interpreter")]
 use vm_engine_interpreter::Interpreter;
+
 use vm_ir::IRBlock;
 
 /// 统一解码器trait（统一不同架构的解码器接口）
@@ -45,10 +49,25 @@ impl AutoExecutor {
         println!("  策略: {:?}", config.strategy);
 
         // 2. 根据guest架构创建解码器
+        #[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
         let decoder: Box<dyn UnifiedDecoder> = match guest_arch {
             GuestArch::X86_64 => Box::new(X86_64DecoderWrapper::new()),
             GuestArch::Arm64 => Box::new(ARM64DecoderWrapper::new()),
             GuestArch::Riscv64 => Box::new(Riscv64DecoderWrapper::new()),
+            GuestArch::PowerPC64 => {
+                return Err(VmError::Core(vm_core::CoreError::NotSupported {
+                    feature: "PowerPC64 decoder".to_string(),
+                    module: "auto_executor".to_string(),
+                }));
+            }
+        };
+
+        #[cfg(not(all(feature = "interpreter", feature = "vm-frontend")))]
+        let decoder: Box<dyn UnifiedDecoder> = {
+            return Err(VmError::Core(vm_core::CoreError::NotSupported {
+                feature: "Decoder wrappers require 'vm-frontend' feature".to_string(),
+                module: "auto_executor".to_string(),
+            }));
         };
 
         // 3. 根据策略和执行模式创建执行引擎
@@ -124,19 +143,22 @@ impl fmt::Display for AutoExecutor {
 // 解码器包装器（统一不同架构的解码器接口）
 // ============================================================================
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 /// x86-64解码器包装器
 struct X86_64DecoderWrapper {
-    decoder: vm_frontend_x86_64::X86Decoder,
+    decoder: vm_frontend::x86_64::X86Decoder,
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 impl X86_64DecoderWrapper {
     fn new() -> Self {
         Self {
-            decoder: vm_frontend_x86_64::X86Decoder::new(),
+            decoder: vm_frontend::x86_64::X86Decoder::new(),
         }
     }
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 impl UnifiedDecoder for X86_64DecoderWrapper {
     fn decode(&mut self, mmu: &mut dyn MMU, pc: GuestAddr) -> Result<IRBlock, VmError> {
         // X86Decoder实现了vm_core::Decoder trait，调用decode方法解码基本块
@@ -154,19 +176,22 @@ impl UnifiedDecoder for X86_64DecoderWrapper {
     }
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 /// ARM64解码器包装器
 struct ARM64DecoderWrapper {
-    decoder: vm_frontend_arm64::Arm64Decoder,
+    decoder: vm_frontend::arm64::Arm64Decoder,
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 impl ARM64DecoderWrapper {
     fn new() -> Self {
         Self {
-            decoder: vm_frontend_arm64::Arm64Decoder::new(),
+            decoder: vm_frontend::arm64::Arm64Decoder::new(),
         }
     }
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 impl UnifiedDecoder for ARM64DecoderWrapper {
     fn decode(&mut self, mmu: &mut dyn MMU, pc: GuestAddr) -> Result<IRBlock, VmError> {
         vm_core::Decoder::decode(&mut self.decoder, mmu, pc).map_err(|e| {
@@ -183,19 +208,22 @@ impl UnifiedDecoder for ARM64DecoderWrapper {
     }
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 /// RISC-V64解码器包装器
 struct Riscv64DecoderWrapper {
-    decoder: vm_frontend_riscv64::RiscvDecoder,
+    decoder: vm_frontend::riscv64::RiscvDecoder,
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 impl Riscv64DecoderWrapper {
     fn new() -> Self {
         Self {
-            decoder: vm_frontend_riscv64::RiscvDecoder,
+            decoder: vm_frontend::riscv64::RiscvDecoder,
         }
     }
 }
 
+#[cfg(all(feature = "interpreter", feature = "vm-frontend"))]
 impl UnifiedDecoder for Riscv64DecoderWrapper {
     fn decode(&mut self, mmu: &mut dyn MMU, pc: GuestAddr) -> Result<IRBlock, VmError> {
         vm_core::Decoder::decode(&mut self.decoder, mmu, pc).map_err(|e| {
@@ -219,10 +247,9 @@ mod tests {
     #[test]
     fn test_auto_executor_creation() {
         // 测试自动创建执行器
-        let executor = AutoExecutor::auto_create(GuestArch::X86_64, None);
-        assert!(executor.is_ok());
+        let executor = AutoExecutor::auto_create(GuestArch::X86_64, None)
+            .expect("Failed to create auto executor");
 
-        let executor = executor.unwrap();
         println!("Created executor: {}", executor);
         assert!(executor.config().is_supported());
     }

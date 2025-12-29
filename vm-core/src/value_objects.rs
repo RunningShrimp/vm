@@ -3,6 +3,7 @@
 //! 将基础类型封装为值对象，提供类型安全性和验证逻辑。
 
 use crate::VmError;
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -25,7 +26,6 @@ impl VmId {
                 path: Some("vm_id".to_string()),
             }));
         }
-
         if !id
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
@@ -36,7 +36,6 @@ impl VmId {
                 path: Some("vm_id".to_string()),
             }));
         }
-
         Ok(Self(id))
     }
 
@@ -74,6 +73,7 @@ pub struct MemorySize {
 impl MemorySize {
     /// 最小内存大小（1MB）
     pub const MIN: Self = Self { bytes: 1024 * 1024 };
+
     /// 最大内存大小（1TB）
     pub const MAX: Self = Self {
         bytes: 1024 * 1024 * 1024 * 1024,
@@ -91,7 +91,6 @@ impl MemorySize {
                 path: Some("memory_size".to_string()),
             }));
         }
-
         if bytes > Self::MAX.bytes {
             return Err(VmError::Core(crate::CoreError::Config {
                 message: format!(
@@ -102,7 +101,6 @@ impl MemorySize {
                 path: Some("memory_size".to_string()),
             }));
         }
-
         Ok(Self { bytes })
     }
 
@@ -160,6 +158,7 @@ pub struct VcpuCount {
 impl VcpuCount {
     /// 最小vCPU数量
     pub const MIN: u32 = 1;
+
     /// 最大vCPU数量
     pub const MAX: u32 = 256;
 
@@ -171,14 +170,12 @@ impl VcpuCount {
                 path: Some("vcpu_count".to_string()),
             }));
         }
-
         if count > Self::MAX {
             return Err(VmError::Core(crate::CoreError::Config {
                 message: format!("vCPU count too large: {} (maximum: {})", count, Self::MAX),
                 path: Some("vcpu_count".to_string()),
             }));
         }
-
         Ok(Self { count })
     }
 
@@ -238,7 +235,6 @@ impl DeviceId {
                 path: Some("device_id".to_string()),
             }));
         }
-
         Ok(Self(id))
     }
 
@@ -281,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_vm_id_display() {
-        let id = VmId::new("test-vm".to_string()).unwrap();
+        let id = VmId::new("test-vm".to_string()).expect("Failed to create VmId");
         assert_eq!(format!("{}", id), "test-vm");
         assert_eq!(id.as_str(), "test-vm");
         assert_eq!(id.as_ref(), "test-vm");
@@ -308,12 +304,12 @@ mod tests {
 
     #[test]
     fn test_memory_size_conversions() {
-        let size = MemorySize::from_mb(128).unwrap();
+        let size = MemorySize::from_mb(128).expect("Failed to create MemorySize");
         assert_eq!(size.as_mb(), 128);
         assert_eq!(size.as_gb(), 0);
         assert_eq!(size.bytes(), 128 * 1024 * 1024);
 
-        let size_gb = MemorySize::from_gb(4).unwrap();
+        let size_gb = MemorySize::from_gb(4).expect("Failed to create MemorySize");
         assert_eq!(size_gb.as_gb(), 4);
         assert_eq!(size_gb.as_mb(), 4096);
         assert_eq!(size_gb.bytes(), 4 * 1024 * 1024 * 1024);
@@ -321,20 +317,22 @@ mod tests {
 
     #[test]
     fn test_memory_size_page_alignment() {
-        let aligned = MemorySize::from_bytes(4096).unwrap();
+        // 使用符合最小要求的大小（1MB以上）
+        let aligned = MemorySize::from_bytes(1024 * 1024).expect("Failed to create MemorySize"); // 1MB，页对齐
         assert!(aligned.is_page_aligned());
 
-        let not_aligned = MemorySize::from_bytes(4097).unwrap();
+        let not_aligned =
+            MemorySize::from_bytes(1024 * 1024 + 1).expect("Failed to create MemorySize"); // 1MB + 1字节，不对齐
         assert!(!not_aligned.is_page_aligned());
     }
 
     #[test]
     fn test_memory_size_from_traits() {
-        let size = MemorySize::from_mb(100).unwrap();
+        let size = MemorySize::from_mb(100).expect("Failed to create MemorySize");
         let bytes: u64 = size.into();
         assert_eq!(bytes, 100 * 1024 * 1024);
 
-        let size = MemorySize::from_mb(100).unwrap();
+        let size = MemorySize::from_mb(100).expect("Failed to create MemorySize");
         let bytes: usize = size.into();
         assert_eq!(bytes, 100 * 1024 * 1024);
     }
@@ -353,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_vcpu_count_from_trait() {
-        let count = VcpuCount::new(4).unwrap();
+        let count = VcpuCount::new(4).expect("Failed to create VcpuCount");
         let num: u32 = count.into();
         assert_eq!(num, 4);
         assert_eq!(count.count(), 4);
@@ -390,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_device_id_display() {
-        let id = DeviceId::new("test-device".to_string()).unwrap();
+        let id = DeviceId::new("test-device".to_string()).expect("Failed to create DeviceId");
         assert_eq!(format!("{}", id), "test-device");
         assert_eq!(id.as_str(), "test-device");
         assert_eq!(id.as_ref(), "test-device");

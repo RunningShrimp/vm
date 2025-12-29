@@ -22,7 +22,7 @@
 
 // 重导出现有模块
 pub use crate::block::*;
-#[cfg(feature = "async-io")]
+// async-io feature removed - block_async is now always compiled
 pub use crate::block_async::*;
 pub use crate::vhost_net::*;
 pub use crate::virtio_9p::*;
@@ -36,4 +36,3 @@ pub use crate::virtio_performance::*;
 pub use crate::virtio_rng::*;
 pub use crate::virtio_scsi::*;
 pub use crate::virtio_sound::*;
-pub use crate::virtio_watchdog::*;

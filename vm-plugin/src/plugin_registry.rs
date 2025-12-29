@@ -764,7 +764,9 @@ mod tests {
             discovered_at: std::time::Instant::now(),
         };
 
-        let plugin_id = registry.register_plugin(discovered, vec![]).unwrap();
+        let plugin_id = registry.register_plugin(discovered, vec![]).map_err(|e| {
+            std::format!("Failed to register plugin: {:?}", e)
+        }).expect("Plugin registration should succeed");
         assert_eq!(plugin_id, plugin.id);
         assert_eq!(registry.plugins.len(), 1);
     }
@@ -782,7 +784,9 @@ mod tests {
             discovered_at: std::time::Instant::now(),
         };
 
-        registry.register_plugin(discovered, vec![]).unwrap();
+        registry.register_plugin(discovered, vec![]).map_err(|e| {
+            std::format!("Failed to register plugin: {:?}", e)
+        }).expect("Plugin registration should succeed");
 
         let query = PluginSearchQuery {
             name: Some("Test".to_string()),

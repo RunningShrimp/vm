@@ -58,7 +58,7 @@ pub const fn align_down(value: u64, alignment: u64) -> u64 {
 /// ```
 #[inline]
 pub const fn is_aligned(value: u64, alignment: u64) -> bool {
-    value % alignment == 0
+    value.is_multiple_of(alignment)
 }
 
 /// 检查是否是2的幂
@@ -83,7 +83,7 @@ pub const fn is_power_of_two(value: u64) -> bool {
 /// 向上取整的结果
 #[inline]
 pub const fn ceil_div(numerator: u64, denominator: u64) -> u64 {
-    (numerator + denominator - 1) / denominator
+    numerator.div_ceil(denominator)
 }
 
 /// 计算下一个2的幂

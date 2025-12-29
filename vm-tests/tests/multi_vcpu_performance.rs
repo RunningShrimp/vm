@@ -24,11 +24,7 @@ fn create_executor<B: 'static + Send + Sync + Clone>(
     mmu_factory: impl Fn() -> Box<dyn MMU> + Clone + 'static,
     engine_factory: impl Fn() -> Box<dyn ExecutionEngine<B>> + Clone + 'static,
 ) -> vm_core::parallel::MultiVcpuExecutor<B> {
-    vm_core::parallel::MultiVcpuExecutor::new(
-        vcpu_count,
-        mmu_factory,
-        engine_factory,
-    )
+    vm_core::parallel::MultiVcpuExecutor::new(vcpu_count, mmu_factory, engine_factory)
 }
 
 /// 测试不同vCPU数量下的性能扩展

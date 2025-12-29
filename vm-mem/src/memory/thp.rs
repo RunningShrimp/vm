@@ -123,9 +123,9 @@
 //!             
 //!             // 打印统计信息
 //!             let stats = manager.stats();
-//!             println!("  THP分配: {}", 
+//!             println!("  THP分配: {}",
 //!                 stats.thp_allocations.load(std::sync::atomic::Ordering::Relaxed));
-//!             println!("  常规分配: {}", 
+//!             println!("  常规分配: {}",
 //!                 stats.normal_allocations.load(std::sync::atomic::Ordering::Relaxed));
 //!         }
 //!         Err(e) => {
@@ -200,7 +200,10 @@
 //! // 释放内存
 //! for ptr in regular_ptrs {
 //!     unsafe {
-//!         let layout = std::alloc::Layout::from_size_align(block_size, 8).unwrap();
+//!         let layout = match std::alloc::Layout::from_size_align(block_size, 8) {
+//!             Ok(l) => l,
+//!             Err(_) => return, // Invalid layout, skip deallocation
+//!         };
 //!         std::alloc::dealloc(ptr, layout);
 //!     }
 //! }
@@ -252,10 +255,20 @@ pub struct ThpStats {
 impl Clone for ThpStats {
     fn clone(&self) -> Self {
         Self {
-            thp_hits: std::sync::atomic::AtomicU64::new(self.thp_hits.load(std::sync::atomic::Ordering::Relaxed)),
-            thp_misses: std::sync::atomic::AtomicU64::new(self.thp_misses.load(std::sync::atomic::Ordering::Relaxed)),
-            thp_allocations: std::sync::atomic::AtomicU64::new(self.thp_allocations.load(std::sync::atomic::Ordering::Relaxed)),
-            normal_allocations: std::sync::atomic::AtomicU64::new(self.normal_allocations.load(std::sync::atomic::Ordering::Relaxed)),
+            thp_hits: std::sync::atomic::AtomicU64::new(
+                self.thp_hits.load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            thp_misses: std::sync::atomic::AtomicU64::new(
+                self.thp_misses.load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            thp_allocations: std::sync::atomic::AtomicU64::new(
+                self.thp_allocations
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            normal_allocations: std::sync::atomic::AtomicU64::new(
+                self.normal_allocations
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
         }
     }
 }
@@ -274,14 +287,14 @@ impl TransparentHugePageManager {
     /// 创建THP管理器
     pub fn new(policy: ThpPolicy) -> io::Result<Self> {
         let thp_available = Self::check_thp_availability()?;
-        
+
         Ok(Self {
             policy,
             stats: std::sync::Arc::new(ThpStats::default()),
             thp_available,
         })
     }
-    
+
     /// 检查THP可用性
     pub fn check_thp_availability() -> io::Result<bool> {
         // 检查/sys/kernel/mm/transparent_hugepage/enabled
@@ -296,13 +309,13 @@ impl TransparentHugePageManager {
             Ok(false)
         }
     }
-    
+
     /// 获取THP配置信息
     pub fn get_thp_config() -> io::Result<ThpConfig> {
         let enabled_path = "/sys/kernel/mm/transparent_hugepage/enabled";
         let defrag_path = "/sys/kernel/mm/transparent_hugepage/defrag";
         let use_zero_page_path = "/sys/kernel/mm/transparent_hugepage/use_zero_page";
-        
+
         let enabled = if Path::new(enabled_path).exists() {
             let mut file = fs::File::open(enabled_path)?;
             let mut contents = String::new();
@@ -316,7 +329,7 @@ impl TransparentHugePageManager {
         } else {
             ThpPolicy::Never
         };
-        
+
         let defrag = if Path::new(defrag_path).exists() {
             let mut file = fs::File::open(defrag_path)?;
             let mut contents = String::new();
@@ -325,7 +338,7 @@ impl TransparentHugePageManager {
         } else {
             false
         };
-        
+
         let use_zero_page = if Path::new(use_zero_page_path).exists() {
             let mut file = fs::File::open(use_zero_page_path)?;
             let mut contents = String::new();
@@ -334,41 +347,61 @@ impl TransparentHugePageManager {
         } else {
             false
         };
-        
+
         Ok(ThpConfig {
             enabled,
             defrag,
             use_zero_page,
         })
     }
-    
+
     /// 启用THP的内存分配
     #[cfg(target_os = "linux")]
     pub fn allocate_with_thp(&self, size: usize) -> io::Result<*mut u8> {
         use std::ptr;
-        
+
         if !self.thp_available {
             // THP不可用，回退到常规分配
-            self.stats.normal_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            return unsafe { Ok(std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 4096))) };
+            self.stats
+                .normal_allocations
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return unsafe {
+                Ok(std::alloc::alloc(
+                    std::alloc::Layout::from_size_align_unchecked(size, 4096),
+                ))
+            };
         }
-        
+
         match self.policy {
             ThpPolicy::Never => {
-                self.stats.normal_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                unsafe { Ok(std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 4096))) }
+                self.stats
+                    .normal_allocations
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                unsafe {
+                    Ok(std::alloc::alloc(
+                        std::alloc::Layout::from_size_align_unchecked(size, 4096),
+                    ))
+                }
             }
             ThpPolicy::Always | ThpPolicy::Transparent => {
                 // 使用mmap分配内存，让内核自动使用THP
                 let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
                 let prot = libc::PROT_READ | libc::PROT_WRITE;
                 let addr = unsafe { libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
-                
+
                 if addr == libc::MAP_FAILED {
-                    self.stats.normal_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    unsafe { Ok(std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 4096))) }
+                    self.stats
+                        .normal_allocations
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    unsafe {
+                        Ok(std::alloc::alloc(
+                            std::alloc::Layout::from_size_align_unchecked(size, 4096),
+                        ))
+                    }
                 } else {
-                    self.stats.thp_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.stats
+                        .thp_allocations
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     Ok(addr as *mut u8)
                 }
             }
@@ -377,32 +410,50 @@ impl TransparentHugePageManager {
                 let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
                 let prot = libc::PROT_READ | libc::PROT_WRITE;
                 let addr = unsafe { libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
-                
+
                 if addr == libc::MAP_FAILED {
-                    self.stats.normal_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    unsafe { Ok(std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 4096))) }
+                    self.stats
+                        .normal_allocations
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    unsafe {
+                        Ok(std::alloc::alloc(
+                            std::alloc::Layout::from_size_align_unchecked(size, 4096),
+                        ))
+                    }
                 } else {
                     // 建议内核使用THP
-                    let result = unsafe { libc::madvise(addr as *mut libc::c_void, size, libc::MADV_HUGEPAGE) };
+                    let result = unsafe {
+                        libc::madvise(addr as *mut libc::c_void, size, libc::MADV_HUGEPAGE)
+                    };
                     if result == 0 {
-                        self.stats.thp_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        self.stats
+                            .thp_allocations
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     } else {
-                        self.stats.normal_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        self.stats
+                            .normal_allocations
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                     Ok(addr as *mut u8)
                 }
             }
         }
     }
-    
+
     /// 非Linux平台的THP分配
     #[cfg(not(target_os = "linux"))]
     pub fn allocate_with_thp(&self, size: usize) -> io::Result<*mut u8> {
         // 非Linux平台，回退到常规分配
-        self.stats.normal_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        unsafe { Ok(std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 4096))) }
+        self.stats
+            .normal_allocations
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        unsafe {
+            Ok(std::alloc::alloc(
+                std::alloc::Layout::from_size_align_unchecked(size, 4096),
+            ))
+        }
     }
-    
+
     /// 释放THP内存
     #[cfg(target_os = "linux")]
     pub fn deallocate_thp(&self, ptr: *mut u8, size: usize) {
@@ -412,49 +463,56 @@ impl TransparentHugePageManager {
             }
         }
     }
-    
+
     /// 非Linux平台的THP释放
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure:
+    /// - `ptr` must point to a memory region previously allocated by this allocator
+    /// - `size` must match the size used for allocation
+    /// - The memory region must not be freed twice
     #[cfg(not(target_os = "linux"))]
-    pub fn deallocate_thp(&self, ptr: *mut u8, size: usize) {
-        if !ptr.is_null() {
-            unsafe {
+    pub unsafe fn deallocate_thp(&self, ptr: *mut u8, size: usize) {
+        unsafe {
+            if !ptr.is_null() {
                 let layout = std::alloc::Layout::from_size_align_unchecked(size, 4096);
                 std::alloc::dealloc(ptr, layout);
             }
         }
     }
-    
+
     /// 获取THP统计信息
     pub fn stats(&self) -> &ThpStats {
         &self.stats
     }
-    
+
     /// 获取THP策略
     pub fn policy(&self) -> ThpPolicy {
         self.policy
     }
-    
+
     /// 检查THP是否可用
     pub fn is_thp_available(&self) -> bool {
         self.thp_available
     }
-    
+
     /// 检查地址是否使用THP
     #[cfg(target_os = "linux")]
     pub fn is_thp_address(addr: *const u8) -> bool {
         use std::fs;
         use std::io::{self, Read};
-        
+
         // 读取/proc/self/pagemap来检查页面大小
         let pagemap_path = "/proc/self/pagemap";
         if !Path::new(pagemap_path).exists() {
             return false;
         }
-        
+
         let addr_val = addr as usize;
         let page_index = addr_val / 4096;
         let offset = page_index * 8; // 每个条目8字节
-        
+
         match fs::File::open(pagemap_path) {
             Ok(mut file) => {
                 if file.seek(io::SeekFrom::Start(offset as u64)).is_ok() {
@@ -469,16 +527,16 @@ impl TransparentHugePageManager {
             }
             Err(_) => {}
         }
-        
+
         false
     }
-    
+
     /// 非Linux平台的THP地址检查
     #[cfg(not(target_os = "linux"))]
     pub fn is_thp_address(_addr: *const u8) -> bool {
         false
     }
-    
+
     /// 获取THP使用统计
     #[cfg(target_os = "linux")]
     pub fn get_thp_usage_stats() -> io::Result<ThpUsageStats> {
@@ -486,50 +544,56 @@ impl TransparentHugePageManager {
         if !Path::new(stats_path).exists() {
             return Ok(ThpUsageStats::default());
         }
-        
+
         let mut file = fs::File::open(stats_path)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-        
+
         let mut stats = ThpUsageStats::default();
-        
+
         for line in contents.lines() {
             if line.starts_with("AnonHugePages:") {
-                stats.anon_huge_pages = line.split_whitespace()
+                stats.anon_huge_pages = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("ShmemHugePages:") {
-                stats.shmem_huge_pages = line.split_whitespace()
+                stats.shmem_huge_pages = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("HugePages_Total:") {
-                stats.huge_pages_total = line.split_whitespace()
+                stats.huge_pages_total = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("HugePages_Free:") {
-                stats.huge_pages_free = line.split_whitespace()
+                stats.huge_pages_free = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("HugePages_Rsvd:") {
-                stats.huge_pages_reserved = line.split_whitespace()
+                stats.huge_pages_reserved = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("Hugepagesize:") {
-                stats.huge_page_size = line.split_whitespace()
+                stats.huge_page_size = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(2048); // 默认2MB
             }
         }
-        
+
         Ok(stats)
     }
-    
+
     /// 非Linux平台的THP使用统计
     #[cfg(not(target_os = "linux"))]
     pub fn get_thp_usage_stats() -> io::Result<ThpUsageStats> {
@@ -581,7 +645,10 @@ pub fn init_global_thp_manager(policy: ThpPolicy) -> io::Result<()> {
 
     // 设置全局THP管理器
     GLOBAL_THP_MANAGER.set(manager).map_err(|_| {
-        io::Error::new(io::ErrorKind::AlreadyExists, "THP manager already initialized")
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "THP manager already initialized",
+        )
     })
 }
 
@@ -596,18 +663,29 @@ pub fn allocate_with_thp(size: usize) -> io::Result<*mut u8> {
         manager.allocate_with_thp(size)
     } else {
         // THP管理器未初始化，使用常规分配
-        unsafe { Ok(std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 4096))) }
+        unsafe {
+            Ok(std::alloc::alloc(
+                std::alloc::Layout::from_size_align_unchecked(size, 4096),
+            ))
+        }
     }
 }
 
 /// 使用THP释放内存的便利函数
-pub fn deallocate_with_thp(ptr: *mut u8, size: usize) {
-    if let Some(manager) = get_global_thp_manager() {
-        manager.deallocate_thp(ptr, size);
-    } else {
-        // THP管理器未初始化，使用常规释放
-        if !ptr.is_null() {
-            unsafe {
+///
+/// # Safety
+///
+/// Callers must ensure:
+/// - `ptr` must point to a memory region previously allocated by this allocator
+/// - `size` must match the size used for allocation
+/// - The memory region must not be freed twice
+pub unsafe fn deallocate_with_thp(ptr: *mut u8, size: usize) {
+    unsafe {
+        if let Some(manager) = get_global_thp_manager() {
+            manager.deallocate_thp(ptr, size);
+        } else {
+            // THP管理器未初始化，使用常规释放
+            if !ptr.is_null() {
                 let layout = std::alloc::Layout::from_size_align_unchecked(size, 4096);
                 std::alloc::dealloc(ptr, layout);
             }
@@ -628,44 +706,52 @@ pub fn get_thp_usage_stats() -> io::Result<ThpUsageStats> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_thp_availability() {
         // 测试THP可用性检查
         let available = TransparentHugePageManager::check_thp_availability().unwrap_or(false);
         println!("THP available: {}", available);
     }
-    
+
     #[test]
     fn test_thp_config() {
         // 测试THP配置获取
-        let config = TransparentHugePageManager::get_thp_config().unwrap_or_else(|_| ThpConfig {
+        let config = TransparentHugePageManager::get_thp_config().unwrap_or(ThpConfig {
             enabled: ThpPolicy::Never,
             defrag: false,
             use_zero_page: false,
         });
-        
+
         println!("THP config: {:?}", config);
     }
-    
+
     #[test]
     fn test_thp_allocation() {
         // 测试THP分配
-        let manager = TransparentHugePageManager::new(ThpPolicy::Transparent).unwrap();
-        
+        let manager = match TransparentHugePageManager::new(ThpPolicy::Transparent) {
+            Ok(mgr) => mgr,
+            Err(e) => {
+                println!("Failed to create THP manager: {}, skipping test", e);
+                return;
+            }
+        };
+
         let sizes = [4096, 65536, 1048576]; // 4KB, 64KB, 1MB
-        
+
         for &size in &sizes {
             match manager.allocate_with_thp(size) {
                 Ok(ptr) if !ptr.is_null() => {
                     println!("Allocated {} bytes with THP: {:p}", size, ptr);
-                    
+
                     // 检查是否使用了THP
                     let is_thp = TransparentHugePageManager::is_thp_address(ptr);
                     println!("  Uses THP: {}", is_thp);
-                    
+
                     // 释放内存
-                    manager.deallocate_thp(ptr, size);
+                    unsafe {
+                        manager.deallocate_thp(ptr, size);
+                    }
                 }
                 Ok(_) => {
                     println!("Failed to allocate {} bytes with THP", size);
@@ -675,7 +761,7 @@ mod tests {
                 }
             }
         }
-        
+
         // 打印统计信息
         let stats = manager.stats();
         println!("THP stats: {:?}", stats);

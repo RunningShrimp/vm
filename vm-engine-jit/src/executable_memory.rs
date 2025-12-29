@@ -2,14 +2,18 @@ cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
         pub struct ExecutableMemory {
             ptr: *mut u8,
+            base_ptr: *mut u8,
             size: usize,
+            freed: bool,
         }
 
         impl std::fmt::Debug for ExecutableMemory {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("ExecutableMemory")
                     .field("ptr", &self.ptr)
+                    .field("base_ptr", &self.base_ptr)
                     .field("size", &self.size)
+                    .field("freed", &self.freed)
                     .finish()
             }
         }
@@ -34,7 +38,13 @@ cfg_if::cfg_if! {
                         return None;
                     }
 
-                    Some(ExecutableMemory { ptr: ptr as *mut u8, size })
+                    let base_ptr = ptr as *mut u8;
+                    Some(ExecutableMemory {
+                        ptr: base_ptr,
+                        base_ptr,
+                        size,
+                        freed: false
+                    })
                 }
             }
 
@@ -112,8 +122,11 @@ cfg_if::cfg_if! {
 
         impl Drop for ExecutableMemory {
             fn drop(&mut self) {
-                unsafe {
-                    libc::munmap(self.ptr as *mut libc::c_void, self.size);
+                if !self.freed {
+                    unsafe {
+                        libc::munmap(self.ptr as *mut libc::c_void, self.size);
+                    }
+                    self.freed = true;
                 }
             }
         }
@@ -123,14 +136,18 @@ cfg_if::cfg_if! {
     } else if #[cfg(target_os = "macos")] {
         pub struct ExecutableMemory {
             ptr: *mut u8,
+            base_ptr: *mut u8,
             size: usize,
+            freed: bool,
         }
 
         impl std::fmt::Debug for ExecutableMemory {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("ExecutableMemory")
                     .field("ptr", &self.ptr)
+                    .field("base_ptr", &self.base_ptr)
                     .field("size", &self.size)
+                    .field("freed", &self.freed)
                     .finish()
             }
         }
@@ -155,7 +172,13 @@ cfg_if::cfg_if! {
                         return None;
                     }
 
-                    Some(ExecutableMemory { ptr: ptr as *mut u8, size })
+                    let base_ptr = ptr as *mut u8;
+                    Some(ExecutableMemory {
+                        ptr: base_ptr,
+                        base_ptr,
+                        size,
+                        freed: false
+                    })
                 }
             }
 
@@ -212,8 +235,11 @@ cfg_if::cfg_if! {
 
         impl Drop for ExecutableMemory {
             fn drop(&mut self) {
-                unsafe {
-                    libc::munmap(self.ptr as *mut libc::c_void, self.size);
+                if !self.freed {
+                    unsafe {
+                        libc::munmap(self.ptr as *mut libc::c_void, self.size);
+                    }
+                    self.freed = true;
                 }
             }
         }
@@ -228,14 +254,18 @@ cfg_if::cfg_if! {
 
         pub struct ExecutableMemory {
             ptr: *mut u8,
+            base_ptr: *mut u8,
             size: usize,
+            freed: bool,
         }
 
         impl std::fmt::Debug for ExecutableMemory {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("ExecutableMemory")
                     .field("ptr", &self.ptr)
+                    .field("base_ptr", &self.base_ptr)
                     .field("size", &self.size)
+                    .field("freed", &self.freed)
                     .finish()
             }
         }
@@ -258,7 +288,13 @@ cfg_if::cfg_if! {
                         return None;
                     }
 
-                    Some(ExecutableMemory { ptr: ptr as *mut u8, size })
+                    let base_ptr = ptr as *mut u8;
+                    Some(ExecutableMemory {
+                        ptr: base_ptr,
+                        base_ptr,
+                        size,
+                        freed: false
+                    })
                 }
             }
 
@@ -291,8 +327,11 @@ cfg_if::cfg_if! {
 
         impl Drop for ExecutableMemory {
             fn drop(&mut self) {
-                unsafe {
-                    VirtualFree(self.ptr as *const _, 0, MEM_RELEASE);
+                if !self.freed {
+                    unsafe {
+                        VirtualFree(self.ptr as *const _, 0, MEM_RELEASE);
+                    }
+                    self.freed = true;
                 }
             }
         }

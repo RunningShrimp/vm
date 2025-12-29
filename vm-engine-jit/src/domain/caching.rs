@@ -1,22 +1,196 @@
-//! Caching bounded context
-//! 
+//! # Caching Bounded Context
+//!
 //! This module defines the caching domain, including cache strategies, policies,
 //! and management for JIT compiled code and intermediate results.
+//!
+//! ## Overview
+//!
+//! The caching bounded context provides a comprehensive caching system for the JIT engine,
+//! supporting multiple cache types, eviction policies, and sophisticated management strategies.
+//!
+//! ## Key Components
+//!
+//! ### Types
+//!
+//! - **`CacheEntryType`**: Classification of cached data (compiled code, IR blocks, etc.)
+//! - **`CacheEntryStatus`**: Lifecycle states of cache entries (creating, ready, updating, etc.)
+//! - **`EvictionPolicy`**: Strategies for cache eviction (LRU, LFU, FIFO, time-based, etc.)
+//! - **`WarmupStrategy`**: Cache warming approaches (lazy, eager, adaptive)
+//!
+//! ### Core Structures
+//!
+//! - **`CacheConfig`**: Configuration for cache behavior and limits
+//! - **`CacheEntry`**: Individual cache entry with metadata and data
+//! - **`CacheContext`**: Aggregate managing cache state and entries
+//! - **`CacheService`**: Domain service for cache operations
+//!
+//! ## Usage Examples
+//!
+//! ### Creating a Cache
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::caching::{CacheService, CacheConfig, EvictionPolicy};
+//!
+//! let mut service = CacheService::new();
+//!
+//! let config = CacheConfig {
+//!     max_size_bytes: 64 * 1024 * 1024, // 64MB
+//!     max_entries: 10000,
+//!     eviction_policy: EvictionPolicy::LRU,
+//!     ..Default::default()
+//! };
+//!
+//! let cache_id = service.create_cache(config);
+//! ```
+//!
+//! ### Storing and Retrieving Data
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::caching::{CacheEntryType, CacheService};
+//!
+//! // Store compiled code
+//! let machine_code = vec![0x90, 0x90, 0xC3]; // nop; nop; ret
+//! let entry_id = service.store(
+//!     cache_id,
+//!     CacheEntryType::CompiledCode,
+//!     machine_code
+//! )?;
+//!
+//! // Retrieve compiled code
+//! let retrieved_code = service.retrieve(cache_id, entry_id)?;
+//! ```
+//!
+//! ### Cache Statistics and Analysis
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::caching::{analysis, CacheService};
+//!
+//! // Get cache statistics
+//! let stats = service.get_stats(cache_id)?;
+//! println!("Hit rate: {:.2}%", stats.hit_rate());
+//!
+//! // Analyze cache efficiency
+//! let cache = service.get_cache(cache_id).unwrap();
+//! let cache_ctx = cache.read().unwrap();
+//! let report = analysis::analyze_cache_efficiency(&cache_ctx.stats);
+//! println!("Cache efficiency: {}", report);
+//! ```
+//!
+//! ## Cache Entry Lifecycle
+//!
+//! 1. **Creating**: Entry is being initialized (status: `Creating`)
+//! 2. **Ready**: Entry is available for use (status: `Ready`)
+//! 3. **Updating**: Entry is being modified (status: `Updating`)
+//! 4. **Deleting**: Entry is being removed (status: `Deleting`)
+//! 5. **Invalid**: Entry is no longer valid (status: `Invalid`)
+//!
+//! ## Eviction Policies
+//!
+//! ### LRU (Least Recently Used)
+//!
+//! Evicts entries that haven't been accessed for the longest time. Good for temporal locality.
+//!
+//! ### LFU (Least Frequently Used)
+//!
+//! Evicts entries with the lowest access frequency. Good for stable access patterns.
+//!
+//! ### FIFO (First In First Out)
+//!
+//! Evicts entries in insertion order. Simple but may remove frequently-used entries.
+//!
+//! ### Time-Based
+//!
+//! Evicts entries based on expiration time. Good for time-sensitive data.
+//!
+//! ### Random
+//!
+//! Evicts random entries. Useful for testing or when access patterns are unpredictable.
+//!
+//! ## Configuration Options
+//!
+//! ### Size Limits
+//!
+//! - `max_size_bytes`: Maximum total cache size in bytes
+//! - `max_entries`: Maximum number of cache entries
+//!
+//! ### Entry Management
+//!
+//! - `expiration_time`: Time-to-live for cache entries
+//! - `enable_compression`: Compress cached data to save space
+//! - `enable_stats`: Collect statistics for monitoring
+//!
+//! ### Performance Tuning
+//!
+//! - `warmup_strategy`: How to populate the cache (lazy, eager, adaptive)
+//! - `custom_params`: Additional domain-specific parameters
+//!
+//! ## Domain-Driven Design Applied
+//!
+//! ### Entities
+//!
+//! - `CacheContext`: Aggregate root with unique `CacheId`
+//! - `CacheEntry`: Entity with unique `entry_id` and lifecycle
+//!
+//! ### Value Objects
+//!
+//! - `CacheConfig`: Immutable configuration
+//! - `CacheEntryMetadata`: Metadata describing cache entries
+//! - `CacheStats`: Statistics snapshot
+//!
+//! ### Domain Services
+//!
+//! - `CacheService`: Manages cache operations across multiple contexts
+//! - `analysis` module: Provides analytical tools for cache optimization
+//!
+//! ### Repository Pattern
+//!
+//! The service acts as a repository, abstracting the storage mechanism
+//! (currently using `HashMap`, could be extended to persistent storage).
+//!
+//! ## Integration Points
+//!
+//! ### With Compilation Domain
+//!
+//! Caches compiled machine code with associated IR blocks for fast retrieval.
+//!
+//! ### With Optimization Domain
+//!
+//! Caches optimization results to avoid redundant optimization passes.
+//!
+//! ### With Execution Domain
+//!
+//! Caches frequently-executed code blocks for improved performance.
+//!
+//! ## Performance Considerations
+//!
+//! - **Thread Safety**: Uses `RwLock` for concurrent read access
+//! - **Memory Overhead**: Cache entries include metadata, consider for large caches
+//! - **Eviction Cost**: Eviction runs during cache-full scenarios, may impact latency
+//! - **Hash Quality**: Uses FNV-1a hashing for cache keys
+//!
+//! ## Monitoring and Observability
+//!
+//! All cache operations are instrumented:
+//! - Hit/miss tracking
+//! - Access time metrics
+//! - Eviction statistics
+//! - Size utilization monitoring
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::common::{Config, Stats, JITErrorBuilder, JITResult};
-use crate::ir::IRBlock;
 
 /// Unique identifier for cache contexts
 pub type CacheId = u64;
 
 /// Cache entry status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum CacheEntryStatus {
     /// Entry is being created
+    #[default]
     Creating,
     /// Entry is ready for use
     Ready,
@@ -28,11 +202,6 @@ pub enum CacheEntryStatus {
     Invalid,
 }
 
-impl Default for CacheEntryStatus {
-    fn default() -> Self {
-        CacheEntryStatus::Creating
-    }
-}
 
 impl std::fmt::Display for CacheEntryStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -48,8 +217,10 @@ impl std::fmt::Display for CacheEntryStatus {
 
 /// Cache eviction policy
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum EvictionPolicy {
     /// Least Recently Used
+    #[default]
     LRU,
     /// Least Frequently Used
     LFU,
@@ -63,11 +234,6 @@ pub enum EvictionPolicy {
     None,
 }
 
-impl Default for EvictionPolicy {
-    fn default() -> Self {
-        EvictionPolicy::LRU
-    }
-}
 
 impl std::fmt::Display for EvictionPolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -84,8 +250,10 @@ impl std::fmt::Display for EvictionPolicy {
 
 /// Cache entry type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum CacheEntryType {
     /// Compiled code cache
+    #[default]
     CompiledCode,
     /// IR block cache
     IRBlock,
@@ -99,11 +267,6 @@ pub enum CacheEntryType {
     Custom,
 }
 
-impl Default for CacheEntryType {
-    fn default() -> Self {
-        CacheEntryType::CompiledCode
-    }
-}
 
 impl std::fmt::Display for CacheEntryType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -141,10 +304,12 @@ pub struct CacheConfig {
 
 /// Cache warming strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum WarmupStrategy {
     /// No warmup
     None,
     /// Warmup on first access
+    #[default]
     Lazy,
     /// Warmup proactively
     Eager,
@@ -152,9 +317,15 @@ pub enum WarmupStrategy {
     Adaptive,
 }
 
-impl Default for WarmupStrategy {
-    fn default() -> Self {
-        WarmupStrategy::Lazy
+
+impl std::fmt::Display for WarmupStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WarmupStrategy::None => write!(f, "None"),
+            WarmupStrategy::Lazy => write!(f, "Lazy"),
+            WarmupStrategy::Eager => write!(f, "Eager"),
+            WarmupStrategy::Adaptive => write!(f, "Adaptive"),
+        }
     }
 }
 
@@ -539,16 +710,16 @@ impl CacheService {
         })?;
         
         // Check if entry exists
-        if let Some(entry) = cache_ctx.entries.get_mut(&entry_id) {
+        if let Some(entry) = cache_ctx.entries.get(&entry_id) {
             // Check if entry is valid
             if entry.is_valid() {
-                // Update access information
-                entry.update_access();
+                // Clone the data to return
+                let data = entry.data.clone();
                 
-                // Update statistics
+                // Update statistics (after entry is dropped)
                 cache_ctx.stats.hits += 1;
                 let access_time = start_time.elapsed().as_nanos() as u64;
-                cache_ctx.stats.avg_access_time_ns = 
+                cache_ctx.stats.avg_access_time_ns =
                     (cache_ctx.stats.avg_access_time_ns * (cache_ctx.stats.hits - 1) + access_time) / cache_ctx.stats.hits;
                 cache_ctx.stats.max_access_time_ns = cache_ctx.stats.max_access_time_ns.max(access_time);
                 if cache_ctx.stats.min_access_time_ns == 0 {
@@ -557,7 +728,7 @@ impl CacheService {
                     cache_ctx.stats.min_access_time_ns = cache_ctx.stats.min_access_time_ns.min(access_time);
                 }
                 
-                return Ok(entry.data.clone());
+                return Ok(data);
             } else {
                 // Entry is invalid, remove it
                 let entry_size = entry.metadata.size_bytes;
@@ -665,13 +836,13 @@ impl CacheService {
             EvictionPolicy::Random => {
                 use std::collections::hash_map::DefaultHasher;
                 use std::hash::{Hash, Hasher};
-                
+
                 // Randomly select entries to evict
                 let mut size_freed = 0;
                 let mut entries_freed = 0;
-                let mut rng_seed = std::time::SystemTime::now()
+                let rng_seed = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .map_err(|e| JITErrorBuilder::cache(format!("Failed to get RNG seed: {}", e)))?
                     .as_nanos() as u64;
                 
                 let mut entry_ids: Vec<_> = cache_ctx.entries.keys().cloned().collect();
@@ -918,14 +1089,17 @@ mod tests {
         
         // Store data
         let data = vec![1, 2, 3, 4, 5];
-        let entry_id = service.store(cache_id, CacheEntryType::CompiledCode, data.clone()).unwrap();
-        
+        let entry_id = service.store(cache_id, CacheEntryType::CompiledCode, data.clone())
+            .expect("Failed to store data in cache");
+
         // Retrieve data
-        let retrieved_data = service.retrieve(cache_id, entry_id).unwrap();
+        let retrieved_data = service.retrieve(cache_id, entry_id)
+            .expect("Failed to retrieve data from cache");
         assert_eq!(retrieved_data, data);
-        
+
         // Get stats
-        let stats = service.get_stats(cache_id).unwrap();
+        let stats = service.get_stats(cache_id)
+            .expect("Failed to get cache stats");
         assert_eq!(stats.hits, 1);
         assert_eq!(stats.misses, 0);
         

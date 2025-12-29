@@ -10,14 +10,16 @@ license = "MIT OR Apache-2.0"
 vm-core = { path = "../vm-core" }
 vm-monitor = { path = "../vm-monitor" }
 vm-interface = { path = "../vm-interface" }
-serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.48", features = ["full"] }
-async-trait = "0.1"
-num_cpus = "1.17"
-chrono = { version = "0.4", features = ["serde"] }
-parking_lot = "0.12"
-thiserror = "2.0"
+serde = { workspace = true }
+# vm-adaptive uses tokio for async operations and timers
+# Minimal features for async runtime, time, and macros
+tokio = { workspace = true }
+async-trait = { workspace = true }
+num_cpus = { workspace = true }
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
 tracing = "0.1"
 
 [dev-dependencies]
-tokio-test = "0.4"
+tokio-test = { workspace = true }

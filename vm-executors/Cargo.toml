@@ -1,0 +1,18 @@
+[package]
+name = "vm-executors"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vm-engine-jit = { path = "../vm-engine-jit" }
+vm-common = { path = "../vm-common" }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt-multi-thread", "macros", "time"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

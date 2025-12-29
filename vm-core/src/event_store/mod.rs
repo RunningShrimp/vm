@@ -3,15 +3,16 @@
 //! This module provides various event store implementations for VM system,
 //! including in-memory, file-based, and PostgreSQL-backed stores.
 
-use crate::domain_events::DomainEventEnum;
 use crate::{VmError, VmResult};
+use crate::domain_events::DomainEventEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
-pub mod postgres_event_store;
-pub mod file_event_store;
+// Temporarily disabled due to file corruption and async/sync mismatch
+// pub mod postgres_event_store;
+// pub mod file_event_store;
 pub mod compatibility;
 
 /// 存储的事件记录
@@ -207,15 +208,19 @@ impl EventStore for InMemoryEventStore {
 }
 
 // Re-export new implementations
-pub use postgres_event_store::{
-    PostgresEventStore, PostgresEventStoreConfig, PostgresEventStoreBuilder
-};
+// Temporarily disabled due to file corruption and async/sync mismatch
+// pub use postgres_event_store::{
+//     PostgresEventStore, PostgresEventStoreConfig, PostgresEventStoreBuilder
+// };
 
-pub use file_event_store::{
-    FileEventStore, FileEventStoreConfig, FileEventStoreBuilder
-};
+// pub use file_event_store::{
+//     FileEventStore, FileEventStoreConfig, FileEventStoreBuilder
+// };
 
 // Re-export compatibility adapters
-pub use compatibility::{
-    PostgresEventStoreAdapter, FileEventStoreAdapter, EnhancedStoredEvent
-};
+// pub use compatibility::{
+//     PostgresEventStoreAdapter, FileEventStoreAdapter, EnhancedStoredEvent
+// };
+// pub use compatibility::{
+//     FileEventStoreAdapter, EnhancedStoredEvent
+// };

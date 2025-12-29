@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-executor = { path = "../async-executor" }
-coroutine-scheduler = { path = "../coroutine-scheduler" }
+vm-executors = { path = "../vm-executors" }
 
 [dev-dependencies]

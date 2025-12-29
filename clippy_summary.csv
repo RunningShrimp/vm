@@ -1,0 +1,5 @@
+Package,Warnings,Auto-fixable,Most_Affected_File
+vm-engine-jit,27,24,tiered_cache.rs (8 warnings)
+vm-mem,31,7,tlb_flush.rs (15 warnings)
+vm-runtime,3,3,resources.rs (2 warnings)
+TOTAL,61,34,N/A

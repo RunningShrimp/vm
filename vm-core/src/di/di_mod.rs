@@ -112,7 +112,10 @@ impl ServiceLocator {
     
     /// 尝试获取服务
     pub fn try_get<T: 'static + Send + Sync>(&self) -> Option<Arc<T>> {
-        self.container.get_service::<T>().unwrap_or(None)
+        match self.container.get_service::<T>() {
+            Ok(service) => service,
+            Err(_) => None,
+        }
     }
     
     /// 获取容器引用
@@ -327,9 +330,9 @@ impl DIInfo {
                 "lazy-initialization",
             ],
             build_info: BuildInfo {
-                build_time: option_env!("BUILD_TIME").unwrap_or("unknown"),
-                rustc_version: option_env!("RUSTC_VERSION").unwrap_or("unknown"),
-                target_arch: option_env!("TARGET_ARCH").unwrap_or("unknown"),
+                build_time: option_env!("BUILD_TIME").unwrap_or_else(|| "unknown"),
+                rustc_version: option_env!("RUSTC_VERSION").unwrap_or_else(|| "unknown"),
+                target_arch: option_env!("TARGET_ARCH").unwrap_or_else(|| "unknown"),
             },
         }
     }
@@ -342,7 +345,10 @@ macro_rules! init_di_framework {
         use vm_core::di::prelude::*;
         
         // 创建默认容器
-        let container = create_default_container().expect("Failed to create DI container");
+        let container = match create_default_container() {
+            Ok(container) => container,
+            Err(e) => panic!("Failed to create DI container: {}", e),
+        };
         
         // 初始化全局服务定位器
         vm_core::di::global::init(std::sync::Arc::new(container));
@@ -352,7 +358,10 @@ macro_rules! init_di_framework {
         use vm_core::di::prelude::*;
         
         // 创建调试容器
-        let container = create_debug_container().expect("Failed to create DI container");
+        let container = match create_debug_container() {
+            Ok(container) => container,
+            Err(e) => panic!("Failed to create DI container: {}", e),
+        };
         
         // 初始化全局服务定位器
         vm_core::di::global::init(std::sync::Arc::new(container));
@@ -362,7 +371,10 @@ macro_rules! init_di_framework {
         use vm_core::di::prelude::*;
         
         // 创建高性能容器
-        let container = create_high_performance_container().expect("Failed to create DI container");
+        let container = match create_high_performance_container() {
+            Ok(container) => container,
+            Err(e) => panic!("Failed to create DI container: {}", e),
+        };
         
         // 初始化全局服务定位器
         vm_core::di::global::init(std::sync::Arc::new(container));

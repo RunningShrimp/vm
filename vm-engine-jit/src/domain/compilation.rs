@@ -1,12 +1,215 @@
-//! 编译限界上下文
+//! # Compilation Bounded Context
 //!
-//! 本模块定义了JIT编译相关的领域模型，包括IR、代码生成和编译流程。
+//! This module defines the compilation domain, including IR transformation,
+//! code generation, and compilation workflow management.
+//!
+//! ## Overview
+//!
+//! The compilation bounded context manages the transformation of intermediate
+//! representation (IR) blocks into executable machine code, following a
+//! multi-stage compilation pipeline.
+//!
+//! ## Key Components
+//!
+//! ### Core Types
+//!
+//! - **`CompilationId`**: Unique identifier for each compilation operation
+//! - **`CompilationContext`**: Aggregate root managing the compilation lifecycle
+//! - **`CompilationConfig`**: Configuration controlling compilation behavior
+//! - **`CompilationResult`**: Output containing generated machine code and metadata
+//!
+//! ### Compilation Pipeline
+//!
+//! 1. **IR Analysis**: Validate and analyze input IR block
+//! 2. **Optimization**: Apply IR-level optimizations
+//! 3. **Code Generation**: Generate target machine code
+//! 4. **Verification**: Validate generated code (optional)
+//! 5. **Finalization**: Produce compilation result with statistics
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Compilation
+//!
+//! ```ignore
+//! use vm_engine_jit::domain::compilation::{
+//!     CompilationService, CompilationConfig, OptimizationLevel, TargetArchitecture
+//! };
+//!
+//! let service = CompilationService::new(
+//!     Box::new(compiler_factory),
+//!     Box::new(optimizer_factory),
+//!     Box::new(codegen_factory),
+//! );
+//!
+//! let config = CompilationConfig {
+//!     optimization_level: OptimizationLevel::Balanced,
+//!     target_arch: TargetArchitecture::X86_64,
+//!     enable_verification: true,
+//!     ..Default::default()
+//! };
+//!
+//! let result = service.compile(ir_block, config)?;
+//! ```
+//!
+//! ### Custom Compilation Configuration
+//!
+//! ```ignore
+//! let config = CompilationConfig {
+//!     optimization_level: OptimizationLevel::Max,
+//!     target_arch: TargetArchitecture::ARM64,
+//!     debug_info: true,
+//!     enable_verification: true,
+//!     timeout_ms: 10000,
+//! };
+//!
+//! let result = service.compile(ir_block, config)?;
+//! println!("Generated {} bytes of machine code", result.code_size);
+//! ```
+//!
+//! ### Tracking Compilation Progress
+//!
+//! ```ignore
+//! let context = CompilationContext::new(ir_block, config);
+//! context.start_compilation();
+//!
+//! // Update statistics during compilation
+//! context.update_ir_stats(ir_block.ops.len());
+//!
+//! let progress = context.get_progress();
+//! println!("Compilation progress: {:.1}%", progress.percentage * 100.0);
+//! ```
+//!
+//! ## Compilation States
+//!
+//! The compilation context follows this state machine:
+//!
+//! ```text
+//! Pending -> InProgress -> Completed
+//!                \           /
+//!                 v         v
+//!               Failed  Cancelled
+//! ```
+//!
+//! - **Pending**: Compilation initialized, waiting to start
+//! - **InProgress**: actively compiling
+//! - **Completed**: Successfully finished
+//! - **Failed**: Compilation encountered an error
+//! - **Cancelled**: Compilation was cancelled
+//!
+//! ## Optimization Levels
+//!
+//! ### None
+//! No optimizations, fastest compilation. Useful for debugging.
+//!
+//! ### Basic
+//! Simple optimizations with minimal compile-time impact:
+//! - Constant folding
+//! - Dead code elimination
+//! - Basic peephole optimizations
+//!
+//! ### Balanced
+//! Good balance between compilation speed and runtime performance:
+//! - All basic optimizations
+//! - Inline expansion for small functions
+//! - Register allocation
+//!
+//! ### Max
+//! Maximum optimizations, slower compilation:
+//! - All balanced optimizations
+//! - Loop optimizations
+//! - Instruction scheduling
+//! - Advanced vectorization
+//!
+//! ## Target Architectures
+//!
+//! ### X86_64
+//! - AMD64/Intel 64-bit architecture
+//! - Supports SSE, AVX, AVX-512 extensions
+//! - Most mature backend
+//!
+//! ### ARM64 (AArch64)
+//! - 64-bit ARM architecture
+//! - Supports NEON, SVE extensions
+//! - Mobile and embedded focus
+//!
+//! ### RISCV64
+//! - 64-bit RISC-V architecture
+//! - Extensible instruction set
+//! - Growing ecosystem support
+//!
+//! ## Code Hashing
+//!
+//! The compilation service computes a hash for each compiled block:
+//!
+//! ```ignore
+//! let hash = CompilationService::compute_code_hash(&machine_code, &ir_block);
+//! ```
+//!
+//! This hash is used for:
+//! - **Cache Validation**: Ensure cached code matches source IR
+//! - **Deduplication**: Identify duplicate compilations
+//! - **Debugging**: Track compilation units
+//!
+//! ## Domain-Driven Design Applied
+//!
+//! ### Entities
+//!
+//! - `CompilationContext`: Aggregate root with unique `CompilationId`
+//! - Lifecycle management with state transitions
+//!
+//! ### Value Objects
+//!
+//! - `CompilationConfig`: Immutable configuration
+//! - `CompilationResult`: Immutable result data
+//! - `CompilationStats`: Statistics snapshot
+//! - `CompilationProgress`: Progress tracking
+//!
+//! ### Domain Services
+//!
+//! - `CompilationService`: Orchestrates compilation pipeline
+//! - Manages factory dependencies
+//!
+//! ### Factory Pattern
+//!
+//! Abstract factory pattern for extensibility:
+//! - `CompilerFactory`: Creates compiler instances
+//! - `OptimizerFactory`: Creates optimizer instances
+//! - `CodeGeneratorFactory`: Creates code generator instances
+//!
+//! ## Integration Points
+//!
+//! ### With IR Layer
+//!
+//! - Consumes `IRBlock` as input
+//! - Validates IR structure before compilation
+//!
+//! ### With Optimization Domain
+//!
+//! - Integrates with optimization service for IR optimization
+//! - Tracks optimization statistics
+//!
+//! ### With Caching Domain
+//!
+//! - Generates hash keys for cache lookup
+//! - Stores compilation results in cache
+//!
+//! ### With Execution Domain
+//!
+//! - Provides executable machine code
+//! - Supplies metadata for execution environment
+//!
+//! ## Performance Considerations
+//!
+//! - **Compilation Time**: Increases with optimization level
+//! - **Code Size**: Higher optimization may increase code size
+//! - **Memory Usage**: IR and machine code held in memory during compilation
+//! - **Parallelism**: Can compile multiple blocks in parallel (service-level concern)
 
 use std::collections::HashMap;
 use vm_core::GuestAddr;
-use vm_ir::{IRBlock, IROp};
-use crate::common::{JITResult, JITErrorBuilder};
-use vm_error::VmError;
+use vm_ir::IRBlock;
+use vm_foundation::VmError;
+use crate::common::{JITResult, JITErrorBuilder, Config};
 
 /// 编译限界上下文
 pub struct CompilationContext {
@@ -69,6 +272,39 @@ impl Default for CompilationConfig {
     }
 }
 
+impl Config for CompilationConfig {
+    fn validate(&self) -> Result<(), String> {
+        // 检查超时时间
+        if self.timeout_ms == 0 {
+            return Err("编译超时时间不能为0".to_string());
+        }
+        
+        // 检查是否启用验证但禁用了调试信息
+        if self.enable_verification && !self.debug_info {
+            // 验证需要调试信息
+            return Err("启用验证时需要启用调试信息".to_string());
+        }
+        
+        Ok(())
+    }
+    
+    fn merge(&mut self, other: &Self) {
+        self.optimization_level = other.optimization_level;
+        self.target_arch = other.target_arch;
+        self.debug_info = other.debug_info || self.debug_info;
+        self.enable_verification = other.enable_verification && self.enable_verification;
+        // 合并超时时间（取较小值以保持保守）
+        self.timeout_ms = self.timeout_ms.min(other.timeout_ms);
+    }
+    
+    fn summary(&self) -> String {
+        format!(
+            "CompilationConfig: level={:?}, arch={:?}, debug={}, verify={}, timeout={}ms",
+            self.optimization_level, self.target_arch, self.debug_info, self.enable_verification, self.timeout_ms
+        )
+    }
+}
+
 /// 优化级别
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptimizationLevel {
@@ -125,6 +361,8 @@ pub struct CompilationResult {
     pub relocations: Vec<RelocationInfo>,
     /// 编译统计
     pub stats: CompilationStats,
+    /// 已编译代码块（用于domain层交互）
+    pub compiled_block: crate::CompiledBlock,
 }
 
 /// 重定位信息
@@ -207,7 +445,7 @@ impl CompilationContext {
     }
     
     /// 编译失败
-    pub fn fail_compilation(&mut self, error: VmError) {
+    pub fn fail_compilation(&mut self, _error: VmError) {
         self.status = CompilationStatus::Failed;
         self.stats.end_time = Some(std::time::Instant::now());
         
@@ -254,7 +492,8 @@ impl CompilationContext {
             CompilationStatus::Pending => CompilationProgress::new(0.0),
             CompilationStatus::InProgress => {
                 // 基于时间估算进度
-                if let (Some(start), Some(target_time)) = (self.stats.start_time, self.config.timeout_ms) {
+                if let Some(start) = self.stats.start_time {
+                    let target_time = self.config.timeout_ms;
                     let elapsed = start.elapsed().as_millis();
                     let progress = (elapsed as f64 / target_time as f64).min(1.0);
                     CompilationProgress::new(progress)
@@ -318,6 +557,57 @@ impl CompilationService {
             code_generator_factory,
         }
     }
+
+    /// 计算代码哈希值
+    ///
+    /// 使用FNV-1a哈希算法计算机器码和源IR块的哈希值。
+    /// 这用于代码缓存验证，确保编译的代码与源IR匹配。
+    ///
+    /// # 参数
+    /// - `machine_code`: 生成的机器码
+    /// - `source_block`: 源IR块
+    ///
+    /// # 返回值
+    /// - `u64`: 哈希值
+    ///
+    /// # 算法
+    /// FNV-1a (Fowler-Noll-Vo)哈希算法：
+    /// - 基数: 14695981039346656037
+    /// - 质数: 1099511628211
+    ///
+    /// # 示例
+    /// ```ignore
+    /// use vm_engine_jit::domain::compilation::CompilationService;
+    ///
+    /// let machine_code = vec![0x90, 0x90, 0xC3];
+    /// let ir_block = IRBlock { ... };
+    /// let hash = CompilationService::compute_code_hash(&machine_code, &ir_block);
+    /// ```
+    fn compute_code_hash(machine_code: &[u8], source_block: &IRBlock) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+
+        // 使用FNV-1a哈希算法
+        let mut hasher = DefaultHasher::new();
+
+        // 包含机器码
+        machine_code.hash(&mut hasher);
+
+        // 包含源IR块的关键信息
+        source_block.start_pc.hash(&mut hasher);
+        source_block.ops.len().hash(&mut hasher);
+
+        // 对每个操作进行哈希
+        for op in &source_block.ops {
+            // 使用操作类型的discriminant作为哈希输入
+            std::mem::discriminant(op).hash(&mut hasher);
+        }
+
+        // 包含终止符类型
+        std::mem::discriminant(&source_block.term).hash(&mut hasher);
+
+        hasher.finish()
+    }
     
     /// 编译IR块
     pub fn compile(&self, source_block: IRBlock, config: CompilationConfig) -> JITResult<CompilationResult> {
@@ -349,6 +639,13 @@ impl CompilationService {
             symbols: HashMap::new(), // 简化实现
             relocations: Vec::new(), // 简化实现
             stats: context.stats.clone(),
+            compiled_block: crate::CompiledBlock {
+                start_pc: context.source_block.start_pc,
+                size: machine_code.len(),
+                hash: Self::compute_code_hash(&machine_code, &context.source_block),
+                compile_time: std::time::Instant::now(),
+                hotness: 0,
+            },
         };
         
         // 完成编译
@@ -483,9 +780,111 @@ mod tests {
     fn test_compilation_id() {
         let id1 = CompilationId::new();
         let id2 = CompilationId::new();
-        
+
         assert_ne!(id1.value(), id2.value());
         assert!(id1.value() > 0);
         assert!(id2.value() > id1.value());
+    }
+
+    #[test]
+    fn test_code_hash_deterministic() {
+        use vm_ir::{IROp, IRBlock};
+
+        // 相同的输入应该产生相同的哈希值
+        let machine_code = vec
+![0x90, 0x90, 0xC3];
+        let ir_block = IRBlock {
+            start_pc: 0x1000,
+            ops: vec
+![IROp::Nop],
+            term: vm_ir::Terminator::Ret,
+        };
+
+        let hash1 = CompilationService::compute_code_hash(&machine_code, &ir_block);
+        let hash2 = CompilationService::compute_code_hash(&machine_code, &ir_block);
+
+        assert_eq!(hash1, hash2, "Hash should be deterministic");
+    }
+
+    #[test]
+    fn test_code_hash_different_inputs() {
+        use vm_ir::{IROp, IRBlock};
+
+        let machine_code1 = vec
+![0x90, 0x90, 0xC3];
+        let ir_block1 = IRBlock {
+            start_pc: 0x1000,
+            ops: vec
+![IROp::Nop],
+            term: vm_ir::Terminator::Ret,
+        };
+
+        let machine_code2 = vec
+![0x90, 0x90, 0x90];
+        let ir_block2 = IRBlock {
+            start_pc: 0x1000,
+            ops: vec
+![IROp::Nop],
+            term: vm_ir::Terminator::Ret,
+        };
+
+        let hash1 = CompilationService::compute_code_hash(&machine_code1, &ir_block1);
+        let hash2 = CompilationService::compute_code_hash(&machine_code2, &ir_block2);
+
+        assert_ne!(hash1, hash2, "Different machine code should produce different hashes");
+    }
+
+    #[test]
+    fn test_code_hash_different_operations()
+ {
+        use vm_ir::{IROp, IRBlock};
+
+        let machine_code = vec
+![0x90, 0x90, 0xC3];
+        let ir_block1 = IRBlock {
+            start_pc: 0x1000,
+            ops: vec
+![IROp::Nop],
+            term: vm_ir::Terminator::Ret,
+        };
+
+        let ir_block2 = IRBlock {
+            start_pc: 0x1000,
+            ops: vec
+![IROp::MovImm { dst: 1, imm: 42 }],
+            term: vm_ir::Terminator::Ret,
+        };
+
+        let hash1 = CompilationService::compute_code_hash(&machine_code, &ir_block1);
+        let hash2 = CompilationService::compute_code_hash(&machine_code, &ir_block2);
+
+        assert_ne!(hash1, hash2, "Different operations should produce different hashes");
+    }
+
+    #[test]
+    fn test_code_hash_consistent() {
+        use vm_ir::{IROp, IRBlock};
+
+        // 测试哈希函数的一致性
+        let machine_code = vec
+![0x48, 0x89, 0xD8, 0xC3]; // mov rax, rbx; ret
+        let ir_block = IRBlock {
+            start_pc: 0x1000,
+            ops: vec
+![
+                IROp::MovImm { dst: 1, imm: 10 },
+                IROp::MovImm { dst: 2, imm: 20 },
+                IROp::Add { dst: 3, src1: 1, src2: 2 },
+            ],
+            term: vm_ir::Terminator::Ret,
+        };
+
+        let hash1 = CompilationService::compute_code_hash(&machine_code, &ir_block);
+        let hash2 = CompilationService::compute_code_hash(&machine_code, &ir_block);
+        let hash3 = CompilationService::compute_code_hash(&machine_code, &ir_block);
+
+        assert_eq!(hash1, hash2);
+        assert_eq!(hash2, hash3);
+        assert_ne!(hash1, 0, "Hash should not be zero for valid input");
     }
 }

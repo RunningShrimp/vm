@@ -8,14 +8,17 @@ vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-engine-interpreter = { path = "../vm-engine-interpreter" }
 vm-mem = { path = "../vm-mem" }
-vm-frontend-riscv64 = { path = "../vm-frontend-riscv64" }
-vm-frontend-arm64 = { path = "../vm-frontend-arm64" }
-vm-frontend-x86_64 = { path = "../vm-frontend-x86_64" }
+vm-frontend = { path = "../vm-frontend", features = ["all"] }
 vm-device = { path = "../vm-device" }
 vm-accel = { path = "../vm-accel" }
 vm-service = { path = "../vm-service" }
 parking_lot = "0.12.5"
-tokio = { version = "1", features = ["full"] }
+# vm-tests uses: rt-multi-thread (tokio::spawn in test_utils)
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[features]
+# All architectures enabled (recommended)
+all-arch = ["vm-frontend/all"]
 
 [dev-dependencies]
 tokio-test = "0.4"

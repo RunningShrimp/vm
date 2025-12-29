@@ -408,7 +408,7 @@ impl PerformanceAnalyzer {
                 .collect();
 
             let mut sorted = compile_times.clone();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
             analysis.insert(
                 "compile_time".to_string(),
@@ -418,11 +418,11 @@ impl PerformanceAnalyzer {
                     average_value: compile_times.iter().sum::<f64>() / compile_times.len() as f64,
                     max_value: *compile_times
                         .iter()
-                        .max_by(|a, b| a.partial_cmp(b).unwrap())
+                        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                         .unwrap_or(&0.0),
                     min_value: *compile_times
                         .iter()
-                        .min_by(|a, b| a.partial_cmp(b).unwrap())
+                        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                         .unwrap_or(&0.0),
                     percentiles: Percentiles {
                         p50: self.percentile(&sorted, 0.5),
@@ -444,7 +444,7 @@ impl PerformanceAnalyzer {
                 .collect();
 
             let mut sorted = exec_times.clone();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
             analysis.insert(
                 "execution_time".to_string(),
@@ -454,11 +454,11 @@ impl PerformanceAnalyzer {
                     average_value: exec_times.iter().sum::<f64>() / exec_times.len() as f64,
                     max_value: *exec_times
                         .iter()
-                        .max_by(|a, b| a.partial_cmp(b).unwrap())
+                        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                         .unwrap_or(&0.0),
                     min_value: *exec_times
                         .iter()
-                        .min_by(|a, b| a.partial_cmp(b).unwrap())
+                        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                         .unwrap_or(&0.0),
                     percentiles: Percentiles {
                         p50: self.percentile(&sorted, 0.5),
@@ -545,7 +545,7 @@ impl PerformanceAnalyzer {
             score -= 10.0;
         }
 
-        score.max(0.0_f64).min(100.0_f64)
+        score.clamp(0.0_f64, 100.0_f64)
     }
 
     /// 计算百分位数

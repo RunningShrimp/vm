@@ -169,10 +169,7 @@ impl NvidiaGpu {
 
     /// 启用 GPU 直通模式
     pub fn enable_passthrough_mode(&self) -> Result<(), PassthroughError> {
-        log::info!(
-            "Enabling NVIDIA GPU passthrough for {}",
-            self.address.to_string()
-        );
+        log::info!("Enabling NVIDIA GPU passthrough for {}", self.address);
 
         // 对于 NVIDIA GPU，需要隐藏虚拟化环境
         // 否则驱动会检测到并拒绝工作（Error 43）
@@ -278,10 +275,7 @@ impl AmdGpu {
 
     /// 启用 GPU 直通模式
     pub fn enable_passthrough_mode(&self) -> Result<(), PassthroughError> {
-        log::info!(
-            "Enabling AMD GPU passthrough for {}",
-            self.address.to_string()
-        );
+        log::info!("Enabling AMD GPU passthrough for {}", self.address);
 
         // AMD GPU 对虚拟化环境更友好
         log::info!("  - AMD GPU passthrough typically works without special configuration");
@@ -346,7 +340,7 @@ impl PassthroughGpuManager {
     pub fn print_gpus(&self) {
         println!("\n=== GPU Devices ===");
         for addr in self.gpus.keys() {
-            println!("GPU at {}", addr.to_string());
+            println!("GPU at {}", addr);
         }
     }
 }

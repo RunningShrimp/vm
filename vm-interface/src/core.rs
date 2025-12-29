@@ -1,6 +1,6 @@
 //! 核心trait定义
 
-use crate::{ComponentStatus, SubscriptionId, VmError};
+use crate::{ComponentStatus, StateEventCallback, SubscriptionId, VmError};
 use serde::{Deserialize, Serialize};
 
 /// VM组件基础trait，定义生命周期管理
@@ -51,7 +51,7 @@ pub trait Observable {
     /// 订阅状态变化
     fn subscribe(
         &mut self,
-        callback: Box<dyn Fn(&Self::State, &Self::Event) + Send + Sync>,
+        callback: StateEventCallback<Self::State, Self::Event>,
     ) -> SubscriptionId;
 
     /// 取消订阅
@@ -109,8 +109,8 @@ impl ComponentManager {
     pub fn get_component(
         &self,
         name: &str,
-    ) -> Option<&Box<dyn VmComponent<Config = serde_json::Value, Error = VmError>>> {
-        self.components.get(name)
+    ) -> Option<&dyn VmComponent<Config = serde_json::Value, Error = VmError>> {
+        self.components.get(name).map(|v| v.as_ref())
     }
 
     pub fn get_component_mut(

@@ -10,8 +10,8 @@
 use parking_lot::RwLock;
 /// 支持100+ 系统调用
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Syscall号定义 (x86_64)
 pub mod syscall_numbers {
@@ -319,7 +319,9 @@ impl SyscallRegistry {
     pub fn new() -> Self {
         let mut registry = Self {
             syscalls: Arc::new(RwLock::new(HashMap::new())),
-            param_validator: Arc::new(parking_lot::RwLock::new(Arc::new(DefaultSyscallParamValidator))),
+            param_validator: Arc::new(parking_lot::RwLock::new(Arc::new(
+                DefaultSyscallParamValidator,
+            ))),
             sequence_integrity: Arc::new(SyscallSequenceIntegrity::default()),
             call_counts: Arc::new(RwLock::new(HashMap::new())),
             failure_counts: Arc::new(RwLock::new(HashMap::new())),

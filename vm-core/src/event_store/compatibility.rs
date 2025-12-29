@@ -3,6 +3,8 @@
 //! This module provides compatibility adapters to make new event store implementations
 //! work with the existing EventStore trait interface.
 
+#![cfg(feature = "enhanced-event-sourcing")]
+
 use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -34,7 +36,7 @@ pub struct EnhancedStoredEvent {
 impl From<EnhancedStoredEvent> for LegacyStoredEvent {
     fn from(enhanced: EnhancedStoredEvent) -> Self {
         // Deserialize the event data to get the actual domain event
-        let event: DomainEventEnum = bincode::deserialize(&enhanced.event_data).unwrap()
+        let event: DomainEventEnum = bincode::deserialize(&enhanced.event_data)
             .unwrap_or_else(|_| {
                 // Fallback to a default event if deserialization fails
                 DomainEventEnum::VmLifecycle(crate::domain_events::VmLifecycleEvent::VmCreated {
@@ -57,7 +59,7 @@ impl From<EnhancedStoredEvent> for LegacyStoredEvent {
 impl From<LegacyStoredEvent> for EnhancedStoredEvent {
     fn from(legacy: LegacyStoredEvent) -> Self {
         // Serialize the domain event
-        let event_data = bincode::serialize(&legacy.event).unwrap()
+        let event_data = bincode::serialize(&legacy.event)
             .unwrap_or_default();
 
         Self {
@@ -72,12 +74,10 @@ impl From<LegacyStoredEvent> for EnhancedStoredEvent {
 }
 
 /// PostgreSQL event store adapter for compatibility with existing EventStore trait
-#[cfg(feature = "enhanced-event-sourcing")]
 pub struct PostgresEventStoreAdapter {
     inner: PostgresEventStore,
 }
 
-#[cfg(feature = "enhanced-event-sourcing")]
 impl PostgresEventStoreAdapter {
     /// Create a new adapter wrapping a PostgreSQL event store
     pub fn new(inner: PostgresEventStore) -> Self {
@@ -88,9 +88,26 @@ impl PostgresEventStoreAdapter {
     pub fn inner(&self) -> &PostgresEventStore {
         &self.inner
     }
+
+    /// Helper method to block on async operations, using Handle when available
+    fn block_on_async<F, R>(&self, f: F) -> VmResult<R>
+    where
+        F: std::future::Future<Output = VmResult<R>>,
+    {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle.block_on(f),
+            Err(_) => {
+                // Only create a new runtime if we're not already in a tokio context
+                tokio::runtime::Runtime::new()
+                    .map_err(|e| VmError::Core(CoreError::IoError {
+                        message: format!("Failed to create tokio runtime: {}", e),
+                    }))?
+                    .block_on(f)
+            }
+        }
+    }
 }
 
-#[cfg(feature = "enhanced-event-sourcing")]
 impl EventStore for PostgresEventStoreAdapter {
     fn append(
         &self,
@@ -106,13 +123,8 @@ impl EventStore for PostgresEventStoreAdapter {
             stored_at: std::time::SystemTime::now(),
         });
 
-        // Store using async runtime (blocking call for sync trait)
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        // Store using helper method
+        self.block_on_async(async {
             self.inner.store_events(vm_id, vec![enhanced]).await
         })?;
 
@@ -126,12 +138,7 @@ impl EventStore for PostgresEventStoreAdapter {
         from_sequence: Option<u64>,
         to_sequence: Option<u64>,
     ) -> VmResult<Vec<LegacyStoredEvent>> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        let enhanced_events = rt.block_on(async {
+        let enhanced_events = self.block_on_async(async {
             if let Some(to_seq) = to_sequence {
                 self.inner.get_events_range(vm_id, from_sequence.unwrap_or(0), to_seq).await
             } else {
@@ -154,45 +161,25 @@ impl EventStore for PostgresEventStoreAdapter {
     }
 
     fn get_last_sequence_number(&self, vm_id: &str) -> VmResult<u64> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             self.inner.get_last_sequence_number(vm_id).await
         }).map(|opt| opt.unwrap_or(0))
     }
 
     fn get_event_count(&self, vm_id: &str) -> VmResult<usize> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             self.inner.get_event_count(vm_id).await
         }).map(|count| count as usize)
     }
 
     fn list_vm_ids(&self) -> VmResult<Vec<String>> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             self.inner.list_vms().await
         })
     }
 
     fn delete_events(&self, vm_id: &str) -> VmResult<()> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             // Get current event count to determine deletion range
             let event_count = self.inner.get_event_count(vm_id).await?;
             if event_count > 0 {
@@ -206,12 +193,10 @@ impl EventStore for PostgresEventStoreAdapter {
 }
 
 /// File event store adapter for compatibility with existing EventStore trait
-#[cfg(feature = "enhanced-event-sourcing")]
 pub struct FileEventStoreAdapter {
     inner: FileEventStore,
 }
 
-#[cfg(feature = "enhanced-event-sourcing")]
 impl FileEventStoreAdapter {
     /// Create a new adapter wrapping a file event store
     pub fn new(inner: FileEventStore) -> Self {
@@ -222,9 +207,26 @@ impl FileEventStoreAdapter {
     pub fn inner(&self) -> &FileEventStore {
         &self.inner
     }
+
+    /// Helper method to block on async operations, using Handle when available
+    fn block_on_async<F, R>(&self, f: F) -> VmResult<R>
+    where
+        F: std::future::Future<Output = VmResult<R>>,
+    {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle.block_on(f),
+            Err(_) => {
+                // Only create a new runtime if we're not already in a tokio context
+                tokio::runtime::Runtime::new()
+                    .map_err(|e| VmError::Core(CoreError::IoError {
+                        message: format!("Failed to create tokio runtime: {}", e),
+                    }))?
+                    .block_on(f)
+            }
+        }
+    }
 }
 
-#[cfg(feature = "enhanced-event-sourcing")]
 impl EventStore for FileEventStoreAdapter {
     fn append(
         &self,
@@ -240,13 +242,8 @@ impl EventStore for FileEventStoreAdapter {
             stored_at: std::time::SystemTime::now(),
         });
 
-        // Store using async runtime (blocking call for sync trait)
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        // Store using helper method
+        self.block_on_async(async {
             self.inner.store_events(vm_id, vec![enhanced]).await
         })?;
 
@@ -260,12 +257,7 @@ impl EventStore for FileEventStoreAdapter {
         from_sequence: Option<u64>,
         to_sequence: Option<u64>,
     ) -> VmResult<Vec<LegacyStoredEvent>> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        let enhanced_events = rt.block_on(async {
+        let enhanced_events = self.block_on_async(async {
             if let Some(to_seq) = to_sequence {
                 self.inner.get_events_range(vm_id, from_sequence.unwrap_or(0), to_seq).await
             } else {
@@ -288,45 +280,25 @@ impl EventStore for FileEventStoreAdapter {
     }
 
     fn get_last_sequence_number(&self, vm_id: &str) -> VmResult<u64> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             self.inner.get_last_sequence_number(vm_id).await
         }).map(|opt| opt.unwrap_or(0))
     }
 
     fn get_event_count(&self, vm_id: &str) -> VmResult<usize> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             self.inner.get_event_count(vm_id).await
         }).map(|count| count as usize)
     }
 
     fn list_vm_ids(&self) -> VmResult<Vec<String>> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             self.inner.list_vms().await
         })
     }
 
     fn delete_events(&self, vm_id: &str) -> VmResult<()> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| VmError::Core(CoreError::IoError {
-                message: format!("Failed to create tokio runtime: {}", e),
-            }))?;
-
-        rt.block_on(async {
+        self.block_on_async(async {
             // Get current event count to determine deletion range
             let event_count = self.inner.get_event_count(vm_id).await?;
             if event_count > 0 {
@@ -357,7 +329,7 @@ mod tests {
                     config: crate::domain_events::VmConfigSnapshot::default(),
                     occurred_at: std::time::SystemTime::now(),
                 }
-            )).unwrap(),
+            )).unwrap_or_default(),
             metadata: "test_vm".to_string(),
             occurred_at: Utc::now(),
         };

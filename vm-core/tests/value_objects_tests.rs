@@ -1,6 +1,6 @@
 //! 值对象单元测试
 
-use vm_core::{GuestAddr, MemorySize, VmId, VcpuCount, PortNumber, DeviceId};
+use vm_core::{DeviceId, GuestAddr, MemorySize, PortNumber, VcpuCount, VmId};
 
 #[test]
 fn test_guest_addr_creation() {

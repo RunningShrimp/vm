@@ -26,8 +26,12 @@ impl RegisterMapper {
         let mut mapping = vec![None; source_regs];
 
         // 建立基本映射关系
-        for i in 0..source_regs.min(target_regs) {
-            mapping[i] = Some(i as RegId);
+        for (i, mapping_entry) in mapping
+            .iter_mut()
+            .enumerate()
+            .take(source_regs.min(target_regs))
+        {
+            *mapping_entry = Some(i as RegId);
         }
 
         // 初始化临时寄存器池（使用高编号寄存器）
@@ -76,6 +80,15 @@ impl RegisterMapper {
         self.next_temp = 0;
     }
 
+    /// 重置寄存器映射器
+    pub fn reset(&mut self) {
+        self.next_temp = 0;
+        // Reset all mappings to identity
+        for (i, mapping_entry) in self.mapping.iter_mut().enumerate() {
+            *mapping_entry = Some(i as RegId);
+        }
+    }
+
     /// 设置自定义寄存器映射
     pub fn set_mapping(&mut self, source_reg: RegId, target_reg: RegId) {
         let source_idx = source_reg as usize;
@@ -83,6 +96,32 @@ impl RegisterMapper {
             self.mapping[source_idx] = Some(target_reg);
         }
     }
+
+    /// 从活跃范围分配寄存器
+    pub fn allocate_registers_from_liveranges(
+        &mut self,
+        _live_ranges: &[(vm_ir::RegId, (usize, usize))],
+    ) -> Result<(), String> {
+        // Simplified implementation - just return Ok
+        // In a full implementation, this would analyze live ranges
+        // and allocate registers to minimize spills
+        Ok(())
+    }
+
+    /// 获取映射统计信息
+    pub fn get_stats(&self) -> MappingStats {
+        MappingStats {
+            total_mappings: self.mapping.iter().filter(|m| m.is_some()).count(),
+            temp_allocations: self.next_temp,
+        }
+    }
+}
+
+/// 寄存器映射统计信息
+#[derive(Debug, Clone)]
+pub struct MappingStats {
+    pub total_mappings: usize,
+    pub temp_allocations: usize,
 }
 
 /// 寄存器映射配置

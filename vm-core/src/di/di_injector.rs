@@ -93,6 +93,20 @@ impl DependencyInjector {
             type_info_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
     }
+
+    /// Helper method to acquire read lock
+    fn lock_read(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<TypeId, TypeInfo>>, DIError> {
+        self.type_info_cache.read().map_err(|e| {
+            DIError::ServiceCreationFailed(format!("Failed to acquire read lock: {}", e))
+        })
+    }
+
+    /// Helper method to acquire write lock
+    fn lock_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<TypeId, TypeInfo>>, DIError> {
+        self.type_info_cache.write().map_err(|e| {
+            DIError::ServiceCreationFailed(format!("Failed to acquire write lock: {}", e))
+        })
+    }
     
     /// 注入依赖到目标对象
     pub fn inject_into<T: 'static + Send + Sync>(
@@ -157,21 +171,21 @@ impl DependencyInjector {
     /// 获取类型信息
     fn get_type_info(&self, type_id: TypeId) -> Result<TypeInfo, DIError> {
         {
-            let cache = self.type_info_cache.read().unwrap();
+            let cache = self.lock_read()?;
             if let Some(info) = cache.get(&type_id) {
                 return Ok(info.clone());
             }
         }
-        
+
         // 这里应该使用反射来获取类型信息
         // 由于Rust没有内置反射，我们使用默认实现
         let info = self.extract_type_info(type_id)?;
-        
+
         {
-            let mut cache = self.type_info_cache.write().unwrap();
+            let mut cache = self.lock_write()?;
             cache.insert(type_id, info.clone());
         }
-        
+
         Ok(info)
     }
     
@@ -299,23 +313,37 @@ impl DependencyInjector {
     
     /// 注册类型信息
     pub fn register_type_info(&self, type_info: TypeInfo) {
-        let mut cache = self.type_info_cache.write().unwrap();
-        cache.insert(type_info.type_id, type_info);
+        if let Ok(mut cache) = self.lock_write() {
+            cache.insert(type_info.type_id, type_info);
+        }
     }
-    
+
     /// 清除类型信息缓存
     pub fn clear_cache(&self) {
-        let mut cache = self.type_info_cache.write().unwrap();
-        cache.clear();
+        if let Ok(mut cache) = self.lock_write() {
+            cache.clear();
+        }
     }
     
     /// 获取注入器统计信息
     pub fn stats(&self) -> InjectorStats {
-        let cache = self.type_info_cache.read().unwrap();
+        let cache = match self.lock_read() {
+            Ok(cache) => cache,
+            Err(_) => {
+                return InjectorStats {
+                    total_types: 0,
+                    total_properties: 0,
+                    total_methods: 0,
+                    average_properties: 0.0,
+                    average_methods: 0.0,
+                }
+            }
+        };
+
         let total_types = cache.len();
         let total_properties = cache.values().map(|info| info.injectable_properties.len()).sum();
         let total_methods = cache.values().map(|info| info.injectable_methods.len()).sum();
-        
+
         InjectorStats {
             total_types,
             total_properties,

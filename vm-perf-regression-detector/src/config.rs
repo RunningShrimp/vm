@@ -56,9 +56,10 @@ pub struct ReportConfig {
 }
 
 /// 检测算法类型
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum DetectionAlgorithm {
     /// Z-score检测
+    #[default]
     ZScore,
     /// T-test检测
     TTest,
@@ -71,9 +72,10 @@ pub enum DetectionAlgorithm {
 }
 
 /// 报告格式
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ReportFormat {
     /// 文本格式
+    #[default]
     Text,
     /// JSON格式
     Json,
@@ -86,36 +88,48 @@ pub enum ReportFormat {
 impl Default for RegressionDetectorConfig {
     fn default() -> Self {
         let mut metric_thresholds = HashMap::new();
-        
+
         // 默认指标阈值
-        metric_thresholds.insert("execution_time".to_string(), MetricThreshold {
-            warning_threshold: 10.0,  // 10%警告
-            error_threshold: 25.0,    // 25%错误
-            min_samples: 5,
-            enabled: true,
-        });
-        
-        metric_thresholds.insert("memory_usage".to_string(), MetricThreshold {
-            warning_threshold: 15.0,  // 15%警告
-            error_threshold: 30.0,    // 30%错误
-            min_samples: 5,
-            enabled: true,
-        });
-        
-        metric_thresholds.insert("jit_compilation_time".to_string(), MetricThreshold {
-            warning_threshold: 20.0,  // 20%警告
-            error_threshold: 40.0,    // 40%错误
-            min_samples: 3,
-            enabled: true,
-        });
-        
-        metric_thresholds.insert("instruction_throughput".to_string(), MetricThreshold {
-            warning_threshold: -10.0, // -10%警告（下降）
-            error_threshold: -20.0,   // -20%错误（下降）
-            min_samples: 5,
-            enabled: true,
-        });
-        
+        metric_thresholds.insert(
+            "execution_time".to_string(),
+            MetricThreshold {
+                warning_threshold: 10.0, // 10%警告
+                error_threshold: 25.0,   // 25%错误
+                min_samples: 5,
+                enabled: true,
+            },
+        );
+
+        metric_thresholds.insert(
+            "memory_usage".to_string(),
+            MetricThreshold {
+                warning_threshold: 15.0, // 15%警告
+                error_threshold: 30.0,   // 30%错误
+                min_samples: 5,
+                enabled: true,
+            },
+        );
+
+        metric_thresholds.insert(
+            "jit_compilation_time".to_string(),
+            MetricThreshold {
+                warning_threshold: 20.0, // 20%警告
+                error_threshold: 40.0,   // 40%错误
+                min_samples: 3,
+                enabled: true,
+            },
+        );
+
+        metric_thresholds.insert(
+            "instruction_throughput".to_string(),
+            MetricThreshold {
+                warning_threshold: -10.0, // -10%警告（下降）
+                error_threshold: -20.0,   // -20%错误（下降）
+                min_samples: 5,
+                enabled: true,
+            },
+        );
+
         Self {
             database_path: "performance_data.db".to_string(),
             metric_thresholds,
@@ -132,18 +146,6 @@ impl Default for RegressionDetectorConfig {
                 charts_path: "charts".to_string(),
             },
         }
-    }
-}
-
-impl Default for DetectionAlgorithm {
-    fn default() -> Self {
-        Self::ZScore
-    }
-}
-
-impl Default for ReportFormat {
-    fn default() -> Self {
-        Self::Text
     }
 }
 

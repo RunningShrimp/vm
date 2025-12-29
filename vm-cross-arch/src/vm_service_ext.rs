@@ -68,7 +68,8 @@ mod tests {
 
     #[test]
     fn test_auto_vm_config() {
-        let (config, cross_config) = create_auto_vm_config(GuestArch::X86_64, None).unwrap();
+        let (config, cross_config) = create_auto_vm_config(GuestArch::X86_64, None)
+            .expect("Failed to create auto VM config");
 
         println!(
             "VM Config: guest_arch={:?}, exec_mode={:?}",

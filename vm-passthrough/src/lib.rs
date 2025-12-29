@@ -29,28 +29,39 @@ impl PciAddress {
             function,
         }
     }
+}
 
-    /// 从字符串解析 PCI 地址 (例如: "0000:01:00.0")
-    pub fn from_str(s: &str) -> Result<Self, PassthroughError> {
+impl std::fmt::Display for PciAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:04x}:{:02x}:{:02x}.{}",
+            self.domain, self.bus, self.device, self.function
+        )
+    }
+}
+
+impl std::str::FromStr for PciAddress {
+    type Err = PassthroughError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() != 3 {
             return Err(PassthroughError::InvalidAddress(s.to_string()));
         }
 
-        let domain = u16::from_str_radix(parts[0], 16)
-            .map_err(|_| PassthroughError::InvalidAddress(s.to_string()))?;
-        let bus = u8::from_str_radix(parts[1], 16)
-            .map_err(|_| PassthroughError::InvalidAddress(s.to_string()))?;
+        let domain = u16::from_str_radix(parts[0], 16).map_err(|_| PassthroughError::ParseError)?;
+        let bus = u8::from_str_radix(parts[1], 16).map_err(|_| PassthroughError::ParseError)?;
 
         let dev_func: Vec<&str> = parts[2].split('.').collect();
         if dev_func.len() != 2 {
             return Err(PassthroughError::InvalidAddress(s.to_string()));
         }
 
-        let device = u8::from_str_radix(dev_func[0], 16)
-            .map_err(|_| PassthroughError::InvalidAddress(s.to_string()))?;
-        let function = u8::from_str_radix(dev_func[1], 16)
-            .map_err(|_| PassthroughError::InvalidAddress(s.to_string()))?;
+        let device =
+            u8::from_str_radix(dev_func[0], 16).map_err(|_| PassthroughError::ParseError)?;
+        let function =
+            u8::from_str_radix(dev_func[1], 16).map_err(|_| PassthroughError::ParseError)?;
 
         Ok(Self {
             domain,
@@ -58,14 +69,6 @@ impl PciAddress {
             device,
             function,
         })
-    }
-
-    /// 转换为字符串表示
-    pub fn to_string(&self) -> String {
-        format!(
-            "{:04x}:{:02x}:{:02x}.{}",
-            self.domain, self.bus, self.device, self.function
-        )
     }
 }
 
@@ -111,6 +114,10 @@ pub enum PassthroughError {
     DriverBindingFailed(String),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Parse error")]
+    ParseError,
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 /// 硬件直通管理器
@@ -264,7 +271,7 @@ impl PassthroughManager {
 
         device.prepare_passthrough()?;
         self.attached_devices.insert(address, device);
-        log::info!("Attached device {} to VM", address.to_string());
+        log::info!("Attached device {} to VM", address);
         Ok(())
     }
 
@@ -272,7 +279,7 @@ impl PassthroughManager {
     pub fn detach_device(&mut self, address: PciAddress) -> Result<(), PassthroughError> {
         if let Some(device) = self.attached_devices.remove(&address) {
             device.cleanup_passthrough()?;
-            log::info!("Detached device {} from VM", address.to_string());
+            log::info!("Detached device {} from VM", address);
         }
         Ok(())
     }
@@ -284,11 +291,7 @@ impl PassthroughManager {
             let dev_type = self.classify_device(info);
             println!(
                 "{} - {:04x}:{:04x} - {:?} - {}",
-                addr.to_string(),
-                info.vendor_id,
-                info.device_id,
-                dev_type,
-                info.name
+                addr, info.vendor_id, info.device_id, dev_type, info.name
             );
         }
     }
@@ -315,6 +318,7 @@ pub trait PassthroughDevice: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn test_pci_address_parsing() {

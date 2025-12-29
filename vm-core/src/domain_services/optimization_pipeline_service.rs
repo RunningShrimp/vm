@@ -1,7 +1,179 @@
-//! Optimization Pipeline Domain Service
-//! 
+//! # Optimization Pipeline Domain Service
+//!
 //! This service manages multi-stage optimization pipelines for cross-architecture translation.
 //! It coordinates different optimization stages and ensures proper sequencing of optimizations.
+//!
+//! ## Domain Responsibilities
+//!
+//! The optimization pipeline service is responsible for:
+//!
+//! 1. **Pipeline Configuration**: Defining and validating optimization pipeline stages
+//! 2. **Stage Orchestration**: Coordinating the execution of optimization stages
+//! 3. **Performance Validation**: Ensuring performance requirements are met
+//! 4. **Progress Tracking**: Monitoring pipeline execution and collecting metrics
+//!
+//! ## DDD Patterns
+//!
+//! ### Domain Service Pattern
+//! This is a **Domain Service** because:
+//! - It orchestrates multiple optimization stages (different aggregates)
+//! - It enforces business rules for pipeline configuration
+//! - It coordinates between translation, optimization, and code generation
+//!
+//! ### Domain Events Published
+//!
+//! - **`OptimizationEvent::PipelineConfigCreated`**: Published when pipeline configuration is created
+//! - **`OptimizationEvent::StageCompleted`**: Published when each optimization stage completes
+//! - **`OptimizationEvent::PipelineCompleted`**: Published when the entire pipeline completes
+//!
+//! ## Pipeline Stages
+//!
+//! The optimization pipeline consists of the following stages (in order):
+//!
+//! 1. **IR Generation** (`IrGeneration`): Generate intermediate representation
+//! 2. **Basic Block Optimization** (`BasicBlockOptimization`): Optimize basic blocks
+//! 3. **Register Allocation** (`RegisterAllocation`): Allocate virtual registers to physical registers
+//! 4. **Instruction Scheduling** (`InstructionScheduling`): Reorder instructions for optimal execution
+//! 5. **Target Optimization** (`TargetOptimization`): Apply target-specific optimizations
+//! 6. **Code Generation** (`CodeGeneration`): Generate target machine code
+//!
+//! ## Usage Examples
+//!
+//! ### Creating a Pipeline Configuration
+//!
+//! ```rust
+//! use crate::domain_services::optimization_pipeline_service::{
+//!     OptimizationPipelineService, OptimizationPipelineConfig,
+//!     PerformanceRequirements, OptimizationPriority
+//! };
+//! use crate::GuestArch;
+//!
+//! let config = OptimizationPipelineConfig::new(
+//!     GuestArch::X86_64,
+//!     GuestArch::ARM64,
+//!     2,  // optimization level
+//! );
+//!
+//! let service = OptimizationPipelineService::new(config.clone());
+//! ```
+//!
+//! ### Executing a Pipeline
+//!
+//! ```rust
+//! let result = service.execute_pipeline(
+//!     &ir_code,
+//!     &performance_requirements,
+//!     &business_rules,
+//! )?;
+//!
+//! if result.success {
+//!     println!("Pipeline completed in {}ms", result.total_time_ms);
+//!     println!("Stages completed: {}", result.completed_stages.len());
+//!
+//!     for (stage, time) in &result.stage_times {
+//!         println!("  {}: {}ms", stage.name(), time);
+//!     }
+//! }
+//! ```
+//!
+//! ### Customizing Pipeline Stages
+//!
+//! ```rust
+//! let mut config = OptimizationPipelineConfig::new(
+//!     GuestArch::X86_64,
+//!     GuestArch::ARM64,
+//!     2,
+//! );
+//!
+//! // Disable instruction scheduling for faster compilation
+//! config.enabled_stages.retain(|s| s != &OptimizationStage::InstructionScheduling);
+//!
+//! // Adjust optimization level
+//! config.optimization_level = 1;  // Basic optimization
+//! ```
+//!
+//! ### Performance Requirements
+//!
+//! ```rust
+//! use std::time::Duration;
+//!
+//! let requirements = PerformanceRequirements {
+//!     max_compilation_time: Some(Duration::from_secs(5)),
+//!     max_memory_usage: Some(1024 * 1024 * 1024),  // 1GB
+//!     target_throughput: Some(1000.0),  // instructions/ms
+//!     optimization_priority: OptimizationPriority::Speed,
+//! };
+//!
+//! config.performance_requirements = requirements;
+//! ```
+//!
+//! ## Pipeline Execution Flow
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────┐
+//! │          Optimization Pipeline Execution                 │
+//! └─────────────────────────────────────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │  Validate Configuration  │
+//!              └─────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │    IR Generation        │
+//!              └─────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │  Basic Block Opt        │
+//!              └─────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │   Register Allocation   │
+//!              └─────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │  Instruction Scheduling │
+//!              └─────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │  Target Optimization    │
+//!              └─────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │     Code Generation     │
+//!              └─────────────────────────┘
+//!                            │
+//!                            ▼
+//!              ┌─────────────────────────┐
+//!              │   Performance Check     │
+//!              └─────────────────────────┘
+//!                            │
+//!                    ┌──────┴──────┐
+//!                    ▼             ▼
+//!                Success         Failure
+//! ```
+//!
+//! ## Optimization Levels
+//!
+//! | Level | Description | Stages Enabled |
+//! |-------|-------------|----------------|
+//! | 0 | No optimization | IR Generation, Code Generation |
+//! | 1 | Basic optimization | Level 0 + Basic Block Optimization |
+//! | 2 | Standard optimization | Level 1 + Register Allocation |
+//! | 3 | Aggressive optimization | Level 2 + Instruction Scheduling, Target Optimization |
+//!
+//! ## Integration with Aggregate Roots
+//!
+//! This service works with:
+//! - **`VirtualMachineAggregate`**: VM-level optimization coordination
+//! - **`TranslationAggregate`**: Cross-architecture translation
+//! - **`CodeBlockAggregate`**: Code block optimization
 
 use crate::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
 use crate::{VmError, VmResult};
@@ -704,7 +876,7 @@ mod tests {
             crate::GuestArch::ARM64,
             2,
             perf_req,
-        ).unwrap();
+        ).expect("Failed to create pipeline config");
         
         assert_eq!(config.source_arch, crate::GuestArch::X86_64);
         assert_eq!(config.target_arch, crate::GuestArch::ARM64);
@@ -749,7 +921,7 @@ mod tests {
             crate::GuestArch::ARM64,
             2,
             perf_req,
-        ).unwrap();
+        ).expect("Failed to create pipeline config");
         
         let mut aggregate = VirtualMachineAggregate::new(
             "test-vm".to_string(),
@@ -757,7 +929,7 @@ mod tests {
             1024 * 1024 * 1024, // 1GB
         );
         
-        let result = service.execute_pipeline(&config, &mut aggregate).unwrap();
+        let result = service.execute_pipeline(&config, &mut aggregate).expect("Failed to execute pipeline");
         
         assert!(result.success);
         assert_eq!(result.completed_stages.len(), 4);
@@ -780,7 +952,7 @@ mod tests {
             crate::GuestArch::ARM64,
             3, // Highest optimization level
             perf_req,
-        ).unwrap();
+        ).expect("Failed to create pipeline config with high optimization level");
         
         let mut aggregate = VirtualMachineAggregate::new(
             "test-vm".to_string(),
@@ -788,7 +960,7 @@ mod tests {
             1024 * 1024 * 1024,
         );
         
-        let result = service.execute_pipeline(&config, &mut aggregate).unwrap();
+        let result = service.execute_pipeline(&config, &mut aggregate).expect("Failed to execute pipeline");
         
         // Pipeline should stop early due to time constraint
         assert!(!result.success || result.completed_stages.len() < 6);
@@ -831,7 +1003,7 @@ mod tests {
             crate::GuestArch::ARM64,
             1,
             perf_req,
-        ).unwrap();
+        ).expect("Failed to create pipeline config with optimization level 1");
         
         let mut aggregate = VirtualMachineAggregate::new(
             "test-vm".to_string(),
@@ -839,7 +1011,7 @@ mod tests {
             1024 * 1024 * 1024,
         );
         
-        let result = service.execute_pipeline(&config, &mut aggregate).unwrap();
+        let result = service.execute_pipeline(&config, &mut aggregate).expect("Failed to execute pipeline");
         
         assert!(result.success);
         assert!(event_bus.published_events().len() > 0);

@@ -1,12 +1,12 @@
 //! 性能指标收集器
 
+use anyhow;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
-use serde::{Deserialize, Serialize};
 use vm_core::GuestArch;
 use vm_cross_arch::UnifiedExecutor;
-use chrono::Utc;
-use anyhow;
 
 /// 性能指标收集器
 pub struct PerformanceCollector {
@@ -93,7 +93,9 @@ impl PerformanceCollector {
 
     /// 收集性能指标（不依赖执行器）
     pub fn collect_metrics(&mut self) -> anyhow::Result<PerformanceMetrics> {
-        let start_time = self.start_time.ok_or_else(|| anyhow::anyhow!("Collection not started"))?;
+        let start_time = self
+            .start_time
+            .ok_or_else(|| anyhow::anyhow!("Collection not started"))?;
         let elapsed = start_time.elapsed();
 
         // 将metrics的Vec<f64>转换为f64（取平均值）
@@ -108,11 +110,11 @@ impl PerformanceCollector {
         let metrics = PerformanceMetrics {
             context: self.context.clone(),
             execution_time_us: elapsed.as_micros() as u64,
-            jit_compilation_time_us: 0, // 模拟值
-            memory_usage_bytes: 0, // 模拟值
-            instructions_translated: 0, // 模拟值
+            jit_compilation_time_us: 0,  // 模拟值
+            memory_usage_bytes: 0,       // 模拟值
+            instructions_translated: 0,  // 模拟值
             instruction_throughput: 0.0, // 模拟值
-            cache_hit_rate: 0.0, // 模拟值
+            cache_hit_rate: 0.0,         // 模拟值
             custom_metrics,
             timestamp: Utc::now(),
         };
@@ -122,13 +124,18 @@ impl PerformanceCollector {
 
     /// 记录指标值
     pub fn record_metric(&mut self, name: &str, value: f64) {
-        let metrics = self.metrics.entry(name.to_string()).or_insert_with(Vec::new);
+        let metrics = self.metrics.entry(name.to_string()).or_default();
         metrics.push(value);
     }
 
     /// 从执行器收集性能指标
-    pub fn collect_from_executor(&mut self, executor: &UnifiedExecutor) -> anyhow::Result<PerformanceMetrics> {
-        let start_time = self.start_time.ok_or_else(|| anyhow::anyhow!("Collection not started"))?;
+    pub fn collect_from_executor(
+        &mut self,
+        executor: &UnifiedExecutor,
+    ) -> anyhow::Result<PerformanceMetrics> {
+        let start_time = self
+            .start_time
+            .ok_or_else(|| anyhow::anyhow!("Collection not started"))?;
         let elapsed = start_time.elapsed();
 
         // 获取执行器统计信息
@@ -212,10 +219,10 @@ mod tests {
     use vm_core::GuestArch;
 
     #[test]
-    fn test_performance_collector() {
+    fn test_performance_collector() -> anyhow::Result<()> {
         let context = TestContext {
             src_arch: GuestArch::X86_64,
-            dst_arch: GuestArch::ARM64,
+            dst_arch: GuestArch::Arm64,
             test_name: "test_translation".to_string(),
             version: "1.0.0".to_string(),
             environment: PerformanceCollector::collect_environment_info(),
@@ -225,14 +232,19 @@ mod tests {
         collector.start_collection();
         collector.record_metric("custom_metric", 42.0);
 
-        assert_eq!(collector.metrics.get("custom_metric").unwrap(), &vec![42.0]);
+        let metric_value = collector
+            .metrics
+            .get("custom_metric")
+            .ok_or_else(|| anyhow::anyhow!("Metric 'custom_metric' not found"))?;
+        assert_eq!(metric_value, &vec![42.0]);
         assert!(collector.start_time.is_some());
+        Ok(())
     }
 
     #[test]
     fn test_environment_info() {
         let env = PerformanceCollector::collect_environment_info();
-        
+
         assert!(env.cpu_cores > 0);
         assert!(env.memory_mb > 0);
         assert!(!env.os.is_empty());

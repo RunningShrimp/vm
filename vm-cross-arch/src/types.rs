@@ -1,6 +1,7 @@
 use std::fmt;
-use vm_encoder::Architecture;
 use vm_core::error::{CoreError, VmError};
+use vm_cross_arch_support::encoding::{Architecture, EncodingError};
+use vm_cross_arch_support::register::RegisterError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SourceArch {
@@ -15,6 +16,18 @@ impl From<SourceArch> for Architecture {
             SourceArch::X86_64 => Architecture::X86_64,
             SourceArch::ARM64 => Architecture::ARM64,
             SourceArch::RISCV64 => Architecture::RISCV64,
+        }
+    }
+}
+
+impl TryFrom<Architecture> for SourceArch {
+    type Error = ();
+
+    fn try_from(arch: Architecture) -> Result<Self, Self::Error> {
+        match arch {
+            Architecture::X86_64 => Ok(SourceArch::X86_64),
+            Architecture::ARM64 => Ok(SourceArch::ARM64),
+            Architecture::RISCV64 => Ok(SourceArch::RISCV64),
         }
     }
 }
@@ -42,6 +55,18 @@ impl From<TargetArch> for Architecture {
             TargetArch::X86_64 => Architecture::X86_64,
             TargetArch::ARM64 => Architecture::ARM64,
             TargetArch::RISCV64 => Architecture::RISCV64,
+        }
+    }
+}
+
+impl TryFrom<Architecture> for TargetArch {
+    type Error = ();
+
+    fn try_from(arch: Architecture) -> Result<Self, Self::Error> {
+        match arch {
+            Architecture::X86_64 => Ok(TargetArch::X86_64),
+            Architecture::ARM64 => Ok(TargetArch::ARM64),
+            Architecture::RISCV64 => Ok(TargetArch::RISCV64),
         }
     }
 }
@@ -76,16 +101,29 @@ pub enum TranslationError {
     RegisterAllocationFailed(String),
     #[error("编码错误: {message}")]
     EncodingError { message: String },
-    #[error("不支持的架构转换: {source:?} -> {target:?}")]
-    UnsupportedArchitecturePair {
-        source: Architecture,
-        target: Architecture,
-    },
+    #[error("不支持的架构转换")]
+    UnsupportedArchitecturePair,
 }
 
 impl From<String> for TranslationError {
     fn from(s: String) -> Self {
         TranslationError::StringError(s)
+    }
+}
+
+impl From<RegisterError> for TranslationError {
+    fn from(e: RegisterError) -> Self {
+        TranslationError::RegisterMappingFailed {
+            reason: e.to_string(),
+        }
+    }
+}
+
+impl From<EncodingError> for TranslationError {
+    fn from(e: EncodingError) -> Self {
+        TranslationError::EncodingError {
+            message: e.to_string(),
+        }
     }
 }
 

@@ -2,6 +2,12 @@ use vm_core::{MmioDevice, VmResult};
 
 pub struct VirtioAi;
 
+impl Default for VirtioAi {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VirtioAi {
     pub fn new() -> Self {
         Self

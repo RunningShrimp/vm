@@ -1,0 +1,76 @@
+DETAILED WARNING LOCATIONS
+===========================
+
+vm-engine-jit (27 warnings total)
+----------------------------------
+1. core.rs:265 - acquire_task_queue never used (dead_code)
+2. core.rs:265 - type complexity warning
+3. core.rs:251 - mismatched lifetime syntax
+4. core.rs:258 - mismatched lifetime syntax
+5. core.rs:265 - mismatched lifetime syntax
+
+6. code_cache.rs:1006 - unnecessary_map_or
+7. code_cache.rs:1007 - unnecessary_map_or
+8. code_cache.rs:1008 - unnecessary_map_or
+9. code_cache.rs:1013 - collapsible_if
+10. code_cache.rs:1024 - collapsible_if
+11. code_cache.rs:1035 - collapsible_if
+
+12. inline_cache.rs:52 - try_lock_entries_with_timeout never used (dead_code)
+13. inline_cache.rs:38 - mismatched lifetime syntax
+14. inline_cache.rs:45 - mismatched lifetime syntax
+15. inline_cache.rs:53 - mismatched lifetime syntax
+
+16. optimizer.rs:824 - collapsible_if
+
+17. tiered_cache.rs:394 - collapsible_if
+18. tiered_cache.rs:102 - mismatched lifetime syntax
+19. tiered_cache.rs:106 - mismatched lifetime syntax
+20. tiered_cache.rs:110 - mismatched lifetime syntax
+21. tiered_cache.rs:114 - mismatched lifetime syntax
+22. tiered_cache.rs:118 - mismatched lifetime syntax
+23. tiered_cache.rs:122 - mismatched lifetime syntax
+24. tiered_cache.rs:126 - mismatched lifetime syntax
+
+25. tiered_compiler.rs:237 - useless_format
+26. tiered_compiler.rs:272 - useless_format
+
+27. hot_update.rs:165 - let_and_return
+
+vm-mem (31 warnings total)
+---------------------------
+1. numa_allocator.rs:394 - try_get_allocator never used (dead_code)
+2. numa_allocator.rs:496 - collapsible_if
+
+3. prefetch.rs:316 - type complexity
+4. prefetch.rs:477 - collapsible_if
+5. prefetch.rs:515 - collapsible_if
+6. prefetch.rs:526 - collapsible_if
+7. prefetch.rs:614 - collapsible_if
+8. prefetch.rs:316 - mismatched lifetime syntax
+9. prefetch.rs:324 - mismatched lifetime syntax
+10. prefetch.rs:332 - mismatched lifetime syntax
+
+11. batch.rs:211 - type complexity
+
+12. tlb_flush.rs:678 - type complexity
+13. tlb_flush.rs:734 - collapsible_if
+14. tlb_flush.rs:1075 - collapsible_if
+15. tlb_flush.rs:1080 - collapsible_if
+16. tlb_flush.rs:1291 - collapsible_if
+(Plus 11 more lifetime syntax warnings in tlb_flush.rs)
+
+17. unified_tlb.rs:437 - lock_inner_mut never used (dead_code)
+18. unified_tlb.rs:265 - collapsible_if
+19. unified_tlb.rs:856 - question_mark
+(Plus 5 more lifetime syntax warnings)
+
+20. per_cpu_tlb.rs:500 - mismatched lifetime syntax
+21. per_cpu_tlb.rs:509 - mismatched lifetime syntax
+
+vm-runtime (3 warnings total)
+------------------------------
+1. profiler.rs:282 - unused variable: len
+2. resources.rs:118 - mismatched lifetime syntax
+3. resources.rs:123 - mismatched lifetime syntax
+

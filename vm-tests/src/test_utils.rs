@@ -27,8 +27,8 @@ impl MockMMU {
         }
     }
 
-    /// 创建默认的Mock MMU（基址为0）
-    pub fn default() -> Self {
+    /// 创建基址为0的Mock MMU
+    pub fn at_zero() -> Self {
         Self::new(GuestAddr(0))
     }
 
@@ -58,7 +58,11 @@ impl MemoryAccess for MockMMU {
         let mut val = 0u64;
 
         for i in 0..size as usize {
-            let byte = self.memory.get(&GuestAddr(self.base.0 + (offset + i) as u64)).copied().unwrap_or(0);
+            let byte = self
+                .memory
+                .get(&GuestAddr(self.base.0 + (offset + i) as u64))
+                .copied()
+                .unwrap_or(0);
             val |= (byte as u64) << (i * 8);
         }
 
@@ -79,14 +83,19 @@ impl MemoryAccess for MockMMU {
 
     fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
         for (i, byte) in buf.iter_mut().enumerate() {
-            *byte = self.memory.get(&GuestAddr(pa.0 + i as u64)).copied().unwrap_or(0);
+            *byte = self
+                .memory
+                .get(&GuestAddr(pa.0 + i as u64))
+                .copied()
+                .unwrap_or(0);
         }
         Ok(())
     }
 
     fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
         for (i, &byte) in buf.iter().enumerate() {
-            self.memory.insert(vm_core::GuestAddr(pa.0 + i as u64), byte);
+            self.memory
+                .insert(vm_core::GuestAddr(pa.0 + i as u64), byte);
         }
         Ok(())
     }
@@ -139,11 +148,11 @@ pub struct FaultyMMU;
 impl AddressTranslator for FaultyMMU {
     fn translate(&mut self, va: GuestAddr, access: AccessType) -> Result<GuestPhysAddr, VmError> {
         Err(vm_core::VmError::Execution(vm_core::ExecutionError::Fault(
-            vm_core::Fault::PageFault { 
-                addr: va, 
-                access_type: access, 
-                is_write: false, 
-                is_user: false 
+            vm_core::Fault::PageFault {
+                addr: va,
+                access_type: access,
+                is_write: false,
+                is_user: false,
             },
         )))
     }
@@ -521,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_mock_mmu_basic() {
-        let mut mmu = MockMMU::default();
+        let mut mmu = MockMMU::at_zero();
         mmu.write(GuestAddr(0x100), 0x12345678, 4).unwrap();
         let val = mmu.read(GuestAddr(0x100), 4).unwrap();
         assert_eq!(val, 0x12345678);

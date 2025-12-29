@@ -1,17 +1,16 @@
-//! 跨架构转换性能基准测试
+//! Cross-Architecture Translation Performance Benchmarks
 //!
-//! 本模块提供跨架构指令转换的性能基准测试，包括：
-//! - 不同架构间的转换性能测试
-//! - 指令并行优化效果测试
-//! - 寄存器分配优化测试
-//! - 内存对齐优化测试
-//! - 块级缓存效率测试
+//! This module provides comprehensive performance benchmarks for cross-architecture
+//! instruction translation, including:
+//! - Translation performance between different architectures
+//! - Instruction parallelism optimization effectiveness
+//! - Register allocation optimization tests
+//! - Memory alignment optimization tests
+//! - Block-level cache efficiency tests
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use vm_cross_arch::{ArchTranslator, SourceArch, TargetArch, TranslationConfig};
+use vm_cross_arch::{ArchTranslator, SourceArch, TargetArch};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator, RegId};
 
 /// 创建测试IR块
@@ -55,26 +54,20 @@ fn create_test_ir_block(addr: u64, instruction_count: usize) -> IRBlock {
                 // 内存加载
                 builder.push(IROp::Load {
                     dst: RegId(3),
-                    addr: IROp::Add {
-                        dst: RegId(4), // 临时寄存器
-                        src1: RegId(5),
-                        src2: RegId(i as u32 % 16),
-                    },
+                    base: RegId(5),
+                    offset: (i * 8) as i64,
                     size: 8,
-                    flags: Default::default(),
+                    flags: 0,
                 });
             }
             5 => {
                 // 内存存储
                 builder.push(IROp::Store {
-                    addr: IROp::Add {
-                        dst: RegId(6), // 临时寄存器
-                        src1: RegId(7),
-                        src2: RegId(i as u32 % 16),
-                    },
                     src: RegId(8),
+                    base: RegId(7),
+                    offset: (i * 8) as i64,
                     size: 8,
-                    flags: Default::default(),
+                    flags: 0,
                 });
             }
             6 => {
@@ -173,9 +166,9 @@ fn bench_x86_to_arm64_translation(c: &mut Criterion) {
 /// ARM64到RISC-V64转换性能测试
 fn bench_arm64_to_riscv_translation(c: &mut Criterion) {
     let mut group = c.benchmark_group("arm64_to_riscv_translation");
-    
+
     let instruction_counts = [10, 50, 100, 500, 1000];
-    
+
     for count in &instruction_counts {
         group.throughput(Throughput::Elements(*count as u64));
         group.bench_with_input(
@@ -184,14 +177,14 @@ fn bench_arm64_to_riscv_translation(c: &mut Criterion) {
             |b, &count| {
                 let translator = ArchTranslator::new(SourceArch::ARM64, TargetArch::RiscV64);
                 let ir_block = create_test_ir_block(0x1000, count);
-                
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -223,199 +216,185 @@ fn bench_riscv_to_x86_translation(c: &mut Criterion) {
 /// 指令并行优化效果测试
 fn bench_instruction_parallelism_optimization(c: &mut Criterion) {
     let mut group = c.benchmark_group("instruction_parallelism_optimization");
-    
+
     let complexities = [10, 50, 100, 500];
-    
+
     for complexity in &complexities {
         // 无优化
         group.bench_with_input(
             BenchmarkId::new("no_optimization", complexity),
             complexity,
             |b, &complexity| {
-                let config = TranslationConfig::new()
-                    .with_enable_instruction_parallelism(false);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
-                );
-                let ir_block = create_compute_ir_block(0x1000, complexity);
-                
+                let translator = ArchTranslator::new(SourceArch::X86_64, TargetArch::ARM64);
+                let ir_block = create_compute_ir_block(0x1000, *complexity);
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
-        
+
         // 有优化
         group.bench_with_input(
             BenchmarkId::new("with_optimization", complexity),
             complexity,
             |b, &complexity| {
-                let config = TranslationConfig::new()
-                    .with_enable_instruction_parallelism(true);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
+                let translator = ArchTranslator::with_all_optimizations(
+                    SourceArch::X86_64,
+                    TargetArch::ARM64,
+                    None,
+                    OptimizationConfig::all_enabled(),
                 );
-                let ir_block = create_compute_ir_block(0x1000, complexity);
-                
+                let ir_block = create_compute_ir_block(0x1000, *complexity);
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
     }
-    
+
     group.finish();
 }
 
 /// 寄存器分配优化效果测试
 fn bench_register_allocation_optimization(c: &mut Criterion) {
     let mut group = c.benchmark_group("register_allocation_optimization");
-    
+
     let complexities = [10, 50, 100, 500];
-    
+
     for complexity in &complexities {
         // 无优化
         group.bench_with_input(
             BenchmarkId::new("no_optimization", complexity),
             complexity,
             |b, &complexity| {
-                let config = TranslationConfig::new()
-                    .with_enable_register_optimization(false);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
+                let translator = ArchTranslator::with_cache_and_optimization(
+                    SourceArch::X86_64,
+                    TargetArch::ARM64,
+                    None,
+                    false,
                 );
-                let ir_block = create_compute_ir_block(0x1000, complexity);
-                
+                let ir_block = create_compute_ir_block(0x1000, *complexity);
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
-        
+
         // 有优化
         group.bench_with_input(
             BenchmarkId::new("with_optimization", complexity),
             complexity,
             |b, &complexity| {
-                let config = TranslationConfig::new()
-                    .with_enable_register_optimization(true);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
+                let translator = ArchTranslator::with_cache_and_optimization(
+                    SourceArch::X86_64,
+                    TargetArch::ARM64,
+                    None,
+                    true,
                 );
-                let ir_block = create_compute_ir_block(0x1000, complexity);
-                
+                let ir_block = create_compute_ir_block(0x1000, *complexity);
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
     }
-    
+
     group.finish();
 }
 
 /// 内存对齐优化效果测试
 fn bench_memory_alignment_optimization(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_alignment_optimization");
-    
+
     let complexities = [10, 50, 100, 500];
-    
+
     for complexity in &complexities {
         // 无优化
         group.bench_with_input(
             BenchmarkId::new("no_optimization", complexity),
             complexity,
             |b, &complexity| {
-                let config = TranslationConfig::new()
-                    .with_enable_memory_alignment_optimization(false);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
+                let translator = ArchTranslator::with_cache_and_optimization(
+                    SourceArch::X86_64,
+                    TargetArch::ARM64,
+                    None,
+                    false,
                 );
-                let ir_block = create_compute_ir_block(0x1000, complexity);
-                
+                let ir_block = create_compute_ir_block(0x1000, *complexity);
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
-        
+
         // 有优化
         group.bench_with_input(
             BenchmarkId::new("with_optimization", complexity),
             complexity,
             |b, &complexity| {
-                let config = TranslationConfig::new()
-                    .with_enable_memory_alignment_optimization(true);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
+                let translator = ArchTranslator::with_cache_optimization_and_memory(
+                    SourceArch::X86_64,
+                    TargetArch::ARM64,
+                    None,
+                    false,
+                    true,
                 );
-                let ir_block = create_compute_ir_block(0x1000, complexity);
-                
+                let ir_block = create_compute_ir_block(0x1000, *complexity);
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
     }
-    
+
     group.finish();
 }
 
 /// 块级缓存效率测试
 fn bench_block_cache_efficiency(c: &mut Criterion) {
     let mut group = c.benchmark_group("block_cache_efficiency");
-    
+
     let cache_sizes = [1024, 4096, 16384, 65536]; // 1K, 4K, 16K, 64K条目
-    
+
     for cache_size in &cache_sizes {
         // 缓存命中
         group.bench_with_input(
             BenchmarkId::new("cache_hit", cache_size),
             cache_size,
             |b, &cache_size| {
-                let config = TranslationConfig::new()
-                    .with_cache_size(*cache_size);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
+                let translator = ArchTranslator::with_cache(
+                    SourceArch::X86_64,
+                    TargetArch::ARM64,
+                    Some(*cache_size),
                 );
                 let ir_block = create_test_ir_block(0x1000, 100);
-                
+
                 // 预热缓存
                 let _ = translator.translate_block(&ir_block);
-                
+
                 b.iter(|| {
                     let _result = translator.translate_block(&ir_block);
                 });
             },
         );
-        
+
         // 缓存未命中
         group.bench_with_input(
             BenchmarkId::new("cache_miss", cache_size),
             cache_size,
             |b, &cache_size| {
-                let config = TranslationConfig::new()
-                    .with_cache_size(*cache_size);
-                let translator = ArchTranslator::with_config(
-                    SourceArch::X86_64, 
-                    TargetArch::ARM64, 
-                    config
+                let translator = ArchTranslator::with_cache(
+                    SourceArch::X86_64,
+                    TargetArch::ARM64,
+                    Some(*cache_size),
                 );
-                
+
                 b.iter(|| {
                     // 每次使用不同的IR块，确保缓存未命中
                     let ir_block = create_test_ir_block(0x1000 + b.iter.count() as u64, 100);
@@ -424,7 +403,7 @@ fn bench_block_cache_efficiency(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 

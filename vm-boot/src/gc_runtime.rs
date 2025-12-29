@@ -1,6 +1,6 @@
-use gc_optimizer::{OptimizedGc, WriteBarrierType, GcStats, GcResult};
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
+use vm_optimizers::gc::{GcResult, GcStats, OptimizedGc, WriteBarrierType};
 
 /// GC Runtime - 集成gc-optimizer到VM运行时
 ///
@@ -67,7 +67,7 @@ impl GcRuntime {
     ///
     /// # Returns
     /// GC统计信息
-    pub fn collect_minor(&self, bytes_collected: u64) -> GcResult {
+    pub fn collect_minor(&self, bytes_collected: u64) -> GcResult<()> {
         self.gc.collect_minor(bytes_collected)
     }
 
@@ -80,7 +80,7 @@ impl GcRuntime {
     ///
     /// # Returns
     /// GC统计信息
-    pub fn collect_major(&self, bytes_collected: u64) -> GcResult {
+    pub fn collect_major(&self, bytes_collected: u64) -> GcResult<()> {
         self.gc.collect_major(bytes_collected)
     }
 
@@ -166,10 +166,12 @@ impl GcIntegrationManager {
     pub fn record_collection(&self) {
         let mut state = self.state.write();
         state.total_collections += 1;
-        state.last_gc_timestamp = Some(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as u64);
+        state.last_gc_timestamp = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as u64,
+        );
     }
 
     /// 获取集成状态

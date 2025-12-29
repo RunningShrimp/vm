@@ -328,13 +328,40 @@ pub enum PlatformError {
     /// 访问被拒绝
     AccessDenied(String),
     /// 无效参数
-    InvalidParameter(String),
+    InvalidParameter {
+        /// 参数名称
+        name: String,
+        /// 参数值
+        value: String,
+        /// 错误消息
+        message: String,
+    },
     /// 不支持的操作
     UnsupportedOperation(String),
     /// 硬件不可用
     HardwareUnavailable(String),
     /// IO 错误
     IoError(String),
+    /// IOCTL 错误
+    IoctlError {
+        /// 错误号
+        errno: i32,
+        /// 操作名称
+        operation: String,
+    },
+    /// 设备分配失败
+    DeviceAssignmentFailed(String),
+    /// 内存访问失败
+    MemoryAccessFailed(String),
+    /// 无效状态
+    InvalidState {
+        /// 错误消息
+        message: String,
+        /// 当前状态
+        current: String,
+        /// 期望状态
+        expected: String,
+    },
 }
 
 // ============================================================================
@@ -372,8 +399,16 @@ impl fmt::Display for CoreError {
             CoreError::InvalidConfig { message, field } => {
                 write!(f, "Invalid configuration: {} (field: {})", message, field)
             }
-            CoreError::InvalidState { message, current, expected } => {
-                write!(f, "Invalid state: {} (current: {}, expected: {})", message, current, expected)
+            CoreError::InvalidState {
+                message,
+                current,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "Invalid state: {} (current: {}, expected: {})",
+                    message, current, expected
+                )
             }
             CoreError::NotSupported { feature, module } => {
                 write!(f, "Feature '{}' not supported in {}", feature, module)
@@ -406,7 +441,11 @@ impl fmt::Display for CoreError {
             CoreError::Concurrency { message, operation } => {
                 write!(f, "Concurrency error during '{}': {}", operation, message)
             }
-            CoreError::InvalidParameter { name, value, message } => {
+            CoreError::InvalidParameter {
+                name,
+                value,
+                message,
+            } => {
                 write!(f, "Invalid parameter '{}='{}': {}", name, value, message)
             }
         }
@@ -590,10 +629,40 @@ impl fmt::Display for PlatformError {
             PlatformError::MemoryMappingFailed(msg) => write!(f, "Memory mapping failed: {}", msg),
             PlatformError::ExecutionFailed(msg) => write!(f, "Execution failed: {}", msg),
             PlatformError::AccessDenied(msg) => write!(f, "Access denied: {}", msg),
-            PlatformError::InvalidParameter(msg) => write!(f, "Invalid parameter: {}", msg),
+            PlatformError::InvalidParameter {
+                name,
+                value,
+                message,
+            } => {
+                write!(
+                    f,
+                    "Invalid parameter '{}': {} (value: {})",
+                    name, message, value
+                )
+            }
             PlatformError::UnsupportedOperation(msg) => write!(f, "Unsupported operation: {}", msg),
             PlatformError::HardwareUnavailable(msg) => write!(f, "Hardware unavailable: {}", msg),
             PlatformError::IoError(e) => write!(f, "IO error: {}", e),
+            PlatformError::IoctlError { errno, operation } => {
+                write!(f, "IOCTL '{}' failed with errno {}", operation, errno)
+            }
+            PlatformError::DeviceAssignmentFailed(msg) => {
+                write!(f, "Device assignment failed: {}", msg)
+            }
+            PlatformError::MemoryAccessFailed(msg) => {
+                write!(f, "Memory access failed: {}", msg)
+            }
+            PlatformError::InvalidState {
+                message,
+                current,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "Invalid state: {} (current: {}, expected: {})",
+                    message, current, expected
+                )
+            }
         }
     }
 }
@@ -683,8 +752,18 @@ impl PartialEq for VmError {
             (VmError::Device(a), VmError::Device(b)) => a == b,
             (VmError::Platform(a), VmError::Platform(b)) => a == b,
             (VmError::Io(a), VmError::Io(b)) => a == b,
-            (VmError::WithContext { error: a, context: ca, .. }, 
-             VmError::WithContext { error: b, context: cb, .. }) => a == b && ca == cb,
+            (
+                VmError::WithContext {
+                    error: a,
+                    context: ca,
+                    ..
+                },
+                VmError::WithContext {
+                    error: b,
+                    context: cb,
+                    ..
+                },
+            ) => a == b && ca == cb,
             (VmError::Multiple(a), VmError::Multiple(b)) => a == b,
             _ => false,
         }
@@ -924,6 +1003,11 @@ impl ErrorCollector {
         self.errors.len()
     }
 
+    /// 检查是否有错误
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+
     /// 获取错误列表
     pub fn errors(&self) -> &[VmError] {
         &self.errors
@@ -934,7 +1018,8 @@ impl ErrorCollector {
         if self.errors.is_empty() {
             None
         } else if self.errors.len() == 1 {
-            Some(self.errors.into_iter().next().unwrap())
+            // Safe: we just checked there's exactly one error
+            self.errors.into_iter().next()
         } else {
             Some(VmError::Multiple(self.errors))
         }

@@ -76,7 +76,6 @@ impl BlockDeviceService {
             capacity: capacity_sectors,
             sector_size,
             read_only,
-            ..Default::default()
         };
         Self {
             device: Arc::new(Mutex::new(device)),
@@ -111,7 +110,6 @@ impl BlockDeviceService {
             capacity,
             sector_size,
             read_only,
-            ..Default::default()
         };
 
         let path_str = path.as_ref().to_string_lossy().to_string();
@@ -234,40 +232,47 @@ impl BlockDeviceService {
 
     /// 获取设备容量（扇区数）
     pub fn capacity(&self) -> u64 {
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.device.lock())
-            .capacity
+        self.block_on_async(async { self.device.lock().await.capacity })
     }
 
     /// 获取扇区大小
     pub fn sector_size(&self) -> u32 {
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.device.lock())
-            .sector_size
+        self.block_on_async(async { self.device.lock().await.sector_size })
     }
 
     /// 是否只读
     pub fn is_read_only(&self) -> bool {
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.device.lock())
-            .read_only
+        self.block_on_async(async { self.device.lock().await.read_only })
     }
 
     /// 获取设备特性标志
     pub fn get_features(&self) -> u32 {
-        let device = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.device.lock());
-        let mut features = 0u32;
-        features |= 1 << 6; // VIRTIO_BLK_F_BLK_SIZE
-        features |= 1 << 9; // VIRTIO_BLK_F_FLUSH
-        if device.read_only {
-            features |= 1 << 5; // VIRTIO_BLK_F_RO
+        self.block_on_async(async {
+            let device = self.device.lock().await;
+            let mut features = 0u32;
+            features |= 1 << 6; // VIRTIO_BLK_F_BLK_SIZE
+            features |= 1 << 9; // VIRTIO_BLK_F_FLUSH
+            if device.read_only {
+                features |= 1 << 5; // VIRTIO_BLK_F_RO
+            }
+            features
+        })
+    }
+
+    /// Helper method to block on async operations, using Handle when available
+    fn block_on_async<F, R>(&self, f: F) -> R
+    where
+        F: std::future::Future<Output = R>,
+    {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle.block_on(f),
+            Err(_) => {
+                // Only create a new runtime if we're not already in a tokio context
+                tokio::runtime::Runtime::new()
+                    .expect("Failed to create tokio runtime")
+                    .block_on(f)
+            }
         }
-        features
     }
 
     /// 处理块设备请求 - 核心业务逻辑
@@ -317,43 +322,25 @@ impl BlockDeviceService {
         data_len: u32,
     ) -> BlockStatus {
         // 验证扇区范围
-        // For sync functions, we need to use block_on to await the mutex lock
-        let device = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.device.lock());
+        let device = self.block_on_async(async { self.device.lock().await });
+
         if sector + (data_len as u64) / 512 > device.capacity {
             return BlockStatus::IoErr;
         }
 
         // 如果有文件路径，使用异步I/O通道
-        // For sync functions, we need to use block_on to await the mutex lock
-        let file_path = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.file_path.lock());
+        let file_path = self.block_on_async(async { self.file_path.lock().await });
+
         if let Some(_file_path) = file_path.as_ref() {
-            // 使用tokio运行时执行异步操作
-            let rt = tokio::runtime::Handle::try_current();
-            let result = if let Ok(handle) = rt {
-                // 在异步上下文中
-                handle.block_on(async {
-                    self.handle_read_request_async_internal(sector, data_len)
-                        .await
-                })
-            } else {
-                // 不在异步上下文中，创建新的运行时
-                match tokio::runtime::Runtime::new() {
-                    Ok(rt) => rt.block_on(async {
-                        self.handle_read_request_async_internal(sector, data_len)
-                            .await
-                    }),
-                    Err(_) => return BlockStatus::IoErr,
-                }
-            };
+            let result = self.block_on_async(async {
+                self.handle_read_request_async_internal(sector, data_len)
+                    .await
+            });
 
             match result {
                 Ok(buffer) => {
                     // 将数据写入客户端内存
-                    if let Err(_) = mmu.write_bulk(data_addr, &buffer) {
+                    if mmu.write_bulk(data_addr, &buffer).is_err() {
                         return BlockStatus::IoErr;
                     }
                     BlockStatus::Ok
@@ -384,7 +371,7 @@ impl BlockDeviceService {
         // 发送异步读取请求
         {
             let io_tx = self.io_tx.lock().await;
-            if let Some(ref sender) = io_tx.as_ref() {
+            if let Some(sender) = io_tx.as_ref() {
                 sender
                     .send(AsyncIoRequest::Read {
                         sector,
@@ -426,11 +413,8 @@ impl BlockDeviceService {
         data_addr: GuestAddr,
         data_len: u32,
     ) -> BlockStatus {
-        // For sync functions, we need to use block_on to await the mutex lock
-        let device = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.device.lock());
-        
+        let device = self.block_on_async(async { self.device.lock().await });
+
         // 检查只读状态
         if device.read_only {
             return BlockStatus::IoErr;
@@ -443,34 +427,18 @@ impl BlockDeviceService {
 
         // 从客户端内存读取数据
         let mut buffer = vec![0u8; data_len as usize];
-        if let Err(_) = mmu.read_bulk(data_addr, &mut buffer) {
+        if mmu.read_bulk(data_addr, &mut buffer).is_err() {
             return BlockStatus::IoErr;
         }
 
         // 如果有文件路径，使用异步I/O通道
-        // For sync functions, we need to use block_on to await the mutex lock
-        let file_path = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.file_path.lock());
+        let file_path = self.block_on_async(async { self.file_path.lock().await });
+
         if let Some(_file_path) = file_path.as_ref() {
-            // 使用tokio运行时执行异步操作
-            let rt = tokio::runtime::Handle::try_current();
-            let result = if let Ok(handle) = rt {
-                // 在异步上下文中
-                handle.block_on(async {
-                    self.handle_write_request_async_internal(sector, buffer)
-                        .await
-                })
-            } else {
-                // 不在异步上下文中，创建新的运行时
-                match tokio::runtime::Runtime::new() {
-                    Ok(rt) => rt.block_on(async {
-                        self.handle_write_request_async_internal(sector, buffer)
-                            .await
-                    }),
-                    Err(_) => return BlockStatus::IoErr,
-                }
-            };
+            let result = self.block_on_async(async {
+                self.handle_write_request_async_internal(sector, buffer)
+                    .await
+            });
 
             match result {
                 Ok(_) => BlockStatus::Ok,
@@ -499,7 +467,7 @@ impl BlockDeviceService {
         // 发送异步写入请求
         {
             let io_tx = self.io_tx.lock().await;
-            if let Some(ref sender) = io_tx.as_ref() {
+            if let Some(sender) = io_tx.as_ref() {
                 sender
                     .send(AsyncIoRequest::Write {
                         sector,
@@ -535,34 +503,18 @@ impl BlockDeviceService {
 
     /// 处理刷新请求（同步版本，内部使用异步I/O）
     fn handle_flush_request(&self) -> BlockStatus {
-        // For sync functions, we need to use block_on to await the mutex lock
-        let device = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.device.lock());
+        let device = self.block_on_async(async { self.device.lock().await });
+
         if device.read_only {
             return BlockStatus::Ok; // 只读设备无需刷新
         }
 
         // 如果有文件路径，使用异步I/O通道
-        // For sync functions, we need to use block_on to await the mutex lock
-        let file_path = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.file_path.lock());
+        let file_path = self.block_on_async(async { self.file_path.lock().await });
+
         if let Some(_file_path) = file_path.as_ref() {
-            // 使用tokio运行时执行异步操作
-            let rt = tokio::runtime::Handle::try_current();
-            let result = if let Ok(handle) = rt {
-                // 在异步上下文中
-                handle.block_on(async { self.handle_flush_request_async_internal().await })
-            } else {
-                // 不在异步上下文中，创建新的运行时
-                match tokio::runtime::Runtime::new() {
-                    Ok(rt) => {
-                        rt.block_on(async { self.handle_flush_request_async_internal().await })
-                    }
-                    Err(_) => return BlockStatus::IoErr,
-                }
-            };
+            let result =
+                self.block_on_async(async { self.handle_flush_request_async_internal().await });
 
             match result {
                 Ok(_) => BlockStatus::Ok,
@@ -587,7 +539,7 @@ impl BlockDeviceService {
         // 发送异步刷新请求
         {
             let io_tx = self.io_tx.lock().await;
-            if let Some(ref sender) = io_tx.as_ref() {
+            if let Some(sender) = io_tx.as_ref() {
                 sender
                     .send(AsyncIoRequest::Flush {
                         req_id,
@@ -693,7 +645,7 @@ impl BlockDeviceService {
         tokio::task::yield_now().await;
 
         // 将数据写入客户端内存
-        if let Err(_) = mmu.write_bulk(data_addr, &buffer) {
+        if mmu.write_bulk(data_addr, &buffer).is_err() {
             return BlockStatus::IoErr;
         }
 
@@ -722,7 +674,7 @@ impl BlockDeviceService {
 
         // 从客户端内存读取数据
         let mut buffer = vec![0u8; data_len as usize];
-        if let Err(_) = mmu.read_bulk(data_addr, &mut buffer) {
+        if mmu.read_bulk(data_addr, &mut buffer).is_err() {
             return BlockStatus::IoErr;
         }
 

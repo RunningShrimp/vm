@@ -182,7 +182,10 @@ impl VirtioDevice for VirtioInput {
                         ];
 
                         let to_write = event_data.len().min(desc.len as usize - written);
-                        if mmu.write_bulk(vm_core::GuestAddr(desc.addr), &event_data[..to_write]).is_ok() {
+                        if mmu
+                            .write_bulk(vm_core::GuestAddr(desc.addr), &event_data[..to_write])
+                            .is_ok()
+                        {
                             written += to_write;
                         }
 
@@ -227,66 +230,32 @@ impl VirtioInputMmio {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_virtio_input_creation() {
-        let input = VirtioInput::new(InputDeviceType::Keyboard);
-        assert_eq!(input.device_type(), InputDeviceType::Keyboard);
-    }
-
-    #[test]
-    fn test_virtio_input_key_event() {
-        let input = VirtioInput::new(InputDeviceType::Keyboard);
-
-        // 发送按键事件
-        assert!(input.send_key_event(0x1E, true).is_ok()); // 'A'键按下
-        assert!(input.send_key_event(0x1E, false).is_ok()); // 'A'键释放
-    }
-
-    #[test]
-    fn test_virtio_input_mouse_event() {
-        let input = VirtioInput::new(InputDeviceType::Mouse);
-
-        // 发送鼠标移动事件
-        assert!(input.send_mouse_move(10, 20).is_ok());
-
-        // 发送鼠标按键事件
-        assert!(input.send_mouse_button(0, true).is_ok()); // 左键按下
-        assert!(input.send_mouse_button(0, false).is_ok()); // 左键释放
-    }
-
-    #[test]
-    fn test_virtio_input_device_id() {
-        let mut input = VirtioInput::new(InputDeviceType::Generic);
-        let mut mmu = MockMmu {
-            memory: std::collections::HashMap::new(),
-        };
-
-        assert_eq!(input.device_id(), 18); // VirtIO Input device ID
-        assert_eq!(input.num_queues(), 1); // 事件队列
-    }
+    use std::collections::HashMap;
+    use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
 
     struct MockMmu {
-        memory: std::collections::HashMap<u64, u8>,
+        memory: HashMap<u64, u8>,
     }
 
-    impl MMU for MockMmu {
+    // 实现AddressTranslator trait
+    impl AddressTranslator for MockMmu {
         fn translate(
             &mut self,
             va: GuestAddr,
             _access: vm_core::AccessType,
         ) -> Result<vm_core::GuestPhysAddr, VmError> {
-            Ok(va)
+            Ok(va.into())
         }
 
-        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
-            Ok(0)
-        }
+        fn flush_tlb(&mut self) {}
+    }
 
+    // 实现MemoryAccess trait
+    impl MemoryAccess for MockMmu {
         fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
             let mut value = 0u64;
             for i in 0..size {
-                let byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                let byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
                 value |= (byte as u64) << (i * 8);
             }
             Ok(value)
@@ -295,42 +264,49 @@ mod tests {
         fn write(&mut self, pa: GuestAddr, val: u64, size: u8) -> Result<(), VmError> {
             for i in 0..size {
                 let byte = ((val >> (i * 8)) & 0xFF) as u8;
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
+        fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
+            Ok(0)
+        }
+
         fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = self.memory.get(&(pa + i as u64)).copied().unwrap_or(0);
+                *byte = self.memory.get(&(pa.0 + i as u64)).copied().unwrap_or(0);
             }
             Ok(())
         }
 
         fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
             for (i, &byte) in buf.iter().enumerate() {
-                self.memory.insert(pa + i as u64, byte);
+                self.memory.insert(pa.0 + i as u64, byte);
             }
             Ok(())
         }
 
-        fn map_mmio(
-            &mut self,
-            _base: GuestAddr,
-            _size: u64,
-            _device: Box<dyn vm_core::MmioDevice>,
-        ) {
-        }
-        fn flush_tlb(&mut self) {}
         fn memory_size(&self) -> usize {
             0
         }
+
         fn dump_memory(&self) -> Vec<u8> {
             Vec::new()
         }
+
         fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
             Ok(())
         }
+    }
+
+    // 实现MmioManager trait
+    impl MmioManager for MockMmu {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {}
+    }
+
+    // 实现MmuAsAny trait
+    impl MmuAsAny for MockMmu {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }

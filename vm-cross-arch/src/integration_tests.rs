@@ -15,6 +15,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use vm_core::{GuestAddr, GuestArch, VmError};
 use vm_ir::{IRBuilder, IROp, Terminator};
+
+#[cfg(feature = "memory")]
 use vm_mem::SoftMmu;
 
 /// 测试辅助函数：创建简单的IR块

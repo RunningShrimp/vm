@@ -4,22 +4,22 @@
 //!
 //! ## 主要类型
 //!
-//! - [`IROp`]: IR 操作码枚举，包含算术、逻辑、内存、向量等操作
-//! - [`IRBlock`]: IR 基本块，包含操作序列和终结符
-//! - [`Terminator`]: 基本块终结符，如跳转、条件分支、返回等
-//! - [`IRBuilder`]: 用于构建 IR 块的辅助工具
-//! - [`DecodeCache`]: 预解码缓存，用于缓存已解码的指令
+//! - [`IROp`][]: IR 操作码枚举，包含算术、逻辑、内存、向量等操作
+//! - [`IRBlock`][]: IR 基本块，包含操作序列和终结符
+//! - [`Terminator`][]: 基本块终结符，如跳转、条件分支、返回等
+//! - [`IRBuilder`][]: 用于构建 IR 块的辅助工具
+//! - [`DecodeCache`][]: 预解码缓存，用于缓存已解码的指令
 //!
 //! ## 内存语义
 //!
-//! - [`MemFlags`]: 内存访问标志，支持原子操作和内存序
-//! - [`MemOrder`]: 内存序枚举 (Acquire, Release, AcqRel)
-//! - [`AtomicOp`]: 原子操作类型
+//! - [`MemFlags`][]: 内存访问标志，支持原子操作和内存序
+//! - [`MemOrder`][]: 内存序枚举 (Acquire, Release, AcqRel)
+//! - [`AtomicOp`][]: 原子操作类型
 //!
 //! ## 示例
 //!
 //! ```rust,ignore
-//! use vm_ir::{IRBuilder, IROp, Terminator, DecodeCache};
+//! use vm_ir::{IRBuilder, IROp, Terminator, DecodeCache, MemFlags, MemOrder, AtomicOp};
 //!
 //! let mut builder = IRBuilder::new(0x1000);
 //! builder.push(IROp::MovImm { dst: 1, imm: 42 });
@@ -35,11 +35,33 @@
 
 mod decode_cache;
 pub mod lift;
+pub mod riscv_instruction_data;
 
 pub use decode_cache::DecodeCache;
-use vm_core::GuestAddr;
+pub use riscv_instruction_data::{
+    ExecutionUnitType, RiscvInstructionData, init_all_riscv_extension_data,
+};
+// Re-export GuestAddr and Architecture from vm-core/vm-error for public use
+pub use vm_core::GuestAddr;
+pub use vm_foundation::Architecture;
 
 pub type RegId = u32;
+
+/// Extension trait for RegId to provide constructor methods
+pub trait RegIdExt {
+    fn new(id: u32) -> Self;
+    fn id(&self) -> u32;
+}
+
+impl RegIdExt for RegId {
+    fn new(id: u32) -> Self {
+        id
+    }
+
+    fn id(&self) -> u32 {
+        *self
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AtomicOp {
@@ -398,6 +420,11 @@ pub enum IROp {
         src23: RegId,
         element_size: u8,
         signed: bool,
+    },
+    Broadcast {
+        dst: RegId,
+        src: RegId,
+        size: u8,
     },
 
     // Floating Point - Basic Operations
@@ -868,6 +895,46 @@ pub enum IROp {
         src2: RegId,
         vendor: String,
     },
+
+    // ============================================================================
+    // Cross-Architecture Translation Support - Control Flow
+    // ============================================================================
+    /// Unconditional branch to target (for cross-arch translation)
+    Branch {
+        target: Operand,
+        link: bool,
+    },
+
+    /// Conditional branch (for cross-arch translation)
+    CondBranch {
+        condition: Operand,
+        target: Operand,
+        link: bool,
+    },
+
+    /// Generic binary operation for cross-arch translation
+    BinaryOp {
+        op: BinaryOperator,
+        dest: RegId,
+        src1: Operand,
+        src2: Operand,
+    },
+
+    /// Extended Load with Operand address (for cross-arch translation)
+    LoadExt {
+        dest: RegId,
+        addr: Operand,
+        size: u8,
+        flags: MemFlags,
+    },
+
+    /// Extended Store with Operand address (for cross-arch translation)
+    StoreExt {
+        value: Operand,
+        addr: Operand,
+        size: u8,
+        flags: MemFlags,
+    },
 }
 
 #[derive(Clone, Debug, Hash)]
@@ -905,7 +972,7 @@ pub struct IRBlock {
 }
 
 pub struct IRBuilder {
-    block: IRBlock,
+    pub block: IRBlock,
 }
 
 impl IRBuilder {
@@ -929,6 +996,10 @@ impl IRBuilder {
     }
     pub fn build_ref(&self) -> IRBlock {
         self.block.clone()
+    }
+    /// 获取当前程序计数器地址
+    pub fn pc(&self) -> GuestAddr {
+        self.block.start_pc
     }
 }
 
@@ -990,6 +1061,152 @@ impl RegisterFile {
         match self.mode {
             RegisterMode::Standard => (self.mapping.len() as u32) + t,
             RegisterMode::SSA => (0xFFFF << 16) | (t & 0xFFFF),
+        }
+    }
+}
+
+// ============================================================================
+// Cross-Architecture Translation Support Types
+// ============================================================================
+
+/// IRInstruction - Alias for IROp for cross-arch translation compatibility
+pub type IRInstruction = IROp;
+
+/// Operand types for IR instructions
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Operand {
+    /// Register operand
+    Register(RegId),
+    /// Immediate value
+    Immediate(i64),
+    /// Memory address
+    Memory { base: RegId, offset: i64, size: u8 },
+    /// No operand
+    None,
+    /// Binary operation (for address calculations)
+    Binary {
+        op: BinaryOperator,
+        left: Box<Operand>,
+        right: Box<Operand>,
+    },
+    /// Register operand (alias for cross-arch compatibility)
+    Reg(RegId),
+    /// Immediate operand (alias for cross-arch compatibility, accepts u64)
+    Imm64(u64),
+}
+
+// Compatibility methods for cross-arch translation
+impl Operand {
+    /// Get Register value if this is a Register operand
+    pub fn as_reg(&self) -> Option<RegId> {
+        match self {
+            Operand::Register(reg) | Operand::Reg(reg) => Some(*reg),
+            _ => None,
+        }
+    }
+
+    /// Get Immediate value if this is an Immediate operand
+    pub fn as_imm(&self) -> Option<i64> {
+        match self {
+            Operand::Immediate(imm) => Some(*imm),
+            Operand::Imm64(imm) => Some(*imm as i64),
+            _ => None,
+        }
+    }
+}
+
+/// Binary operator types for cross-arch translation
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BinaryOperator {
+    // Arithmetic
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+
+    // Logical
+    And,
+    Or,
+    Xor,
+
+    // Shifts
+    ShiftLeft,
+    ShiftRightLogical,
+    ShiftRightArithmetic,
+
+    // Comparisons
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanUnsigned,
+    GreaterEqual,
+    GreaterEqualUnsigned,
+
+    // Floating-point
+    FAdd,
+    FSub,
+    FMul,
+    FDiv,
+
+    // Custom
+    Custom(u8),
+}
+
+impl BinaryOperator {
+    /// Convert from IROp to BinaryOperator if applicable
+    pub fn from_irop(op: &IROp) -> Option<Self> {
+        match op {
+            IROp::Add { .. } => Some(BinaryOperator::Add),
+            IROp::Sub { .. } => Some(BinaryOperator::Sub),
+            IROp::Mul { .. } => Some(BinaryOperator::Mul),
+            IROp::Div { .. } => Some(BinaryOperator::Div),
+            IROp::Rem { .. } => Some(BinaryOperator::Rem),
+            IROp::And { .. } => Some(BinaryOperator::And),
+            IROp::Or { .. } => Some(BinaryOperator::Or),
+            IROp::Xor { .. } => Some(BinaryOperator::Xor),
+            IROp::Sll { .. } => Some(BinaryOperator::ShiftLeft),
+            IROp::Srl { .. } => Some(BinaryOperator::ShiftRightLogical),
+            IROp::Sra { .. } => Some(BinaryOperator::ShiftRightArithmetic),
+            IROp::CmpEq { .. } => Some(BinaryOperator::Equal),
+            IROp::CmpNe { .. } => Some(BinaryOperator::NotEqual),
+            IROp::CmpLt { .. } => Some(BinaryOperator::LessThan),
+            IROp::CmpLtU { .. } => Some(BinaryOperator::LessThanUnsigned),
+            IROp::CmpGe { .. } => Some(BinaryOperator::GreaterEqual),
+            IROp::CmpGeU { .. } => Some(BinaryOperator::GreaterEqualUnsigned),
+            IROp::Fadd { .. } => Some(BinaryOperator::FAdd),
+            IROp::Fsub { .. } => Some(BinaryOperator::FSub),
+            IROp::Fmul { .. } => Some(BinaryOperator::FMul),
+            IROp::Fdiv { .. } => Some(BinaryOperator::FDiv),
+            _ => None,
+        }
+    }
+
+    /// Get mnemonic for this operator
+    pub fn mnemonic(&self) -> &'static str {
+        match self {
+            BinaryOperator::Add => "add",
+            BinaryOperator::Sub => "sub",
+            BinaryOperator::Mul => "mul",
+            BinaryOperator::Div => "div",
+            BinaryOperator::Rem => "rem",
+            BinaryOperator::And => "and",
+            BinaryOperator::Or => "or",
+            BinaryOperator::Xor => "xor",
+            BinaryOperator::ShiftLeft => "sll",
+            BinaryOperator::ShiftRightLogical => "srl",
+            BinaryOperator::ShiftRightArithmetic => "sra",
+            BinaryOperator::Equal => "cmp.eq",
+            BinaryOperator::NotEqual => "cmp.ne",
+            BinaryOperator::LessThan => "cmp.lt",
+            BinaryOperator::LessThanUnsigned => "cmp.ltu",
+            BinaryOperator::GreaterEqual => "cmp.ge",
+            BinaryOperator::GreaterEqualUnsigned => "cmp.geu",
+            BinaryOperator::FAdd => "fadd",
+            BinaryOperator::FSub => "fsub",
+            BinaryOperator::FMul => "fmul",
+            BinaryOperator::FDiv => "fdiv",
+            BinaryOperator::Custom(_) => "custom",
         }
     }
 }

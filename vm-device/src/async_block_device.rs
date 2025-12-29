@@ -2,10 +2,10 @@
 ///
 /// 提供真正的异步I/O支持，使用tokio::fs和缓冲池实现高效的块设备操作。
 use crate::async_buffer_pool::{AsyncBufferPool, BufferPoolConfig, BufferPoolStats, PoolBuffer};
-use parking_lot::RwLock;
 use std::io::Result as IoResult;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// 异步I/O操作统计
 #[derive(Clone, Debug, Default)]
@@ -53,13 +53,13 @@ pub struct AsyncBlockDevice {
     /// 文件路径
     file_path: String,
     /// 打开的文件句柄
-    file: Arc<RwLock<Option<tokio::fs::File>>>,
+    file: Arc<Mutex<Option<tokio::fs::File>>>,
     /// 缓冲池
     buffer_pool: Arc<AsyncBufferPool>,
     /// 设备配置（容量、扇区大小等）
     config: BlockDeviceConfig,
     /// 统计信息
-    stats: Arc<RwLock<AsyncIoStats>>,
+    stats: Arc<Mutex<AsyncIoStats>>,
 }
 
 /// 块设备配置
@@ -108,10 +108,10 @@ impl AsyncBlockDevice {
 
         Ok(Self {
             file_path: path_str,
-            file: Arc::new(RwLock::new(Some(file))),
+            file: Arc::new(Mutex::new(Some(file))),
             buffer_pool: Arc::new(AsyncBufferPool::new(buffer_pool_config)),
             config,
-            stats: Arc::new(RwLock::new(AsyncIoStats::default())),
+            stats: Arc::new(Mutex::new(AsyncIoStats::default())),
         })
     }
 
@@ -119,22 +119,21 @@ impl AsyncBlockDevice {
     pub fn new_memory(capacity_sectors: u64, buffer_pool_config: BufferPoolConfig) -> Self {
         Self {
             file_path: "<memory>".to_string(),
-            file: Arc::new(RwLock::new(None)),
+            file: Arc::new(Mutex::new(None)),
             buffer_pool: Arc::new(AsyncBufferPool::new(buffer_pool_config)),
             config: BlockDeviceConfig {
                 capacity_sectors,
                 sector_size: 512,
                 read_only: false,
             },
-            stats: Arc::new(RwLock::new(AsyncIoStats::default())),
+            stats: Arc::new(Mutex::new(AsyncIoStats::default())),
         }
     }
 
     /// 异步读操作
     pub async fn read_async(&self, sector: u64, buffer: &mut [u8]) -> IoResult<usize> {
         // 验证参数
-        let sectors_to_read = (buffer.len() as u64 + self.config.sector_size as u64 - 1)
-            / self.config.sector_size as u64;
+        let sectors_to_read = (buffer.len() as u64).div_ceil(self.config.sector_size as u64);
 
         if sector + sectors_to_read > self.config.capacity_sectors {
             return Err(std::io::Error::new(
@@ -146,53 +145,53 @@ impl AsyncBlockDevice {
         let start_time = std::time::Instant::now();
         let bytes_requested = buffer.len();
 
-        let file_guard = self.file.read();
-        match file_guard.as_ref() {
-            Some(file) => {
-                // 真实文件I/O - 实现异步读操作
-                let mut file = file.try_clone().await.map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clone file: {}", e))
-                })?;
-                
+        // 获取文件引用（使用async lock）
+        let file_guard = self.file.lock().await;
+        let file_result = match file_guard.as_ref() {
+            Some(f) => Some(f.try_clone().await),
+            None => None,
+        };
+
+        match file_result {
+            Some(Ok(mut file)) => {
                 // 计算偏移量
-                let offset = (sector * self.config.sector_size as u64) as u64;
-                
+                let offset = sector * self.config.sector_size as u64;
+
                 // 执行异步读操作
                 tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(offset))
                     .await
-                    .map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Seek failed: {}", e))
-                    })?;
-                
+                    .map_err(|e| std::io::Error::other(format!("Seek failed: {}", e)))?;
+
                 tokio::io::AsyncReadExt::read(&mut file, buffer)
                     .await
-                    .map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Read failed: {}", e))
-                    })
+                    .map_err(|e| std::io::Error::other(format!("Read failed: {}", e)))
             }
-            _ => {
+            Some(Err(_)) => Err(std::io::Error::other("Failed to clone file")),
+            None => {
                 // 内存模式 - 填充零
                 buffer.fill(0);
                 Ok(bytes_requested)
             }
         }
-        .map(|bytes| {
+        .inspect(|&bytes| {
             // 更新统计信息
             let elapsed_us = start_time.elapsed().as_micros() as u64;
-            let mut stats = self.stats.write();
-            stats.read_ops += 1;
-            stats.bytes_read += bytes as u64;
-            if stats.avg_read_latency_us == 0 {
-                stats.avg_read_latency_us = elapsed_us;
-            } else {
-                stats.avg_read_latency_us = (stats.avg_read_latency_us + elapsed_us) / 2;
-            }
-            bytes
+            tokio::task::block_in_place(|| {
+                let mut stats = self.stats.blocking_lock();
+                stats.read_ops += 1;
+                stats.bytes_read += bytes as u64;
+                if stats.avg_read_latency_us == 0 {
+                    stats.avg_read_latency_us = elapsed_us;
+                } else {
+                    stats.avg_read_latency_us = (stats.avg_read_latency_us + elapsed_us) / 2;
+                }
+            });
         })
-        .map_err(|e| {
-            let mut stats = self.stats.write();
-            stats.io_errors += 1;
-            e
+        .inspect_err(|_e| {
+            tokio::task::block_in_place(|| {
+                let mut stats = self.stats.blocking_lock();
+                stats.io_errors += 1;
+            });
         })
     }
 
@@ -207,8 +206,7 @@ impl AsyncBlockDevice {
         }
 
         // 验证参数
-        let sectors_to_write = (buffer.len() as u64 + self.config.sector_size as u64 - 1)
-            / self.config.sector_size as u64;
+        let sectors_to_write = (buffer.len() as u64).div_ceil(self.config.sector_size as u64);
 
         if sector + sectors_to_write > self.config.capacity_sectors {
             return Err(std::io::Error::new(
@@ -220,52 +218,54 @@ impl AsyncBlockDevice {
         let start_time = std::time::Instant::now();
         let bytes_requested = buffer.len();
 
-        let file_guard = self.file.read();
-        match file_guard.as_ref() {
-            Some(file) => {
-                // 真实文件I/O - 实现异步写操作
-                let mut file = file.try_clone().await.map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clone file: {}", e))
-                })?;
-                
+        // 获取文件引用（使用async lock）
+        let file_result = {
+            let file_guard = self.file.lock().await;
+            match file_guard.as_ref() {
+                Some(f) => Some(f.try_clone().await),
+                None => None,
+            }
+        };
+
+        match file_result {
+            Some(Ok(mut file)) => {
                 // 计算偏移量
-                let offset = (sector * self.config.sector_size as u64) as u64;
-                
+                let offset = sector * self.config.sector_size as u64;
+
                 // 执行异步写操作
                 tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(offset))
                     .await
-                    .map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Seek failed: {}", e))
-                    })?;
-                
+                    .map_err(|e| std::io::Error::other(format!("Seek failed: {}", e)))?;
+
                 tokio::io::AsyncWriteExt::write(&mut file, buffer)
                     .await
-                    .map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Write failed: {}", e))
-                    })
+                    .map_err(|e| std::io::Error::other(format!("Write failed: {}", e)))
             }
-            _ => {
+            Some(Err(_)) => Err(std::io::Error::other("Failed to clone file")),
+            None => {
                 // 内存模式 - 无操作
                 Ok(bytes_requested)
             }
         }
-        .map(|bytes| {
+        .inspect(|&bytes| {
             // 更新统计信息
             let elapsed_us = start_time.elapsed().as_micros() as u64;
-            let mut stats = self.stats.write();
-            stats.write_ops += 1;
-            stats.bytes_written += bytes as u64;
-            if stats.avg_write_latency_us == 0 {
-                stats.avg_write_latency_us = elapsed_us;
-            } else {
-                stats.avg_write_latency_us = (stats.avg_write_latency_us + elapsed_us) / 2;
-            }
-            bytes
+            tokio::task::block_in_place(|| {
+                let mut stats = self.stats.blocking_lock();
+                stats.write_ops += 1;
+                stats.bytes_written += bytes as u64;
+                if stats.avg_write_latency_us == 0 {
+                    stats.avg_write_latency_us = elapsed_us;
+                } else {
+                    stats.avg_write_latency_us = (stats.avg_write_latency_us + elapsed_us) / 2;
+                }
+            });
         })
-        .map_err(|e| {
-            let mut stats = self.stats.write();
-            stats.io_errors += 1;
-            e
+        .inspect_err(|_e| {
+            tokio::task::block_in_place(|| {
+                let mut stats = self.stats.blocking_lock();
+                stats.io_errors += 1;
+            });
         })
     }
 
@@ -277,23 +277,24 @@ impl AsyncBlockDevice {
 
         let start_time = std::time::Instant::now();
 
-        // 刷新文件（实现异步刷新）
-        let file_guard = self.file.read();
-        let result = match file_guard.as_ref() {
-            Some(file) => {
-                // 真实文件I/O - 实现异步刷新操作
-                let mut file = file.try_clone().await.map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clone file: {}", e))
-                })?;
-                
+        // 获取文件引用（使用async lock）
+        let file_result = {
+            let file_guard = self.file.lock().await;
+            match file_guard.as_ref() {
+                Some(f) => Some(f.try_clone().await),
+                None => None,
+            }
+        };
+
+        let result = match file_result {
+            Some(Ok(mut file)) => {
                 // 执行异步刷新操作
                 tokio::io::AsyncWriteExt::flush(&mut file)
                     .await
-                    .map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Flush failed: {}", e))
-                    })
+                    .map_err(|e| std::io::Error::other(format!("Flush failed: {}", e)))
             }
-            _ => {
+            Some(Err(_)) => Err(std::io::Error::other("Failed to clone file")),
+            None => {
                 // 内存模式 - 无操作
                 Ok(())
             }
@@ -302,18 +303,21 @@ impl AsyncBlockDevice {
         result
             .map(|_| {
                 let elapsed_us = start_time.elapsed().as_micros() as u64;
-                let mut stats = self.stats.write();
-                stats.flush_ops += 1;
-                if stats.avg_write_latency_us == 0 {
-                    stats.avg_write_latency_us = elapsed_us;
-                } else {
-                    stats.avg_write_latency_us = (stats.avg_write_latency_us + elapsed_us) / 2;
-                }
+                tokio::task::block_in_place(|| {
+                    let mut stats = self.stats.blocking_lock();
+                    stats.flush_ops += 1;
+                    if stats.avg_write_latency_us == 0 {
+                        stats.avg_write_latency_us = elapsed_us;
+                    } else {
+                        stats.avg_write_latency_us = (stats.avg_write_latency_us + elapsed_us) / 2;
+                    }
+                });
             })
-            .map_err(|e| {
-                let mut stats = self.stats.write();
-                stats.io_errors += 1;
-                e
+            .inspect_err(|_e| {
+                tokio::task::block_in_place(|| {
+                    let mut stats = self.stats.blocking_lock();
+                    stats.io_errors += 1;
+                });
             })
     }
 
@@ -323,29 +327,33 @@ impl AsyncBlockDevice {
     }
 
     /// 尝试立即获取缓冲区
-    pub fn try_acquire_buffer(&self) -> Option<PoolBuffer> {
-        self.buffer_pool.try_acquire()
+    pub async fn try_acquire_buffer(&self) -> Option<PoolBuffer> {
+        self.buffer_pool.try_acquire().await
     }
 
     /// 获取I/O统计信息
-    pub fn get_io_stats(&self) -> AsyncIoStats {
-        self.stats.read().clone()
+    pub async fn get_io_stats(&self) -> AsyncIoStats {
+        let stats = self.stats.lock().await;
+        stats.clone()
     }
 
     /// 获取缓冲池统计信息
     pub fn get_buffer_stats(&self) -> BufferPoolStats {
-        self.buffer_pool.get_stats()
+        self.buffer_pool.get_stats_sync()
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        self.stats.write().clone_from(&AsyncIoStats::default());
+        tokio::task::block_in_place(|| {
+            let mut stats = self.stats.blocking_lock();
+            *stats = AsyncIoStats::default();
+        });
         self.buffer_pool.reset_stats();
     }
 
     /// 预热缓冲池
-    pub fn warmup_buffers(&self, count: usize) {
-        self.buffer_pool.warmup(count);
+    pub async fn warmup_buffers(&self, count: usize) {
+        self.buffer_pool.warmup(count).await;
     }
 
     /// 获取设备容量（字节）
@@ -383,23 +391,29 @@ mod tests {
         assert!(!device.config().read_only);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_read_operation() {
         let device = AsyncBlockDevice::new_memory(1024, BufferPoolConfig::default());
 
         let mut buffer = vec![0u8; 512];
-        let bytes_read = device.read_async(0, &mut buffer).await.unwrap();
+        let bytes_read = match device.read_async(0, &mut buffer).await {
+            Ok(bytes) => bytes,
+            Err(e) => panic!("Read operation failed: {}", e),
+        };
 
         assert_eq!(bytes_read, 512);
         assert_eq!(buffer.len(), 512);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_write_operation() {
         let device = AsyncBlockDevice::new_memory(1024, BufferPoolConfig::default());
 
         let buffer = vec![0xAAu8; 512];
-        let bytes_written = device.write_async(0, &buffer).await.unwrap();
+        let bytes_written = match device.write_async(0, &buffer).await {
+            Ok(bytes) => bytes,
+            Err(e) => panic!("Write operation failed: {}", e),
+        };
 
         assert_eq!(bytes_written, 512);
     }
@@ -414,10 +428,10 @@ mod tests {
 
         let device = AsyncBlockDevice {
             file_path: "<memory>".to_string(),
-            file: Arc::new(RwLock::new(None)),
+            file: Arc::new(Mutex::new(None)),
             buffer_pool: Arc::new(AsyncBufferPool::new(BufferPoolConfig::default())),
             config,
-            stats: Arc::new(RwLock::new(AsyncIoStats::default())),
+            stats: Arc::new(Mutex::new(AsyncIoStats::default())),
         };
 
         let buffer = vec![0xAAu8; 512];
@@ -426,21 +440,24 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_flush_operation() {
         let device = AsyncBlockDevice::new_memory(1024, BufferPoolConfig::default());
 
-        device.flush_async().await.unwrap();
+        match device.flush_async().await {
+            Ok(_) => {}
+            Err(e) => panic!("Flush operation failed: {}", e),
+        }
 
-        let stats = device.get_io_stats();
+        let stats = device.get_io_stats().await;
         assert_eq!(stats.flush_ops, 1);
     }
 
-    #[test]
-    fn test_io_stats() {
+    #[tokio::test]
+    async fn test_io_stats() {
         let device = AsyncBlockDevice::new_memory(1024, BufferPoolConfig::default());
 
-        let stats = device.get_io_stats();
+        let stats = device.get_io_stats().await;
         assert_eq!(stats.read_ops, 0);
         assert_eq!(stats.write_ops, 0);
         assert_eq!(stats.error_rate(), 0.0);

@@ -333,7 +333,10 @@ impl SnapshotFileManager {
         Ok(VmSnapshot {
             metadata,
             vcpus,
-            memory: MemorySnapshot { data, base_addr: vm_core::GuestAddr(base_addr) },
+            memory: MemorySnapshot {
+                data,
+                base_addr: vm_core::GuestAddr(base_addr),
+            },
         })
     }
 
@@ -345,10 +348,10 @@ impl SnapshotFileManager {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().and_then(|s| s.to_str()) == Some("snapshot") {
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    snapshots.push(name.to_string());
-                }
+            if path.extension().and_then(|s| s.to_str()) == Some("snapshot")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            {
+                snapshots.push(name.to_string());
             }
         }
 
@@ -390,7 +393,8 @@ mod tests {
     #[test]
     fn test_snapshot_manager() {
         let temp_dir = std::env::temp_dir().join("vm_snapshots_test");
-        let manager = SnapshotManager::new(&temp_dir).expect("Failed to create snapshot manager");
+        let manager =
+            SnapshotFileManager::new(&temp_dir).expect("Failed to create snapshot manager");
 
         let metadata = SnapshotMetadata::new("test", "riscv64", 1024, 1);
         let vcpu = VcpuSnapshot {
@@ -401,7 +405,7 @@ mod tests {
         };
         let memory = MemorySnapshot {
             data: vec![0; 1024],
-            base_addr: 0x80000000,
+            base_addr: vm_core::GuestAddr(0x80000000),
         };
 
         let snapshot = VmSnapshot {

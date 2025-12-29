@@ -16,9 +16,7 @@ pub fn load_kernel(
         })
     })?;
 
-    mmu_guard
-        .write_bulk(load_addr, data)
-        .map_err(|f| VmError::from(f))?;
+    mmu_guard.write_bulk(load_addr, data)?;
 
     Ok(())
 }
@@ -30,35 +28,43 @@ pub async fn load_kernel_async(
     data: &[u8],
     load_addr: GuestAddr,
 ) -> VmResult<()> {
-    use vm_mem::AsyncMMU;
-    use vm_mem::AsyncMmuWrapper;
-
-    // 将同步MMU包装为异步MMU
-    let async_mmu = AsyncMmuWrapper { inner: mmu };
-
-    async_mmu
-        .write_bulk_async(load_addr, data)
-        .await
-        .map_err(|f| VmError::from(f))?;
+    // 直接在异步MMU上操作
+    let mut mmu_guard = mmu.lock().await;
+    mmu_guard.write_bulk(load_addr, data)?;
 
     Ok(())
 }
 
+/// 同步包装器：在runtime中执行异步加载
+#[cfg(feature = "async")]
+pub fn load_kernel_async_sync(
+    mmu: Arc<tokio::sync::Mutex<Box<dyn MMU + Send>>>,
+    data: &[u8],
+    load_addr: GuestAddr,
+) -> VmResult<()> {
+    block_on_async_helper(load_kernel_async(mmu, data, load_addr))
+}
+
 /// 从文件加载内核（同步版本）
-#[cfg(not(feature = "no_std"))]
-pub fn load_kernel_file(path: &str, _load_addr: GuestAddr) -> VmResult<()> {
+///
+/// 返回文件数据，由调用者决定如何加载到MMU
+pub fn load_kernel_file(path: &str, _load_addr: GuestAddr) -> VmResult<Vec<u8>> {
     use std::fs;
-    let _data = fs::read(path).map_err(|e| VmError::Io(e.to_string()))?;
-    // 注意：这个函数需要MMU，但为了简化，我们返回错误
-    // 实际使用时应该通过VirtualMachineService调用
-    Err(VmError::Core(vm_core::CoreError::Config {
-        message: "load_kernel_file should be called through VirtualMachineService".to_string(),
-        path: None,
-    }))
+    let data = fs::read(path).map_err(|e| VmError::Io(e.to_string()))?;
+
+    // 验证数据不为空
+    if data.is_empty() {
+        return Err(VmError::Core(vm_core::CoreError::Config {
+            message: "Kernel file is empty".to_string(),
+            path: Some(path.to_string()),
+        }));
+    }
+
+    Ok(data)
 }
 
 /// 异步从文件加载内核
-#[cfg(all(feature = "async", not(feature = "no_std")))]
+#[cfg(feature = "async")]
 pub async fn load_kernel_file_async(
     mmu: Arc<tokio::sync::Mutex<Box<dyn MMU + Send>>>,
     path: &str,
@@ -73,4 +79,26 @@ pub async fn load_kernel_file_async(
     load_kernel_async(mmu, &data, load_addr).await
 }
 
+/// 同步包装器：在runtime中执行异步文件加载
+#[cfg(feature = "async")]
+pub fn load_kernel_file_async_sync(
+    mmu: Arc<tokio::sync::Mutex<Box<dyn MMU + Send>>>,
+    path: &str,
+    load_addr: GuestAddr,
+) -> VmResult<()> {
+    block_on_async_helper(load_kernel_file_async(mmu, path, load_addr))
+}
 
+/// Helper function to block on async operations, using Handle when available
+#[cfg(feature = "async")]
+fn block_on_async_helper<F, R>(f: F) -> VmResult<R>
+where
+    F: std::future::Future<Output = VmResult<R>>,
+{
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle.block_on(f),
+        Err(_) => tokio::runtime::Runtime::new()
+            .map_err(|e| VmError::Io(format!("Failed to create tokio runtime: {}", e)))?
+            .block_on(f),
+    }
+}

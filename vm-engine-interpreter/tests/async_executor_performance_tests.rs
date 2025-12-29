@@ -2,11 +2,8 @@
 //!
 //! 测试异步执行引擎的性能，对比同步和异步执行的性能差异
 
-use tokio;
-use vm_core::MMU;
-use vm_engine_interpreter::{
-    AsyncExecutor, Interpreter,
-    async_executor_integration::{AsyncExecutorWrapper, benchmark_async_vs_sync},
+use vm_engine_interpreter::async_executor_integration::{
+    AsyncExecutorWrapper, benchmark_async_vs_sync,
 };
 use vm_ir::{IRBuilder, IROp, Terminator};
 use vm_mem::SoftMmu;
@@ -16,19 +13,19 @@ async fn test_async_executor_basic_performance() {
     let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // 创建一个简单的 IR 块
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
     for i in 0..20 {
-        builder.add_op(IROp::MovImm {
+        builder.push(IROp::MovImm {
             dst: i,
             imm: i as u64,
         });
-        builder.add_op(IROp::Add {
+        builder.push(IROp::Add {
             dst: i,
             src1: i,
             src2: (i + 1) % 20,
         });
     }
-    builder.set_terminator(Terminator::Ret);
+    builder.set_term(Terminator::Ret);
     let block = builder.build();
 
     // 测试异步执行
@@ -48,21 +45,21 @@ async fn test_async_vs_sync_performance_comparison() {
     let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // 创建一个中等复杂度的 IR 块
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
     for i in 0..50 {
-        builder.add_op(IROp::MovImm {
+        builder.push(IROp::MovImm {
             dst: i % 32,
             imm: i as u64,
         });
         if i > 0 {
-            builder.add_op(IROp::Add {
+            builder.push(IROp::Add {
                 dst: (i - 1) % 32,
                 src1: (i - 1) % 32,
                 src2: i % 32,
             });
         }
     }
-    builder.set_terminator(Terminator::Ret);
+    builder.set_term(Terminator::Ret);
     let block = builder.build();
 
     // 执行性能对比测试
@@ -86,14 +83,14 @@ async fn test_async_executor_yield_behavior() {
     let mut mmu = SoftMmu::new(1024 * 1024, false);
 
     // 创建一个较大的 IR 块
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
     for i in 0..100 {
-        builder.add_op(IROp::MovImm {
+        builder.push(IROp::MovImm {
             dst: i % 32,
             imm: i as u64,
         });
     }
-    builder.set_terminator(Terminator::Ret);
+    builder.set_term(Terminator::Ret);
     let block = builder.build();
 
     // 测试不同的 yield 间隔
@@ -119,9 +116,9 @@ async fn test_async_executor_yield_behavior() {
 async fn test_async_executor_stats() {
     let mut mmu = SoftMmu::new(1024 * 1024, false);
 
-    let mut builder = IRBuilder::new(0x1000);
-    builder.add_op(IROp::MovImm { dst: 0, imm: 42 });
-    builder.set_terminator(Terminator::Ret);
+    let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
+    builder.push(IROp::MovImm { dst: 0, imm: 42 });
+    builder.set_term(Terminator::Ret);
     let block = builder.build();
 
     let executor = AsyncExecutorWrapper::new(10);
@@ -143,16 +140,14 @@ async fn test_async_executor_stats() {
 
 #[tokio::test]
 async fn test_async_executor_concurrent_execution() {
-    let mut mmu = SoftMmu::new(1024 * 1024, false);
-
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(vm_core::GuestAddr(0x1000));
     for i in 0..10 {
-        builder.add_op(IROp::MovImm {
+        builder.push(IROp::MovImm {
             dst: i,
             imm: i as u64,
         });
     }
-    builder.set_terminator(Terminator::Ret);
+    builder.set_term(Terminator::Ret);
     let block = builder.build();
 
     // 创建多个执行器并发执行

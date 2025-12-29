@@ -7,10 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use vm_core::{AccessType, MMU};
-use vm_mem::{
-    MmuOptimizationStrategy, SoftMmu, UnifiedMmu,
-    UnifiedMmuConfig,
-};
+use vm_mem::{MmuOptimizationStrategy, SoftMmu, UnifiedMmu, UnifiedMmuConfig};
 
 /// 基准测试：原始TLB vs 多级TLB
 fn bench_multilevel_vs_original(c: &mut Criterion) {

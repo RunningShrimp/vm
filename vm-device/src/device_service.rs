@@ -5,6 +5,12 @@ pub struct DeviceService {
     pub block_mmio: Option<VirtioBlockMmio>,
 }
 
+impl Default for DeviceService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DeviceService {
     pub fn new() -> Self {
         Self { block_mmio: None }

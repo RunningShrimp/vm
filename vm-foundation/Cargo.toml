@@ -1,0 +1,19 @@
+[package]
+name = "vm-foundation"
+version = "0.1.0"
+edition = "2024"
+description = "Foundation layer for VM project - error handling, validation, resource management, and support utilities"
+
+[dependencies]
+vm-common = { path = "../vm-common" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+backtrace = "0.3"
+regex = "1.0"
+
+[features]
+default = ["std"]
+std = []

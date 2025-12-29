@@ -33,6 +33,9 @@ impl WhpxVcpu {
     /// 获取寄存器
     #[cfg(all(target_os = "windows", feature = "whpx", target_arch = "x86_64"))]
     pub fn get_regs(&self, partition: &WHV_PARTITION_HANDLE) -> Result<GuestRegs, AccelError> {
+        // SAFETY: WHvGetVirtualProcessorRegisters is a Windows Hypervisor Platform API function
+        // Preconditions: partition is a valid WHV_PARTITION_HANDLE, self.index is valid vCPU index
+        // Invariants: Reads specified register values from vCPU state into provided array
         unsafe {
             let mut register_names = [
                 WHV_REGISTER_NAME_RAX,
@@ -82,6 +85,9 @@ impl WhpxVcpu {
         partition: &WHV_PARTITION_HANDLE,
         regs: &GuestRegs,
     ) -> Result<(), AccelError> {
+        // SAFETY: WHvSetVirtualProcessorRegisters is a Windows Hypervisor Platform API function
+        // Preconditions: partition is a valid WHV_PARTITION_HANDLE, self.index is valid vCPU index
+        // Invariants: Writes specified register values to vCPU state from provided array
         unsafe {
             // 准备寄存器名称和值数组
             // x86_64寄存器映射：
@@ -159,6 +165,9 @@ impl WhpxVcpu {
     /// 运行 vCPU
     #[cfg(all(target_os = "windows", feature = "whpx"))]
     pub fn run(&mut self, partition: &WHV_PARTITION_HANDLE) -> Result<(), AccelError> {
+        // SAFETY: WHvRunVirtualProcessor is a Windows Hypervisor Platform API function
+        // Preconditions: partition is a valid WHV_PARTITION_HANDLE, self.index is valid vCPU index
+        // Invariants: Executes vCPU until VM exit, populates exit_context with exit reason
         unsafe {
             let mut exit_context = WHV_RUN_VP_EXIT_CONTEXT::default();
 
@@ -248,6 +257,9 @@ impl AccelWhpx {
     /// 检查 WHPX 是否可用
     #[cfg(all(target_os = "windows", feature = "whpx"))]
     pub fn is_available() -> bool {
+        // SAFETY: WHvGetCapability is a Windows Hypervisor Platform API function
+        // Preconditions: Valid capability code and buffer pointers
+        // Invariants: Fills capability buffer with hypervisor presence information
         unsafe {
             let mut capability = WHV_CAPABILITY {
                 Code: WHV_CAPABILITY_CODE_HYPERVISOR_PRESENT,
@@ -286,6 +298,9 @@ impl Accel for AccelWhpx {
                 )));
             }
 
+            // SAFETY: WHPX API calls are Windows Hypervisor Platform functions
+            // Preconditions: Valid partition handle and property structures
+            // Invariants: Creates and configures a new virtual machine partition
             unsafe {
                 let mut partition: WHV_PARTITION_HANDLE = std::mem::zeroed();
 
@@ -348,6 +363,9 @@ impl Accel for AccelWhpx {
                 ))
             })?;
 
+            // SAFETY: WHvCreateVirtualProcessor is a Windows Hypervisor Platform API function
+            // Preconditions: partition is a valid WHV_PARTITION_HANDLE, id is valid vCPU ID
+            // Invariants: Creates a new virtual processor in the partition
             unsafe {
                 WHvCreateVirtualProcessor(*partition, id, 0).map_err(|e| {
                     VmError::Platform(PlatformError::ResourceAllocationFailed(format!(
@@ -386,6 +404,9 @@ impl Accel for AccelWhpx {
                 whpx_flags |= WHV_MAP_GPA_RANGE_FLAGS_EXECUTE;
             }
 
+            // SAFETY: WHvMapGpaRange is a Windows Hypervisor Platform API function
+            // Preconditions: partition is valid, hva points to valid host memory, gpa and size are properly aligned
+            // Invariants: Maps host memory region into guest physical address space
             unsafe {
                 WHvMapGpaRange(*partition, hva as *const _, gpa, size, whpx_flags).map_err(
                     |e| {
@@ -419,6 +440,9 @@ impl Accel for AccelWhpx {
                 ))
             })?;
 
+            // SAFETY: WHvUnmapGpaRange is a Windows Hypervisor Platform API function
+            // Preconditions: partition is valid, gpa and size match a previously mapped region
+            // Invariants: Removes guest physical memory mapping
             unsafe {
                 WHvUnmapGpaRange(*partition, gpa, size).map_err(|e| {
                     VmError::Platform(PlatformError::MemoryMappingFailed(format!(
@@ -525,6 +549,9 @@ impl Drop for AccelWhpx {
     fn drop(&mut self) {
         #[cfg(all(target_os = "windows", feature = "whpx"))]
         if let Some(partition) = self.partition {
+            // SAFETY: WHvDeletePartition is a Windows Hypervisor Platform API function
+            // Preconditions: partition is a valid WHV_PARTITION_HANDLE created by WHvCreatePartition
+            // Invariants: Destroys the partition and releases all associated resources
             unsafe {
                 let _ = WHvDeletePartition(partition);
             }

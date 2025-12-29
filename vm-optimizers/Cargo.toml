@@ -1,0 +1,16 @@
+[package]
+name = "vm-optimizers"
+version = "0.1.0"
+edition = "2024"
+description = "Unified optimization framework for VM - GC, memory, PGO, and ML-guided compilation"
+
+[dependencies]
+parking_lot = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+rayon = "1.8"
+rand = { workspace = true }

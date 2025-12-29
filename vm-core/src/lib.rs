@@ -13,7 +13,7 @@
 //!
 //! ## 特性标志
 //!
-//! - `no_std`: 启用 no_std 支持，用于嵌入式或受限环境
+//! - `使用std`: 启用 no_std 支持，用于嵌入式或受限环境
 //!
 //! ## 示例
 //!
@@ -29,84 +29,231 @@
 //! };
 //! ```
 
-#![cfg_attr(feature = "no_std", no_std)]
-
-#[cfg(feature = "no_std")]
+#[cfg(feature = "std")]
 extern crate alloc;
 
-#[cfg(feature = "no_std")]
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
-
+use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 // 模块定义
-pub mod gdb;
-pub mod error;
-pub mod mmu_traits;
-pub mod domain;
-pub mod domain_type_safety;
-pub mod value_objects;
-pub mod syscall;
-pub mod domain_event_bus;
-pub mod migration;
-pub mod snapshot;
-pub mod template;
-pub mod vm_state;
-pub mod domain_events;
 pub mod device_emulation;
+pub mod domain;
+pub mod domain_event_bus;
+pub mod domain_type_safety;
+pub mod error;
+pub mod gdb;
+pub mod migration;
+pub mod mmu_traits;
+pub mod snapshot;
+pub mod syscall;
+pub mod template;
+pub mod value_objects;
+pub mod vm_state;
 
 // 重新导出系统调用相关类型
 pub use syscall::SyscallResult;
 
 // Re-export the new MMU trait and its sub-traits from mmu_traits
-pub use mmu_traits::{MMU, AddressTranslator, MemoryAccess, MmioManager, MmuAsAny};
+pub use mmu_traits::{AddressTranslator, MMU, MemoryAccess, MmioManager, MmuAsAny};
 mod regs;
 
 // Re-export ExecutionError, VmError, CoreError and MemoryError
-pub use error::{ExecutionError, VmError as CoreVmError, VmError, CoreError, MemoryError, DeviceError, PlatformError};
+pub use error::{
+    CoreError, DeviceError, ExecutionError, MemoryError, PlatformError, VmError as CoreVmError,
+    VmError,
+};
 
 // Re-export domain types
-pub use domain::{TlbManager, TlbEntry, TlbStats, PageTableWalker, ExecutionManager};
+pub use domain::{ExecutionManager, PageTableWalker, TlbEntry, TlbManager, TlbStats};
 pub use domain_type_safety::{GuestAddrExt, GuestPhysAddrExt, PageSize};
-pub use value_objects::{MemorySize, VmId, VcpuCount, PortNumber, DeviceId};
+pub use value_objects::{DeviceId, MemorySize, PortNumber, VcpuCount, VmId};
 
 // ============================================================================
 // 基础类型定义
 // ============================================================================
 
 /// 客户机虚拟地址
+///
+/// 表示Guest操作系统的虚拟地址。这是一个强类型包装器，确保虚拟地址的正确使用。
+///
+/// # 使用场景
+/// - 指令指针：程序计数器(PC)使用GuestAddr
+/// - 虚拟内存访问：通过MMU翻译的虚拟地址
+/// - 数据指针：Guest数据结构的地址
+///
+/// # 示例
+/// ```
+/// use vm_core::GuestAddr;
+///
+/// // 创建虚拟地址
+/// let addr = GuestAddr(0x1000);
+///
+/// // 地址运算
+/// let addr2 = addr + 0x100;  // 0x1100
+/// let diff = addr2 - addr;   // 0x100
+///
+/// // 格式化输出
+/// println!("Address: {:x}", addr);  // "Address: 1000"
+/// ```
+///
+/// # 注意
+/// - GuestAddr在Bare模式下等同于GuestPhysAddr
+/// - 在分页模式下需要通过MMU翻译才能访问物理内存
+/// - 支持wrap-around运算，模拟溢出行为
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct GuestAddr(pub u64);
 
 impl GuestAddr {
-    /// Wrapping addition
+    /// 环绕加法
+    ///
+    /// 执行带溢出环绕的加法运算，模拟CPU的溢出行为。
+    ///
+    /// # 参数
+    /// - `rhs`: 要加上的值
+    ///
+    /// # 返回
+    /// 加法结果（如果溢出则从0重新开始）
+    ///
+    /// # 示例
+    /// ```
+    /// use vm_core::GuestAddr;
+    ///
+    /// let addr = GuestAddr(0xFFFF_FFFF_FFFF_FFFF);
+    /// let result = addr.wrapping_add(1);
+    /// assert_eq!(result, GuestAddr(0));
+    /// ```
     pub fn wrapping_add(self, rhs: u64) -> Self {
         GuestAddr(self.0.wrapping_add(rhs))
     }
-    
-    /// Wrapping subtraction
-    pub fn wrapping_sub(self, rhs: GuestAddr) -> u64 {
-        self.0.wrapping_sub(rhs.0)
+
+    /// 环绕减法
+    ///
+    /// 执行带溢出环绕的减法运算。
+    ///
+    /// # 参数
+    /// - `rhs`: 要减去的值
+    ///
+    /// # 返回
+    /// 减法结果（如果溢出则从最大值重新开始）
+    pub fn wrapping_sub(self, rhs: u64) -> Self {
+        GuestAddr(self.0.wrapping_sub(rhs))
+    }
+
+    /// 与GuestAddr的环绕加法
+    ///
+    /// # 参数
+    /// - `rhs`: 要加上的GuestAddr
+    pub fn wrapping_add_addr(self, rhs: GuestAddr) -> Self {
+        GuestAddr(self.0.wrapping_add(rhs.0))
+    }
+
+    /// 与GuestAddr的环绕减法
+    ///
+    /// # 参数
+    /// - `rhs`: 要减去的GuestAddr
+    pub fn wrapping_sub_addr(self, rhs: GuestAddr) -> Self {
+        GuestAddr(self.0.wrapping_sub(rhs.0))
+    }
+
+    /// 转换为i64（用于偏移量计算）
+    ///
+    /// # 返回
+    /// i64表示的地址值，可用于有符号偏移计算
+    pub fn as_i64(self) -> i64 {
+        self.0 as i64
+    }
+
+    /// 获取原始u64值
+    ///
+    /// # 返回
+    /// 地址的原始u64表示
+    pub fn value(self) -> u64 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for GuestAddr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "0x{:x}", self.0)
     }
 }
 
 /// 访问类型
+///
+/// 定义内存访问的类型，用于MMU权限检查和TLB标签。
+///
+/// # 使用场景
+/// - MMU翻译：根据访问类型检查页表权限位
+/// - TLB查找：区分ITLB(指令)和DTLB(数据)
+/// - 权限验证：R/W/X权限位验证
+///
+/// # 示例
+/// ```
+/// use vm_core::AccessType;
+///
+/// // 读取访问
+/// let access = AccessType::Read;
+///
+/// // 写入访问
+/// let access = AccessType::Write;
+///
+/// // 执行访问（指令获取）
+/// let access = AccessType::Execute;
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessType {
-    /// 读取
+    /// 读取访问
+    ///
+    /// 检查页表R(Read)位
     Read,
-    /// 写入
+    /// 写入访问
+    ///
+    /// 检查页表W(Write)位和D(Dirty)位
     Write,
-    /// 执行
+    /// 执行访问
+    ///
+    /// 检查页表X(Execute)位
     Execute,
     /// 原子操作
+    ///
+    /// 用于LR/SC等原子指令
     Atomic,
 }
 
 /// 故障/异常类型
+///
+/// 表示虚拟机执行过程中可能发生的各种故障和异常。
+/// 这些故障通常由MMU、执行引擎或解码器生成。
+///
+/// # 使用场景
+/// - MMU故障：页面缺失、权限违规
+/// - 执行故障：对齐错误、非法指令
+/// - 系统调用：Guest请求的异常处理
+/// - 中断处理：外部设备和定时器中断
+///
+/// # 示例
+/// ```
+/// use vm_core::{Fault, GuestAddr, AccessType};
+///
+/// // 页面故障
+/// let fault = Fault::PageFault {
+///     addr: GuestAddr(0x1000),
+///     access_type: AccessType::Read,
+///     is_write: false,
+///     is_user: true,
+/// };
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fault {
     /// 页面故障
+    ///
+    /// 虚拟地址无法翻译到物理地址，或者权限不足。
+    ///
+    /// # 字段
+    /// - `addr`: 触发故障的虚拟地址
+    /// - `access_type`: 访问类型（读/写/执行）
+    /// - `is_write`: 是否是写操作
+    /// - `is_user`: 是否是用户模式访问
     PageFault {
         /// 访问地址
         addr: GuestAddr,
@@ -118,14 +265,28 @@ pub enum Fault {
         is_user: bool,
     },
     /// 一般保护故障
+    ///
+    /// 通用的保护违规，如权限不足、特权指令等
     GeneralProtection,
     /// 段故障
+    ///
+    /// 段描述符相关错误（主要用于x86架构）
     SegmentFault,
     /// 对齐故障
+    ///
+    /// 访问未对齐的内存地址
     AlignmentFault,
     /// 总线错误
+    ///
+    /// 物理内存访问失败，如访问无效的物理地址
     BusError,
     /// 无效操作码
+    ///
+    /// 解码器无法识别的指令
+    ///
+    /// # 字段
+    /// - `pc`: 指令地址
+    /// - `opcode`: 原始操作码
     InvalidOpcode {
         /// 指令地址
         pc: GuestAddr,
@@ -134,11 +295,10 @@ pub enum Fault {
     },
 }
 
-
 /// BitAnd implementation for GuestAddr
 impl std::ops::BitAnd<u64> for GuestAddr {
     type Output = u64;
-    
+
     fn bitand(self, rhs: u64) -> Self::Output {
         self.0 & rhs
     }
@@ -147,7 +307,7 @@ impl std::ops::BitAnd<u64> for GuestAddr {
 /// BitAnd implementation for &GuestAddr
 impl std::ops::BitAnd<u64> for &GuestAddr {
     type Output = u64;
-    
+
     fn bitand(self, rhs: u64) -> Self::Output {
         self.0 & rhs
     }
@@ -155,7 +315,7 @@ impl std::ops::BitAnd<u64> for &GuestAddr {
 
 impl std::ops::Rem<u64> for GuestAddr {
     type Output = u64;
-    
+
     fn rem(self, rhs: u64) -> Self::Output {
         self.0 % rhs
     }
@@ -163,7 +323,7 @@ impl std::ops::Rem<u64> for GuestAddr {
 
 impl std::ops::Sub for GuestAddr {
     type Output = u64;
-    
+
     fn sub(self, rhs: GuestAddr) -> Self::Output {
         self.0 - rhs.0
     }
@@ -196,7 +356,7 @@ impl std::fmt::LowerHex for GuestAddr {
 
 impl std::ops::Add<u64> for GuestAddr {
     type Output = GuestAddr;
-    
+
     fn add(self, rhs: u64) -> Self::Output {
         GuestAddr(self.0 + rhs)
     }
@@ -210,24 +370,42 @@ impl std::ops::AddAssign<u64> for GuestAddr {
 
 impl std::ops::Shr<u32> for GuestAddr {
     type Output = u64;
-    
+
     fn shr(self, rhs: u32) -> Self::Output {
         self.0 >> rhs
     }
 }
 
 /// 客户机物理地址
+///
+/// 表示Guest操作系统的物理地址。这是Guest视角的物理地址，
+/// 在虚拟化环境中可能对应Host的虚拟地址。
+///
+/// # 使用场景
+/// - 页表项：页表项存储的是Guest物理地址
+/// - 物理内存访问：直接访问物理内存区域
+/// - MMIO映射：设备寄存器的物理地址
+///
+/// # 注意
+/// - GuestPhysAddr在虚拟化环境中可能不是真正的Host物理地址
+/// - 需要通过EPT/NPT等机制进行二次翻译
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GuestPhysAddr(pub u64);
 
-
 /// 主机地址
+///
+/// Host视角的地址，通常是Host虚拟地址。
+///
+/// # 使用场景
+/// - 内存映射：Guest物理内存映射到Host地址空间
+/// - JIT编译：JIT代码缓冲区的Host地址
+/// - 设备映射：MMIO设备在Host的映射地址
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HostAddr(pub u64);
 
 impl std::ops::Add<u64> for GuestPhysAddr {
     type Output = GuestPhysAddr;
-    
+
     fn add(self, rhs: u64) -> Self::Output {
         GuestPhysAddr(self.0 + rhs)
     }
@@ -241,26 +419,54 @@ impl std::ops::AddAssign<u64> for GuestPhysAddr {
 
 impl std::ops::Shr<u64> for GuestPhysAddr {
     type Output = u64;
-    
+
     fn shr(self, rhs: u64) -> Self::Output {
         self.0 >> rhs
     }
 }
 
 /// 客户机架构枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// 支持的Guest架构类型。
+///
+/// # 使用场景
+/// - 虚拟机配置：指定Guest的CPU架构
+/// - 解码器选择：根据架构选择对应的指令解码器
+/// - 系统调用：不同架构的系统调用ABI
+///
+/// # 示例
+/// ```
+/// use vm_core::GuestArch;
+///
+/// // 创建RISC-V 64位虚拟机
+/// let arch = GuestArch::Riscv64;
+/// println!("Architecture: {}", arch.name()); // "riscv64"
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode)]
 pub enum GuestArch {
     /// RISC-V 64位架构
+    ///
+    /// 支持RV64I基础指令集和M/A/F/D/C扩展
     Riscv64,
     /// ARM 64位架构
+    ///
+    /// 支持AArch64指令集
     Arm64,
     /// x86-64架构
+    ///
+    /// 支持AMD64指令集
     X86_64,
     /// PowerPC 64位架构
+    ///
+    /// 支持PowerPC 64位指令集
     PowerPC64,
 }
 
 impl GuestArch {
+    /// 获取架构名称
+    ///
+    /// # 返回
+    /// 架构的小写字符串名称，如"riscv64"、"arm64"等
     pub fn name(&self) -> &'static str {
         match self {
             GuestArch::Riscv64 => "riscv64",
@@ -272,19 +478,52 @@ impl GuestArch {
 }
 
 /// 虚拟机配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// 定义虚拟机的核心配置参数。
+///
+/// # 使用场景
+/// - 虚拟机创建：初始化虚拟机实例
+/// - 资源分配：内存大小、CPU数量
+/// - 执行模式：选择解释器、JIT或硬件辅助虚拟化
+///
+/// # 示例
+/// ```
+/// use vm_core::{VmConfig, GuestArch, ExecMode};
+///
+/// let config = VmConfig {
+///     guest_arch: GuestArch::Riscv64,
+///     memory_size: 128 * 1024 * 1024, // 128MB
+///     vcpu_count: 1,
+///     exec_mode: ExecMode::Interpreter,
+///     kernel_path: Some("/path/to/kernel".to_string()),
+///     initrd_path: None,
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct VmConfig {
     /// 客户机架构
+    ///
+    /// 指定Guest的CPU架构类型
     pub guest_arch: GuestArch,
     /// 内存大小（字节）
+    ///
+    /// 分配给Guest的物理内存大小
     pub memory_size: usize,
     /// 虚拟CPU数量
+    ///
+    /// 创建的虚拟CPU核心数
     pub vcpu_count: usize,
     /// 执行模式
+    ///
+    /// 指定虚拟机的执行引擎类型
     pub exec_mode: ExecMode,
     /// 内核文件路径
+    ///
+    /// Guest内核镜像的文件路径（可选）
     pub kernel_path: Option<String>,
     /// 初始化RAM磁盘路径
+    ///
+    /// initrd镜像的文件路径（可选）
     pub initrd_path: Option<String>,
 }
 
@@ -302,13 +541,46 @@ impl Default for VmConfig {
 }
 
 /// 执行模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// 定义虚拟机的执行引擎类型。
+///
+/// # 使用场景
+/// - 性能调优：根据需求选择执行模式
+/// - 调试：解释器模式便于调试
+/// - 生产：JIT模式提供接近原生的性能
+///
+/// # 模式对比
+/// - **Interpreter**: 简单、便携、易调试，性能较低
+/// - **JIT**: 高性能，需要编译时间，内存占用较大
+/// - **HardwareAssisted**: 最高性能，依赖硬件虚拟化支持
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub enum ExecMode {
     /// 解释器模式
+    ///
+    /// 逐条或逐块解释执行Guest指令。
+    ///
+    /// # 特点
+    /// - 实现简单，便于调试
+    /// - 启动快速，无编译开销
+    /// - 性能较低，通常为原生的1-5%
     Interpreter,
     /// JIT编译模式
+    ///
+    /// 即时编译Guest指令为Host机器码并执行。
+    ///
+    /// # 特点
+    /// - 高性能，可达原生的50-80%
+    /// - 需要编译时间
+    /// - 内存占用较大（代码缓存）
     JIT,
     /// 硬件辅助虚拟化模式
+    ///
+    /// 利用硬件虚拟化技术（如Intel VT-x、AMD-V）。
+    ///
+    /// # 特点
+    /// - 最高性能，接近原生
+    /// - 依赖硬件支持
+    /// - 主要用于系统虚拟化
     HardwareAssisted,
 }
 
@@ -333,12 +605,8 @@ impl Default for VmState {
     }
 }
 
-
-
 /// 虚拟机结果类型
 pub type VmResult<T> = Result<T, VmError>;
-
-
 
 /// 指令解码器trait
 ///
@@ -359,10 +627,10 @@ pub type VmResult<T> = Result<T, VmError>;
 pub trait Decoder {
     /// 指令类型关联类型
     type Instruction;
-    
+
     /// 基本块类型关联类型
     type Block;
-    
+
     /// 解码单条指令
     ///
     /// 从指定地址解码一条指令，返回对应的指令表示。
@@ -374,7 +642,7 @@ pub trait Decoder {
     /// # 返回
     /// 解码后的指令对象
     fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Instruction>;
-    
+
     /// 解码指令块
     ///
     /// 从指定地址解码一个基本块，直到遇到跳转指令或其他终止指令。
@@ -425,7 +693,7 @@ pub trait ExecutionEngine<BlockType>: Send + Sync {
     /// # 参数
     /// - `instruction`: 要执行的指令
     fn execute_instruction(&mut self, instruction: &Instruction) -> VmResult<()>;
-    
+
     /// 运行虚拟机
     ///
     /// 执行一个基本块或执行上下文，直到遇到终止条件（如系统调用、中断等）。
@@ -437,7 +705,7 @@ pub trait ExecutionEngine<BlockType>: Send + Sync {
     /// # 返回
     /// 执行结果，包含终止原因和可能的错误
     fn run(&mut self, mmu: &mut dyn MMU, block: &BlockType) -> ExecResult;
-    
+
     /// 获取指定编号的寄存器值
     ///
     /// # 参数
@@ -446,40 +714,38 @@ pub trait ExecutionEngine<BlockType>: Send + Sync {
     /// # 返回
     /// 寄存器的当前值
     fn get_reg(&self, idx: usize) -> u64;
-    
+
     /// 设置指定编号的寄存器值
     ///
     /// # 参数
     /// - `idx`: 寄存器编号
     /// - `val`: 要设置的值
     fn set_reg(&mut self, idx: usize, val: u64);
-    
+
     /// 获取程序计数器（PC）
     ///
     /// # 返回
     /// 当前程序计数器值
     fn get_pc(&self) -> GuestAddr;
-    
+
     /// 设置程序计数器（PC）
     ///
     /// # 参数
     /// - `pc`: 新的程序计数器值
     fn set_pc(&mut self, pc: GuestAddr);
-    
+
     /// 获取VCPU状态
     ///
     /// # 返回
     /// vCPU的完整状态容器，包含所有寄存器和控制寄存器
     fn get_vcpu_state(&self) -> VcpuStateContainer;
-    
+
     /// 设置VCPU状态
     ///
     /// # 参数
     /// - `state`: 要设置的vCPU状态
     fn set_vcpu_state(&mut self, state: &VcpuStateContainer);
 }
-
-
 
 /// MMIO设备trait
 ///
@@ -527,7 +793,7 @@ pub trait MmioDevice: Send + Sync {
     /// # 返回
     /// 读取的数据值
     fn read(&self, offset: u64, size: u8) -> VmResult<u64>;
-    
+
     /// 写入MMIO寄存器
     ///
     /// 向设备指定偏移地址写入数据。
@@ -541,10 +807,6 @@ pub trait MmioDevice: Send + Sync {
     /// 写入成功返回Ok(())，失败返回错误
     fn write(&mut self, offset: u64, value: u64, size: u8) -> VmResult<()>;
 }
-
-
-
-
 
 /// 系统调用上下文
 #[derive(Debug, Clone)]
@@ -599,42 +861,95 @@ pub enum VmLifecycleState {
     Stopped,
 }
 
+/// 执行状态
+///
+/// 表示虚拟机执行的当前状态。
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecStatus {
     /// 继续执行
+    ///
+    /// 虚拟机正常执行中，可以继续执行下一条指令
     Continue,
     /// 执行完成
+    ///
+    /// 虚拟机正常退出或执行完成
     Ok,
     /// 执行故障
+    ///
+    /// 执行过程中发生错误
+    ///
+    /// # 包含错误类型
     Fault(ExecutionError),
     /// IO请求
+    ///
+    /// Guest发起IO请求，需要Host处理
     IoRequest,
     /// 中断待处理
+    ///
+    /// 有外部中断等待处理
     InterruptPending,
 }
 
 /// 执行统计信息
-#[derive(Debug, Clone, Default)]
+///
+/// 记录虚拟机执行过程中的各种性能指标。
+///
+/// # 使用场景
+/// - 性能分析：统计指令数、内存访问等
+/// - TLB效率：监控TLB命中率
+/// - JIT优化：统计编译次数和时间
+///
+/// # 示例
+/// ```
+/// use vm_core::ExecStats;
+///
+/// let stats = ExecStats::default();
+/// println!("Instructions: {}", stats.executed_insns);
+/// println!("TLB hit rate: {:.2}%",
+///     stats.tlb_hits as f64 / (stats.tlb_hits + stats.tlb_misses) as f64 * 100.0);
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Encode, Decode)]
 pub struct ExecStats {
-    /// 已执行的指令数
+    /// 已执行的操作数（遗留字段，用于兼容）
     pub executed_ops: u64,
-    /// 已执行的指令数（用于兼容）
+    /// 已执行的指令数
+    ///
+    /// 统计从开始到当前执行的总指令数
     pub executed_insns: u64,
     /// 内存访问次数
+    ///
+    /// 统计所有内存读写操作的次数
     pub mem_accesses: u64,
     /// 执行时间（纳秒）
+    ///
+    /// 累计执行时间，不包括JIT编译时间
     pub exec_time_ns: u64,
     /// TLB命中次数
+    ///
+    /// TLB查找成功的次数
     pub tlb_hits: u64,
     /// TLB未命中次数
+    ///
+    /// TLB查找失败，需要页表遍历的次数
     pub tlb_misses: u64,
     /// JIT编译次数
+    ///
+    /// JIT编译器被调用的次数
     pub jit_compiles: u64,
     /// JIT编译时间（纳秒）
+    ///
+    /// 累计的JIT编译时间
     pub jit_compile_time_ns: u64,
 }
 
 /// 执行结果结构
+///
+/// 包含执行后的状态、统计信息和下一条指令地址。
+///
+/// # 字段
+/// - `status`: 执行状态（成功/失败/中断等）
+/// - `stats`: 执行统计信息
+/// - `next_pc`: 下一条要执行的指令地址
 #[derive(Debug, Clone)]
 pub struct ExecResult {
     /// 执行状态
@@ -659,8 +974,8 @@ mod tests {
     #[test]
     fn test_guest_addr_wrapping_sub() {
         let addr1 = GuestAddr(0x0000_0000_0000_0000);
-        let result = addr1.wrapping_sub(GuestAddr(1));
-        assert_eq!(result, 0xFFFF_FFFF_FFFF_FFFF);
+        let result = addr1.wrapping_sub(1);
+        assert_eq!(result, GuestAddr(0xFFFF_FFFF_FFFF_FFFF));
     }
 
     #[test]

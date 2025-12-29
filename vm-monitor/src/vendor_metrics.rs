@@ -72,43 +72,61 @@ impl VendorMetricsCollector {
 
     /// 记录指令执行
     pub fn record_instruction(&self, extension_name: &str, duration: Duration) {
-        let mut metrics = self.metrics.write().unwrap();
+        let mut metrics = match self.metrics.write() {
+            Ok(m) => m,
+            Err(_) => return, // Silently fail on lock error
+        };
         let entry = metrics
             .entry(extension_name.to_string())
             .or_insert_with(|| VendorExtensionMetrics::new(extension_name.to_string()));
         entry.record_execution(duration);
 
-        *self.total_instructions.write().unwrap() += 1;
+        if let Ok(mut total) = self.total_instructions.write() {
+            *total += 1;
+        }
     }
 
     /// 获取扩展指标
     pub fn get_metrics(&self, extension_name: &str) -> Option<VendorExtensionMetrics> {
-        let metrics = self.metrics.read().unwrap();
-        metrics.get(extension_name).cloned()
+        match self.metrics.read() {
+            Ok(metrics) => metrics.get(extension_name).cloned(),
+            Err(_) => None, // Return None on lock error
+        }
     }
 
     /// 获取所有指标
     pub fn get_all_metrics(&self) -> HashMap<String, VendorExtensionMetrics> {
-        let metrics = self.metrics.read().unwrap();
-        metrics.clone()
+        match self.metrics.read() {
+            Ok(metrics) => metrics.clone(),
+            Err(_) => HashMap::new(), // Return empty on lock error
+        }
     }
 
     /// 获取总指令数
     pub fn total_instructions(&self) -> u64 {
-        *self.total_instructions.read().unwrap()
+        match self.total_instructions.read() {
+            Ok(total) => *total,
+            Err(_) => 0, // Return 0 on lock error
+        }
     }
 
     /// 重置统计
     pub fn reset(&self) {
-        let mut metrics = self.metrics.write().unwrap();
-        metrics.clear();
-        *self.total_instructions.write().unwrap() = 0;
+        if let Ok(mut metrics) = self.metrics.write() {
+            metrics.clear();
+        }
+        if let Ok(mut total) = self.total_instructions.write() {
+            *total = 0;
+        }
     }
 
     /// 生成性能报告
     pub fn generate_report(&self) -> String {
-        let metrics = self.metrics.read().unwrap();
-        let total = *self.total_instructions.read().unwrap();
+        let metrics = match self.metrics.read() {
+            Ok(m) => m.clone(),
+            Err(_) => return "Error: Unable to acquire metrics lock".to_string(),
+        };
+        let total = self.total_instructions();
 
         let mut report = String::from("=== 厂商扩展性能报告 ===\n");
         report.push_str(&format!("总指令数: {}\n\n", total));
@@ -153,7 +171,7 @@ impl PerformanceAnalyzer {
             .map(|(name, metric)| (name.clone(), metric.usage_rate(total)))
             .collect();
 
-        usage.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        usage.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         usage
     }
 

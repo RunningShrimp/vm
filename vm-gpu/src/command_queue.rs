@@ -100,10 +100,31 @@ impl GpuCommandQueue {
         }
     }
 
+    // Helper methods for safe lock operations
+    fn lock_queue(&self) -> Result<std::sync::MutexGuard<VecDeque<GpuCommand>>, CommandQueueError> {
+        self.queue.lock().map_err(|_| CommandQueueError::QueueError)
+    }
+
+    fn lock_state(&self) -> Result<std::sync::MutexGuard<CommandQueueState>, CommandQueueError> {
+        self.state.lock().map_err(|_| CommandQueueError::QueueError)
+    }
+
+    fn lock_stats(&self) -> Result<std::sync::MutexGuard<CommandQueueStats>, CommandQueueError> {
+        self.stats.lock().map_err(|_| CommandQueueError::QueueError)
+    }
+
+    fn lock_submitted_count(&self) -> Result<std::sync::MutexGuard<u64>, CommandQueueError> {
+        self.submitted_count.lock().map_err(|_| CommandQueueError::QueueError)
+    }
+
+    fn lock_completed_count(&self) -> Result<std::sync::MutexGuard<u64>, CommandQueueError> {
+        self.completed_count.lock().map_err(|_| CommandQueueError::QueueError)
+    }
+
     /// 提交命令到队列
     pub fn submit(&self, command: GpuCommand) -> Result<(), CommandQueueError> {
-        let mut queue = self.queue.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
+        let mut queue = self.lock_queue()?;
+        let mut stats = self.lock_stats()?;
 
         // 检查队列是否已满
         if queue.len() >= self.max_size {
@@ -112,14 +133,14 @@ impl GpuCommandQueue {
         }
 
         // 检查队列状态
-        let state = *self.state.lock().unwrap();
+        let state = *self.lock_state()?;
         if state == CommandQueueState::Error {
             return Err(CommandQueueError::QueueError);
         }
 
         // 添加到队列
         queue.push_back(command);
-        *self.submitted_count.lock().unwrap() += 1;
+        *self.lock_submitted_count()? += 1;
         stats.total_submitted += 1;
         stats.max_queue_depth = stats.max_queue_depth.max(queue.len());
 
@@ -131,9 +152,9 @@ impl GpuCommandQueue {
 
     /// 批量提交命令
     pub fn submit_batch(&self, commands: Vec<GpuCommand>) -> Result<usize, CommandQueueError> {
-        let mut queue = self.queue.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
-        let state = *self.state.lock().unwrap();
+        let mut queue = self.lock_queue()?;
+        let mut stats = self.lock_stats()?;
+        let state = *self.lock_state()?;
 
         if state == CommandQueueState::Error {
             return Err(CommandQueueError::QueueError);
@@ -149,7 +170,7 @@ impl GpuCommandQueue {
             submitted += 1;
         }
 
-        *self.submitted_count.lock().unwrap() += submitted as u64;
+        *self.lock_submitted_count()? += submitted as u64;
         stats.total_submitted += submitted as u64;
         stats.max_queue_depth = stats.max_queue_depth.max(queue.len());
 
@@ -162,12 +183,15 @@ impl GpuCommandQueue {
 
     /// 从队列获取下一个命令（阻塞）
     pub fn dequeue(&self, timeout: Option<Duration>) -> Option<GpuCommand> {
-        let mut queue = self.queue.lock().unwrap();
+        let mut queue = self.lock_queue().ok()?;
         let start_time = Instant::now();
 
         loop {
             // 检查队列状态
-            let state = *self.state.lock().unwrap();
+            let state = match self.lock_state() {
+                Ok(s) => *s,
+                Err(_) => return None,
+            };
             if state == CommandQueueState::Error {
                 return None;
             }
@@ -195,36 +219,42 @@ impl GpuCommandQueue {
             });
 
             if let Some(timeout) = wait_timeout {
-                let (guard, _) = self.condvar.wait_timeout(queue, timeout).unwrap();
+                let (guard, _) = self.condvar.wait_timeout(queue, timeout).ok()?;
                 queue = guard;
             } else {
-                queue = self.condvar.wait(queue).unwrap();
+                queue = self.condvar.wait(queue).ok()?;
             }
         }
     }
 
     /// 从队列获取下一个命令（非阻塞）
     pub fn try_dequeue(&self) -> Option<GpuCommand> {
-        let mut queue = self.queue.lock().unwrap();
+        let mut queue = self.lock_queue().ok()?;
         queue.pop_front()
     }
 
     /// 标记命令完成
     pub fn mark_completed(&self, wait_time_us: u64) {
-        *self.completed_count.lock().unwrap() += 1;
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_completed += 1;
+        if let Ok(mut completed) = self.lock_completed_count() {
+            *completed += 1;
+        }
+        if let Ok(mut stats) = self.lock_stats() {
+            stats.total_completed += 1;
 
-        // 更新平均等待时间（简单移动平均）
-        let completed = stats.total_completed;
-        if completed > 0 {
-            stats.avg_wait_time_us = (stats.avg_wait_time_us * (completed - 1) + wait_time_us) / completed;
+            // 更新平均等待时间（简单移动平均）
+            let completed = stats.total_completed;
+            if completed > 0 {
+                stats.avg_wait_time_us = (stats.avg_wait_time_us * (completed - 1) + wait_time_us) / completed;
+            }
         }
     }
 
     /// 获取队列大小
     pub fn size(&self) -> usize {
-        self.queue.lock().unwrap().len()
+        match self.lock_queue() {
+            Ok(queue) => queue.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 获取最大队列大小
@@ -234,24 +264,33 @@ impl GpuCommandQueue {
 
     /// 检查队列是否为空
     pub fn is_empty(&self) -> bool {
-        self.queue.lock().unwrap().is_empty()
+        match self.lock_queue() {
+            Ok(queue) => queue.is_empty(),
+            Err(_) => true,
+        }
     }
 
     /// 清空队列
     pub fn clear(&self) {
-        let mut queue = self.queue.lock().unwrap();
-        queue.clear();
+        if let Ok(mut queue) = self.lock_queue() {
+            queue.clear();
+        }
     }
 
     /// 设置队列状态
     pub fn set_state(&self, state: CommandQueueState) {
-        *self.state.lock().unwrap() = state;
-        self.condvar.notify_all();
+        if let Ok(mut s) = self.lock_state() {
+            *s = state;
+            self.condvar.notify_all();
+        }
     }
 
     /// 获取队列状态
     pub fn get_state(&self) -> CommandQueueState {
-        *self.state.lock().unwrap()
+        match self.lock_state() {
+            Ok(state) => *state,
+            Err(_) => CommandQueueState::Error,
+        }
     }
 
     /// 启动队列
@@ -277,24 +316,39 @@ impl GpuCommandQueue {
 
     /// 获取统计信息
     pub fn get_stats(&self) -> CommandQueueStats {
-        self.stats.lock().unwrap().clone()
+        match self.lock_stats() {
+            Ok(stats) => stats.clone(),
+            Err(_) => CommandQueueStats::default(),
+        }
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        *self.stats.lock().unwrap() = CommandQueueStats::default();
-        *self.submitted_count.lock().unwrap() = 0;
-        *self.completed_count.lock().unwrap() = 0;
+        if let Ok(mut stats) = self.lock_stats() {
+            *stats = CommandQueueStats::default();
+        }
+        if let Ok(mut submitted) = self.lock_submitted_count() {
+            *submitted = 0;
+        }
+        if let Ok(mut completed) = self.lock_completed_count() {
+            *completed = 0;
+        }
     }
 
     /// 获取提交的命令数
     pub fn get_submitted_count(&self) -> u64 {
-        *self.submitted_count.lock().unwrap()
+        match self.lock_submitted_count() {
+            Ok(count) => *count,
+            Err(_) => 0,
+        }
     }
 
     /// 获取完成的命令数
     pub fn get_completed_count(&self) -> u64 {
-        *self.completed_count.lock().unwrap()
+        match self.lock_completed_count() {
+            Ok(count) => *count,
+            Err(_) => 0,
+        }
     }
 
     /// 等待队列为空（阻塞直到队列为空或超时）

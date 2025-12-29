@@ -63,7 +63,12 @@ impl AotBuilder {
     }
 
     /// 添加已编译的代码块
-    pub fn add_compiled_block(&mut self, pc: GuestAddr, code: Vec<u8>, flags: u32) -> io::Result<()> {
+    pub fn add_compiled_block(
+        &mut self,
+        pc: GuestAddr,
+        code: Vec<u8>,
+        flags: u32,
+    ) -> io::Result<()> {
         self.sections.push(AotSection {
             addr: pc,
             data: code,
@@ -76,22 +81,29 @@ impl AotBuilder {
     pub fn get_options(&self) -> &CompilationOptions {
         &self.options
     }
-    
+
     /// 设置编译选项
     pub fn set_options(&mut self, options: CompilationOptions) {
         self.options = options;
     }
-    
+
     /// 构建 AOT 镜像
     pub fn build(self) -> io::Result<AotImage> {
-        let mut image = AotImage::default();
-        image.sections = self.sections;
-        image.header.section_count = image.sections.len() as u32;
-        
+        let section_count = self.sections.len() as u32;
+        let optimization_level = self.options.optimization_level;
+        let target_isa = self.options.target_isa as u32;
+
+        let image = AotImage {
+            sections: self.sections,
+            ..Default::default()
+        };
+
         // 使用编译选项配置镜像
-        image.header.optimization_level = self.options.optimization_level;
-        image.header.target_isa = self.options.target_isa as u32;
-        
+        let mut image = image;
+        image.header.section_count = section_count;
+        image.header.optimization_level = optimization_level;
+        image.header.target_isa = target_isa;
+
         Ok(image)
     }
 }

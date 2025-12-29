@@ -2,19 +2,19 @@
 //!
 //! 提供 PowerPC 指令集的解码、编码和转换功能
 
-use vm_ir::{IRBlock, IRInstruction, RegId, Operand};
 use vm_core::{GuestArch, VmError};
+use vm_ir::{IRInstruction, MemFlags, Operand, RegId, RegIdExt};
 
 /// PowerPC 寄存器
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PowerPCReg {
-    GPR(u8),     // 通用寄存器 R0-R31
-    FPR(u8),     // 浮点寄存器 F0-F31
-    CR(u8),      // 条件寄存器 CR0-CR7
-    XER,         // 异常寄存器
-    LR,          // 链接寄存器
-    CTR,         // 计数寄存器
-    SPR(u16),     // 特殊寄存器
+    GPR(u8),  // 通用寄存器 R0-R31
+    FPR(u8),  // 浮点寄存器 F0-F31
+    CR(u8),   // 条件寄存器 CR0-CR7
+    XER,      // 异常寄存器
+    LR,       // 链接寄存器
+    CTR,      // 计数寄存器
+    SPR(u16), // 特殊寄存器
 }
 
 impl PowerPCReg {
@@ -118,21 +118,41 @@ pub enum PowerPCOpcode {
 /// PowerPC 指令解码器
 pub struct PowerPCDecoder {
     arch: GuestArch,
+    pc: u64, // Program counter for relative branches
 }
 
 impl PowerPCDecoder {
     pub fn new(arch: GuestArch) -> Self {
-        Self { arch }
+        Self { arch, pc: 0 }
+    }
+
+    /// Set the program counter for decoding relative branches
+    pub fn set_pc(&mut self, pc: u64) {
+        self.pc = pc;
+    }
+
+    /// Get the current program counter
+    pub fn get_pc(&self) -> u64 {
+        self.pc
+    }
+
+    /// Check if the decoder is configured for 64-bit PowerPC
+    pub fn is_64bit(&self) -> bool {
+        matches!(self.arch, GuestArch::PowerPC64)
     }
 
     /// 解码 PowerPC 指令
     pub fn decode(&self, bytes: &[u8]) -> Result<IRInstruction, VmError> {
         if bytes.len() < 4 {
-            return Err(VmError::InvalidOperation {
-                operation: "decode".to_string(),
-                reason: "Instruction too short".to_string(),
-            });
+            return Err(VmError::Core(vm_core::CoreError::DecodeError {
+                message: "Instruction too short".to_string(),
+                position: None,
+                module: "powerpc".to_string(),
+            }));
         }
+
+        // Validate architecture-specific constraints
+        self.validate_architecture()?;
 
         let instr = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         let opcode = (instr >> 26) & 0x3F;
@@ -140,7 +160,7 @@ impl PowerPCDecoder {
         match opcode {
             0x10 => self.decode_branch(instr),
             0x11 => self.decode_cond_branch(instr),
-            0x14 => self.decode_addi(instr),
+            0x0E => self.decode_addi(instr), // Fixed: ADDI opcode is 14 (0x0E), not 20 (0x14)
             0x15 => self.decode_addis(instr),
             0x20 => self.decode_lwz(instr),
             0x21 => self.decode_lbz(instr),
@@ -155,14 +175,34 @@ impl PowerPCDecoder {
         }
     }
 
+    /// Validate that the architecture is properly configured
+    fn validate_architecture(&self) -> Result<(), VmError> {
+        match self.arch {
+            GuestArch::PowerPC64 => Ok(()),
+            _ => Err(VmError::Core(vm_core::CoreError::DecodeError {
+                message: format!("Invalid architecture for PowerPC decoder: {:?}", self.arch),
+                position: None,
+                module: "powerpc".to_string(),
+            })),
+        }
+    }
+
     fn decode_branch(&self, instr: u32) -> Result<IRInstruction, VmError> {
-        let link_bit = (instr >> 0) & 0x1 != 0;
+        let link_bit = instr & 0x1 != 0;
         let aa_bit = (instr >> 1) & 0x1 != 0;
         let li = (instr & 0x3FFFFFC) as i32;
+
+        // Use architecture to determine address size
         let target = if aa_bit {
             li as u64
         } else {
-            (self.get_pc() as i64 + li as i64) as u64
+            // Sign-extend for 64-bit if needed
+            let offset = if self.is_64bit() {
+                li as i64 as u64
+            } else {
+                (li as u32) as u64
+            };
+            self.pc.wrapping_add(offset)
         };
 
         Ok(IRInstruction::Branch {
@@ -172,20 +212,26 @@ impl PowerPCDecoder {
     }
 
     fn decode_cond_branch(&self, instr: u32) -> Result<IRInstruction, VmError> {
-        let bo = (instr >> 21) & 0x1F;
+        let _bo = (instr >> 21) & 0x1F;
         let bi = (instr >> 16) & 0x1F;
         let bd = ((instr & 0xFFFC) as i16) as i32;
-        let link_bit = (instr >> 0) & 0x1 != 0;
+        let link_bit = instr & 0x1 != 0;
         let aa_bit = (instr >> 1) & 0x1 != 0;
 
         let target = if aa_bit {
             bd as u64
         } else {
-            (self.get_pc() as i64 + bd as i64) as u64
+            // Sign-extend based on architecture
+            let offset = if self.is_64bit() {
+                bd as i64 as u64
+            } else {
+                (bd as u16) as u64
+            };
+            self.pc.wrapping_add(offset)
         };
 
         Ok(IRInstruction::CondBranch {
-            condition: Operand::Reg(RegId::new(bi as u32)),
+            condition: Operand::Reg(RegId::new(bi)),
             target: Operand::Imm64(target),
             link: link_bit,
         })
@@ -222,7 +268,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Load {
+        Ok(IRInstruction::LoadExt {
             dest: RegId::new(rt),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -234,6 +280,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 4,
+            flags: MemFlags::default(),
         })
     }
 
@@ -242,7 +289,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Load {
+        Ok(IRInstruction::LoadExt {
             dest: RegId::new(rt),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -254,6 +301,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 1,
+            flags: MemFlags::default(),
         })
     }
 
@@ -262,7 +310,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Store {
+        Ok(IRInstruction::StoreExt {
             value: Operand::Reg(RegId::new(rs)),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -274,6 +322,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 4,
+            flags: MemFlags::default(),
         })
     }
 
@@ -282,7 +331,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Store {
+        Ok(IRInstruction::StoreExt {
             value: Operand::Reg(RegId::new(rs)),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -294,6 +343,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 1,
+            flags: MemFlags::default(),
         })
     }
 
@@ -302,7 +352,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Load {
+        Ok(IRInstruction::LoadExt {
             dest: RegId::new(rt),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -314,6 +364,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 4,
+            flags: MemFlags::default(),
         })
     }
 
@@ -322,7 +373,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Load {
+        Ok(IRInstruction::LoadExt {
             dest: RegId::new(rt),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -334,6 +385,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 2,
+            flags: MemFlags::default(),
         })
     }
 
@@ -342,7 +394,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Store {
+        Ok(IRInstruction::StoreExt {
             value: Operand::Reg(RegId::new(rs)),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -354,6 +406,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 2,
+            flags: MemFlags::default(),
         })
     }
 
@@ -362,7 +415,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Load {
+        Ok(IRInstruction::LoadExt {
             dest: RegId::new(frt),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -374,6 +427,7 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 4,
+            flags: MemFlags::default(),
         })
     }
 
@@ -382,7 +436,7 @@ impl PowerPCDecoder {
         let ra = (instr >> 16) & 0x1F;
         let d = ((instr & 0xFFFF) as i16) as i64;
 
-        Ok(IRInstruction::Store {
+        Ok(IRInstruction::StoreExt {
             value: Operand::Reg(RegId::new(frs)),
             addr: Operand::Binary {
                 op: vm_ir::BinaryOperator::Add,
@@ -394,10 +448,11 @@ impl PowerPCDecoder {
                 right: Box::new(Operand::Imm64(d as u64)),
             },
             size: 4,
+            flags: MemFlags::default(),
         })
     }
 
-    fn decode_primary(&self, opcode: u32, instr: u32) -> Result<IRInstruction, VmError> {
+    fn decode_primary(&self, _opcode: u32, instr: u32) -> Result<IRInstruction, VmError> {
         let primary = (instr >> 1) & 0x3FF;
         let rt = (instr >> 21) & 0x1F;
         let ra = (instr >> 16) & 0x1F;
@@ -419,10 +474,6 @@ impl PowerPCDecoder {
             _ => Ok(IRInstruction::Nop),
         }
     }
-
-    fn get_pc(&self) -> u64 {
-        0
-    }
 }
 
 /// PowerPC 编码器
@@ -435,25 +486,57 @@ impl PowerPCEncoder {
         Self { arch }
     }
 
+    /// Check if the encoder is configured for 64-bit PowerPC
+    pub fn is_64bit(&self) -> bool {
+        matches!(self.arch, GuestArch::PowerPC64)
+    }
+
     pub fn encode(&self, ir_instr: &IRInstruction) -> Result<Vec<u8>, VmError> {
+        // Validate architecture before encoding
+        self.validate_architecture()?;
+
         match ir_instr {
-            IRInstruction::BinaryOp { op, dest, src1, src2 } => {
-                self.encode_binary_op(*op, *dest, src1, src2)
-            }
-            IRInstruction::Branch { target, .. } => {
-                self.encode_branch(target)
-            }
-            IRInstruction::Load { dest, addr, size } => {
-                self.encode_load(*dest, addr, *size)
-            }
-            IRInstruction::Store { value, addr, size } => {
-                self.encode_store(value, addr, *size)
-            }
+            IRInstruction::BinaryOp {
+                op,
+                dest,
+                src1,
+                src2,
+            } => self.encode_binary_op(*op, *dest, src1, src2),
+            IRInstruction::Branch { target, .. } => self.encode_branch(target),
+            IRInstruction::LoadExt {
+                dest,
+                addr,
+                size,
+                flags: _,
+            } => self.encode_load(*dest, addr, (*size) as usize),
+            IRInstruction::StoreExt {
+                value,
+                addr,
+                size,
+                flags: _,
+            } => self.encode_store(value, addr, (*size) as usize),
             _ => Ok(vec![0x00, 0x00, 0x00, 0x00]),
         }
     }
 
-    fn encode_binary_op(&self, op: vm_ir::BinaryOperator, dest: RegId, src1: &Operand, src2: &Operand) -> Result<Vec<u8>, VmError> {
+    /// Validate that the architecture is properly configured
+    fn validate_architecture(&self) -> Result<(), VmError> {
+        match self.arch {
+            GuestArch::PowerPC64 => Ok(()),
+            _ => Err(VmError::Core(vm_core::CoreError::NotSupported {
+                feature: format!("Invalid architecture for PowerPC encoder: {:?}", self.arch),
+                module: "powerpc".to_string(),
+            })),
+        }
+    }
+
+    fn encode_binary_op(
+        &self,
+        op: vm_ir::BinaryOperator,
+        dest: RegId,
+        _src1: &Operand,
+        _src2: &Operand,
+    ) -> Result<Vec<u8>, VmError> {
         let (rt, ra, rb) = (dest.id() as u8, 0u8, 0u8);
         let primary = match op {
             vm_ir::BinaryOperator::Add => 266,
@@ -461,66 +544,95 @@ impl PowerPCEncoder {
             _ => return Ok(vec![0x00, 0x00, 0x00, 0x00]),
         };
 
-        let instr = (0u32 << 26) | (rt as u32) << 21) | (ra as u32) << 16) | (rb as u32) << 11) | primary << 1;
+        let instr = ((rt as u32) << 21)
+            | ((ra as u32) << 16)
+            | ((rb as u32) << 11)
+            | ((primary as u32) << 1);
         Ok(instr.to_be_bytes().to_vec())
     }
 
     fn encode_branch(&self, target: &Operand) -> Result<Vec<u8>, VmError> {
         if let Operand::Imm64(target_addr) = target {
-            let offset = *target_addr as i32;
-            let instr = (0x10u32 << 26) | ((offset & 0x3FFFFFC) as u32);
+            // Use architecture to validate branch target
+            let offset = if self.is_64bit() {
+                *target_addr as i64 as i32
+            } else {
+                *target_addr as i32
+            };
+
+            let instr = (0x10u32 << 26) | ((offset as u32) & 0x3FFFFFC);
             Ok(instr.to_be_bytes().to_vec())
         } else {
-            Err(VmError::InvalidOperation {
-                operation: "encode_branch".to_string(),
-                reason: "Target must be immediate".to_string(),
-            })
+            Err(VmError::Core(vm_core::CoreError::NotSupported {
+                feature: "encode_branch".to_string(),
+                module: "powerpc".to_string(),
+            }))
         }
     }
 
-    fn encode_load(&self, dest: RegId, addr: &Operand, size: usize) -> Result<Vec<u8>, VmError> {
+    fn encode_load(&self, dest: RegId, _addr: &Operand, size: usize) -> Result<Vec<u8>, VmError> {
+        // Validate size based on architecture
+        let max_size = if self.is_64bit() { 8 } else { 4 };
+        if size > max_size {
+            return Err(VmError::Core(vm_core::CoreError::NotSupported {
+                feature: format!("load size {} for {:?}", size, self.arch),
+                module: "powerpc".to_string(),
+            }));
+        }
+
         let opcode = match size {
             1 => 0x21,
             2 => 0x2C,
             4 => 0x20,
-            _ => return Err(VmError::InvalidOperation {
-                operation: "encode_load".to_string(),
-                reason: format!("Unsupported load size: {}", size),
-            }),
+            _ => {
+                return Err(VmError::Core(vm_core::CoreError::NotSupported {
+                    feature: format!("load size {}", size),
+                    module: "powerpc".to_string(),
+                }));
+            }
         };
 
         let rt = dest.id() as u8;
         let ra = 0u8;
         let d = 0i16;
 
-        let instr = (opcode as u32) << 26 | (rt as u32) << 21 | (ra as u32) << 16 | (d as u16) as u32;
+        let instr =
+            (opcode as u32) << 26 | (rt as u32) << 21 | (ra as u32) << 16 | (d as u16) as u32;
         Ok(instr.to_be_bytes().to_vec())
     }
 
-    fn encode_store(&self, value: &Operand, addr: &Operand, size: usize) -> Result<Vec<u8>, VmError> {
+    fn encode_store(
+        &self,
+        value: &Operand,
+        _addr: &Operand,
+        size: usize,
+    ) -> Result<Vec<u8>, VmError> {
         let opcode = match size {
             1 => 0x23,
             2 => 0x2D,
             4 => 0x22,
-            _ => return Err(VmError::InvalidOperation {
-                operation: "encode_store".to_string(),
-                reason: format!("Unsupported store size: {}", size),
-            }),
+            _ => {
+                return Err(VmError::Core(vm_core::CoreError::NotSupported {
+                    feature: format!("store size {}", size),
+                    module: "powerpc".to_string(),
+                }));
+            }
         };
 
         let rs = if let Operand::Reg(reg) = value {
             reg.id() as u8
         } else {
-            return Err(VmError::InvalidOperation {
-                operation: "encode_store".to_string(),
-                reason: "Value must be register".to_string(),
-            });
+            return Err(VmError::Core(vm_core::CoreError::NotSupported {
+                feature: "encode_store".to_string(),
+                module: "powerpc".to_string(),
+            }));
         };
 
         let ra = 0u8;
         let d = 0i16;
 
-        let instr = (opcode as u32) << 26 | (rs as u32) << 21 | (ra as u32) << 16 | (d as u16) as u32;
+        let instr =
+            (opcode as u32) << 26 | (rs as u32) << 21 | (ra as u32) << 16 | (d as u16) as u32;
         Ok(instr.to_be_bytes().to_vec())
     }
 }
@@ -534,8 +646,16 @@ mod tests {
         let decoder = PowerPCDecoder::new(GuestArch::PowerPC64);
         let instr = 0x38210004u32.to_be_bytes();
 
-        let result = decoder.decode(&instr).unwrap();
-        if let IRInstruction::BinaryOp { op, dest, src1, src2 } = result {
+        let result = decoder
+            .decode(&instr)
+            .expect("Failed to decode ADDI instruction");
+        if let IRInstruction::BinaryOp {
+            op,
+            dest: _,
+            src1: _,
+            src2: _,
+        } = result
+        {
             assert_eq!(op, vm_ir::BinaryOperator::Add);
         } else {
             panic!("Expected BinaryOp");
@@ -547,7 +667,9 @@ mod tests {
         let encoder = PowerPCEncoder::new(GuestArch::PowerPC64);
         let target = Operand::Imm64(0x1000);
 
-        let result = encoder.encode_branch(&target).unwrap();
+        let result = encoder
+            .encode_branch(&target)
+            .expect("Failed to encode branch");
         assert_eq!(result.len(), 4);
     }
 
@@ -556,8 +678,10 @@ mod tests {
         let decoder = PowerPCDecoder::new(GuestArch::PowerPC64);
         let instr = 0x80000000u32.to_be_bytes();
 
-        let result = decoder.decode(&instr).unwrap();
-        if let IRInstruction::Load { size, .. } = result {
+        let result = decoder
+            .decode(&instr)
+            .expect("Failed to decode LWZ instruction");
+        if let IRInstruction::LoadExt { size, .. } = result {
             assert_eq!(size, 4);
         } else {
             panic!("Expected Load");

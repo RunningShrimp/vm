@@ -101,12 +101,32 @@ pub unsafe fn vpgatherdd_256(base: *const i32, indices: &[u32; 8], scale: i32) -
 
 #[cfg(not(target_arch = "x86_64"))]
 mod fallback {
+    /// AVX2 可变左移的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vpsllvd_256(_a: &[u32; 8], _shift: &[u32; 8]) -> Option<[u32; 8]> {
         None
     }
+
+    /// AVX2 可变右移的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vpsrlvd_256(_a: &[u32; 8], _shift: &[u32; 8]) -> Option<[u32; 8]> {
         None
     }
+
+    /// AVX2 聚集加载单精度浮点的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vgatherdps_256(
         _base: *const f32,
         _indices: &[u32; 8],
@@ -114,6 +134,13 @@ mod fallback {
     ) -> Option<[f32; 8]> {
         None
     }
+
+    /// AVX2 聚集加载双精度浮点的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vgatherdpd_256(
         _base: *const f64,
         _indices: &[u32; 4],
@@ -121,6 +148,13 @@ mod fallback {
     ) -> Option<[f64; 4]> {
         None
     }
+
+    /// AVX2 聚集加载双字的跨平台 fallback 实现
+    ///
+    /// # Safety
+    ///
+    /// 此函数在非 x86_64 平台上返回 `None`，不执行任何实际操作。
+    /// 调用此函数是安全的，无需满足任何特定条件。
     pub unsafe fn vpgatherdd_256(
         _base: *const i32,
         _indices: &[u32; 8],

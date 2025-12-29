@@ -334,11 +334,12 @@ mod tests {
     fn test_vm_lifecycle_service_pause() {
         let service = VmLifecycleDomainService::new();
         let mut aggregate = create_test_aggregate();
-        
+
         // Start the VM first
-        service.start_vm(&mut aggregate).unwrap();
+        service.start_vm(&mut aggregate)
+            .expect("start_vm should not fail in test");
         aggregate.mark_events_as_committed();
-        
+
         // Pause the VM
         assert!(service.pause_vm(&mut aggregate).is_ok());
         assert_eq!(aggregate.state(), VmState::Paused);
@@ -354,8 +355,10 @@ mod tests {
         let mut aggregate = create_test_aggregate();
         
         // Start and pause the VM first
-        service.start_vm(&mut aggregate).unwrap();
-        service.pause_vm(&mut aggregate).unwrap();
+        service.start_vm(&mut aggregate)
+            .expect("start_vm should not fail in test");
+        service.pause_vm(&mut aggregate)
+            .expect("pause_vm should not fail in test");
         aggregate.mark_events_as_committed();
         
         // Resume the VM
@@ -371,11 +374,12 @@ mod tests {
     fn test_vm_lifecycle_service_stop() {
         let service = VmLifecycleDomainService::new();
         let mut aggregate = create_test_aggregate();
-        
+
         // Start the VM first
-        service.start_vm(&mut aggregate).unwrap();
+        service.start_vm(&mut aggregate)
+            .expect("start_vm should not fail in test");
         aggregate.mark_events_as_committed();
-        
+
         // Stop the VM
         assert!(service.stop_vm(&mut aggregate, "Test stop".to_string()).is_ok());
         assert_eq!(aggregate.state(), VmState::Stopped);
@@ -389,11 +393,12 @@ mod tests {
     fn test_vm_lifecycle_service_invalid_start() {
         let service = VmLifecycleDomainService::new();
         let mut aggregate = create_test_aggregate();
-        
+
         // Start the VM first
-        service.start_vm(&mut aggregate).unwrap();
+        service.start_vm(&mut aggregate)
+            .expect("start_vm should not fail in test");
         aggregate.mark_events_as_committed();
-        
+
         // Try to start again (should fail)
         assert!(service.start_vm(&mut aggregate).is_err());
         assert_eq!(aggregate.state(), VmState::Running);

@@ -1,0 +1,29 @@
+[package]
+name = "vm-smmu"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "ARM SMMUv3 Implementation for Virtual Machine DMA Virtualization"
+
+[dependencies]
+vm-core = { path = "../vm-core" }
+vm-platform = { path = "../vm-platform" }
+log = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+
+[lib]
+name = "vm_smmu"
+path = "src/lib.rs"
+
+[features]
+default = ["mmu", "atsu", "tlb", "interrupt"]
+# All SMMU components enabled by default (they are part of the SMMUv3 specification)
+mmu = []
+atsu = []
+tlb = []
+interrupt = []
+
+[dev-dependencies]

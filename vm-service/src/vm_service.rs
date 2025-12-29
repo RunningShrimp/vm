@@ -4,36 +4,73 @@
 //! 符合DDD贫血模型原则，将业务逻辑从实体类移至服务层。
 
 pub mod decoder_factory;
-mod execution;
+pub mod execution;
 mod kernel_loader;
 mod lifecycle;
 mod snapshot_manager;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+// Feature-specific modules (consolidate related feature gates)
+#[cfg(feature = "performance")]
+mod performance;
+
+#[cfg(feature = "smmu")]
+mod smmu;
+
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use vm_core::vm_state::VirtualMachineState;
-use vm_core::{GuestAddr, MemoryError, VmConfig, VmError, VmResult, VmLifecycleState,
-}; // 恢复VmError导入，因为它在代码中被使用
-use vm_engine_interpreter::{Interpreter, ExecInterruptAction};
-use vm_engine_jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr};
+use vm_core::{GuestAddr, MemoryError, VmConfig, VmError, VmLifecycleState, VmResult};
+
 use vm_mem::SoftMmu;
 
 use self::execution::{ExecutionContext, run_async, run_sync};
 use self::lifecycle::{request_pause, request_resume, request_stop};
-#[allow(unused_imports)]
-use self::snapshot_manager::{
-    create_template, deserialize_state, list_snapshots, list_templates,
-    serialize_state,
-};/// 虚拟机服务
+
+// Re-export type aliases for public use
+pub use self::execution::IrqPolicy;
+pub use self::execution::TrapHandler;
+
+// Feature-specific imports (consolidated)
+#[cfg(feature = "performance")]
+use performance::{PerformanceConfig, PerformanceContext, PerformanceStats};
+
+#[cfg(feature = "smmu")]
+use smmu::SmmuContext;
+
+/// 虚拟机服务
 ///
-/// 负责处理虚拟机的业务逻辑，包括：
-/// - 内核加载
-/// - 快照管理
-/// - 状态序列化/反序列化
-/// - VM生命周期管理
-/// - 执行循环管理
-#[cfg(not(feature = "no_std"))]
+/// 负责处理虚拟机的业务逻辑，符合DDD领域服务模式。
+///
+/// # 核心职责
+/// - **内核加载**: 从文件或内存加载Guest内核
+/// - **生命周期管理**: 启动、暂停、停止、重置虚拟机
+/// - **状态管理**: 序列化和反序列化VM状态
+/// - **执行控制**: 同步/异步执行，陷阱处理
+///
+/// # 使用场景
+/// - 虚拟机创建：初始化VM实例
+/// - 内核引导：加载和启动Guest OS
+/// - 运行时控制：暂停、恢复、停止VM
+/// - 快照操作：保存和恢复VM状态
+///
+/// # 特性
+/// - `performance`: 启用性能优化（JIT编译、异步I/O、前端生成）
+/// - `smmu`: 启用SMMU（IOMMU）支持
+///
+/// # 示例
+/// ```ignore
+/// use vm_service::VirtualMachineService;
+/// use vm_core::VmConfig;
+///
+/// let config = VmConfig::default();
+/// let service = VirtualMachineService::from_config(config, mmu);
+///
+/// // 加载内核
+/// service.load_kernel_file("kernel.bin", GuestAddr(0x80200000))?;
+///
+/// // 启动VM
+/// service.run(GuestAddr(0x80200000))?;
+/// ```
 pub struct VirtualMachineService<B> {
     /// 虚拟机状态
     state: Arc<Mutex<VirtualMachineState<B>>>,
@@ -42,19 +79,17 @@ pub struct VirtualMachineService<B> {
     /// 暂停标志
     pause_flag: Arc<AtomicBool>,
     /// 陷阱处理器
-    trap_handler:
-        Option<Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
+    trap_handler: Option<TrapHandler>,
     /// 中断策略
-    irq_policy: Option<Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>>,
-    /// JIT代码池
-    code_pool: Option<Arc<Mutex<HashMap<GuestAddr, CodePtr>>>>,
-    /// 自适应快照（使用 Arc<Mutex> 支持内部可变性）
-    adaptive_snapshot: Arc<Mutex<Option<AdaptiveThresholdStats>>>,
-    /// 自适应配置
-    adaptive_config: Option<AdaptiveThresholdConfig>,
+    irq_policy: Option<IrqPolicy>,
+    /// 性能优化上下文 (需要 performance feature)
+    #[cfg(feature = "performance")]
+    performance: PerformanceContext,
+    /// SMMU 上下文 (需要 smmu feature)
+    #[cfg(feature = "smmu")]
+    smmu: SmmuContext,
 }
 
-#[cfg(not(feature = "no_std"))]
 impl<B: 'static> VirtualMachineService<B> {
     /// 创建新的虚拟机服务
     pub fn new(state: VirtualMachineState<B>) -> Self {
@@ -64,10 +99,23 @@ impl<B: 'static> VirtualMachineService<B> {
             pause_flag: Arc::new(AtomicBool::new(false)),
             trap_handler: None,
             irq_policy: None,
-            code_pool: None,
-            adaptive_snapshot: Arc::new(Mutex::new(None)),
-            adaptive_config: None,
+            #[cfg(feature = "performance")]
+            performance: PerformanceContext::new(),
+            #[cfg(feature = "smmu")]
+            smmu: SmmuContext::new(),
         }
+    }
+
+    /// 初始化 SMMU 支持
+    ///
+    /// 创建并初始化 SMMU 管理器和设备管理器。
+    ///
+    /// # 返回值
+    ///
+    /// 成功返回 `Ok(())`，失败返回错误。
+    #[cfg(feature = "smmu")]
+    pub fn init_smmu(&mut self) -> VmResult<()> {
+        self.smmu.init()
     }
 
     /// 从配置创建虚拟机服务
@@ -119,9 +167,109 @@ impl<B: 'static> VirtualMachineService<B> {
     }
 
     /// 从文件加载内核
-    #[cfg(not(feature = "no_std"))]
     pub fn load_kernel_file(&self, path: &str, load_addr: GuestAddr) -> VmResult<()> {
-        kernel_loader::load_kernel_file(path, load_addr)
+        let data = kernel_loader::load_kernel_file(path, load_addr)?;
+
+        // Get MMU from state
+        let state = self.state.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire state lock".to_string(),
+            })
+        })?;
+
+        let mmu = state.mmu();
+        drop(state);
+
+        // Load kernel data
+        kernel_loader::load_kernel(mmu, &data, load_addr)
+    }
+
+    /// 使用异步I/O从文件加载内核（需要 performance feature）
+    #[cfg(feature = "performance")]
+    pub fn load_kernel_file_async(&self, path: &str, load_addr: GuestAddr) -> VmResult<()> {
+        // 验证状态
+        let state = self.state.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire state lock".to_string(),
+            })
+        })?;
+
+        if state.state() == VmLifecycleState::Running {
+            drop(state);
+            return Err(VmError::Core(vm_core::CoreError::InvalidState {
+                message: "Cannot load kernel while VM is running".to_string(),
+                current: "running".to_string(),
+                expected: "stopped".to_string(),
+            }));
+        }
+
+        if load_addr == vm_core::GuestAddr(0) {
+            drop(state);
+            return Err(VmError::Core(vm_core::CoreError::Config {
+                message: "Load address cannot be zero".to_string(),
+                path: Some("load_addr".to_string()),
+            }));
+        }
+
+        drop(state);
+
+        // 创建异步MMU包装器
+        use vm_mem::SoftMmu;
+        let soft_mmu =
+            Arc::new(tokio::sync::Mutex::new(
+                Box::new(SoftMmu::new(1024 * 1024 * 1024, false)) as Box<dyn vm_core::MMU + Send>,
+            ));
+
+        // 调用异步加载包装器
+        kernel_loader::load_kernel_file_async_sync(soft_mmu, path, load_addr)
+    }
+
+    /// 使用异步I/O从内存数据加载内核（需要 performance feature）
+    #[cfg(feature = "performance")]
+    pub fn load_kernel_async(&self, data: &[u8], load_addr: GuestAddr) -> VmResult<()> {
+        // 验证状态
+        let state = self.state.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire state lock".to_string(),
+            })
+        })?;
+
+        if state.state() == VmLifecycleState::Running {
+            drop(state);
+            return Err(VmError::Core(vm_core::CoreError::InvalidState {
+                message: "Cannot load kernel while VM is running".to_string(),
+                current: "running".to_string(),
+                expected: "stopped".to_string(),
+            }));
+        }
+
+        if load_addr == vm_core::GuestAddr(0) {
+            drop(state);
+            return Err(VmError::Core(vm_core::CoreError::Config {
+                message: "Load address cannot be zero".to_string(),
+                path: Some("load_addr".to_string()),
+            }));
+        }
+
+        if data.is_empty() {
+            drop(state);
+            return Err(VmError::Core(vm_core::CoreError::Config {
+                message: "Kernel data cannot be empty".to_string(),
+                path: Some("kernel_data".to_string()),
+            }));
+        }
+
+        drop(state);
+
+        // 创建异步MMU包装器并使用async API加载
+        use vm_mem::SoftMmu;
+        let soft_mmu =
+            Arc::new(tokio::sync::Mutex::new(
+                Box::new(SoftMmu::new(1024 * 1024 * 1024, false)) as Box<dyn vm_core::MMU + Send>,
+            ));
+
+        // 调用异步加载包装器
+        kernel_loader::load_kernel_async_sync(soft_mmu, data, load_addr)
     }
 
     /// 启动 VM
@@ -149,20 +297,40 @@ impl<B: 'static> VirtualMachineService<B> {
         snapshot_manager::create_snapshot(Arc::clone(&self.state), name, description)
     }
 
-    /// 异步创建快照
-    #[cfg(feature = "async")]
+    /// 异步创建快照（需要 performance feature）
+    #[cfg(feature = "performance")]
     pub async fn create_snapshot_async(
         &self,
         name: String,
         description: String,
     ) -> VmResult<String> {
-        use crate::snapshot_manager::create_snapshot_async;
-        // 注意：需要将同步Mutex转换为异步Mutex
-        // 为了简化，这里使用spawn_blocking包装
-        let state_clone = Arc::clone(&self.state);
-        tokio::task::spawn_blocking(move || create_snapshot(state_clone, name, description))
-            .await
-            .map_err(|e| VmError::Io(format!("Failed to create snapshot: {}", e)))?
+        // Note: VirtualMachineService uses std::sync::Mutex for optimal performance
+        // in synchronous operations (start, pause, stop, etc.). Converting to
+        // tokio::sync::Mutex would require ALL methods to become async, including
+        // simple lifecycle operations, which is not desirable.
+        //
+        // Instead, we clone the state before passing to the async snapshot manager.
+        // This is a reasonable trade-off as:
+        // 1. Snapshot operations are infrequent
+        // 2. The clone cost is acceptable compared to forcing all operations async
+        // 3. The main execution path remains synchronous and fast
+        let state_clone = self
+            .state
+            .lock()
+            .map_err(|_| {
+                VmError::Core(vm_core::CoreError::Internal {
+                    message: "Failed to acquire state lock".to_string(),
+                    module: "VirtualMachineService".to_string(),
+                })
+            })?
+            .clone();
+
+        snapshot_manager::create_snapshot_async(
+            std::sync::Arc::new(tokio::sync::Mutex::new(state_clone)),
+            name,
+            description,
+        )
+        .await
     }
 
     /// 恢复快照（调用模块函数）
@@ -170,26 +338,36 @@ impl<B: 'static> VirtualMachineService<B> {
         snapshot_manager::restore_snapshot(Arc::clone(&self.state), id)
     }
 
-    /// 异步恢复快照
-    #[cfg(feature = "async")]
+    /// 异步恢复快照（需要 performance feature）
+    #[cfg(feature = "performance")]
     pub async fn restore_snapshot_async(&self, id: &str) -> VmResult<()> {
-        use crate::snapshot_manager::restore_snapshot_async;
-        // 注意：需要将同步Mutex转换为异步Mutex
-        // 为了简化，这里使用spawn_blocking包装
-        let state_clone = Arc::clone(&self.state);
-        let id_str = id.to_string();
-        tokio::task::spawn_blocking(move || restore_snapshot(state_clone, &id_str))
-            .await
-            .map_err(|e| VmError::Io(format!("Failed to restore snapshot: {}", e)))?
+        // Note: VirtualMachineService uses std::sync::Mutex for optimal performance
+        // in synchronous operations (start, pause, stop, etc.). Converting to
+        // tokio::sync::Mutex would require ALL methods to become async, including
+        // simple lifecycle operations, which is not desirable.
+        //
+        // Instead, we clone the state before passing to the async snapshot manager.
+        // This is a reasonable trade-off as:
+        // 1. Snapshot operations are infrequent
+        // 2. The clone cost is acceptable compared to forcing all operations async
+        // 3. The main execution path remains synchronous and fast
+        let state_clone = self
+            .state
+            .lock()
+            .map_err(|_| {
+                VmError::Core(vm_core::CoreError::Internal {
+                    message: "Failed to acquire state lock".to_string(),
+                    module: "VirtualMachineService".to_string(),
+                })
+            })?
+            .clone();
+
+        snapshot_manager::restore_snapshot_async(
+            std::sync::Arc::new(tokio::sync::Mutex::new(state_clone)),
+            id,
+        )
+        .await
     }
-
-
-
-
-
-
-
-
 
     /// 获取状态引用（用于只读访问）
     pub fn state(&self) -> Arc<Mutex<VirtualMachineState<B>>> {
@@ -216,9 +394,10 @@ impl<B: 'static> VirtualMachineService<B> {
         self.load_program_infrastructure(code_base, &test_program, data_base)
     }
 
-    /// 生成测试程序代码（业务逻辑）
+    /// 生成测试程序代码（需要 performance feature）
+    #[cfg(feature = "performance")]
     fn generate_test_program(&self) -> VmResult<Vec<u32>> {
-        use vm_frontend_riscv64::api::*;
+        use vm_frontend::riscv64::api::*;
 
         let data_base: u64 = 0x100;
 
@@ -238,6 +417,15 @@ impl<B: 'static> VirtualMachineService<B> {
         ];
 
         Ok(code)
+    }
+
+    /// 生成测试程序代码（未启用性能功能时）
+    #[cfg(not(feature = "performance"))]
+    fn generate_test_program(&self) -> VmResult<Vec<u32>> {
+        Err(VmError::Core(vm_core::CoreError::NotImplemented {
+            feature: "Test program generation".to_string(),
+            module: "vm-service".to_string(),
+        }))
     }
 
     /// 基础设施层：实际的程序加载实现
@@ -276,49 +464,43 @@ impl<B: 'static> VirtualMachineService<B> {
 
     /// 从环境变量配置TLB大小
     pub fn configure_tlb_from_env(&self) -> VmResult<()> {
-        if let Ok(itlb_str) = std::env::var("VM_ITLB") {
-            if let Ok(itlb) = itlb_str.parse::<usize>() {
-                let dtlb = std::env::var("VM_DTLB")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(128usize);
+        if let Ok(itlb_str) = std::env::var("VM_ITLB")
+            && let Ok(itlb) = itlb_str.parse::<usize>()
+        {
+            let dtlb = std::env::var("VM_DTLB")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(128usize);
 
-                let state = self.state.lock().map_err(|_| {
-                    VmError::Memory(MemoryError::MmuLockFailed {
-                        message: "Failed to acquire state lock".to_string(),
-                    })
-                })?;
+            let state = self.state.lock().map_err(|_| {
+                VmError::Memory(MemoryError::MmuLockFailed {
+                    message: "Failed to acquire state lock".to_string(),
+                })
+            })?;
 
-                let mmu = state.mmu();
-                let mut mmu_guard = mmu.lock().map_err(|_| {
-                    VmError::Memory(MemoryError::MmuLockFailed {
-                        message: "Failed to acquire MMU lock".to_string(),
-                    })
-                })?;
+            let mmu = state.mmu();
+            let mut mmu_guard = mmu.lock().map_err(|_| {
+                VmError::Memory(MemoryError::MmuLockFailed {
+                    message: "Failed to acquire MMU lock".to_string(),
+                })
+            })?;
 
-                if let Some(smmu) = mmu_guard.as_any_mut().downcast_mut::<SoftMmu>() {
-                    smmu.resize_tlbs(itlb, dtlb);
-                    let (ci, cd) = smmu.tlb_capacity();
-                    log::info!("TLB resized: itlb={}, dtlb={}", ci, cd);
-                }
+            if let Some(smmu) = mmu_guard.as_any_mut().downcast_mut::<SoftMmu>() {
+                smmu.resize_tlbs(itlb, dtlb);
+                let (ci, cd) = smmu.tlb_capacity();
+                log::info!("TLB resized: itlb={}, dtlb={}", ci, cd);
             }
         }
         Ok(())
     }
 
     /// 设置陷阱处理器
-    pub fn set_trap_handler(
-        &mut self,
-        h: Arc<dyn Fn(&VmError, &mut Interpreter) -> ExecInterruptAction + Send + Sync>,
-    ) {
+    pub fn set_trap_handler(&mut self, h: TrapHandler) {
         self.trap_handler = Some(h);
     }
 
     /// 设置中断策略
-    pub fn set_irq_policy(
-        &mut self,
-        p: Arc<dyn Fn(&mut Interpreter) -> ExecInterruptAction + Send + Sync>,
-    ) {
+    pub fn set_irq_policy(&mut self, p: IrqPolicy) {
         self.irq_policy = Some(p);
     }
 
@@ -338,12 +520,12 @@ impl<B: 'static> VirtualMachineService<B> {
     }
 
     /// 列出所有快照
-    pub fn list_snapshots(&self) -> VmResult<Vec<vm_core::snapshot::Snapshot>> {
+    pub fn list_snapshots(&self) -> VmResult<Vec<String>> {
         snapshot_manager::list_snapshots(Arc::clone(&self.state))
     }
 
     /// 列出所有模板
-    pub fn list_templates(&self) -> VmResult<Vec<vm_core::template::VmTemplate>> {
+    pub fn list_templates(&self) -> VmResult<Vec<String>> {
         snapshot_manager::list_templates(Arc::clone(&self.state))
     }
 
@@ -354,7 +536,12 @@ impl<B: 'static> VirtualMachineService<B> {
         description: String,
         base_snapshot_id: String,
     ) -> VmResult<String> {
-        snapshot_manager::create_template(Arc::clone(&self.state), name, description, base_snapshot_id)
+        snapshot_manager::create_template(
+            Arc::clone(&self.state),
+            name,
+            description,
+            base_snapshot_id,
+        )
     }
 
     /// 序列化虚拟机状态以进行迁移
@@ -366,8 +553,6 @@ impl<B: 'static> VirtualMachineService<B> {
     pub fn deserialize_state(&self, data: &[u8]) -> VmResult<()> {
         snapshot_manager::deserialize_state(Arc::clone(&self.state), data)
     }
-
-    
 
     /// 获取寄存器值
     pub fn get_reg(&self, idx: usize) -> VmResult<u64> {
@@ -394,72 +579,27 @@ impl<B: 'static> VirtualMachineService<B> {
         }
     }
 
-    /// 获取JIT热点统计
-    pub fn hot_stats(&self) -> Option<AdaptiveThresholdStats> {
-        self.adaptive_snapshot
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone())
+    // ============================================================
+    // 性能优化功能 (需要 performance feature)
+    // ============================================================
+    #[cfg(feature = "performance")]
+    pub fn get_performance_stats(&self) -> Option<PerformanceStats> {
+        self.performance.get_stats()
     }
 
-    /// 设置JIT热点配置
-    pub fn set_hot_config(&mut self, cfg: AdaptiveThresholdConfig) {
-        self.adaptive_config = Some(cfg);
+    #[cfg(feature = "performance")]
+    pub fn set_performance_config(&mut self, config: PerformanceConfig) {
+        self.performance.set_config(config);
     }
 
-    /// 设置JIT热点配置值
-    pub fn set_hot_config_vals(
-        &mut self,
-        min: u64,
-        max: u64,
-        _window: Option<usize>,
-        _compile_w: Option<f64>,
-        _benefit_w: Option<f64>,
-    ) {
-        let mut cfg = AdaptiveThresholdConfig::default();
-        cfg.cold_threshold = min;
-        cfg.hot_threshold = max;
-        // Note: window, compile_w, benefit_w are ignored in current AdaptiveThresholdConfig
-        self.adaptive_config = Some(cfg);
+    #[cfg(not(feature = "performance"))]
+    pub fn get_performance_stats(&self) -> Option<()> {
+        None
     }
 
-    /// 设置共享代码池
-    pub fn set_shared_pool(&mut self, enable: bool) {
-        if enable {
-            if self.code_pool.is_none() {
-                self.code_pool = Some(Arc::new(Mutex::new(HashMap::new())));
-            }
-        } else {
-            self.code_pool = None;
-        }
-    }
-
-    /// 获取JIT热点快照
-    pub fn hot_snapshot(
-        &self,
-    ) -> Option<(
-        AdaptiveThresholdConfig,
-        AdaptiveThresholdStats,
-    )> {
-        let snapshot = self
-            .adaptive_snapshot
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone());
-        match (self.adaptive_config.clone(), snapshot) {
-            (Some(cfg), Some(stats)) => Some((cfg, stats)),
-            _ => None,
-        }
-    }
-
-    /// 导出JIT热点快照为JSON
-    pub fn export_hot_snapshot_json(&self) -> Option<String> {
-        self.hot_snapshot().map(|(cfg, stats)| {
-            format!(
-                "{{\"cold_threshold\":{},\"hot_threshold\":{},\"enable_adaptive\":{},\"execution_count\":{}}}",
-                cfg.cold_threshold, cfg.hot_threshold, cfg.enable_adaptive, stats.execution_count
-            )
-        })
+    #[cfg(not(feature = "performance"))]
+    pub fn set_performance_config(&mut self, _config: ()) {
+        // No-op when performance features are disabled
     }
 
     /// 同步执行循环
@@ -475,7 +615,7 @@ impl<B: 'static> VirtualMachineService<B> {
 
         let mmu_arc = state.mmu();
         let debug = false; // VmConfig中没有debug_trace字段，使用默认值
-        let vcpu_count = state.config().vcpu_count as usize;
+        let vcpu_count = state.config().vcpu_count;
         let guest_arch = state.config().guest_arch;
         drop(state);
 
@@ -493,42 +633,33 @@ impl<B: 'static> VirtualMachineService<B> {
                 .clone()
         };
 
-        #[cfg(feature = "async")]
-        let coroutine_scheduler = None; // 同步执行不使用协程调度器
-
-        let ctx = ExecutionContext {
-            run_flag: Arc::clone(&self.run_flag),
-            pause_flag: Arc::clone(&self.pause_flag),
-            guest_arch,
-            trap_handler: self.trap_handler.clone(),
-            irq_policy: self.irq_policy.clone(),
-            code_pool: self.code_pool.as_ref().cloned(),
-            adaptive_snapshot: Arc::clone(&self.adaptive_snapshot),
-            adaptive_config: self.adaptive_config.clone(),
-            #[cfg(feature = "async")]
-            coroutine_scheduler,
-        };
+        // 使用性能上下文创建执行上下文
+        let ctx = self.create_execution_context(guest_arch);
 
         run_sync(&ctx, start_pc, base_mmu, debug, vcpu_count)
     }
 
-    /// 异步执行循环
+    /// 异步执行循环（需要 performance feature）
+    #[cfg(feature = "performance")]
     pub async fn run_async(&self, start_pc: GuestAddr) -> VmResult<()> {
         self.start()?;
 
-        let state = self.state.lock().map_err(|_| {
-            VmError::Core(vm_core::CoreError::Internal {
-                message: "Failed to lock state".to_string(),
-                module: "VirtualMachineService".to_string(),
-            })
-        })?;
+        // Extract all needed data from state and drop the lock before await
+        let (mmu_arc, debug, vcpu_count, exec_mode, guest_arch) = {
+            let state = self.state.lock().map_err(|_| {
+                VmError::Core(vm_core::CoreError::Internal {
+                    message: "Failed to lock state".to_string(),
+                    module: "VirtualMachineService".to_string(),
+                })
+            })?;
 
-        let mmu_arc = state.mmu();
-        let debug = false; // VmConfig中没有debug_trace字段，使用默认值
-        let vcpu_count = state.config().vcpu_count as usize;
-        let exec_mode = state.config().exec_mode;
-        let guest_arch = state.config().guest_arch;
-        drop(state);
+            let mmu = state.mmu();
+            let debug = false; // VmConfig中没有debug_trace字段，使用默认值
+            let vcpu_count = state.config().vcpu_count;
+            let exec_mode = state.config().exec_mode;
+            let guest_arch = state.config().guest_arch;
+            (mmu, debug, vcpu_count, exec_mode, guest_arch)
+        };
 
         // 基准 MMU 克隆，避免重复锁
         let base_mmu: SoftMmu = {
@@ -545,32 +676,147 @@ impl<B: 'static> VirtualMachineService<B> {
         };
 
         // 创建或获取协程调度器（用于优化多vCPU执行）
-        #[cfg(feature = "async")]
-        let coroutine_scheduler = if vcpu_count > 1 {
-            // 为多vCPU场景创建协程调度器
-            Some(Arc::new(vm_runtime::CoroutineScheduler::new().map_err(|e| {
-                VmError::Core(vm_core::CoreError::Internal {
-                    message: format!("Failed to create coroutine scheduler: {}", e),
-                    module: "VirtualMachineService".to_string(),
-                })
-            })?))
-        } else {
-            None
-        };
+        let coroutine_scheduler: Option<Arc<Mutex<vm_runtime::CoroutineScheduler>>> =
+            if vcpu_count > 1 {
+                // 为多vCPU场景创建协程调度器
+                Some(Arc::new(Mutex::new(
+                    vm_runtime::CoroutineScheduler::new().map_err(|e| {
+                        VmError::Core(vm_core::CoreError::Internal {
+                            message: format!("Failed to create coroutine scheduler: {}", e),
+                            module: "VirtualMachineService".to_string(),
+                        })
+                    })?,
+                )))
+            } else {
+                None
+            };
 
-        let ctx = ExecutionContext {
+        // 使用性能上下文创建异步执行上下文
+        let ctx = self.create_async_execution_context(guest_arch, coroutine_scheduler);
+
+        run_async(&ctx, start_pc, base_mmu, debug, vcpu_count, exec_mode).await
+    }
+
+    /// 创建执行上下文（辅助方法）
+    #[cfg(feature = "performance")]
+    fn create_execution_context(&self, guest_arch: vm_core::GuestArch) -> ExecutionContext {
+        self.performance.create_execution_context(
+            Arc::clone(&self.run_flag),
+            Arc::clone(&self.pause_flag),
+            guest_arch,
+            self.trap_handler.clone(),
+            self.irq_policy.clone(),
+        )
+    }
+
+    #[cfg(not(feature = "performance"))]
+    fn create_execution_context(&self, guest_arch: vm_core::GuestArch) -> ExecutionContext {
+        ExecutionContext {
             run_flag: Arc::clone(&self.run_flag),
             pause_flag: Arc::clone(&self.pause_flag),
             guest_arch,
             trap_handler: self.trap_handler.clone(),
             irq_policy: self.irq_policy.clone(),
-            code_pool: self.code_pool.as_ref().cloned(),
-            adaptive_snapshot: Arc::clone(&self.adaptive_snapshot),
-            adaptive_config: self.adaptive_config.clone(),
-            #[cfg(feature = "async")]
-            coroutine_scheduler,
-        };
+        }
+    }
 
-        run_async(&ctx, start_pc, base_mmu, debug, vcpu_count, exec_mode).await
+    /// 创建异步执行上下文（辅助方法）
+    #[cfg(feature = "performance")]
+    fn create_async_execution_context(
+        &self,
+        guest_arch: vm_core::GuestArch,
+        coroutine_scheduler: Option<Arc<Mutex<vm_runtime::CoroutineScheduler>>>,
+    ) -> ExecutionContext {
+        self.performance.create_async_execution_context(
+            Arc::clone(&self.run_flag),
+            Arc::clone(&self.pause_flag),
+            guest_arch,
+            self.trap_handler.clone(),
+            self.irq_policy.clone(),
+            coroutine_scheduler,
+        )
+    }
+}
+
+// ============================================================
+// SMMU 设备管理功能 (需要 smmu feature)
+// ============================================================
+#[cfg(feature = "smmu")]
+impl<B> VirtualMachineService<B> {
+    /// 附加设备到 SMMU
+    ///
+    /// 为 PCIe 设备分配 SMMU Stream ID 并配置 DMA 地址空间。
+    ///
+    /// # 参数
+    ///
+    /// * `bdf` - PCIe BDF 标识符 (格式: "BBBB:DD:F.F")
+    /// * `dma_start` - DMA 地址空间起始地址
+    /// * `dma_size` - DMA 地址空间大小
+    ///
+    /// # 返回值
+    ///
+    /// 成功返回分配的 Stream ID，失败返回错误。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// let stream_id = service.attach_device_to_smmu("0000:01:00.0", 0x1000, 0x10000)?;
+    /// ```
+    pub fn attach_device_to_smmu(&self, bdf: &str, dma_start: u64, dma_size: u64) -> VmResult<u16> {
+        self.smmu.attach_device(bdf, dma_start, dma_size)
+    }
+
+    /// 从 SMMU 移除设备
+    ///
+    /// # 参数
+    ///
+    /// * `bdf` - PCIe BDF 标识符
+    pub fn detach_device_from_smmu(&self, bdf: &str) -> VmResult<()> {
+        self.smmu.detach_device(bdf)
+    }
+
+    /// 转换设备的 DMA 地址
+    ///
+    /// # 参数
+    ///
+    /// * `bdf` - PCIe BDF 标识符
+    /// * `guest_addr` - 客户机物理地址
+    /// * `size` - 访问大小
+    ///
+    /// # 返回值
+    ///
+    /// 成功返回转换后的物理地址，失败返回错误。
+    pub fn translate_device_dma(
+        &self,
+        bdf: &str,
+        guest_addr: GuestAddr,
+        size: u64,
+    ) -> VmResult<u64> {
+        self.smmu.translate_dma(bdf, guest_addr, size)
+    }
+
+    /// 列出所有附加到 SMMU 的设备
+    ///
+    /// # 返回值
+    ///
+    /// 返回设备 BDF 列表。
+    pub fn list_smmu_devices(&self) -> VmResult<Vec<String>> {
+        self.smmu.list_devices()
+    }
+
+    /// 获取 SMMU 统计信息
+    ///
+    /// # 返回值
+    ///
+    /// 返回 SMMU 统计信息，包括转换次数、缓存命中率等。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// let stats = service.get_smmu_stats()?;
+    /// println!("Total translations: {}", stats.total_translations);
+    /// ```
+    pub fn get_smmu_stats(&self) -> VmResult<vm_smmu::SmmuStats> {
+        self.smmu.get_stats()
     }
 }

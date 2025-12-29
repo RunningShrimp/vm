@@ -503,7 +503,8 @@ mod tests {
 
         let dequeued = queue.dequeue();
         assert!(dequeued.is_some());
-        assert_eq!(dequeued.unwrap().block_id, 42);
+        let dequeued = dequeued.expect("Task should be available after enqueue");
+        assert_eq!(dequeued.block_id, 42);
         assert_eq!(queue.queue_length(), 0);
     }
 
@@ -531,8 +532,10 @@ mod tests {
         assert!(queue.enqueue(high).is_ok());
 
         // Should dequeue high priority first
-        assert_eq!(queue.dequeue().unwrap().block_id, 2);
-        assert_eq!(queue.dequeue().unwrap().block_id, 1);
+        let first = queue.dequeue().expect("Should have high priority task");
+        assert_eq!(first.block_id, 2);
+        let second = queue.dequeue().expect("Should have low priority task");
+        assert_eq!(second.block_id, 1);
     }
 
     #[test]
@@ -575,7 +578,9 @@ mod tests {
         queue.store_result(result.clone());
         assert!(queue.has_result(42));
 
-        let retrieved = queue.get_result(42).unwrap();
+        let retrieved = queue
+            .get_result(42)
+            .expect("Result should be available after store_result");
         assert_eq!(retrieved.block_id, 42);
         assert_eq!(retrieved.compile_time_us, 150);
     }
@@ -594,7 +599,8 @@ mod tests {
         // Process first task
         let result = compiler.process_task(0);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().block_id, 1);
+        let result = result.expect("Result should be available after processing task");
+        assert_eq!(result.block_id, 1);
         assert_eq!(compiler.pending_tasks(), 2);
     }
 
@@ -671,7 +677,7 @@ mod tests {
         let result = compiler.process_task(0);
 
         assert!(result.is_some());
-        let result = result.unwrap();
+        let result = result.expect("Compilation result should be available");
         assert_eq!(result.block_id, 99);
         assert!(result.success);
 

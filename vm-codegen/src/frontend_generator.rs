@@ -2,7 +2,7 @@
 //!
 //! 提供通用的前端代码生成功能，减少不同架构前端之间的重复代码。
 
-use crate::{CodegenConfig, InstructionSpec, InstructionSet};
+use crate::{CodegenConfig, InstructionSet, InstructionSpec};
 use vm_core::GuestAddr;
 use vm_ir::IRBlock;
 
@@ -95,7 +95,12 @@ pub struct FrontendCodeGenerator {
 }
 
 impl FrontendCodeGenerator {
-    pub fn new(config: CodegenConfig, arch_name: &str, instruction_size: u8, has_compressed: bool) -> Self {
+    pub fn new(
+        config: CodegenConfig,
+        arch_name: &str,
+        instruction_size: u8,
+        has_compressed: bool,
+    ) -> Self {
         Self {
             config,
             arch_name: arch_name.to_string(),
@@ -112,17 +117,20 @@ impl FrontendCodeGenerator {
     /// 根据配置生成优化级别的代码
     pub fn generate_optimized_code(&self, instruction_set: &InstructionSet) -> String {
         let mut code = self.generate_frontend_code(instruction_set, false);
-        
+
         // 根据优化级别添加额外的优化注释
         if self.config.optimization_level > 0 {
-            code = format!("// Optimization Level: {}\n{}", self.config.optimization_level, code);
+            code = format!(
+                "// Optimization Level: {}\n{}",
+                self.config.optimization_level, code
+            );
         }
-        
+
         // 如果启用了调试信息，则添加调试相关的注释
         if self.config.enable_debug {
             code = format!("// Debug Information Enabled\n{}", code);
         }
-        
+
         code
     }
 
@@ -178,12 +186,11 @@ impl Instruction for {}Instruction {{
     pub fn generate_decoder_struct(&self, has_extensions: bool) -> String {
         let arch_upper = self.arch_name.to_uppercase();
         let mut extensions = String::new();
-        
+
         if has_extensions {
-            extensions = format!(
-                r#"    /// 扩展指令解码器
+            extensions = r#"    /// 扩展指令解码器
     pub extension_decoders: HashMap<String, Box<dyn ExtensionDecoder>>,"#
-            );
+                .to_string();
         }
 
         format!(
@@ -238,9 +245,17 @@ impl Default for {}Decoder {{
             arch_upper,
             arch_upper,
             extensions,
-            if has_extensions { "\n            extension_decoders: HashMap::new()," } else { "" },
+            if has_extensions {
+                "\n            extension_decoders: HashMap::new(),"
+            } else {
+                ""
+            },
             arch_upper,
-            if has_extensions { "\n            extension_decoders: HashMap::new()," } else { "" },
+            if has_extensions {
+                "\n            extension_decoders: HashMap::new(),"
+            } else {
+                ""
+            },
             arch_upper
         )
     }
@@ -249,13 +264,12 @@ impl Default for {}Decoder {{
     pub fn generate_decode_impl(&self, instruction_set: &InstructionSet) -> String {
         let arch_upper = self.arch_name.to_uppercase();
         let mut compressed_check = String::new();
-        
+
         if self.has_compressed {
-            compressed_check = format!(
-                r#"
+            compressed_check = r#"
         // Check for compressed instructions
         // Compressed instructions have bits [1:0] != 11
-        if (insn & 0x3) != 0x3 {{
+        if (insn & 0x3) != 0x3 {
             // This is a 16-bit compressed instruction
             let op = (insn >> 13) & 0x7;
             let rd_rs1 = (insn >> 7) & 0x1F;
@@ -263,8 +277,8 @@ impl Default for {}Decoder {{
             
             // Handle compressed instructions here
             // For now, we'll treat them as regular instructions
-        }}"#
-            );
+        }"#
+            .to_string();
         }
 
         format!(
@@ -317,19 +331,22 @@ impl Default for {}Decoder {{
     /// 生成操作码匹配
     fn generate_opcode_matches(&self, instruction_set: &InstructionSet) -> String {
         let mut matches = String::new();
-        
+
         for spec in &instruction_set.instructions {
             let opcode = (spec.pattern & 0x7f) as u8;
-            matches.push_str(&format!("\n            0x{:02x} => \"{}\",", opcode, spec.mnemonic));
+            matches.push_str(&format!(
+                "\n            0x{:02x} => \"{}\",",
+                opcode, spec.mnemonic
+            ));
         }
-        
+
         matches
     }
 
     /// 生成指令处理器
     fn generate_instruction_handlers(&self, instruction_set: &InstructionSet) -> String {
         let mut handlers = String::new();
-        
+
         for spec in &instruction_set.instructions {
             let opcode = (spec.pattern & 0x7f) as u8;
             handlers.push_str(&format!(
@@ -339,20 +356,21 @@ impl Default for {}Decoder {{
                 {}
                 b.set_term(Terminator::Jmp {{ target: pc + {} }});
             }}"#,
-                opcode,
-                spec.description,
-                spec.handler_code,
-                self.instruction_size
+                opcode, spec.description, spec.handler_code, self.instruction_size
             ));
         }
-        
+
         handlers
     }
 
     /// 生成完整的前端代码
-    pub fn generate_frontend_code(&self, instruction_set: &InstructionSet, has_extensions: bool) -> String {
+    pub fn generate_frontend_code(
+        &self,
+        instruction_set: &InstructionSet,
+        has_extensions: bool,
+    ) -> String {
         let mut code = String::new();
-        
+
         // 添加文件头
         code.push_str(&format!(
             r#"//! # vm-frontend-{} - {} 前端解码器
@@ -381,7 +399,7 @@ use vm_ir::{{IRBlock, IRBuilder, IROp, MemFlags, RegisterFile, Terminator}};
             self.arch_name.to_uppercase(),
             self.arch_name.to_uppercase()
         ));
-        
+
         // 添加扩展解码器trait（如果需要）
         if has_extensions {
             code.push_str(
@@ -391,24 +409,29 @@ pub trait ExtensionDecoder: Send + Sync {
     fn name(&self) -> &str;
 }
 
-"#
+"#,
             );
         }
-        
+
         // 添加指令结构体
         code.push_str(&self.generate_instruction_struct());
-        
+
         // 添加解码器结构体
         code.push_str(&self.generate_decoder_struct(has_extensions));
-        
+
         // 添加解码实现
         code.push_str(&self.generate_decode_impl(instruction_set));
-        
+
         code
     }
 
     /// 保存生成的代码到文件
-    pub fn save_to_file(&self, instruction_set: &InstructionSet, has_extensions: bool, filename: &str) -> Result<(), std::io::Error> {
+    pub fn save_to_file(
+        &self,
+        instruction_set: &InstructionSet,
+        has_extensions: bool,
+        filename: &str,
+    ) -> Result<(), std::io::Error> {
         let code = self.generate_frontend_code(instruction_set, has_extensions);
         std::fs::write(filename, code)
     }
@@ -454,27 +477,27 @@ mod tests {
         };
 
         let generator = FrontendCodeGenerator::new(config, "TestArch", 4, false);
-        
+
         // 测试配置访问
         assert_eq!(generator.get_config().target_arch, "test");
         assert_eq!(generator.get_config().optimization_level, 1);
-        
+
         let add_spec = create_instruction_spec(
             "ADD",
             "Add registers",
             0x1F000000,
             0x0B000000,
-            "let rd = (insn >> 0) & 0x1F;\n                let rn = (insn >> 5) & 0x1F;\n                let rm = (insn >> 16) & 0x1F;\n                b.push(IROp::Add { dst: rd, src1: rn, src2: rm });"
+            "let rd = (insn >> 0) & 0x1F;\n                let rn = (insn >> 5) & 0x1F;\n                let rm = (insn >> 16) & 0x1F;\n                b.push(IROp::Add { dst: rd, src1: rn, src2: rm });",
         );
 
         let instruction_set = create_instruction_set("TestArch", vec![add_spec]);
-        
+
         let code = generator.generate_frontend_code(&instruction_set, false);
-        
+
         assert!(code.contains("TestArch"));
         assert!(code.contains("ADD"));
         assert!(code.contains("IROp::Add"));
-        
+
         // 测试优化代码生成
         let optimized_code = generator.generate_optimized_code(&instruction_set);
         assert!(optimized_code.contains("// Optimization Level: 1"));

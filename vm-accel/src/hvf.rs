@@ -332,7 +332,10 @@ impl Accel for AccelHvf {
             let ret = unsafe { hv_vm_create(ptr::null_mut()) };
 
             if ret != HV_SUCCESS {
-                log::warn!("hv_vm_create failed: 0x{:x}, continuing in dummy mode", ret);
+                return Err(vm_core::VmError::Core(vm_core::CoreError::Internal {
+                    message: format!("hv_vm_create failed: 0x{:x}", ret),
+                    module: "vm-accel::hvf".to_string(),
+                }));
             }
 
             self.initialized = true;
@@ -464,6 +467,19 @@ impl Default for AccelHvf {
         Self::new()
     }
 }
+use crate::event::{AccelEvent, AccelEventSource};
+use std::time::Instant;
+
+#[allow(dead_code)]
+pub struct AccelHvfTimer {
+    pub last: Instant,
+}
+
+impl AccelEventSource for AccelHvf {
+    fn poll_event(&mut self) -> Option<AccelEvent> {
+        None
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -479,18 +495,5 @@ mod tests {
     fn test_hvf_init() {
         let mut accel = AccelHvf::new();
         assert!(accel.init().is_ok());
-    }
-}
-use crate::event::{AccelEvent, AccelEventSource};
-use std::time::Instant;
-
-#[allow(dead_code)]
-pub struct AccelHvfTimer {
-    pub last: Instant,
-}
-
-impl AccelEventSource for AccelHvf {
-    fn poll_event(&mut self) -> Option<AccelEvent> {
-        None
     }
 }
