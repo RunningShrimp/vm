@@ -23,8 +23,8 @@ impl TlbPrefetchGuide {
             l1_capacity: 64,
             l2_capacity: 256,
             l3_capacity: 1024,
-            prefetch_window: 16,          // 预热窗口：16个条目
-            prefetch_threshold: 0.8,      // 预热阈值
+            prefetch_window: 16,     // 预热窗口：16个条目
+            prefetch_threshold: 0.8, // 预热阈值
             adaptive_replacement: true,
             concurrent_optimization: false, // 关闭并发以简化测试
             enable_stats: true,
@@ -89,8 +89,12 @@ impl TlbPrefetchGuide {
         // 获取统计信息
         let stats = tlb.get_stats();
         println!("预热功能待实现，当前统计：");
-        println!("总查找次数：{:?}",
-                 stats.total_lookups.load(std::sync::atomic::Ordering::Relaxed));
+        println!(
+            "总查找次数：{:?}",
+            stats
+                .total_lookups
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
 
     /// 预热策略建议
@@ -172,7 +176,7 @@ impl TlbPrefetchExample {
             l1_capacity: 64,
             l2_capacity: 256,
             l3_capacity: 1024,
-            prefetch_window: 16,          // 预热16个条目
+            prefetch_window: 16, // 预热16个条目
             prefetch_threshold: 0.8,
             adaptive_replacement: true,
             concurrent_optimization: false,

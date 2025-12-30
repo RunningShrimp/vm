@@ -84,7 +84,7 @@ impl AccelerationManager {
             topology: Arc::new(CPUTopology::detect()), // 轻量级操作
             #[cfg(not(any(target_os = "windows", target_os = "ios")))]
             vcpu_affinity: None, // 延迟初始化
-            smmu: None,           // 延迟初始化
+            smmu: None,                                // 延迟初始化
             numa_enabled: false,
             initialized: false,
         })

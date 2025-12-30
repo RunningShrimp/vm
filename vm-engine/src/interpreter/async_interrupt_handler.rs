@@ -310,7 +310,7 @@ impl Default for AsyncInterruptQueue {
 mod tests {
     use super::*;
 
-#[cfg(feature = "async")]
+    #[cfg(feature = "async")]
     #[test]
     fn test_interrupt_priority() {
         assert!(InterruptPriority::Critical > InterruptPriority::High);
@@ -318,7 +318,7 @@ mod tests {
         assert!(InterruptPriority::Normal > InterruptPriority::Low);
     }
 
-#[cfg(feature = "async")]
+    #[cfg(feature = "async")]
     #[test]
     fn test_interrupt_creation() {
         let intr = Interrupt::new(InterruptType::Timer, InterruptPriority::Normal);

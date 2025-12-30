@@ -2,10 +2,10 @@
 //!
 //! 使用Criterion框架全面测试JIT编译器的性能指标
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
-use vm_engine::jit::core::{JITEngine, JITConfig};
-use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+use vm_engine::jit::core::{JITConfig, JITEngine};
+use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 /// 创建测试IR块
 fn create_test_ir_block(size: usize) -> IRBlock {
@@ -63,9 +63,7 @@ fn bench_jit_memory_usage(c: &mut Criterion) {
     // 测试不同代码大小的内存使用
     for size in [100, 500, 1000, 5000, 10000].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let ir_blocks: Vec<_> = (0..10)
-                .map(|i| create_test_ir_block(size))
-                .collect();
+            let ir_blocks: Vec<_> = (0..10).map(|i| create_test_ir_block(size)).collect();
 
             let config = JITConfig::default();
             let mut jit_engine = JITEngine::new(config);
@@ -186,9 +184,7 @@ fn bench_jit_throughput(c: &mut Criterion) {
             BenchmarkId::from_parameter(batch_size),
             batch_size,
             |b, &size| {
-                let ir_blocks: Vec<_> = (0..size)
-                    .map(|i| create_test_ir_block(100))
-                    .collect();
+                let ir_blocks: Vec<_> = (0..size).map(|i| create_test_ir_block(100)).collect();
 
                 let config = JITConfig::default();
                 let mut jit_engine = JITEngine::new(config);

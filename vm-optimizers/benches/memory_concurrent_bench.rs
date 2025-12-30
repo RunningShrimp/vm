@@ -3,11 +3,9 @@
 // This benchmark demonstrates the 200-300% performance improvement
 // when using concurrent async operations for batch translations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use vm_optimizers::memory::{
-    AsyncPrefetchingTlb, ConcurrencyConfig, MemoryOptimizer, NumaConfig,
-};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+use vm_optimizers::memory::{AsyncPrefetchingTlb, ConcurrencyConfig, MemoryOptimizer, NumaConfig};
 
 fn bench_sequential_batch_translation(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_translation_sequential");
@@ -16,10 +14,7 @@ fn bench_sequential_batch_translation(c: &mut Criterion) {
 
     for size in [10, 50, 100, 500, 1000].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let tlb = AsyncPrefetchingTlb::with_concurrency(
-                false,
-                ConcurrencyConfig::sequential(),
-            );
+            let tlb = AsyncPrefetchingTlb::with_concurrency(false, ConcurrencyConfig::sequential());
 
             let addrs: Vec<u64> = (0..size).map(|i| 0x1000 + (i * 4096)).collect();
 
@@ -39,19 +34,15 @@ fn bench_concurrent_batch_translation(c: &mut Criterion) {
 
     for size in [10, 50, 100, 500, 1000].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let tlb = AsyncPrefetchingTlb::with_concurrency(
-                false,
-                ConcurrencyConfig::new(8),
-            );
+            let tlb = AsyncPrefetchingTlb::with_concurrency(false, ConcurrencyConfig::new(8));
 
             let addrs: Vec<u64> = (0..size).map(|i| 0x1000 + (i * 4096)).collect();
 
             let rt = tokio::runtime::Runtime::new().unwrap();
 
             b.iter(|| {
-                let result = rt.block_on(async {
-                    tlb.translate_batch_concurrent(black_box(&addrs)).await
-                });
+                let result =
+                    rt.block_on(async { tlb.translate_batch_concurrent(black_box(&addrs)).await });
                 black_box(result)
             });
         });
@@ -104,46 +95,32 @@ fn bench_memory_optimizer_sequential_vs_concurrent(c: &mut Criterion) {
     let batch_sizes = [50, 200, 500];
     for size in batch_sizes.iter() {
         // Sequential benchmark
-        group.bench_with_input(
-            BenchmarkId::new("sequential", size),
-            size,
-            |b, &size| {
-                let optimizer = MemoryOptimizer::with_concurrency(
-                    config,
-                    ConcurrencyConfig::sequential(),
-                );
+        group.bench_with_input(BenchmarkId::new("sequential", size), size, |b, &size| {
+            let optimizer =
+                MemoryOptimizer::with_concurrency(config, ConcurrencyConfig::sequential());
 
-                let addrs: Vec<u64> = (0..size).map(|i| 0x1000 + (i * 4096)).collect();
+            let addrs: Vec<u64> = (0..size).map(|i| 0x1000 + (i * 4096)).collect();
 
-                b.iter(|| {
-                    let result = optimizer.batch_access(black_box(&addrs));
-                    black_box(result)
-                });
-            },
-        );
+            b.iter(|| {
+                let result = optimizer.batch_access(black_box(&addrs));
+                black_box(result)
+            });
+        });
 
         // Concurrent benchmark
-        group.bench_with_input(
-            BenchmarkId::new("concurrent", size),
-            size,
-            |b, &size| {
-                let optimizer = MemoryOptimizer::with_concurrency(
-                    config,
-                    ConcurrencyConfig::new(8),
-                );
+        group.bench_with_input(BenchmarkId::new("concurrent", size), size, |b, &size| {
+            let optimizer = MemoryOptimizer::with_concurrency(config, ConcurrencyConfig::new(8));
 
-                let addrs: Vec<u64> = (0..size).map(|i| 0x1000 + (i * 4096)).collect();
+            let addrs: Vec<u64> = (0..size).map(|i| 0x1000 + (i * 4096)).collect();
 
-                let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Runtime::new().unwrap();
 
-                b.iter(|| {
-                    let result = rt.block_on(async {
-                        optimizer.batch_access_concurrent(black_box(&addrs)).await
-                    });
-                    black_box(result)
-                });
-            },
-        );
+            b.iter(|| {
+                let result = rt
+                    .block_on(async { optimizer.batch_access_concurrent(black_box(&addrs)).await });
+                black_box(result)
+            });
+        });
     }
     group.finish();
 }

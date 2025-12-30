@@ -47,7 +47,7 @@ pub enum AccessType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AccessWidth {
     #[default]
-    Word,       // 4 bytes (most common)
+    Word, // 4 bytes (most common)
     Byte,       // 1 byte
     HalfWord,   // 2 bytes
     DoubleWord, // 8 bytes
@@ -68,7 +68,7 @@ pub enum Alignment {
     Aligned16,
     Aligned32,
     Aligned64,
-    Strict,  // Strict alignment (must be naturally aligned)
+    Strict, // Strict alignment (must be naturally aligned)
 }
 
 /// Memory access flags
@@ -401,7 +401,7 @@ pub enum Endianness {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConversionStrategy {
     #[default]
-    Optimized,   // Optimized for common patterns (recommended)
+    Optimized, // Optimized for common patterns (recommended)
     Direct,      // Direct byte swapping
     Lazy,        // Convert on demand
     Precomputed, // Precompute conversion tables

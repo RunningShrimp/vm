@@ -2,10 +2,10 @@
 //!
 //! 测试虚拟内存管理中TLB（Translation Lookaside Buffer）的性能
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
-use rand::Rng;
 
 /// 模拟TLB条目
 #[derive(Debug, Clone)]
@@ -180,9 +180,7 @@ fn bench_tlb_access_patterns(c: &mut Criterion) {
     group.bench_function("random_access", |b| {
         let mut tlb = TLBCache::new(cache_size);
         let mut rng = rand::thread_rng();
-        let random_addrs: Vec<u64> = (0..1000)
-            .map(|_| rng.gen_range(0..10000))
-            .collect();
+        let random_addrs: Vec<u64> = (0..1000).map(|_| rng.gen_range(0..10000)).collect();
 
         b.iter(|| {
             for &addr in &random_addrs {

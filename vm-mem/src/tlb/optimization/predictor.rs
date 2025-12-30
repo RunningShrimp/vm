@@ -245,9 +245,7 @@ impl MarkovPredictor {
 
         // 按概率排序
         let mut sorted_states: Vec<_> = next_states.into_iter().collect();
-        sorted_states.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        sorted_states.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // 生成预测
         let page_size = 4096;

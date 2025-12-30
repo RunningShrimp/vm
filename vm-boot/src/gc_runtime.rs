@@ -4,18 +4,26 @@
 //! This module provides boot-time GC configuration and initialization.
 
 use std::sync::Arc;
+use vm_optimizers::gc_concurrent::ConcurrentGC;
 
 /// Re-export GC types from vm-optimizers
-pub use vm_optimizers::gc::{
-    AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcStats, LockFreeWriteBarrier,
-    OptimizedGc, ParallelMarker, WriteBarrierType,
+pub use vm_optimizers::{
+    gc_concurrent::{ConcurrentGC as OptimizedGc, GCColor as GcPhase, GCStats},
+    gc_generational::GcResult,
+    gc_write_barrier::{WriteBarrier as LockFreeWriteBarrier, BarrierType as WriteBarrierType},
 };
 
-/// Re-export incremental GC
-pub use vm_optimizers::gc_incremental::{IncrementalGc, IncrementalPhase, IncrementalProgress};
+/// Re-export incremental GC (placeholder)
+pub use vm_runtime::gc::{IncrementalGc, IncrementalPhase, IncrementalProgress};
 
 /// Re-export GcRuntime from vm-runtime
 pub use vm_runtime::gc::{GcRuntime, GcRuntimeStats};
+
+/// Type aliases for backwards compatibility
+pub type AdaptiveQuota = ();
+pub type AllocStats = ();
+pub type GcError = vm_core::VmError;
+pub type ParallelMarker = ConcurrentGC;
 
 /// Type alias for backwards compatibility
 pub type GcConfig = BootGcConfig;
@@ -38,7 +46,7 @@ impl Default for BootGcConfig {
         Self {
             num_workers: num_cpus::get(),
             target_pause_us: 10_000, // 10ms target
-            barrier_type: WriteBarrierType::Atomic,
+            barrier_type: WriteBarrierType::SATB,
             enable_incremental: true,
         }
     }
@@ -50,7 +58,7 @@ impl BootGcConfig {
         Self {
             num_workers: num_cpus::get(),
             target_pause_us: 10_000,
-            barrier_type: WriteBarrierType::Atomic,
+            barrier_type: WriteBarrierType::SATB,
             enable_incremental: true,
         }
     }
@@ -60,7 +68,7 @@ impl BootGcConfig {
         Self {
             num_workers: 2,
             target_pause_us: 50_000, // More lenient for development
-            barrier_type: WriteBarrierType::Atomic,
+            barrier_type: WriteBarrierType::SATB,
             enable_incremental: true,
         }
     }
@@ -70,7 +78,7 @@ impl BootGcConfig {
         Self {
             num_workers: 1,
             target_pause_us: 100_000, // Very lenient for testing
-            barrier_type: WriteBarrierType::Atomic,
+            barrier_type: WriteBarrierType::SATB,
             enable_incremental: false, // Disable for simpler testing
         }
     }

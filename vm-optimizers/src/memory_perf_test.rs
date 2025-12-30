@@ -5,9 +5,7 @@
 
 #[cfg(test)]
 mod perf_tests {
-    use crate::memory::{
-        AsyncPrefetchingTlb, ConcurrencyConfig, MemoryOptimizer, NumaConfig,
-    };
+    use crate::memory::{AsyncPrefetchingTlb, ConcurrencyConfig, MemoryOptimizer, NumaConfig};
     use std::time::Instant;
 
     #[tokio::test]
@@ -15,30 +13,31 @@ mod perf_tests {
         const BATCH_SIZES: &[usize] = &[50, 100, 500, 1000];
 
         println!("\n=== Sequential vs Concurrent Batch Translation Performance ===\n");
-        println!("{:>10} | {:>15} | {:>15} | {:>10} | {:>15}",
-                 "Batch Size", "Sequential (μs)", "Concurrent (μs)", "Speedup", "Improvement");
-        println!("{:-}-|-{:-}-|-{:-}-|-{:-}-|-{:-}",
-                 "----------", "---------------", "---------------", "----------", "---------------");
+        println!(
+            "{:>10} | {:>15} | {:>15} | {:>10} | {:>15}",
+            "Batch Size", "Sequential (μs)", "Concurrent (μs)", "Speedup", "Improvement"
+        );
+        println!(
+            "{:-}-|-{:-}-|-{:-}-|-{:-}-|-{:-}",
+            "----------", "---------------", "---------------", "----------", "---------------"
+        );
 
         for &batch_size in BATCH_SIZES {
             // Setup addresses
-            let addrs: Vec<u64> = (0..batch_size).map(|i| 0x1000u64 + (i as u64 * 4096)).collect();
+            let addrs: Vec<u64> = (0..batch_size)
+                .map(|i| 0x1000u64 + (i as u64 * 4096))
+                .collect();
 
             // Sequential benchmark
-            let tlb_seq = AsyncPrefetchingTlb::with_concurrency(
-                false,
-                ConcurrencyConfig::sequential(),
-            );
+            let tlb_seq =
+                AsyncPrefetchingTlb::with_concurrency(false, ConcurrencyConfig::sequential());
 
             let start = Instant::now();
             let _result_seq = tlb_seq.translate_batch(&addrs).unwrap();
             let seq_time = start.elapsed().as_micros();
 
             // Concurrent benchmark
-            let tlb_conc = AsyncPrefetchingTlb::with_concurrency(
-                false,
-                ConcurrencyConfig::new(8),
-            );
+            let tlb_conc = AsyncPrefetchingTlb::with_concurrency(false, ConcurrencyConfig::new(8));
 
             let start = Instant::now();
             let _result_conc = tlb_conc.translate_batch_concurrent(&addrs).await.unwrap();
@@ -57,8 +56,10 @@ mod perf_tests {
                 0.0
             };
 
-            println!("{:>10} | {:>15} | {:>15} | {:>10.2}x | {:>14.1}%",
-                     batch_size, seq_time, conc_time, speedup, improvement);
+            println!(
+                "{:>10} | {:>15} | {:>15} | {:>10.2}x | {:>14.1}%",
+                batch_size, seq_time, conc_time, speedup, improvement
+            );
         }
 
         println!("\nExpected Results:");
@@ -76,12 +77,18 @@ mod perf_tests {
         println!("\n=== Concurrency Level Performance Analysis ===\n");
         println!("Batch size: {}", BATCH_SIZE);
         println!();
-        println!("{:>15} | {:>15} | {:>15} | {:>15}",
-                 "Concurrency", "Time (μs)", "vs Sequential", "Efficiency");
-        println!("{:-}-|-{:-}-|-{:-}-|-{:-}",
-                 "---------------", "---------------", "---------------", "---------------");
+        println!(
+            "{:>15} | {:>15} | {:>15} | {:>15}",
+            "Concurrency", "Time (μs)", "vs Sequential", "Efficiency"
+        );
+        println!(
+            "{:-}-|-{:-}-|-{:-}-|-{:-}",
+            "---------------", "---------------", "---------------", "---------------"
+        );
 
-        let addrs: Vec<u64> = (0..BATCH_SIZE).map(|i| 0x1000u64 + (i as u64 * 4096)).collect();
+        let addrs: Vec<u64> = (0..BATCH_SIZE)
+            .map(|i| 0x1000u64 + (i as u64 * 4096))
+            .collect();
 
         // Baseline sequential (concurrency = 1)
         let tlb_seq = AsyncPrefetchingTlb::with_concurrency(false, ConcurrencyConfig::new(1));
@@ -89,15 +96,15 @@ mod perf_tests {
         let _ = tlb_seq.translate_batch(&addrs).unwrap();
         let seq_time = start.elapsed().as_micros();
 
-        println!("{:>15} | {:>15} | {:>15.2}% | {:>15.2}%",
-                 "1 (Sequential)", seq_time, 0.0, 100.0);
+        println!(
+            "{:>15} | {:>15} | {:>15.2}% | {:>15.2}%",
+            "1 (Sequential)", seq_time, 0.0, 100.0
+        );
 
         // Test different concurrency levels
         for &concurrency in &CONCURRENCY_LEVELS[1..] {
-            let tlb = AsyncPrefetchingTlb::with_concurrency(
-                false,
-                ConcurrencyConfig::new(concurrency),
-            );
+            let tlb =
+                AsyncPrefetchingTlb::with_concurrency(false, ConcurrencyConfig::new(concurrency));
 
             let start = Instant::now();
             let _ = tlb.translate_batch_concurrent(&addrs).await.unwrap();
@@ -106,8 +113,13 @@ mod perf_tests {
             let speedup = seq_time as f64 / time as f64;
             let efficiency = (speedup / concurrency as f64) * 100.0;
 
-            println!("{:>15} | {:>15} | {:>14.2}% | {:>14.2}%",
-                     concurrency, time, (speedup - 1.0) * 100.0, efficiency);
+            println!(
+                "{:>15} | {:>15} | {:>14.2}% | {:>14.2}%",
+                concurrency,
+                time,
+                (speedup - 1.0) * 100.0,
+                efficiency
+            );
         }
 
         println!("\nInterpretation:");
@@ -131,13 +143,12 @@ mod perf_tests {
             mem_per_node: 1024 * 1024,
         };
 
-        let addrs: Vec<u64> = (0..BATCH_SIZE).map(|i| 0x1000u64 + (i as u64 * 4096)).collect();
+        let addrs: Vec<u64> = (0..BATCH_SIZE)
+            .map(|i| 0x1000u64 + (i as u64 * 4096))
+            .collect();
 
         // Sequential
-        let opt_seq = MemoryOptimizer::with_concurrency(
-            config,
-            ConcurrencyConfig::sequential(),
-        );
+        let opt_seq = MemoryOptimizer::with_concurrency(config, ConcurrencyConfig::sequential());
 
         let start = Instant::now();
         for _ in 0..ITERATIONS {
@@ -152,10 +163,7 @@ mod perf_tests {
         println!();
 
         // Concurrent (using single-threaded runtime for fairness)
-        let opt_conc = MemoryOptimizer::with_concurrency(
-            config,
-            ConcurrencyConfig::new(8),
-        );
+        let opt_conc = MemoryOptimizer::with_concurrency(config, ConcurrencyConfig::new(8));
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
@@ -178,7 +186,8 @@ mod perf_tests {
         println!();
 
         let speedup = seq_total.as_secs_f64() / conc_total.as_secs_f64();
-        let improvement = ((seq_total - conc_total).as_secs_f64() / seq_total.as_secs_f64()) * 100.0;
+        let improvement =
+            ((seq_total - conc_total).as_secs_f64() / seq_total.as_secs_f64()) * 100.0;
 
         println!("Performance:");
         println!("  Speedup: {:.2}x", speedup);

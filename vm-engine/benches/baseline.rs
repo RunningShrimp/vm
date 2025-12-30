@@ -2,10 +2,10 @@
 //!
 //! 本模块定义性能基线,用于检测性能回归
 
-use criterion::{black_box, Criterion};
-use vm_engine::jit::core::{JITEngine, JITConfig};
-use vm_ir::{IRBuilder, IROp, Terminator};
+use criterion::{Criterion, black_box};
 use std::time::Duration;
+use vm_engine::jit::core::{JITConfig, JITEngine};
+use vm_ir::{IRBuilder, IROp, Terminator};
 
 /// 性能基线结构
 #[derive(Debug, Clone)]
@@ -30,67 +30,61 @@ pub fn get_baselines() -> Vec<PerformanceBaseline> {
         // JIT编译基线（100条指令）
         PerformanceBaseline {
             name: "jit_compile_100_instructions".to_string(),
-            avg_time_ns: 50_000,     // 50微秒
-            std_dev_ns: 10_000,      // 10微秒标准差
+            avg_time_ns: 50_000, // 50微秒
+            std_dev_ns: 10_000,  // 10微秒标准差
             sample_count: 100,
             min_ns: 30_000,
             max_ns: 80_000,
         },
-
         // JIT编译基线（1000条指令）
         PerformanceBaseline {
             name: "jit_compile_1000_instructions".to_string(),
-            avg_time_ns: 500_000,    // 500微秒
-            std_dev_ns: 100_000,     // 100微秒标准差
+            avg_time_ns: 500_000, // 500微秒
+            std_dev_ns: 100_000,  // 100微秒标准差
             sample_count: 100,
             min_ns: 300_000,
             max_ns: 800_000,
         },
-
         // TLB查找基线（缓存命中）
         PerformanceBaseline {
             name: "tlb_lookup_hit".to_string(),
-            avg_time_ns: 50,          // 50纳秒
+            avg_time_ns: 50, // 50纳秒
             std_dev_ns: 10,
             sample_count: 1000,
             min_ns: 30,
             max_ns: 100,
         },
-
         // TLB查找基线（缓存未命中）
         PerformanceBaseline {
             name: "tlb_lookup_miss".to_string(),
-            avg_time_ns: 500,         // 500纳秒
+            avg_time_ns: 500, // 500纳秒
             std_dev_ns: 100,
             sample_count: 1000,
             min_ns: 300,
             max_ns: 800,
         },
-
         // 翻译基线（100条指令）
         PerformanceBaseline {
             name: "translate_100_instructions".to_string(),
-            avg_time_ns: 100_000,     // 100微秒
+            avg_time_ns: 100_000, // 100微秒
             std_dev_ns: 20_000,
             sample_count: 100,
             min_ns: 60_000,
             max_ns: 150_000,
         },
-
         // PGO编译基线（热路径）
         PerformanceBaseline {
             name: "pgo_compile_hot".to_string(),
-            avg_time_ns: 1_000_000,   // 1毫秒
+            avg_time_ns: 1_000_000, // 1毫秒
             std_dev_ns: 200_000,
             sample_count: 50,
             min_ns: 600_000,
             max_ns: 1_500_000,
         },
-
         // PGO编译基线（冷路径）
         PerformanceBaseline {
             name: "pgo_compile_cold".to_string(),
-            avg_time_ns: 100_000,     // 100微秒
+            avg_time_ns: 100_000, // 100微秒
             std_dev_ns: 20_000,
             sample_count: 50,
             min_ns: 60_000,
@@ -115,40 +109,34 @@ pub fn get_regression_thresholds() -> Vec<RegressionThreshold> {
     vec![
         RegressionThreshold {
             baseline_name: "jit_compile_100_instructions".to_string(),
-            max_regression_percent: 10.0,   // 允许10%退化
-            max_improvement_percent: 50.0,   // 超过50%改善可能有问题
+            max_regression_percent: 10.0,  // 允许10%退化
+            max_improvement_percent: 50.0, // 超过50%改善可能有问题
         },
-
         RegressionThreshold {
             baseline_name: "jit_compile_1000_instructions".to_string(),
             max_regression_percent: 10.0,
             max_improvement_percent: 50.0,
         },
-
         RegressionThreshold {
             baseline_name: "tlb_lookup_hit".to_string(),
-            max_regression_percent: 15.0,   // TLB对延迟敏感，允许15%退化
+            max_regression_percent: 15.0, // TLB对延迟敏感，允许15%退化
             max_improvement_percent: 40.0,
         },
-
         RegressionThreshold {
             baseline_name: "tlb_lookup_miss".to_string(),
             max_regression_percent: 15.0,
             max_improvement_percent: 40.0,
         },
-
         RegressionThreshold {
             baseline_name: "translate_100_instructions".to_string(),
             max_regression_percent: 10.0,
             max_improvement_percent: 50.0,
         },
-
         RegressionThreshold {
             baseline_name: "pgo_compile_hot".to_string(),
-            max_regression_percent: 15.0,   // PGO编译时间可能波动较大
+            max_regression_percent: 15.0, // PGO编译时间可能波动较大
             max_improvement_percent: 60.0,
         },
-
         RegressionThreshold {
             baseline_name: "pgo_compile_cold".to_string(),
             max_regression_percent: 10.0,
@@ -158,10 +146,7 @@ pub fn get_regression_thresholds() -> Vec<RegressionThreshold> {
 }
 
 /// 检查性能回归
-pub fn check_regression(
-    baseline_name: &str,
-    measured_time_ns: u64,
-) -> Result<(), String> {
+pub fn check_regression(baseline_name: &str, measured_time_ns: u64) -> Result<(), String> {
     let baselines = get_baselines();
     let thresholds = get_regression_thresholds();
 
@@ -265,7 +250,10 @@ mod tests {
     fn test_regression_detection_pass() {
         // 测试正常情况（不应该检测到回归）
         let result = check_regression("jit_compile_100_instructions", 55_000);
-        assert!(result.is_ok(), "Should not detect regression for 10% slower");
+        assert!(
+            result.is_ok(),
+            "Should not detect regression for 10% slower"
+        );
     }
 
     #[test]

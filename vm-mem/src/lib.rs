@@ -35,7 +35,7 @@ pub use memory::{
     PoolError, PoolManager, PoolStats, StackPool, Sv39PageTableWalker, Sv48PageTableWalker,
     TlbEntryPool,
 };
-pub use optimization::{asm_opt::*, lockless_optimizations::*};
+pub use optimization::unified::*;
 pub use tlb::{
     AdaptiveReplacementPolicy, AtomicTlbStats, ConcurrentTlbConfig, ConcurrentTlbManager,
     ConcurrentTlbManagerAdapter, MultiLevelTlb, MultiLevelTlbConfig, OptimizedTlbEntry, ShardedTlb,

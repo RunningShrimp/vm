@@ -237,12 +237,16 @@ impl ProfileCollector {
     }
 
     /// 获取块Profile的只读访问
-    pub fn get_block_profiles(&self) -> parking_lot::RwLockReadGuard<'_, HashMap<u64, BlockProfile>> {
+    pub fn get_block_profiles(
+        &self,
+    ) -> parking_lot::RwLockReadGuard<'_, HashMap<u64, BlockProfile>> {
         self.block_profiles.read()
     }
 
     /// 获取调用Profile的只读访问
-    pub fn get_call_profiles(&self) -> parking_lot::RwLockReadGuard<'_, HashMap<(u64, u64), CallProfile>> {
+    pub fn get_call_profiles(
+        &self,
+    ) -> parking_lot::RwLockReadGuard<'_, HashMap<(u64, u64), CallProfile>> {
         self.call_profiles.read()
     }
 

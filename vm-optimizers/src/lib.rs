@@ -1,53 +1,68 @@
-//! Unified optimization framework for VM
+//! VM Optimizers - 垃圾回收和优化器模块
 //!
-//! This crate provides a comprehensive optimization framework including:
-//! - Garbage collection optimizers (generational and incremental)
-//! - Memory allocation optimization
-//! - Profile-guided optimization (PGO)
-//! - ML-guided compilation optimization
-//! - Adaptive compilation optimization
-//!
-//! # Modules
-//!
-//! - [`gc`]: Garbage collection optimization with lock-free write barriers,
-//!   parallel marking, and adaptive quota management
-//! - [`memory`]: Memory access optimization with TLB prefetching,
-//!   parallel page tables, and NUMA-aware allocation
-//! - [`pgo`]: Profile-guided optimization with runtime profiling,
-//!   hot path detection, and AOT optimization hints
-//! - [`ml`]: ML-guided compilation with tier prediction,
-//!   feature extraction, and A/B testing framework
-//! - [`adaptive`]: Adaptive compilation with performance monitoring,
-//!   strategy adjustment, and runtime decision making
+//! 提供分代GC、并发GC、写屏障、内存优化、机器学习优化等功能
 
-pub mod adaptive;
 pub mod gc;
-pub mod gc_incremental;
+pub mod gc_concurrent;
+pub mod gc_write_barrier;
+pub mod gc_generational;
 pub mod memory;
-pub mod memory_perf_test;
+pub mod adaptive;
 pub mod ml;
 pub mod pgo;
 
-// Re-exports for GC module
+// Re-export OptimizedGC types
 pub use gc::{
-    AdaptiveQuota, GcError, GcPhase, GcResult, GcStats, LockFreeWriteBarrier, OptimizedGc,
-    ParallelMarker, WriteBarrierType,
+    AdaptiveQuota, AllocStats, GcError, GcPhase, GcResult, GcStats, LockFreeWriteBarrier,
+    OptimizedGc, ParallelMarker, WriteBarrierType,
 };
 
-// Re-exports for Memory module
+// 重新导出并发GC的公共类型
+pub use gc_concurrent::{
+    GCColor,
+    GCStats,
+    ConcurrentGC,
+};
+
+// 重新导出写屏障的公共类型
+pub use gc_write_barrier::{
+    BarrierType,
+    SATBBarrier,
+    CardMarkingBarrier,
+    WriteBarrier,
+    BarrierStats,
+};
+
+// 重新导出分代GC的公共类型
+pub use gc_generational::{
+    Generation,
+    YoungGCStrategy,
+    GenerationalGC,
+    GenerationalGCStats,
+    YoungGenerationConfig,
+    OldGenerationConfig,
+};
+
+// Re-export Memory Optimizer types
 pub use memory::{
-    AccessPattern, AsyncPrefetchingTlb, MemoryError, MemoryOptimizer, MemoryResult, NumaAllocator,
-    NumaConfig, PageTableEntry, ParallelPageTable, TlbEntry, TlbStats,
+    AccessPattern, ConcurrencyConfig, MemoryError, MemoryOptimizer, NumaConfig, TlbEntry, TlbStats,
 };
 
-// Re-exports for PGO module
-pub use pgo::{
-    AotOptimizationDriver, AotOptimizationHint, BlockProfile, CallProfile, PgoIterationResult,
-    PgoManager, PgoOptimizationStats, ProfileCollector, ProfileStats,
+// Re-export Adaptive Optimizer types
+pub use adaptive::{
+    AdaptiveOptimizer, AdaptiveOptimizerConfig, Cost, HardwareProfile, OptimizationRecommendation,
+    OptimizationReport, PerformanceAnalysis, PerformanceMonitor, Priority, RecommendationType,
+    WorkloadPattern,
 };
 
-// Re-exports for ML module
+// Re-export ML Compiler types
 pub use ml::{
     ABTestFramework, ABTestMetrics, ABTestResults, BlockFeatures, CompilationDecision,
     MLCompilerStats, MLGuidedCompiler, SimpleLinearModel,
+};
+
+// Re-export PGO types
+pub use pgo::{
+    AotOptimizationDriver, AotOptimizationHint, BlockProfile, CallProfile, PgoIterationResult,
+    PgoManager, PgoOptimizationStats, ProfileCollector, ProfileStats,
 };

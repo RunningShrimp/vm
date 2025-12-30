@@ -13,6 +13,9 @@ lru = "0.16"
 parking_lot = { workspace = true }
 dashmap = "6.1"
 crossbeam = "0.8"
+crossbeam-epoch = "0.9"
+crossbeam-utils = "0.8"
+crossbeam-skiplist = "0.1"
 async-trait = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["fs"] }
 thiserror = { workspace = true }
@@ -20,6 +23,9 @@ thiserror = { workspace = true }
 [dev-dependencies]
 criterion = "0.8"
 tokio = { workspace = true }
+proptest = "1.0"
+loom = "0.7"
+rand = "0.8"
 
 [[bench]]
 name = "mmu_translate"
@@ -27,6 +33,19 @@ harness = false
 
 [[bench]]
 name = "tlb_optimized"
+harness = false
+
+[[bench]]
+name = "numa_performance"
+harness = false
+
+[[bench]]
+name = "async_mmu_performance"
+harness = false
+required-features = ["async"]
+
+[[bench]]
+name = "memory_allocation"
 harness = false
 
 [features]

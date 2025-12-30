@@ -420,7 +420,10 @@ impl AccelKvm {
             #[cfg(feature = "kvm")]
             self.regs_cache.clear();
         }
-        log::debug!("Register cache {}", if enabled { "enabled" } else { "disabled" });
+        log::debug!(
+            "Register cache {}",
+            if enabled { "enabled" } else { "disabled" }
+        );
     }
 
     /// 使指定vCPU的寄存器缓存失效
@@ -1434,7 +1437,10 @@ impl Accel for AccelKvm {
                 // 注意：这里需要使用Unsafe或内部可变性模式
                 // 为了简化，我们只在下次get_regs时更新缓存
                 // 实际实现可能需要使用RefCell或Mutex
-                log::trace!("Register cache miss for vCPU {}, caching registers", vcpu_id);
+                log::trace!(
+                    "Register cache miss for vCPU {}, caching registers",
+                    vcpu_id
+                );
             }
 
             Ok(regs)

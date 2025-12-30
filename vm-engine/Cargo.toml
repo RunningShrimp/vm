@@ -14,6 +14,17 @@ chrono = { workspace = true, optional = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# JIT编译后端 - Cranelift
+cranelift-codegen = "0.110"
+cranelift-frontend = "0.110"
+cranelift-module = "0.110"
+cranelift-native = "0.110"
+target-lexicon = "0.12"
+
+# 缓存和并发数据结构
+lru = "0.12"
+crossbeam-queue = "0.3"
+
 # VM Core dependencies
 vm-core = { path = "../vm-core", features = ["foundation"] }
 vm-mem = { path = "../vm-mem" }
@@ -61,6 +72,7 @@ all-engines = ["jit", "interpreter", "executor"]
 [dev-dependencies]
 criterion = { workspace = true }
 rand = "0.8"
+proptest = "1.0"
 
 [[bench]]
 name = "jit_compilation_bench"

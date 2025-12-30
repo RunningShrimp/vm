@@ -80,9 +80,7 @@ impl AsyncExecutorWrapper {
 
     /// 设置 PC
     pub fn set_pc(&self, pc: u64) {
-        self.interpreter
-            .lock()
-            .set_pc(vm_core::GuestAddr(pc));
+        self.interpreter.lock().set_pc(vm_core::GuestAddr(pc));
     }
 
     /// 获取 PC

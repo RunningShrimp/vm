@@ -1,1193 +1,116 @@
-//! 代码缓存接口和实现
+//! 代码缓存模块（简化版）
 //!
-//! 定义了代码缓存的抽象接口和多种实现策略，用于管理编译后的机器码。
-//! 支持多种缓存策略：
-//! - LRU（Least Recently Used）：最近最少使用淘汰
-//! - SimpleHash：简单哈希缓存（无淘汰策略）
-//! - Optimized：分层缓存（L1/L2/L3），热点代码在L1
+//! 提供基础的代码缓存功能
 
-use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use vm_core::GuestAddr;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-/// 分层缓存统计
-#[derive(Debug, Clone, Default)]
-pub struct TieredCacheStats {
-    /// 基础统计
-    pub base_stats: CacheStats,
-    /// L1命中次数
-    pub l1_hits: u64,
-    /// L2命中次数
-    pub l2_hits: u64,
-    /// L3命中次数
-    pub l3_hits: u64,
-    /// L1到L2提升次数
-    pub l1_to_l2_promotions: u64,
-    /// L2到L1提升次数
-    pub l2_to_l1_promotions: u64,
-    /// L3到L2提升次数
-    pub l3_to_l2_promotions: u64,
-    /// L1驱逐次数
-    pub l1_evictions: u64,
-    /// L2驱逐次数
-    pub l2_evictions: u64,
-    /// L3驱逐次数
-    pub l3_evictions: u64,
-}
-
-/// 代码缓存接口
-///
-/// 负责管理JIT编译后的机器码缓存。代码缓存是JIT性能优化的关键组件，
-/// 通过缓存已编译的代码块，避免重复编译，显著提高执行效率。
-///
-/// # 使用场景
-/// - JIT编译缓存：缓存编译后的代码块
-/// - 分层缓存：多级缓存策略（L1/L2/L3）
-/// - 缓存淘汰：LRU、LFU等淘汰策略
-/// - 性能监控：缓存命中率统计和优化
-///
-/// # 缓存策略
-/// - LRU（Least Recently Used）：最近最少使用淘汰
-/// - LFU（Least Frequently Used）：最不常使用淘汰
-/// - 分层缓存：多级缓存，热点代码在L1，冷门代码在L2
-///
-/// # 示例
-/// ```ignore
-/// let mut cache = LRUCache::new(1024 * 1024); // 1MB缓存
-/// cache.insert(GuestAddr(0x1000), compiled_code);
-/// if let Some(code) = cache.get(GuestAddr(0x1000)) {
-///     // 执行缓存的代码
-/// }
-/// ```
-pub trait CodeCache: Send + Sync {
-    /// 插入编译后的代码
-    ///
-    /// 将编译后的机器码插入缓存。
-    /// 如果缓存已满，根据淘汰策略移除旧条目。
-    ///
-    /// # 参数
-    /// - `pc`: 代码块的起始地址（缓存键）
-    /// - `code`: 编译后的机器码
-    ///
-    /// # 注意
-    /// - 如果键已存在，会覆盖旧值
-    /// - 缓存大小受size_limit()限制
-    fn insert(&mut self, pc: GuestAddr, code: Vec<u8>);
-
-    /// 获取编译后的代码
-    ///
-    /// 从缓存中获取指定地址的代码。
-    /// 获取成功后，会更新访问时间（用于LRU等淘汰策略）。
-    ///
-    /// # 参数
-    /// - `pc`: 代码块的起始地址
-    ///
-    /// # 返回
-    /// 缓存的机器码（如果存在），否则返回None
-    fn get(&self, pc: GuestAddr) -> Option<Vec<u8>>;
-
-    /// 检查代码是否已缓存
-    ///
-    /// 检查指定地址的代码是否存在于缓存中。
-    ///
-    /// # 参数
-    /// - `pc`: 代码块的起始地址
-    ///
-    /// # 返回
-    /// 存在返回true，不存在返回false
-    fn contains(&self, pc: GuestAddr) -> bool;
-
-    /// 移除指定地址的代码
-    ///
-    /// 从缓存中移除指定地址的代码条目。
-    ///
-    /// # 参数
-    /// - `pc`: 代码块的起始地址
-    ///
-    /// # 返回
-    /// 被移除的代码（如果存在），否则返回None
-    fn remove(&mut self, pc: GuestAddr) -> Option<Vec<u8>>;
-
-    /// 清空缓存
-    ///
-    /// 移除所有缓存的代码条目。
-    /// 通常在代码失效或重置时调用。
-    fn clear(&mut self);
-
-    /// 获取缓存统计信息
-    ///
-    /// 返回缓存的详细统计信息，包括命中/未命中次数、缓存大小等。
-    ///
-    /// # 返回
-    /// 缓存统计信息
-    fn stats(&self) -> CacheStats;
-
-    /// 设置缓存大小限制
-    ///
-    /// 设置缓存的最大大小（字节）。
-    /// 如果当前大小超过新限制，会自动淘汰一些条目。
-    ///
-    /// # 参数
-    /// - `limit`: 最大缓存大小（字节）
-    fn set_size_limit(&mut self, limit: usize);
-
-    /// 获取缓存大小限制
-    ///
-    /// # 返回
-    /// 当前设置的最大缓存大小（字节）
-    fn size_limit(&self) -> usize;
-
-    /// 获取当前缓存大小
-    ///
-    /// # 返回
-    /// 当前已使用的缓存大小（字节）
-    fn current_size(&self) -> usize;
-
-    /// 获取缓存条目数量
-    ///
-    /// # 返回
-    /// 当前缓存中的代码块数量
-    fn entry_count(&self) -> usize;
-
-    /// 获取分层缓存统计（可选实现）
-    ///
-    /// 返回分层缓存（L1/L2/L3）的详细统计信息。
-    /// 只有实现了分层缓存的类型才返回有效数据。
-    ///
-    /// # 返回
-    /// 分层缓存统计信息（如果支持），否则返回None
-    fn tiered_stats(&self) -> Option<TieredCacheStats> {
-        None
-    }
-}
+use crate::jit::backend::CompiledCode;
 
 /// 缓存统计信息
 #[derive(Debug, Clone, Default)]
 pub struct CacheStats {
     /// 命中次数
-    pub hits: u64,
+    pub hits: usize,
     /// 未命中次数
-    pub misses: u64,
+    pub misses: usize,
     /// 插入次数
-    pub inserts: u64,
+    pub inserts: usize,
     /// 移除次数
-    pub removals: u64,
-    /// 清空次数
-    pub clears: u64,
-    /// 当前缓存大小（字节）
-    pub current_size: usize,
-    /// 最大缓存大小（字节）
-    pub max_size: usize,
-    /// 缓存条目数量
-    pub entry_count: usize,
+    pub removals: usize,
 }
 
 impl CacheStats {
     /// 计算命中率
     pub fn hit_rate(&self) -> f64 {
-        if self.hits + self.misses == 0 {
-            0.0
-        } else {
-            self.hits as f64 / (self.hits + self.misses) as f64
+        let total = self.hits + self.misses;
+        if total == 0 {
+            return 0.0;
         }
+        self.hits as f64 / total as f64
     }
 }
 
-/// 分层缓存配置
-#[derive(Debug, Clone)]
-pub struct OptimizedCacheConfig {
-    /// L1缓存大小（热点代码）
-    pub l1_size: usize,
-    /// L2缓存大小（常用代码）
-    pub l2_size: usize,
-    /// L3缓存大小（所有代码）
-    pub l3_size: usize,
-    /// 热点阈值
-    pub hotspot_threshold: u32,
-    /// 预取窗口大小
-    pub prefetch_window: usize,
-    /// 缓存行大小
-    pub cache_line_size: usize,
+/// 分层缓存统计
+#[derive(Debug, Clone, Default)]
+pub struct TieredCacheStats {
+    /// L1缓存命中
+    pub l1_hits: usize,
+    /// L2缓存命中
+    pub l2_hits: usize,
+    /// L3缓存命中
+    pub l3_hits: usize,
+    /// 总未命中
+    pub misses: usize,
+    /// 基础统计
+    pub base_stats: CacheStats,
+    /// L1到L2提升
+    pub l1_to_l2_promotions: usize,
+    /// L2到L1提升
+    pub l2_to_l1_promotions: usize,
+    /// L3到L2提升
+    pub l3_to_l2_promotions: usize,
+    /// L1驱逐
+    pub l1_evictions: usize,
+    /// L2驱逐
+    pub l2_evictions: usize,
+    /// L3驱逐
+    pub l3_evictions: usize,
 }
 
-impl Default for OptimizedCacheConfig {
-    fn default() -> Self {
-        Self {
-            l1_size: 1024 * 1024,      // 1MB for hot code
-            l2_size: 8 * 1024 * 1024,  // 8MB for frequently used code
-            l3_size: 64 * 1024 * 1024, // 64MB for all code
-            hotspot_threshold: 100,
-            prefetch_window: 16,
-            cache_line_size: 64,
-        }
-    }
-}
-
-/// 优化的缓存统计
-#[derive(Debug, Default)]
-pub struct OptimizedCacheStats {
-    /// L1命中次数
-    pub l1_hits: AtomicU64,
-    /// L2命中次数
-    pub l2_hits: AtomicU64,
-    /// L3命中次数
-    pub l3_hits: AtomicU64,
-    /// 总未命中次数
-    pub total_misses: AtomicU64,
-    /// 预取命中次数
-    pub prefetch_hits: AtomicU64,
-    /// 热点提升次数
-    pub hotspot_promotions: AtomicU64,
-    /// 缓存淘汰次数
-    pub evictions: AtomicU64,
-    /// 缓存插入次数
-    pub inserts: AtomicU64,
-    /// 缓存移除次数
-    pub removals: AtomicU64,
-    /// 命中率
-    pub hit_rate: f64,
-}
-
-/// LRU缓存实现
-pub struct LRUCache {
+/// 简单的代码缓存
+pub struct CodeCache {
     /// 缓存条目
-    entries: RefCell<HashMap<GuestAddr, CacheEntry>>,
-    /// LRU顺序（从旧到新）
-    lru_order: RefCell<Vec<GuestAddr>>,
-    /// 缓存统计
-    stats: RefCell<CacheStats>,
+    entries: HashMap<u64, Arc<CompiledCode>>,
     /// 缓存大小限制
-    size_limit: usize,
-    /// 当前缓存大小
-    current_size: RefCell<usize>,
+    max_size: usize,
+    /// 统计信息
+    stats: TieredCacheStats,
 }
 
-// 为LRUCache手动实现Sync特性，因为我们确保了线程安全
-unsafe impl Sync for LRUCache {}
-
-/// 缓存条目
-#[derive(Debug, Clone)]
-struct CacheEntry {
-    /// 编译后的代码
-    code: Vec<u8>,
-    /// 最后访问时间
-    last_access: std::time::Instant,
-    /// 访问次数
-    access_count: u64,
-}
-
-impl LRUCache {
-    /// 创建新的LRU缓存
-    pub fn new(size_limit: usize) -> Self {
-        Self {
-            entries: RefCell::new(HashMap::new()),
-            lru_order: RefCell::new(Vec::new()),
-            stats: RefCell::new(CacheStats {
-                max_size: size_limit,
-                ..Default::default()
-            }),
-            size_limit,
-            current_size: RefCell::new(0),
-        }
-    }
-
-    /// 确保有足够的空间
-    fn ensure_space(&self, required_size: usize) {
-        let current_size = *self.current_size.borrow();
-        while current_size + required_size > self.size_limit && !self.lru_order.borrow().is_empty()
-        {
-            // 移除最旧的条目
-            if let Some(oldest_pc) = self.lru_order.borrow().first().cloned() {
-                self.remove_internal(oldest_pc);
-            }
-        }
-    }
-
-    /// 更新LRU顺序
-    fn update_lru(&self, pc: GuestAddr) {
-        let now = std::time::Instant::now();
-
-        // 更新条目的访问时间和计数
-        if let Some(entry) = self.entries.borrow_mut().get_mut(&pc) {
-            entry.last_access = now;
-            entry.access_count += 1;
-        }
-
-        // 从当前位置移除
-        let mut lru_order = self.lru_order.borrow_mut();
-        if let Some(pos) = lru_order.iter().position(|&x| x == pc) {
-            lru_order.remove(pos);
-        }
-        // 添加到末尾（最新）
-        lru_order.push(pc);
-    }
-
-    /// 内部移除方法
-    fn remove_internal(&self, pc: GuestAddr) -> Option<Vec<u8>> {
-        if let Some(entry) = self.entries.borrow_mut().remove(&pc) {
-            let code_len = entry.code.len();
-            *self.current_size.borrow_mut() -= code_len;
-
-            // 从LRU顺序中移除
-            let mut lru_order = self.lru_order.borrow_mut();
-            if let Some(pos) = lru_order.iter().position(|&x| x == pc) {
-                lru_order.remove(pos);
-            }
-            drop(lru_order); // 释放借用
-
-            let mut stats = self.stats.borrow_mut();
-            stats.removals += 1;
-            stats.entry_count = self.entries.borrow().len();
-            stats.current_size = *self.current_size.borrow();
-
-            Some(entry.code)
-        } else {
-            None
-        }
-    }
-}
-
-impl CodeCache for LRUCache {
-    fn insert(&mut self, pc: GuestAddr, code: Vec<u8>) {
-        let code_size = code.len();
-
-        // 如果已存在，先移除旧的
-        if self.entries.borrow().contains_key(&pc) {
-            self.remove_internal(pc);
-        }
-
-        // 确保有足够的空间
-        self.ensure_space(code_size);
-
-        // 创建新条目
-        let entry = CacheEntry {
-            code: code.clone(),
-            last_access: std::time::Instant::now(),
-            access_count: 1,
-        };
-
-        // 插入条目
-        self.entries.borrow_mut().insert(pc, entry);
-        self.lru_order.borrow_mut().push(pc);
-
-        // 更新统计
-        *self.current_size.borrow_mut() += code_size;
-        self.stats.borrow_mut().inserts += 1;
-        self.stats.borrow_mut().entry_count = self.entries.borrow().len();
-        self.stats.borrow_mut().current_size = *self.current_size.borrow();
-    }
-
-    fn get(&self, pc: GuestAddr) -> Option<Vec<u8>> {
-        if let Some(entry) = self.entries.borrow().get(&pc) {
-            // 更新LRU顺序
-            self.update_lru(pc);
-            Some(entry.code.clone())
-        } else {
-            None
-        }
-    }
-
-    fn contains(&self, pc: GuestAddr) -> bool {
-        self.entries.borrow().contains_key(&pc)
-    }
-
-    fn remove(&mut self, pc: GuestAddr) -> Option<Vec<u8>> {
-        self.remove_internal(pc)
-    }
-
-    fn clear(&mut self) {
-        self.entries.borrow_mut().clear();
-        self.lru_order.borrow_mut().clear();
-        *self.current_size.borrow_mut() = 0;
-        self.stats.borrow_mut().clears += 1;
-        self.stats.borrow_mut().entry_count = 0;
-        self.stats.borrow_mut().current_size = 0;
-    }
-
-    fn stats(&self) -> CacheStats {
-        self.stats.borrow().clone()
-    }
-
-    fn set_size_limit(&mut self, limit: usize) {
-        self.size_limit = limit;
-        self.stats.borrow_mut().max_size = limit;
-
-        // 如果当前大小超过新限制，移除一些条目
-        while *self.current_size.borrow() > self.size_limit && !self.lru_order.borrow().is_empty() {
-            if let Some(oldest_pc) = self.lru_order.borrow().first().cloned() {
-                self.remove_internal(oldest_pc);
-            }
-        }
-    }
-
-    fn size_limit(&self) -> usize {
-        self.size_limit
-    }
-
-    fn current_size(&self) -> usize {
-        *self.current_size.borrow()
-    }
-
-    fn entry_count(&self) -> usize {
-        self.entries.borrow().len()
-    }
-}
-
-/// 简单哈希缓存实现（无淘汰策略）
-pub struct SimpleHashCache {
-    /// 缓存条目
-    entries: HashMap<GuestAddr, Vec<u8>>,
-    /// 缓存统计
-    stats: CacheStats,
-    /// 缓存大小限制
-    size_limit: usize,
-    /// 当前缓存大小
-    current_size: usize,
-}
-
-impl SimpleHashCache {
-    /// 创建新的简单哈希缓存
-    pub fn new(size_limit: usize) -> Self {
+impl CodeCache {
+    /// 创建新的代码缓存
+    pub fn new(max_size: usize) -> Self {
         Self {
             entries: HashMap::new(),
-            stats: CacheStats {
-                max_size: size_limit,
-                ..Default::default()
-            },
-            size_limit,
-            current_size: 0,
-        }
-    }
-}
-
-impl CodeCache for SimpleHashCache {
-    fn insert(&mut self, pc: GuestAddr, code: Vec<u8>) {
-        let code_size = code.len();
-
-        // 如果已存在，先移除旧的
-        if let Some(old_code) = self.entries.remove(&pc) {
-            self.current_size -= old_code.len();
-        }
-
-        // 检查是否有足够空间
-        if self.current_size + code_size > self.size_limit {
-            // 简单策略：拒绝插入
-            return;
-        }
-
-        // 插入新条目
-        self.entries.insert(pc, code);
-        self.current_size += code_size;
-
-        // 更新统计
-        self.stats.inserts += 1;
-        self.stats.entry_count = self.entries.len();
-        self.stats.current_size = self.current_size;
-    }
-
-    fn get(&self, pc: GuestAddr) -> Option<Vec<u8>> {
-        self.entries.get(&pc).cloned()
-    }
-
-    fn contains(&self, pc: GuestAddr) -> bool {
-        self.entries.contains_key(&pc)
-    }
-
-    fn remove(&mut self, pc: GuestAddr) -> Option<Vec<u8>> {
-        if let Some(code) = self.entries.remove(&pc) {
-            self.current_size -= code.len();
-            self.stats.removals += 1;
-            self.stats.entry_count = self.entries.len();
-            self.stats.current_size = self.current_size;
-            Some(code)
-        } else {
-            None
+            max_size,
+            stats: TieredCacheStats::default(),
         }
     }
 
-    fn clear(&mut self) {
+    /// 查找缓存的代码
+    pub fn lookup(&self, key: u64) -> Option<Arc<CompiledCode>> {
+        self.entries.get(&key).cloned()
+    }
+
+    /// 插入代码到缓存
+    pub fn insert(&mut self, key: u64, code: Arc<CompiledCode>) {
+        // 如果缓存已满，清空一些条目
+        if self.entries.len() >= self.max_size {
+            self.entries.clear();
+        }
+        self.entries.insert(key, code);
+    }
+
+    /// 清空缓存
+    pub fn clear(&mut self) {
         self.entries.clear();
-        self.current_size = 0;
-        self.stats.clears += 1;
-        self.stats.entry_count = 0;
-        self.stats.current_size = 0;
+        self.stats = TieredCacheStats::default();
     }
 
-    fn stats(&self) -> CacheStats {
-        self.stats.clone()
-    }
-
-    fn set_size_limit(&mut self, limit: usize) {
-        self.size_limit = limit;
-        self.stats.max_size = limit;
-
-        // 如果当前大小超过新限制，清空缓存
-        if self.current_size > self.size_limit {
-            self.clear();
-        }
-    }
-
-    fn size_limit(&self) -> usize {
-        self.size_limit
-    }
-
-    fn current_size(&self) -> usize {
-        self.current_size
-    }
-
-    fn entry_count(&self) -> usize {
+    /// 获取缓存大小
+    pub fn len(&self) -> usize {
         self.entries.len()
     }
-}
 
-/// 优化的缓存条目
-#[derive(Debug)]
-struct OptimizedCacheEntry {
-    /// 编译后的代码
-    code: Vec<u8>,
-    /// 访问计数
-    access_count: AtomicU64,
-    /// 最后访问时间（纳秒）
-    last_access_ns: AtomicU64,
-    /// 代码大小
-    size: usize,
-    /// 缓存级别（1=L1热点, 2=L2常用, 3=L3其他）
-    cache_level: u8,
-    /// 预取标记
-    prefetch_mark: bool,
-}
-
-impl Clone for OptimizedCacheEntry {
-    fn clone(&self) -> Self {
-        Self {
-            code: self.code.clone(),
-            access_count: AtomicU64::new(self.access_count.load(Ordering::Relaxed)),
-            last_access_ns: AtomicU64::new(self.last_access_ns.load(Ordering::Relaxed)),
-            size: self.size,
-            cache_level: self.cache_level,
-            prefetch_mark: self.prefetch_mark,
-        }
-    }
-}
-
-impl Clone for OptimizedCacheStats {
-    fn clone(&self) -> Self {
-        Self {
-            l1_hits: AtomicU64::new(self.l1_hits.load(Ordering::Relaxed)),
-            l2_hits: AtomicU64::new(self.l2_hits.load(Ordering::Relaxed)),
-            l3_hits: AtomicU64::new(self.l3_hits.load(Ordering::Relaxed)),
-            total_misses: AtomicU64::new(self.total_misses.load(Ordering::Relaxed)),
-            prefetch_hits: AtomicU64::new(self.prefetch_hits.load(Ordering::Relaxed)),
-            hotspot_promotions: AtomicU64::new(self.hotspot_promotions.load(Ordering::Relaxed)),
-            evictions: AtomicU64::new(self.evictions.load(Ordering::Relaxed)),
-            inserts: AtomicU64::new(self.inserts.load(Ordering::Relaxed)),
-            removals: AtomicU64::new(self.removals.load(Ordering::Relaxed)),
-            hit_rate: self.hit_rate,
-        }
-    }
-}
-
-/// 优化的代码缓存（分层缓存实现）
-///
-/// 提供高性能的代码缓存，包括热点检测、预取和分层缓存策略。
-/// L1缓存存储热点代码，L2缓存存储常用代码，L3缓存存储所有代码。
-pub struct OptimizedCodeCache {
-    /// 配置
-    config: OptimizedCacheConfig,
-    /// L1缓存（热点代码）- 使用HashMap实现O(1)访问
-    l1_cache: Arc<Mutex<HashMap<GuestAddr, OptimizedCacheEntry>>>,
-    /// L2缓存（常用代码）
-    l2_cache: Arc<Mutex<HashMap<GuestAddr, OptimizedCacheEntry>>>,
-    /// L3缓存（所有代码）
-    l3_cache: Arc<Mutex<HashMap<GuestAddr, OptimizedCacheEntry>>>,
-    /// L1 LRU顺序（用于淘汰）
-    l1_lru: Arc<Mutex<VecDeque<GuestAddr>>>,
-    /// L2 LRU顺序
-    l2_lru: Arc<Mutex<VecDeque<GuestAddr>>>,
-    /// L3 LRU顺序
-    l3_lru: Arc<Mutex<VecDeque<GuestAddr>>>,
-    /// 当前缓存大小
-    l1_current_size: AtomicUsize,
-    l2_current_size: AtomicUsize,
-    l3_current_size: AtomicUsize,
-    /// 统计信息
-    stats: Arc<Mutex<OptimizedCacheStats>>,
-}
-
-impl OptimizedCodeCache {
-    /// 创建新的优化缓存
-    pub fn new(config: OptimizedCacheConfig) -> Self {
-        Self {
-            config,
-            l1_cache: Arc::new(Mutex::new(HashMap::new())),
-            l2_cache: Arc::new(Mutex::new(HashMap::new())),
-            l3_cache: Arc::new(Mutex::new(HashMap::new())),
-            l1_lru: Arc::new(Mutex::new(VecDeque::new())),
-            l2_lru: Arc::new(Mutex::new(VecDeque::new())),
-            l3_lru: Arc::new(Mutex::new(VecDeque::new())),
-            l1_current_size: AtomicUsize::new(0),
-            l2_current_size: AtomicUsize::new(0),
-            l3_current_size: AtomicUsize::new(0),
-            stats: Arc::new(Mutex::new(OptimizedCacheStats::default())),
-        }
+    /// 是否为空
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
-    /// Helper: Lock L1 cache
-    fn lock_l1_cache(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<GuestAddr, OptimizedCacheEntry>>, String> {
-        self.l1_cache
-            .lock()
-            .map_err(|e| format!("L1 cache lock is poisoned: {:?}", e))
-    }
-
-    /// Helper: Lock L2 cache
-    fn lock_l2_cache(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<GuestAddr, OptimizedCacheEntry>>, String> {
-        self.l2_cache
-            .lock()
-            .map_err(|e| format!("L2 cache lock is poisoned: {:?}", e))
-    }
-
-    /// Helper: Lock L3 cache
-    fn lock_l3_cache(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<GuestAddr, OptimizedCacheEntry>>, String> {
-        self.l3_cache
-            .lock()
-            .map_err(|e| format!("L3 cache lock is poisoned: {:?}", e))
-    }
-
-    /// Helper: Lock L1 LRU
-    fn lock_l1_lru(&self) -> Result<std::sync::MutexGuard<'_, VecDeque<GuestAddr>>, String> {
-        self.l1_lru
-            .lock()
-            .map_err(|e| format!("L1 LRU lock is poisoned: {:?}", e))
-    }
-
-    /// Helper: Lock L2 LRU
-    fn lock_l2_lru(&self) -> Result<std::sync::MutexGuard<'_, VecDeque<GuestAddr>>, String> {
-        self.l2_lru
-            .lock()
-            .map_err(|e| format!("L2 LRU lock is poisoned: {:?}", e))
-    }
-
-    /// Helper: Lock L3 LRU
-    fn lock_l3_lru(&self) -> Result<std::sync::MutexGuard<'_, VecDeque<GuestAddr>>, String> {
-        self.l3_lru
-            .lock()
-            .map_err(|e| format!("L3 LRU lock is poisoned: {:?}", e))
-    }
-
-    /// Helper: Lock stats
-    fn lock_stats(&self) -> Result<std::sync::MutexGuard<'_, OptimizedCacheStats>, String> {
-        self.stats
-            .lock()
-            .map_err(|e| format!("Stats lock is poisoned: {:?}", e))
-    }
-
-    /// 获取当前时间戳（纳秒）
-    fn current_time_ns() -> u64 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64
-    }
-
-    /// 更新LRU顺序
-    fn update_lru(lru: &mut VecDeque<GuestAddr>, pc: GuestAddr) {
-        if let Some(pos) = lru.iter().position(|&x| x == pc) {
-            lru.remove(pos);
-        }
-        lru.push_back(pc);
-    }
-
-    #[allow(dead_code)]
-    /// 确保L1缓存有足够空间
-    fn ensure_l1_space(&mut self, required_size: usize) {
-        while self.l1_current_size.load(Ordering::Relaxed) + required_size > self.config.l1_size {
-            let is_empty = match self.lock_l1_lru() {
-                Ok(lru) => lru.is_empty(),
-                Err(_) => break, // If lock is poisoned, stop trying
-            };
-            if is_empty {
-                break;
-            }
-
-            let oldest_pc = match self.lock_l1_lru() {
-                Ok(lru) => lru.front().copied(),
-                Err(_) => None,
-            };
-            if let Some(pc) = oldest_pc {
-                self.evict_from_l1(pc);
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    /// 确保L2缓存有足够空间
-    fn ensure_l2_space(&mut self, required_size: usize) {
-        while self.l2_current_size.load(Ordering::Relaxed) + required_size > self.config.l2_size {
-            let is_empty = match self.lock_l2_lru() {
-                Ok(lru) => lru.is_empty(),
-                Err(_) => break,
-            };
-            if is_empty {
-                break;
-            }
-
-            let oldest_pc = match self.lock_l2_lru() {
-                Ok(lru) => lru.front().copied(),
-                Err(_) => None,
-            };
-            if let Some(pc) = oldest_pc {
-                self.evict_from_l2(pc);
-            }
-        }
-    }
-
-    /// 确保L3缓存有足够空间
-    fn ensure_l3_space(&mut self, required_size: usize) {
-        while self.l3_current_size.load(Ordering::Relaxed) + required_size > self.config.l3_size {
-            let is_empty = match self.lock_l3_lru() {
-                Ok(lru) => lru.is_empty(),
-                Err(_) => break,
-            };
-            if is_empty {
-                break;
-            }
-
-            let oldest_pc = match self.lock_l3_lru() {
-                Ok(lru) => lru.front().copied(),
-                Err(_) => None,
-            };
-            if let Some(pc) = oldest_pc {
-                self.evict_from_l3(pc);
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    /// 从L1缓存淘汰条目
-    fn evict_from_l1(&mut self, pc: GuestAddr) {
-        let entry = match self.lock_l1_cache() {
-            Ok(mut cache) => cache.remove(&pc),
-            Err(_) => None, // If lock is poisoned, skip eviction
-        };
-        if let Some(entry) = entry {
-            self.l1_current_size
-                .fetch_sub(entry.size, Ordering::Relaxed);
-            if let Ok(mut lru) = self.lock_l1_lru() {
-                Self::update_lru(&mut lru, pc);
-            }
-            self.insert_to_l2(pc, entry);
-            if let Ok(stats) = self.lock_stats() {
-                stats.evictions.fetch_add(1, Ordering::Relaxed);
-                stats.removals.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    /// 从L2缓存淘汰条目
-    fn evict_from_l2(&mut self, pc: GuestAddr) {
-        let entry = match self.lock_l2_cache() {
-            Ok(mut cache) => cache.remove(&pc),
-            Err(_) => None,
-        };
-        if let Some(entry) = entry {
-            self.l2_current_size
-                .fetch_sub(entry.size, Ordering::Relaxed);
-            if let Ok(mut lru) = self.lock_l2_lru() {
-                Self::update_lru(&mut lru, pc);
-            }
-            self.insert_to_l3(pc, entry);
-            if let Ok(stats) = self.lock_stats() {
-                stats.evictions.fetch_add(1, Ordering::Relaxed);
-                stats.removals.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    /// 从L3缓存淘汰条目
-    fn evict_from_l3(&mut self, pc: GuestAddr) {
-        let entry = match self.lock_l3_cache() {
-            Ok(mut cache) => cache.remove(&pc),
-            Err(_) => None,
-        };
-        if let Some(entry) = entry {
-            self.l3_current_size
-                .fetch_sub(entry.size, Ordering::Relaxed);
-            if let Ok(mut lru) = self.lock_l3_lru() {
-                Self::update_lru(&mut lru, pc);
-            }
-            if let Ok(stats) = self.lock_stats() {
-                stats.evictions.fetch_add(1, Ordering::Relaxed);
-                stats.removals.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    /// 插入到L1缓存
-    fn insert_to_l1(&mut self, pc: GuestAddr, mut entry: OptimizedCacheEntry) {
-        self.ensure_l1_space(entry.size);
-        entry.cache_level = 1;
-        entry
-            .last_access_ns
-            .store(Self::current_time_ns(), Ordering::Relaxed);
-        if let Ok(mut cache) = self.lock_l1_cache() {
-            cache.insert(pc, entry.clone());
-        }
-        if let Ok(mut lru) = self.lock_l1_lru() {
-            Self::update_lru(&mut lru, pc);
-        }
-        self.l1_current_size
-            .fetch_add(entry.size, Ordering::Relaxed);
-        if let Ok(stats) = self.lock_stats() {
-            stats.inserts.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    /// 插入到L2缓存
-    fn insert_to_l2(&mut self, pc: GuestAddr, mut entry: OptimizedCacheEntry) {
-        self.ensure_l2_space(entry.size);
-        entry.cache_level = 2;
-        entry
-            .last_access_ns
-            .store(Self::current_time_ns(), Ordering::Relaxed);
-        if let Ok(mut cache) = self.lock_l2_cache() {
-            cache.insert(pc, entry.clone());
-        }
-        if let Ok(mut lru) = self.lock_l2_lru() {
-            Self::update_lru(&mut lru, pc);
-        }
-        self.l2_current_size
-            .fetch_add(entry.size, Ordering::Relaxed);
-        if let Ok(stats) = self.lock_stats() {
-            stats.inserts.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    /// 插入到L3缓存
-    fn insert_to_l3(&mut self, pc: GuestAddr, mut entry: OptimizedCacheEntry) {
-        let size = entry.size;
-        self.ensure_l3_space(size);
-        entry.cache_level = 3;
-        entry
-            .last_access_ns
-            .store(Self::current_time_ns(), Ordering::Relaxed);
-        if let Ok(mut cache) = self.lock_l3_cache() {
-            cache.insert(pc, entry);
-        }
-        if let Ok(mut lru) = self.lock_l3_lru() {
-            Self::update_lru(&mut lru, pc);
-        }
-        self.l3_current_size.fetch_add(size, Ordering::Relaxed);
-        if let Ok(stats) = self.lock_stats() {
-            stats.inserts.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    /// 检查是否应该提升到热点缓存
-    fn should_promote_to_hotspot(&self, entry: &OptimizedCacheEntry) -> bool {
-        entry.access_count.load(Ordering::Relaxed) >= self.config.hotspot_threshold as u64
-    }
-
-    #[allow(dead_code)]
-    /// 提升热点代码到L1缓存
-    fn promote_to_hotspot(&mut self, pc: GuestAddr) {
-        let entry = match self.lock_l2_cache() {
-            Ok(mut cache) => cache.remove(&pc),
-            Err(_) => None,
-        };
-        if let Some(entry) = entry {
-            self.l2_current_size
-                .fetch_sub(entry.size, Ordering::Relaxed);
-            if let Ok(mut lru) = self.lock_l2_lru() {
-                Self::update_lru(&mut lru, pc);
-            }
-            self.insert_to_l1(pc, entry);
-            if let Ok(stats) = self.lock_stats() {
-                stats.hotspot_promotions.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    /// 预取相邻代码块
-    #[allow(dead_code)]
-    /// 预取相邻代码块
-    fn prefetch_neighbors(&mut self, pc: GuestAddr) {
-        let prefetch_entries: Vec<(GuestAddr, OptimizedCacheEntry)> = {
-            match self.lock_l3_cache() {
-                Ok(l3_cache) => {
-                    let mut entries = Vec::new();
-                    for offset in 1..self.config.prefetch_window {
-                        let neighbor_pc = pc + (offset * self.config.cache_line_size) as u64;
-                        if let Some(entry) = l3_cache.get(&neighbor_pc).cloned()
-                            && !entry.prefetch_mark
-                        {
-                            entries.push((neighbor_pc, entry));
-                        }
-                    }
-                    entries
-                }
-                Err(_) => Vec::new(), // If lock is poisoned, skip prefetching
-            }
-        };
-
-        for (neighbor_pc, entry) in prefetch_entries {
-            self.insert_to_l2(neighbor_pc, entry);
-            if let Ok(stats) = self.lock_stats() {
-                stats.prefetch_hits.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-}
-
-#[allow(dead_code)]
-impl CodeCache for OptimizedCodeCache {
-    fn insert(&mut self, pc: GuestAddr, code: Vec<u8>) {
-        let entry = OptimizedCacheEntry {
-            size: code.len(),
-            code,
-            access_count: AtomicU64::new(1),
-            last_access_ns: AtomicU64::new(Self::current_time_ns()),
-            cache_level: 3,
-            prefetch_mark: false,
-        };
-        self.insert_to_l3(pc, entry);
-    }
-
-    fn get(&self, pc: GuestAddr) -> Option<Vec<u8>> {
-        let current_time = Self::current_time_ns();
-
-        if let Ok(mut l1_cache) = self.l1_cache.lock()
-            && let Some(entry) = l1_cache.get_mut(&pc)
-        {
-            entry.access_count.fetch_add(1, Ordering::Relaxed);
-            entry.last_access_ns.store(current_time, Ordering::Relaxed);
-            if let Ok(mut l1_lru) = self.l1_lru.lock() {
-                Self::update_lru(&mut l1_lru, pc);
-            }
-            if let Ok(stats) = self.stats.lock() {
-                stats.l1_hits.fetch_add(1, Ordering::Relaxed);
-            }
-            return Some(entry.code.clone());
-        }
-
-        if let Ok(mut l2_cache) = self.l2_cache.lock()
-            && let Some(entry) = l2_cache.get_mut(&pc)
-        {
-            entry.access_count.fetch_add(1, Ordering::Relaxed);
-            entry.last_access_ns.store(current_time, Ordering::Relaxed);
-            if let Ok(mut l2_lru) = self.l2_lru.lock() {
-                Self::update_lru(&mut l2_lru, pc);
-            }
-            if let Ok(stats) = self.stats.lock() {
-                stats.l2_hits.fetch_add(1, Ordering::Relaxed);
-            }
-            if self.should_promote_to_hotspot(entry) {
-                // 注意：由于get方法是不可变引用，无法直接调用promote_to_hotspot
-                // 这需要重新设计API或使用内部可变性
-                // 暂时保留标记，实际提升逻辑需要在其他地方实现
-            }
-            return Some(entry.code.clone());
-        }
-
-        if let Ok(mut l3_cache) = self.l3_cache.lock()
-            && let Some(entry) = l3_cache.get_mut(&pc)
-        {
-            entry.access_count.fetch_add(1, Ordering::Relaxed);
-            entry.last_access_ns.store(current_time, Ordering::Relaxed);
-            if let Ok(mut l3_lru) = self.l3_lru.lock() {
-                Self::update_lru(&mut l3_lru, pc);
-            }
-            if let Ok(stats) = self.stats.lock() {
-                stats.l3_hits.fetch_add(1, Ordering::Relaxed);
-            }
-            // 注意：由于get方法是不可变引用，无法直接调用insert_to_l2
-            // 这需要重新设计API或使用内部可变性
-            // 暂时返回entry.code，实际提升逻辑需要在其他地方实现
-            return Some(entry.code.clone());
-        }
-
-        if let Ok(stats) = self.stats.lock() {
-            stats.total_misses.fetch_add(1, Ordering::Relaxed);
-        }
-        None
-    }
-
-    fn contains(&self, pc: GuestAddr) -> bool {
-        let l1_has = self
-            .lock_l1_cache()
-            .ok()
-            .is_some_and(|cache| cache.contains_key(&pc));
-        let l2_has = self
-            .lock_l2_cache()
-            .ok()
-            .is_some_and(|cache| cache.contains_key(&pc));
-        let l3_has = self
-            .lock_l3_cache()
-            .ok()
-            .is_some_and(|cache| cache.contains_key(&pc));
-        l1_has || l2_has || l3_has
-    }
-
-    fn remove(&mut self, pc: GuestAddr) -> Option<Vec<u8>> {
-        if let Ok(mut l1_cache) = self.lock_l1_cache()
-            && let Some(entry) = l1_cache.remove(&pc)
-        {
-            self.l1_current_size
-                .fetch_sub(entry.size, Ordering::Relaxed);
-            if let Ok(mut l1_lru) = self.lock_l1_lru() {
-                l1_lru.retain(|&x| x != pc);
-            }
-            return Some(entry.code);
-        }
-
-        if let Ok(mut l2_cache) = self.lock_l2_cache()
-            && let Some(entry) = l2_cache.remove(&pc)
-        {
-            self.l2_current_size
-                .fetch_sub(entry.size, Ordering::Relaxed);
-            if let Ok(mut l2_lru) = self.lock_l2_lru() {
-                l2_lru.retain(|&x| x != pc);
-            }
-            return Some(entry.code);
-        }
-
-        if let Ok(mut l3_cache) = self.lock_l3_cache()
-            && let Some(entry) = l3_cache.remove(&pc)
-        {
-            self.l3_current_size
-                .fetch_sub(entry.size, Ordering::Relaxed);
-            if let Ok(mut l3_lru) = self.lock_l3_lru() {
-                l3_lru.retain(|&x| x != pc);
-            }
-            return Some(entry.code);
-        }
-        None
-    }
-
-    fn clear(&mut self) {
-        if let Ok(mut l1_cache) = self.lock_l1_cache() {
-            l1_cache.clear();
-        }
-        if let Ok(mut l2_cache) = self.lock_l2_cache() {
-            l2_cache.clear();
-        }
-        if let Ok(mut l3_cache) = self.lock_l3_cache() {
-            l3_cache.clear();
-        }
-        if let Ok(mut l1_lru) = self.lock_l1_lru() {
-            l1_lru.clear();
-        }
-        if let Ok(mut l2_lru) = self.lock_l2_lru() {
-            l2_lru.clear();
-        }
-        if let Ok(mut l3_lru) = self.lock_l3_lru() {
-            l3_lru.clear();
-        }
-        self.l1_current_size.store(0, Ordering::Relaxed);
-        self.l2_current_size.store(0, Ordering::Relaxed);
-        self.l3_current_size.store(0, Ordering::Relaxed);
-    }
-
-    fn stats(&self) -> CacheStats {
-        let (l1_hits, l2_hits, l3_hits, total_misses, inserts, removals) = match self.lock_stats() {
-            Ok(stats) => (
-                stats.l1_hits.load(Ordering::Relaxed),
-                stats.l2_hits.load(Ordering::Relaxed),
-                stats.l3_hits.load(Ordering::Relaxed),
-                stats.total_misses.load(Ordering::Relaxed),
-                stats.inserts.load(Ordering::Relaxed),
-                stats.removals.load(Ordering::Relaxed),
-            ),
-            Err(_) => (0, 0, 0, 0, 0, 0), // Return zeros if lock is poisoned
-        };
-        let total_hits = l1_hits + l2_hits + l3_hits;
-
-        let l1_len = self.lock_l1_cache().ok().map_or(0, |cache| cache.len());
-        let l2_len = self.lock_l2_cache().ok().map_or(0, |cache| cache.len());
-        let l3_len = self.lock_l3_cache().ok().map_or(0, |cache| cache.len());
-
-        CacheStats {
-            hits: total_hits,
-            misses: total_misses,
-            inserts,
-            removals,
-            clears: 0,
-            max_size: self.config.l3_size,
-            current_size: self.l3_current_size.load(Ordering::Relaxed)
-                + self.l2_current_size.load(Ordering::Relaxed)
-                + self.l1_current_size.load(Ordering::Relaxed),
-            entry_count: l1_len + l2_len + l3_len,
-        }
-    }
-
-    fn set_size_limit(&mut self, limit: usize) {
-        self.config.l3_size = limit;
-        loop {
-            let oldest_pc = {
-                match self.lock_l3_lru() {
-                    Ok(l3_lru) => {
-                        if l3_lru.is_empty() {
-                            break;
-                        }
-                        l3_lru.front().copied()
-                    }
-                    Err(_) => break, // If lock is poisoned, stop the loop
-                }
-            };
-
-            if self.current_size() <= limit {
-                break;
-            }
-
-            if let Some(pc) = oldest_pc {
-                self.evict_from_l3(pc);
-            } else {
-                break;
-            }
-        }
-    }
-
-    fn size_limit(&self) -> usize {
-        self.config.l3_size
-    }
-
-    fn current_size(&self) -> usize {
-        self.l1_current_size.load(Ordering::Relaxed)
-            + self.l2_current_size.load(Ordering::Relaxed)
-            + self.l3_current_size.load(Ordering::Relaxed)
-    }
-
-    fn entry_count(&self) -> usize {
-        let l1_len = self.lock_l1_cache().ok().map_or(0, |cache| cache.len());
-        let l2_len = self.lock_l2_cache().ok().map_or(0, |cache| cache.len());
-        let l3_len = self.lock_l3_cache().ok().map_or(0, |cache| cache.len());
-        l1_len + l2_len + l3_len
-    }
-
-    fn tiered_stats(&self) -> Option<TieredCacheStats> {
-        let stats = self.stats.lock().ok()?;
-        Some(TieredCacheStats {
-            base_stats: self.stats(),
-            l1_hits: stats.l1_hits.load(Ordering::Relaxed),
-            l2_hits: stats.l2_hits.load(Ordering::Relaxed),
-            l3_hits: stats.l3_hits.load(Ordering::Relaxed),
-            l1_to_l2_promotions: 0,
-            l2_to_l1_promotions: stats.hotspot_promotions.load(Ordering::Relaxed),
-            l3_to_l2_promotions: 0,
-            l1_evictions: 0,
-            l2_evictions: 0,
-            l3_evictions: stats.evictions.load(Ordering::Relaxed),
-        })
+    /// 获取统计信息
+    pub fn stats(&self) -> &TieredCacheStats {
+        &self.stats
     }
 }
 
@@ -1196,207 +119,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lru_cache_creation() {
-        let cache = LRUCache::new(1024);
-        let stats = cache.stats();
-        assert_eq!(stats.max_size, 1024);
-        assert_eq!(stats.entry_count, 0);
+    fn test_cache_basic() {
+        let mut cache = CodeCache::new(10);
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
     }
 
     #[test]
-    fn test_lru_cache_insert_and_get() {
-        let mut cache = LRUCache::new(1024);
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code.clone());
-
-        let result = cache.get(GuestAddr(0x1000));
-        assert!(result.is_some());
-        assert_eq!(
-            result.expect("LRU cache should return the inserted code"),
-            code
-        );
+    fn test_cache_insert() {
+        let mut cache = CodeCache::new(10);
+        let code = Arc::new(CompiledCode {
+            code: vec![1, 2, 3],
+            size: 3,
+            exec_addr: 0,
+        });
+        cache.insert(123, code);
+        assert_eq!(cache.len(), 1);
+        assert!(cache.lookup(123).is_some());
     }
 
     #[test]
-    fn test_lru_cache_miss() {
-        let cache = LRUCache::new(1024);
-        let result = cache.get(GuestAddr(0x1000));
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_lru_cache_stats() {
-        let mut cache = LRUCache::new(1024);
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code.clone());
-
-        let stats = cache.stats();
-        assert_eq!(stats.inserts, 1);
-        assert_eq!(stats.entry_count, 1);
-        assert_eq!(stats.current_size, 3);
-    }
-
-    #[test]
-    fn test_simple_hash_cache_creation() {
-        let cache = SimpleHashCache::new(1024);
-        let stats = cache.stats();
-        assert_eq!(stats.max_size, 1024);
-        assert_eq!(stats.entry_count, 0);
-    }
-
-    #[test]
-    fn test_simple_hash_cache_insert_and_get() {
-        let mut cache = SimpleHashCache::new(1024);
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code.clone());
-
-        let result = cache.get(GuestAddr(0x1000));
-        assert!(result.is_some());
-        assert_eq!(
-            result.expect("SimpleHash cache should return the inserted code"),
-            code
-        );
-    }
-
-    #[test]
-    fn test_optimized_cache_creation() {
-        let cache = OptimizedCodeCache::new(OptimizedCacheConfig::default());
-        let stats = cache.stats();
-        assert_eq!(stats.hits, 0);
-        assert_eq!(stats.misses, 0);
-    }
-
-    #[test]
-    fn test_optimized_cache_config_default() {
-        let config = OptimizedCacheConfig::default();
-        assert_eq!(config.l1_size, 1024 * 1024);
-        assert_eq!(config.l2_size, 8 * 1024 * 1024);
-        assert_eq!(config.l3_size, 64 * 1024 * 1024);
-        assert_eq!(config.hotspot_threshold, 100);
-    }
-
-    #[test]
-    fn test_optimized_cache_insert_and_get() {
-        let mut cache = OptimizedCodeCache::new(OptimizedCacheConfig::default());
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code.clone());
-
-        let result = cache.get(GuestAddr(0x1000));
-        assert!(result.is_some());
-        assert_eq!(
-            result.expect("Optimized cache should return the inserted code"),
-            code
-        );
-    }
-
-    #[test]
-    fn test_lru_cache_clear() {
-        let mut cache = LRUCache::new(1024);
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code);
-        cache.clear();
-
-        let stats = cache.stats();
-        assert_eq!(stats.entry_count, 0);
-        assert_eq!(stats.current_size, 0);
-    }
-
-    #[test]
-    fn test_lru_cache_set_size_limit() {
-        let mut cache = LRUCache::new(1024);
-        cache.set_size_limit(512);
-        assert_eq!(cache.size_limit(), 512);
-    }
-
-    #[test]
-    fn test_lru_cache_remove() {
-        let mut cache = LRUCache::new(1024);
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code.clone());
-
-        let result = cache.remove(GuestAddr(0x1000));
-        assert!(result.is_some());
-        assert_eq!(
-            result.expect("LRU cache remove should return the removed code"),
-            code
-        );
-
-        let result2 = cache.get(GuestAddr(0x1000));
-        assert!(result2.is_none());
-    }
-
-    #[test]
-    fn test_simple_hash_cache_remove() {
-        let mut cache = SimpleHashCache::new(1024);
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code.clone());
-
-        let result = cache.remove(GuestAddr(0x1000));
-        assert!(result.is_some());
-        assert_eq!(
-            result.expect("SimpleHash cache remove should return the removed code"),
-            code
-        );
-    }
-
-    #[test]
-    fn test_optimized_cache_entry_count() {
-        let cache = OptimizedCodeCache::new(OptimizedCacheConfig::default());
-        assert_eq!(cache.entry_count(), 0);
-    }
-
-    #[test]
-    fn test_optimized_cache_clear() {
-        let mut cache = OptimizedCodeCache::new(OptimizedCacheConfig::default());
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code);
-        cache.clear();
-
-        let stats = cache.stats();
-        assert_eq!(stats.entry_count, 0);
-        assert_eq!(stats.current_size, 0);
-    }
-
-    #[test]
-    fn test_optimized_cache_size_limit() {
-        let cache = OptimizedCodeCache::new(OptimizedCacheConfig::default());
-        assert_eq!(cache.size_limit(), 64 * 1024 * 1024);
-    }
-
-    #[test]
-    fn test_lru_cache_current_size() {
-        let mut cache = LRUCache::new(1024);
-        assert_eq!(cache.current_size(), 0);
-
-        let code = vec![0x90, 0x90, 0x90];
-        cache.insert(GuestAddr(0x1000), code);
-        assert_eq!(cache.current_size(), 3);
-    }
-
-    #[test]
-    fn test_optimized_cache_hit_rate() {
-        let cache = OptimizedCodeCache::new(OptimizedCacheConfig::default());
-        let stats = cache.stats();
-        assert_eq!(stats.hit_rate(), 0.0);
-    }
-
-    #[test]
-    fn test_cache_stats_hit_rate_calculation() {
-        let mut stats = CacheStats::default();
-        stats.hits = 80;
-        stats.misses = 20;
-        assert_eq!(stats.hit_rate(), 0.8);
-    }
-
-    #[test]
-    fn test_tiered_cache_stats() {
-        let cache = OptimizedCodeCache::new(OptimizedCacheConfig::default());
-        let tiered_stats = cache.tiered_stats();
-        assert!(tiered_stats.is_some());
-
-        let stats = tiered_stats.expect("Optimized cache should return tiered stats");
-        assert_eq!(stats.l1_hits, 0);
-        assert_eq!(stats.l2_hits, 0);
-        assert_eq!(stats.l3_hits, 0);
+    fn test_cache_stats() {
+        let stats = CacheStats {
+            hits: 80,
+            misses: 20,
+            inserts: 100,
+            removals: 0,
+        };
+        assert!((stats.hit_rate() - 0.8).abs() < 0.01);
     }
 }

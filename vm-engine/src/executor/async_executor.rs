@@ -46,6 +46,7 @@ pub struct AsyncExecutionContext {
 impl AsyncExecutionContext {
     /// 创建新的执行上下文
     pub fn new(executor_type: ExecutorType) -> Self {
+        println!("[ASYNC-EXEC] Creating context: {:?}", executor_type);
         Self {
             executor_type,
             block_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -60,22 +61,28 @@ impl AsyncExecutionContext {
 
     /// 缓存编译的代码块
     pub fn cache_block(&self, block_id: u64, code: Vec<u8>) {
+        println!("[ASYNC-EXEC] Caching block: {}, size: {}", block_id, code.len());
         let mut cache = self.block_cache.write();
         cache.insert(block_id, code);
 
         let mut stats = self.stats.write();
         stats.cached_blocks = cache.len() as u64;
         stats.compilation_count += 1;
+        println!("[ASYNC-EXEC] Cache size: {}, compilations: {}", cache.len(), stats.compilation_count);
     }
 
     /// 获取缓存的代码块
     pub fn get_cached_block(&self, block_id: u64) -> Option<Vec<u8>> {
+        println!("[ASYNC-EXEC] Getting cached block: {}", block_id);
         let cache = self.block_cache.read();
-        cache.get(&block_id).cloned()
+        let result = cache.get(&block_id).cloned();
+        println!("[ASYNC-EXEC] Block {} {} in cache", block_id, if result.is_some() { "found" } else { "not found" });
+        result
     }
 
     /// 记录一次执行
     pub fn record_execution(&self, time_us: u64) {
+        println!("[ASYNC-EXEC] Recording execution: {}us", time_us);
         let mut stats = self.stats.write();
         stats.total_executions += 1;
 
@@ -86,20 +93,33 @@ impl AsyncExecutionContext {
             stats.avg_time_us = (stats.avg_time_us * (stats.total_executions - 1) + time_us)
                 / stats.total_executions;
         }
+        println!("[ASYNC-EXEC] Total executions: {}, avg time: {}us", stats.total_executions, stats.avg_time_us);
     }
 
     /// 获取执行统计
     pub fn get_stats(&self) -> ExecutionStats {
+        println!("[ASYNC-EXEC] Getting stats");
         self.stats.read().clone()
     }
 
     /// 清空缓存
     pub fn flush_cache(&self) {
+        println!("[ASYNC-EXEC] Flushing cache");
         let mut cache = self.block_cache.write();
+        let old_size = cache.len();
         cache.clear();
 
         let mut stats = self.stats.write();
         stats.cached_blocks = 0;
+        println!("[ASYNC-EXEC] Cache flushed, removed {} entries", old_size);
+    }
+}
+
+impl Drop for AsyncExecutionContext {
+    fn drop(&mut self) {
+        println!("[ASYNC-EXEC] Dropping context: {:?}", self.executor_type);
+        println!("[ASYNC-EXEC] Final cache size: {}", self.block_cache.read().len());
+        println!("[ASYNC-EXEC] Final stats: executions={}", self.stats.read().total_executions);
     }
 }
 
@@ -118,22 +138,25 @@ impl JitExecutor {
 
     /// 执行一个基本块
     pub fn execute_block(&mut self, block_id: u64) -> ExecutionResult {
-        if let Some(code) = self.context.get_cached_block(block_id)
-            && let Some(mut exec_mem) =
-                crate::jit::executable_memory::ExecutableMemory::new(code.len())
-        {
-            let slice = exec_mem.as_mut_slice();
-            slice.copy_from_slice(&code);
+        if let Some(code) = self.context.get_cached_block(block_id) {
+            // 只有在缓存代码非空时才使用
+            if !code.is_empty() {
+                let mut exec_mem = crate::jit::executable_memory::ExecutableMemory::new(code.len());
+                let slice = exec_mem.as_mut_slice();
+                slice.copy_from_slice(&code);
 
-            if exec_mem.make_executable() {
-                exec_mem.invalidate_icache();
-                self.context.record_execution(10);
-                return Ok(block_id);
+                if exec_mem.make_executable() {
+                    exec_mem.invalidate_icache();
+                    self.context.record_execution(10);
+                    return Ok(block_id);
+                }
             }
         }
 
+        // 模拟编译并缓存
         std::thread::sleep(std::time::Duration::from_micros(100));
-        self.context.cache_block(block_id, vec![]);
+        // 缓存非空的编译结果（模拟真实编译代码）
+        self.context.cache_block(block_id, vec![0x90, 0xC3]); // NOP + RET
         self.context.record_execution(100);
         Ok(block_id)
     }

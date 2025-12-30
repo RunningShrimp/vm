@@ -13,8 +13,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use vm_core::{
-    ExecMode, GuestAddr, GuestArch, GuestRegs, VmConfig,
-    VmError as CoreVmError, VmLifecycleState, VmState,
+    ExecMode, GuestAddr, GuestArch, GuestRegs, VmConfig, VmError as CoreVmError, VmLifecycleState,
+    VmState,
 };
 
 // ============================================================================

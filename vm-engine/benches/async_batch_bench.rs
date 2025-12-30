@@ -2,11 +2,9 @@
 //!
 //! 测试异步执行和批处理的性能特征
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use vm_engine::executor::async_executor::{
-    JitExecutor, InterpreterExecutor, HybridExecutor,
-};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+use vm_engine::executor::async_executor::{HybridExecutor, InterpreterExecutor, JitExecutor};
 
 /// 批量执行基准测试
 fn bench_batch_execution(c: &mut Criterion) {
@@ -128,9 +126,7 @@ fn bench_cache_effects(c: &mut Criterion) {
                     let _ = executor.execute_block(block_id);
                 }
 
-                let block_ids: Vec<u64> = (0..batch_size)
-                    .map(|i| i % unique_blocks)
-                    .collect();
+                let block_ids: Vec<u64> = (0..batch_size).map(|i| i % unique_blocks).collect();
 
                 b.iter(|| {
                     for &block_id in &block_ids {

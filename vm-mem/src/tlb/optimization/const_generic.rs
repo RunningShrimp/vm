@@ -38,7 +38,6 @@
 //! | 查找性能 | O(1)哈希 | O(1)数组索引 |
 //! | 代码大小 | 重复配置 | 类型复用 |
 
-
 use crate::mmu::{PageTableFlags, PageWalkResult};
 //
 // PageTableFlags 辅助函数
@@ -49,9 +48,9 @@ fn flags_to_u64(f: &PageTableFlags) -> u64 {
 fn u64_to_flags(u: u64) -> PageTableFlags {
     PageTableFlags::from_x86_64_entry(u)
 }
-use vm_core::GuestAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use vm_core::GuestAddr;
 
 /// TLB条目（优化版）
 #[derive(Debug, Clone, Copy, Default)]
@@ -191,13 +190,18 @@ pub struct TlbLevel<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8 
     stats: Arc<ConstGenericTlbStats>,
 }
 
-impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> TlbLevel<CAPACITY, ASSOC, POLICY> {
+impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8>
+    TlbLevel<CAPACITY, ASSOC, POLICY>
+{
     /// 创建新的TLB级别
     pub fn new() -> Self {
         // 验证const参数
         assert!(CAPACITY > 0, "TLB capacity must be greater than 0");
         assert!(ASSOC > 0, "TLB associativity must be greater than 0");
-        assert!(CAPACITY.is_power_of_two(), "TLB capacity must be power of 2");
+        assert!(
+            CAPACITY.is_power_of_two(),
+            "TLB capacity must be power of 2"
+        );
 
         // 初始化PLRU树（如果使用PLRU策略）
         let plru_tree = if POLICY == 2 {
@@ -390,7 +394,9 @@ pub struct TlbLevelMut<const CAPACITY: usize, const ASSOC: usize, const POLICY: 
     inner: TlbLevel<CAPACITY, ASSOC, POLICY>,
 }
 
-impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> TlbLevelMut<CAPACITY, ASSOC, POLICY> {
+impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8>
+    TlbLevelMut<CAPACITY, ASSOC, POLICY>
+{
     /// 创建新的可变TLB
     pub fn new() -> Self {
         Self {
@@ -518,12 +524,10 @@ pub type SmallTlb = TlbLevelMut<16, 2, 1>;
 pub type LargeTlb = TlbLevelMut<1024, 16, 1>;
 
 /// 使用随机策略的TLB
-pub type RandomTlb<const CAPACITY: usize, const ASSOC: usize> =
-    TlbLevelMut<CAPACITY, ASSOC, 0>;
+pub type RandomTlb<const CAPACITY: usize, const ASSOC: usize> = TlbLevelMut<CAPACITY, ASSOC, 0>;
 
 /// 使用PLRU策略的TLB
-pub type PlruTlb<const CAPACITY: usize, const ASSOC: usize> =
-    TlbLevelMut<CAPACITY, ASSOC, 2>;
+pub type PlruTlb<const CAPACITY: usize, const ASSOC: usize> = TlbLevelMut<CAPACITY, ASSOC, 2>;
 
 // ============== 多级TLB ==============
 
@@ -651,7 +655,7 @@ pub fn compare_stats(
 mod tests {
     use super::*;
     use crate::mmu::PageTableFlags;
-use vm_core::GuestAddr;
+    use vm_core::GuestAddr;
 
     #[test]
     fn test_const_generic_tlb_basic() {
@@ -791,8 +795,8 @@ use vm_core::GuestAddr;
 
 use crate::tlb::core::unified::{TlbEntryResult, TlbStats, UnifiedTlb};
 use std::sync::RwLock;
-use vm_core::{AccessType, GuestPhysAddr};
 use vm_core::error::MemoryError;
+use vm_core::{AccessType, GuestPhysAddr};
 
 /// 适配器：将Const泛型TLB适配为UnifiedTlb trait
 pub struct ConstGenericTlbAdapter<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8 = 1> {
@@ -800,7 +804,9 @@ pub struct ConstGenericTlbAdapter<const CAPACITY: usize, const ASSOC: usize, con
     page_size: u64,
 }
 
-impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> ConstGenericTlbAdapter<CAPACITY, ASSOC, POLICY> {
+impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8>
+    ConstGenericTlbAdapter<CAPACITY, ASSOC, POLICY>
+{
     /// 创建新的适配器
     pub fn new() -> Self {
         Self {
@@ -810,27 +816,37 @@ impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> ConstGenericTl
     }
 
     /// 获取内部TLB引用
-    pub fn inner(&self) -> Result<std::sync::RwLockReadGuard<'_, TlbLevelMut<CAPACITY, ASSOC, POLICY>>, MemoryError> {
+    pub fn inner(
+        &self,
+    ) -> Result<std::sync::RwLockReadGuard<'_, TlbLevelMut<CAPACITY, ASSOC, POLICY>>, MemoryError>
+    {
         self.inner.read().map_err(|_| MemoryError::MmuLockFailed {
             message: "TLB lock poisoned".to_string(),
         })
     }
 
     /// 获取内部TLB可变引用
-    pub fn inner_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, TlbLevelMut<CAPACITY, ASSOC, POLICY>>, MemoryError> {
+    pub fn inner_mut(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, TlbLevelMut<CAPACITY, ASSOC, POLICY>>, MemoryError>
+    {
         self.inner.write().map_err(|_| MemoryError::MmuLockFailed {
             message: "TLB lock poisoned".to_string(),
         })
     }
 }
 
-impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> Default for ConstGenericTlbAdapter<CAPACITY, ASSOC, POLICY> {
+impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> Default
+    for ConstGenericTlbAdapter<CAPACITY, ASSOC, POLICY>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> UnifiedTlb for ConstGenericTlbAdapter<CAPACITY, ASSOC, POLICY> {
+impl<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8> UnifiedTlb
+    for ConstGenericTlbAdapter<CAPACITY, ASSOC, POLICY>
+{
     fn lookup(&self, gva: GuestAddr, _access_type: AccessType) -> Option<TlbEntryResult> {
         let vpn = gva.0 >> 12;
         let asid = 0;

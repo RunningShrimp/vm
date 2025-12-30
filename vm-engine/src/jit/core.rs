@@ -3,11 +3,11 @@
 //! 本模块定义了JIT引擎的核心架构，包括编译器、代码缓存、优化器等组件。
 //! 设计目标是提供高性能的JIT编译能力，支持多种架构和优化策略。
 
+use parking_lot::Mutex;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, atomic::AtomicBool};
-use parking_lot::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use vm_core::{ExecResult, ExecStats, ExecStatus, GuestAddr, MMU, VmError};
@@ -28,8 +28,6 @@ cfg_if::cfg_if! {
     }
 }
 
-pub use crate::jit::code_cache::CodeCache;
-pub use crate::jit::codegen::CodeGenerator;
 pub use crate::jit::compiler::JITCompiler;
 pub use crate::jit::instruction_scheduler::InstructionScheduler;
 pub use crate::jit::optimizer::IROptimizer;
@@ -217,7 +215,7 @@ pub struct JITEngine {
     /// JIT配置
     config: JITConfig,
     /// JIT编译器
-    compiler: Box<dyn JITCompiler>,
+    compiler: JITCompiler,
     /// IR优化器
     optimizer: Box<dyn IROptimizer>,
     /// SIMD优化器
@@ -225,13 +223,13 @@ pub struct JITEngine {
     /// 高级优化器
     advanced_optimizer: Option<Box<dyn IROptimizer>>,
     /// 代码缓存
-    code_cache: Arc<Mutex<dyn CodeCache>>,
+    code_cache: Arc<Mutex<crate::jit::tiered_cache::TieredCodeCache>>,
     /// 寄存器分配器
-    register_allocator: Box<dyn RegisterAllocator>,
+    register_allocator: Box<dyn crate::jit::register_allocator::RegisterAllocator>,
     /// 指令调度器
-    instruction_scheduler: Box<dyn InstructionScheduler>,
+    instruction_scheduler: Box<dyn crate::jit::instruction_scheduler::InstructionScheduler>,
     /// 代码生成器
-    code_generator: Box<dyn CodeGenerator>,
+    code_generator: crate::jit::codegen::CodeGenerator,
     /// 热点计数器
     hotspot_counter: Arc<Mutex<HashMap<GuestAddr, u32>>>,
     /// 硬件加速管理器
@@ -284,16 +282,20 @@ impl JITEngine {
         };
 
         Self {
-            compiler: Box::new(crate::jit::compiler::DefaultJITCompiler::new(config.clone())),
-            optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(config.clone())),
-            simd_optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(config.clone())),
+            compiler: crate::jit::compiler::JITCompiler::new(),
+            optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(
+                config.clone(),
+            )),
+            simd_optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(
+                config.clone(),
+            )),
             advanced_optimizer: Some(Box::new(crate::jit::optimizer::DefaultIROptimizer::new(
                 config.clone(),
             ))),
             code_cache,
             register_allocator: Box::new(crate::jit::register_allocator::LinearScanAllocator::new()),
             instruction_scheduler: Box::new(crate::jit::instruction_scheduler::ListScheduler::new()),
-            code_generator: Box::new(crate::jit::codegen::DefaultCodeGenerator::new()),
+            code_generator: crate::jit::codegen::CodeGenerator::new(),
             config,
             hotspot_counter,
             compilation_stats,
@@ -332,16 +334,20 @@ impl JITEngine {
         };
 
         Self {
-            compiler: Box::new(crate::jit::compiler::DefaultJITCompiler::new(config.clone())),
-            optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(config.clone())),
-            simd_optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(config.clone())),
+            compiler: crate::jit::compiler::JITCompiler::new(),
+            optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(
+                config.clone(),
+            )),
+            simd_optimizer: Box::new(crate::jit::optimizer::DefaultIROptimizer::new(
+                config.clone(),
+            )),
             advanced_optimizer: Some(Box::new(crate::jit::optimizer::DefaultIROptimizer::new(
                 config.clone(),
             ))),
             code_cache,
             register_allocator: Box::new(crate::jit::register_allocator::LinearScanAllocator::new()),
             instruction_scheduler: Box::new(crate::jit::instruction_scheduler::ListScheduler::new()),
-            code_generator: Box::new(crate::jit::codegen::DefaultCodeGenerator::new()),
+            code_generator: crate::jit::codegen::CodeGenerator::new(),
             config,
             hotspot_counter,
             compilation_stats,
@@ -406,7 +412,7 @@ impl JITEngine {
         log::info!("JIT compilation worker thread {} started", thread_id);
 
         // 为每个工作线程创建独立的编译器实例
-        let mut compiler = crate::jit::compiler::DefaultJITCompiler::new(config.clone());
+        let mut compiler = crate::jit::compiler::JITCompiler::new();
         let mut optimizer = crate::jit::optimizer::DefaultIROptimizer::new(config.clone());
         let mut simd_optimizer = crate::jit::optimizer::DefaultIROptimizer::new(config.clone());
         let mut register_allocator = crate::jit::register_allocator::LinearScanAllocator::new();
@@ -876,7 +882,8 @@ impl JITEngine {
         }
 
         // 使用可执行内存执行编译的代码
-        if let Some(mut exec_mem) = crate::jit::executable_memory::ExecutableMemory::new(code.len()) {
+        let mut exec_mem = crate::jit::executable_memory::ExecutableMemory::new(code.len());
+        {
             let slice = exec_mem.as_mut_slice();
             slice.copy_from_slice(code);
 
@@ -920,25 +927,6 @@ impl JITEngine {
                     stats,
                     next_pc,
                 }
-            }
-        } else {
-            let next_pc = pc + (code.len() as u64);
-
-            let stats = ExecStats {
-                executed_insns: insn_count as u64,
-                executed_ops: insn_count as u64,
-                tlb_hits: actual_tlb_hits,
-                tlb_misses: actual_tlb_misses,
-                jit_compiles: 0,
-                jit_compile_time_ns: 0,
-                exec_time_ns: execution_time_ns,
-                mem_accesses,
-            };
-
-            ExecResult {
-                status: ExecStatus::Ok,
-                stats,
-                next_pc,
             }
         }
     }

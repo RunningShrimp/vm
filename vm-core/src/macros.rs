@@ -282,7 +282,7 @@ macro_rules! select_arch {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_impl_arithmetic_ops_macro() {

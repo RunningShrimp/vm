@@ -2,13 +2,11 @@
 //!
 //! 测试RISC-V到x86的翻译性能，包括指令融合、常量传播等优化
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use vm_engine::jit::translation_optimizer::{
-    TranslationOptimizer, InstructionFusion,
-};
-use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
-use vm_core::GuestAddr;
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+use vm_core::GuestAddr;
+use vm_engine::jit::translation_optimizer::{InstructionFusion, TranslationOptimizer};
+use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 /// 创建RISC-V算术操作IR块
 fn create_arithmetic_ir_block(size: usize) -> IRBlock {
@@ -22,8 +20,18 @@ fn create_arithmetic_ir_block(size: usize) -> IRBlock {
         match i % 4 {
             0 => builder.push(IROp::Add { dst, src1, src2 }),
             1 => builder.push(IROp::Sub { dst, src1, src2 }),
-            2 => builder.push(IROp::Mul { dst, src1, src2, signed: false }),
-            _ => builder.push(IROp::Div { dst, src1, src2, signed: false }),
+            2 => builder.push(IROp::Mul {
+                dst,
+                src1,
+                src2,
+                signed: false,
+            }),
+            _ => builder.push(IROp::Div {
+                dst,
+                src1,
+                src2,
+                signed: false,
+            }),
         }
     }
 
@@ -126,13 +134,11 @@ fn bench_basic_translation(c: &mut Criterion) {
             let ir_block = create_arithmetic_ir_block(size);
 
             b.iter(|| {
-                black_box(
-                    optimizer.translate(
-                        black_box(&ir_block),
-                        GuestAddr(0x1000),
-                        GuestAddr(0x1000 + size as u64 * 4),
-                    ),
-                );
+                black_box(optimizer.translate(
+                    black_box(&ir_block),
+                    GuestAddr(0x1000),
+                    GuestAddr(0x1000 + size as u64 * 4),
+                ));
             });
         });
     }
@@ -262,9 +268,7 @@ fn bench_translation_cache(c: &mut Criterion) {
 
         b.iter(|| {
             let ir_block = create_arithmetic_ir_block(100);
-            black_box(
-                optimizer.translate(black_box(&ir_block), addr, addr + 1000),
-            );
+            black_box(optimizer.translate(black_box(&ir_block), addr, addr + 1000));
             addr += 0x1000;
         });
     });
@@ -296,13 +300,11 @@ fn bench_operation_translation(c: &mut Criterion) {
         let ir_block = create_arithmetic_ir_block(1000);
 
         b.iter(|| {
-            black_box(
-                optimizer.translate(
-                    black_box(&ir_block),
-                    GuestAddr(0x1000),
-                    GuestAddr(0x2000),
-                ),
-            );
+            black_box(optimizer.translate(
+                black_box(&ir_block),
+                GuestAddr(0x1000),
+                GuestAddr(0x2000),
+            ));
         });
     });
 
@@ -312,13 +314,11 @@ fn bench_operation_translation(c: &mut Criterion) {
         let ir_block = create_memory_ir_block(1000);
 
         b.iter(|| {
-            black_box(
-                optimizer.translate(
-                    black_box(&ir_block),
-                    GuestAddr(0x1000),
-                    GuestAddr(0x2000),
-                ),
-            );
+            black_box(optimizer.translate(
+                black_box(&ir_block),
+                GuestAddr(0x1000),
+                GuestAddr(0x2000),
+            ));
         });
     });
 
@@ -343,13 +343,11 @@ fn bench_operation_translation(c: &mut Criterion) {
         let optimizer = TranslationOptimizer::new(1024);
 
         b.iter(|| {
-            black_box(
-                optimizer.translate(
-                    black_box(&ir_block),
-                    GuestAddr(0x1000),
-                    GuestAddr(0x2000),
-                ),
-            );
+            black_box(optimizer.translate(
+                black_box(&ir_block),
+                GuestAddr(0x1000),
+                GuestAddr(0x2000),
+            ));
         });
     });
 
@@ -368,13 +366,11 @@ fn bench_combined_optimizations(c: &mut Criterion) {
         let ir_block = create_constant_dense_ir_block(500);
 
         b.iter(|| {
-            black_box(
-                optimizer.translate(
-                    black_box(&ir_block),
-                    GuestAddr(0x1000),
-                    GuestAddr(0x2000),
-                ),
-            );
+            black_box(optimizer.translate(
+                black_box(&ir_block),
+                GuestAddr(0x1000),
+                GuestAddr(0x2000),
+            ));
         });
     });
 
@@ -386,13 +382,11 @@ fn bench_combined_optimizations(c: &mut Criterion) {
         let ir_block = create_constant_dense_ir_block(500);
 
         b.iter(|| {
-            black_box(
-                optimizer.translate(
-                    black_box(&ir_block),
-                    GuestAddr(0x1000),
-                    GuestAddr(0x2000),
-                ),
-            );
+            black_box(optimizer.translate(
+                black_box(&ir_block),
+                GuestAddr(0x1000),
+                GuestAddr(0x2000),
+            ));
         });
     });
 
@@ -404,13 +398,11 @@ fn bench_combined_optimizations(c: &mut Criterion) {
         let ir_block = create_fusible_ir_block(500);
 
         b.iter(|| {
-            black_box(
-                optimizer.translate(
-                    black_box(&ir_block),
-                    GuestAddr(0x1000),
-                    GuestAddr(0x2000),
-                ),
-            );
+            black_box(optimizer.translate(
+                black_box(&ir_block),
+                GuestAddr(0x1000),
+                GuestAddr(0x2000),
+            ));
         });
     });
 
@@ -421,13 +413,11 @@ fn bench_combined_optimizations(c: &mut Criterion) {
         let ir_block = create_constant_dense_ir_block(500);
 
         b.iter(|| {
-            black_box(
-                optimizer.translate(
-                    black_box(&ir_block),
-                    GuestAddr(0x1000),
-                    GuestAddr(0x2000),
-                ),
-            );
+            black_box(optimizer.translate(
+                black_box(&ir_block),
+                GuestAddr(0x1000),
+                GuestAddr(0x2000),
+            ));
         });
     });
 

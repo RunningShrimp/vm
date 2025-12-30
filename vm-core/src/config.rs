@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn test_config_defaults() {
         let config = TestConfig::defaults();
-        assert_eq!(config.enabled, true);
+        assert!(config.enabled);
         assert_eq!(config.threshold, 100);
         assert_eq!(config.name, "default");
     }
@@ -428,7 +428,7 @@ mod tests {
         };
 
         let merged = base.merge(&override_config).unwrap();
-        assert_eq!(merged.enabled, true); // 来自 override
+        assert!(merged.enabled); // 来自 override
         assert_eq!(merged.threshold, 200); // max(100, 200)
         assert_eq!(merged.name, "override"); // 来自 override（非空）
     }
@@ -442,7 +442,7 @@ mod tests {
         "#;
 
         let config = TestConfig::from_toml(toml).unwrap();
-        assert_eq!(config.enabled, false);
+        assert!(!config.enabled);
         assert_eq!(config.threshold, 300);
         assert_eq!(config.name, "from_toml");
     }
@@ -514,7 +514,7 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(result.enabled, true);
+        assert!(result.enabled);
         assert_eq!(result.threshold, 150);
         assert_eq!(result.name, "override");
     }

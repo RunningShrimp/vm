@@ -2,11 +2,11 @@
 //!
 //! 测试基于profiling的优化对JIT编译性能的影响
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use vm_engine::jit::pgo_integration::{JitWithPgo, OptimizationLevel, CompileResult};
-use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
-use vm_core::GuestAddr;
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+use vm_core::GuestAddr;
+use vm_engine::jit::pgo_integration::{CompileResult, JitWithPgo, OptimizationLevel};
+use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 /// 创建热路径IR块（高频执行）
 fn create_hot_path_ir_block() -> IRBlock {
@@ -305,13 +305,17 @@ fn bench_pgo_profile_collection(c: &mut Criterion) {
     // 批量记录
     for batch_size in [10, 100, 1000, 10000].iter() {
         group.throughput(Throughput::Elements(*batch_size as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(batch_size), batch_size, |b, &size| {
-            b.iter(|| {
-                for block_id in 0..size {
-                    black_box(jit.record_execution(black_box(block_id), black_box(10)));
-                }
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(batch_size),
+            batch_size,
+            |b, &size| {
+                b.iter(|| {
+                    for block_id in 0..size {
+                        black_box(jit.record_execution(black_box(block_id), black_box(10)));
+                    }
+                });
+            },
+        );
     }
 
     group.finish();
@@ -326,9 +330,9 @@ fn bench_pgo_hot_path_detection(c: &mut Criterion) {
     // 创建混合热度的路径
     for block_id in 0..100 {
         let execution_count = match block_id {
-            0..=10 => 1000,   // 热路径
-            11..=30 => 300,   // 温路径
-            _ => 10,          // 冷路径
+            0..=10 => 1000, // 热路径
+            11..=30 => 300, // 温路径
+            _ => 10,        // 冷路径
         };
 
         for _ in 0..execution_count {

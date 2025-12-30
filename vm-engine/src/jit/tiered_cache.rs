@@ -2,7 +2,7 @@
 //!
 //! 实现了多级缓存策略，根据代码访问频率和热度自动调整缓存层级。
 
-use crate::jit::code_cache::{CacheStats, CodeCache, TieredCacheStats};
+use crate::jit::code_cache::{CacheStats, TieredCacheStats};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use vm_core::GuestAddr;
@@ -425,8 +425,8 @@ impl TieredCodeCache {
     }
 }
 
-impl CodeCache for TieredCodeCache {
-    fn insert(&mut self, pc: GuestAddr, code: Vec<u8>) {
+impl TieredCodeCache {
+    pub fn insert(&mut self, pc: GuestAddr, code: Vec<u8>) {
         let entry = CacheEntry {
             size: code.len(),
             code,
@@ -496,7 +496,7 @@ impl CodeCache for TieredCodeCache {
         }
     }
 
-    fn get(&self, pc: GuestAddr) -> Option<Vec<u8>> {
+    pub fn get(&self, pc: GuestAddr) -> Option<Vec<u8>> {
         // 按L1 -> L2 -> L3的顺序查找
         let mut stats = match self.lock_stats() {
             Ok(guard) => guard,
@@ -582,7 +582,7 @@ impl CodeCache for TieredCodeCache {
         None
     }
 
-    fn contains(&self, pc: GuestAddr) -> bool {
+    pub fn contains(&self, pc: GuestAddr) -> bool {
         let l1_cache = match self.lock_l1_cache() {
             Ok(guard) => guard,
             Err(_) => return false,
@@ -606,7 +606,7 @@ impl CodeCache for TieredCodeCache {
         l3_cache.contains_key(&pc)
     }
 
-    fn remove(&mut self, pc: GuestAddr) -> Option<Vec<u8>> {
+    pub fn remove(&mut self, pc: GuestAddr) -> Option<Vec<u8>> {
         let mut stats = match self.lock_stats() {
             Ok(guard) => guard,
             Err(_) => return None,
@@ -668,7 +668,7 @@ impl CodeCache for TieredCodeCache {
         None
     }
 
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         let mut l1_cache = match self.lock_l1_cache() {
             Ok(guard) => guard,
             Err(_) => return,
@@ -723,7 +723,7 @@ impl CodeCache for TieredCodeCache {
         stats.l3_evictions = 0;
     }
 
-    fn stats(&self) -> CacheStats {
+    pub fn stats(&self) -> CacheStats {
         let tiered_stats = match self.lock_stats() {
             Ok(guard) => guard,
             Err(_) => return CacheStats::default(), // Return default stats if lock is poisoned
@@ -731,16 +731,16 @@ impl CodeCache for TieredCodeCache {
         tiered_stats.base_stats.clone()
     }
 
-    fn set_size_limit(&mut self, limit: usize) {
+    pub fn set_size_limit(&mut self, limit: usize) {
         // 更新L3大小限制（总大小）
         self.config.l3_size = limit;
     }
 
-    fn size_limit(&self) -> usize {
+    pub fn size_limit(&self) -> usize {
         self.config.l3_size
     }
 
-    fn current_size(&self) -> usize {
+    pub fn current_size(&self) -> usize {
         let sizes = match self.lock_current_sizes() {
             Ok(guard) => guard,
             Err(_) => return 0, // Return 0 if lock is poisoned
@@ -748,7 +748,7 @@ impl CodeCache for TieredCodeCache {
         sizes.l1_size + sizes.l2_size + sizes.l3_size
     }
 
-    fn entry_count(&self) -> usize {
+    pub fn entry_count(&self) -> usize {
         let l1_cache = match self.lock_l1_cache() {
             Ok(guard) => guard,
             Err(_) => return 0,
@@ -765,7 +765,7 @@ impl CodeCache for TieredCodeCache {
     }
 
     /// 获取分层缓存统计
-    fn tiered_stats(&self) -> Option<TieredCacheStats> {
+    pub fn tiered_stats(&self) -> Option<TieredCacheStats> {
         match self.lock_stats() {
             Ok(stats) => Some(stats.clone()),
             Err(_) => None, // Return None if lock is poisoned

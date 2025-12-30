@@ -8,14 +8,16 @@
 
 pub mod basic;
 pub mod concurrent;
+pub mod lockfree;
 pub mod per_cpu;
 pub mod unified;
 
 // 重新导出主要类型
 pub use basic::*;
 pub use concurrent::*;
+pub use lockfree::*;
 pub use per_cpu::*;
 
 // 从unified模块导入，但重命名TlbStats以避免冲突
-pub use unified::{MultiLevelTlb, MultiLevelTlbConfig};
 pub use unified::TlbStats as UnifiedTlbStats;
+pub use unified::{MultiLevelTlb, MultiLevelTlbConfig};

@@ -44,13 +44,10 @@ pub use core::basic::{
 };
 
 pub use core::concurrent::{
-    ConcurrentTlbConfig, ConcurrentTlbManager, ConcurrentTlbManagerAdapter,
-    ShardedTlb,
+    ConcurrentTlbConfig, ConcurrentTlbManager, ConcurrentTlbManagerAdapter, ShardedTlb,
 };
 
-pub use core::per_cpu::{
-    PerCpuTlbManager,
-};
+pub use core::per_cpu::PerCpuTlbManager;
 
 pub use core::unified::{
     AdaptiveReplacementPolicy, AtomicTlbStats, MultiLevelTlb, MultiLevelTlbConfig,
@@ -64,22 +61,14 @@ pub use management::flush::{
     PredictiveFlushStatsSnapshot, SelectiveFlushConfig,
 };
 
-pub use management::manager::{
-    StandardTlbManager,
-};
+pub use management::manager::StandardTlbManager;
 
-pub use management::sync::{
-    SyncStrategy as TlbSyncStrategy, TlbSynchronizer,
-};
+pub use management::sync::{SyncStrategy as TlbSyncStrategy, TlbSynchronizer};
 
 // 优化模块类型
-pub use optimization::predictor::{
-    MarkovPredictor,
-};
+pub use optimization::predictor::MarkovPredictor;
 
-pub use optimization::prefetch::{
-    TlbPrefetchExample, TlbPrefetchGuide,
-};
+pub use optimization::prefetch::{TlbPrefetchExample, TlbPrefetchGuide};
 
 #[cfg(feature = "optimizations")]
 pub use core::unified::multilevel_tlb_impl::SingleLevelTlb;

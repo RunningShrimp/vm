@@ -95,7 +95,7 @@ pub enum ImmediateFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RegisterField {
     #[default]
-    Rd,         // Destination register
+    Rd, // Destination register
     Rs1,        // Source register 1
     Rs2,        // Source register 2
     Rs3,        // Source register 3 (for some architectures)

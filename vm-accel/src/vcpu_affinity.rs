@@ -391,11 +391,7 @@ impl NUMAAwareAllocator {
     /// 批量分配优化
     ///
     /// 优化：一次性分配多个内存块，减少锁获取次数
-    pub fn alloc_batch_from_node(
-        &self,
-        node: usize,
-        sizes: &[u64],
-    ) -> Result<Vec<u64>, String> {
+    pub fn alloc_batch_from_node(&self, node: usize, sizes: &[u64]) -> Result<Vec<u64>, String> {
         if node >= self.total_nodes {
             return Err(format!("Invalid node ID: {}", node));
         }

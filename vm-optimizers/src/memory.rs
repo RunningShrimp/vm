@@ -6,12 +6,12 @@
 //! - NUMA-aware allocation
 //! - Batch operation support with async concurrency
 
+use futures::stream::{self, StreamExt};
 use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 use thiserror::Error;
-use futures::stream::{self, StreamExt};
 
 /// Result type for memory operations
 pub type MemoryResult = Result<(), MemoryError>;
@@ -417,10 +417,7 @@ impl ParallelPageTable {
 
     /// Concurrent batch lookup using futures
     /// Provides 200-300% performance improvement for large batches
-    pub async fn batch_lookup_concurrent(
-        &self,
-        vaddrs: &[u64],
-    ) -> Vec<Option<PageTableEntry>> {
+    pub async fn batch_lookup_concurrent(&self, vaddrs: &[u64]) -> Vec<Option<PageTableEntry>> {
         if vaddrs.len() <= 8 {
             // Fall back to sequential for small batches
             return self.batch_lookup(vaddrs);
@@ -903,10 +900,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_batch_translation() {
-        let tlb = AsyncPrefetchingTlb::with_concurrency(
-            true,
-            ConcurrencyConfig::new(4),
-        );
+        let tlb = AsyncPrefetchingTlb::with_concurrency(true, ConcurrencyConfig::new(4));
 
         let addrs: Vec<u64> = (0..100).map(|i| 0x1000 + (i * 4096)).collect();
         let result = tlb.translate_batch_concurrent(&addrs).await;
@@ -919,14 +913,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_vs_sequential_equivalence() {
-        let tlb_seq = AsyncPrefetchingTlb::with_concurrency(
-            true,
-            ConcurrencyConfig::sequential(),
-        );
-        let tlb_conc = AsyncPrefetchingTlb::with_concurrency(
-            true,
-            ConcurrencyConfig::new(8),
-        );
+        let tlb_seq = AsyncPrefetchingTlb::with_concurrency(true, ConcurrencyConfig::sequential());
+        let tlb_conc = AsyncPrefetchingTlb::with_concurrency(true, ConcurrencyConfig::new(8));
 
         let addrs: Vec<u64> = (0..50).map(|i| 0x1000 + (i * 4096)).collect();
 
@@ -965,10 +953,7 @@ mod tests {
             num_nodes: 4,
             mem_per_node: 1024 * 1024,
         };
-        let optimizer = MemoryOptimizer::with_concurrency(
-            config,
-            ConcurrencyConfig::new(8),
-        );
+        let optimizer = MemoryOptimizer::with_concurrency(config, ConcurrencyConfig::new(8));
 
         let addrs: Vec<u64> = (0..50).map(|i| 0x1000 + (i * 4096)).collect();
         let result = optimizer.batch_access_concurrent(&addrs).await;
@@ -980,10 +965,7 @@ mod tests {
 
     #[test]
     fn test_tlb_with_custom_concurrency() {
-        let tlb = AsyncPrefetchingTlb::with_concurrency(
-            false,
-            ConcurrencyConfig::new(16),
-        );
+        let tlb = AsyncPrefetchingTlb::with_concurrency(false, ConcurrencyConfig::new(16));
 
         // Should work normally
         let paddr = tlb.translate(0x1000);
