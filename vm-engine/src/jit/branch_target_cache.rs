@@ -35,10 +35,10 @@
 //! println!("Hit rate: {:.2}%", stats.hit_rate() * 100.0);
 //! ```
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use vm_core::GuestAddr;
 
 /// 分支目标缓存条目
@@ -327,7 +327,9 @@ impl BranchTargetCache {
         // 记录预测（无论是否正确）
         if let Some(_predicted) = prediction {
             // 稍后会验证预测是否正确
-            self.stats.predictions_correct.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .predictions_correct
+                .fetch_add(1, Ordering::Relaxed);
         }
 
         prediction
@@ -336,7 +338,9 @@ impl BranchTargetCache {
     /// 验证预测是否正确
     pub fn verify_prediction(&self, predicted: GuestAddr, actual: GuestAddr) {
         if predicted == actual {
-            self.stats.predictions_correct.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .predictions_correct
+                .fetch_add(1, Ordering::Relaxed);
         } else {
             self.stats.predictions_wrong.fetch_add(1, Ordering::Relaxed);
         }
@@ -355,9 +359,7 @@ impl BranchTargetCache {
             }
             ReplacementPolicy::LFU => {
                 // 找到访问次数最少的条目
-                if let Some((&addr, _)) = entries
-                    .iter()
-                    .min_by_key(|(_, entry)| entry.access_count)
+                if let Some((&addr, _)) = entries.iter().min_by_key(|(_, entry)| entry.access_count)
                 {
                     entries.remove(&addr);
                     self.stats.evictions.fetch_add(1, Ordering::Relaxed);
@@ -403,7 +405,9 @@ impl BranchTargetCache {
             misses: AtomicU64::new(self.stats.misses.load(Ordering::Relaxed)),
             inserts: AtomicU64::new(self.stats.inserts.load(Ordering::Relaxed)),
             evictions: AtomicU64::new(self.stats.evictions.load(Ordering::Relaxed)),
-            predictions_correct: AtomicU64::new(self.stats.predictions_correct.load(Ordering::Relaxed)),
+            predictions_correct: AtomicU64::new(
+                self.stats.predictions_correct.load(Ordering::Relaxed),
+            ),
             predictions_wrong: AtomicU64::new(self.stats.predictions_wrong.load(Ordering::Relaxed)),
         }
     }

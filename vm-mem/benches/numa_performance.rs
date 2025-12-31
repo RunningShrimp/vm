@@ -5,7 +5,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::alloc::Layout;
 
-use vm_mem::{NumaAllocator, NumaAllocPolicy, NumaNodeInfo};
+use vm_mem::{NumaAllocPolicy, NumaAllocator, NumaNodeInfo};
 
 // Use std::hint::black_box instead of criterion's deprecated version
 use std::hint::black_box;
@@ -14,15 +14,15 @@ fn create_test_nodes() -> Vec<NumaNodeInfo> {
     vec![
         NumaNodeInfo {
             node_id: 0,
-            total_memory: 8 * 1024 * 1024 * 1024, // 8GB
+            total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
             available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-            cpu_mask: 0xFF, // CPU 0-7
+            cpu_mask: 0xFF,                           // CPU 0-7
         },
         NumaNodeInfo {
             node_id: 1,
-            total_memory: 8 * 1024 * 1024 * 1024, // 8GB
+            total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
             available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-            cpu_mask: 0xFF00, // CPU 8-15
+            cpu_mask: 0xFF00,                         // CPU 8-15
         },
     ]
 }
@@ -41,10 +41,7 @@ fn bench_numa_allocation_policies(c: &mut Criterion) {
     .iter()
     {
         group.bench_with_input(
-            BenchmarkId::new(
-                format!("{:?}", policy),
-                nodes.len(),
-            ),
+            BenchmarkId::new(format!("{:?}", policy), nodes.len()),
             policy,
             |b, &policy| {
                 let allocator = NumaAllocator::new(nodes.clone(), policy);

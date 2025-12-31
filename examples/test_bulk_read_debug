@@ -1,0 +1,30 @@
+use vm_mem::PhysicalMemory;
+use vm_core::mmu_traits::MemoryAccess;
+
+fn main() {
+    let mem = PhysicalMemory::new(1024 * 1024 * 1024, false);
+    let addr = vm_core::GuestAddr(0x1000);
+    
+    println!("Starting bulk read test...");
+    
+    for size in [256, 1024, 4096] {
+        println!("Testing size: {}", size);
+        let mut buffer = vec![0u8; size];
+        
+        for i in 0..100000 {
+            match mem.read_bulk(addr, &mut buffer) {
+                Ok(_) => {},
+                Err(e) => {
+                    println!("Error at iteration {}, size {}: {:?}", i, size, e);
+                    return;
+                }
+            }
+            
+            if i % 10000 == 0 {
+                println!("  Completed {} iterations", i);
+            }
+        }
+    }
+    
+    println!("All tests passed!");
+}

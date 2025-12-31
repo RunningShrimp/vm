@@ -9,9 +9,9 @@ use vm_mem::UnifiedMmu;
 /// Create a test MMU with current API
 fn create_test_mmu() -> UnifiedMmu {
     UnifiedMmu::new(
-        1024 * 1024,  // size: 1MB
-        false,         // use_hugepages: false
-        vm_mem::unified_mmu::UnifiedMmuConfig::default()
+        1024 * 1024, // size: 1MB
+        false,       // use_hugepages: false
+        vm_mem::unified_mmu::UnifiedMmuConfig::default(),
     )
 }
 
@@ -65,7 +65,12 @@ fn test_bulk_operations() {
         let addr = GuestAddr(0x1000 + i * 8);
         let result = mmu.read(addr, 8);
         assert!(result.is_ok(), "Read at addr {:?} should succeed", addr);
-        assert_eq!(result.unwrap(), i as u64, "Value mismatch at addr {:?}", addr);
+        assert_eq!(
+            result.unwrap(),
+            i as u64,
+            "Value mismatch at addr {:?}",
+            addr
+        );
     }
 }
 

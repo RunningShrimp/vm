@@ -546,7 +546,10 @@ fn test_all_registers() {
     for reg in 0..32u32 {
         let block = IRBlock {
             start_pc: GuestAddr(0),
-            ops: vec![IROp::MovImm { dst: reg as RegId, imm: reg as u64 }],
+            ops: vec![IROp::MovImm {
+                dst: reg as RegId,
+                imm: reg as u64,
+            }],
             term: Terminator::Ret,
         };
 
@@ -1016,7 +1019,11 @@ fn test_dead_code_elimination() {
         IROp::MovImm { dst: 1, imm: 42 },
         IROp::MovImm { dst: 2, imm: 43 },
         IROp::MovImm { dst: 3, imm: 44 },
-        IROp::Add { dst: 4, src1: 2, src2: 3 },
+        IROp::Add {
+            dst: 4,
+            src1: 2,
+            src2: 3,
+        },
     ];
 
     let block = IRBlock {
@@ -1273,7 +1280,13 @@ fn test_boundary_conditions() {
     let test_cases = vec![
         (GuestAddr(0), vec![]),
         (GuestAddr(u64::MAX), vec![IROp::MovImm { dst: 1, imm: 0 }]),
-        (GuestAddr(1), vec![IROp::MovImm { dst: 31, imm: u64::MAX }]),
+        (
+            GuestAddr(1),
+            vec![IROp::MovImm {
+                dst: 31,
+                imm: u64::MAX,
+            }],
+        ),
     ];
 
     for (pc, ops) in test_cases {

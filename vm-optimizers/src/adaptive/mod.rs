@@ -15,7 +15,6 @@
 cfg_if::cfg_if! {
     if #[cfg(feature = "async")] {
         use tokio;
-        use num_cpus;
     }
 }
 

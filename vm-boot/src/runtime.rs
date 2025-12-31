@@ -308,7 +308,7 @@ mod tests {
         assert!(controller.is_running());
 
         controller.pause().expect("Pause command should succeed");
-        let cmd = controller
+        let _cmd = controller
             .process_commands()
             .expect("Expected pause command");
         controller.pause().expect("Pause command should succeed");

@@ -87,21 +87,24 @@ impl DefaultIROptimizer {
     /// 创建新的优化器
     pub fn new(config: crate::jit::core::JITConfig) -> Self {
         let enabled_optimizations = match config.optimization_level {
-            0 => HashSet::new(),  // 无优化
-            1 => {  // 基本优化
+            0 => HashSet::new(), // 无优化
+            1 => {
+                // 基本优化
                 let mut opts = HashSet::new();
                 opts.insert("constant_folding".to_string());
                 opts.insert("dead_code_elimination".to_string());
                 opts
             }
-            2 => {  // 标准优化
+            2 => {
+                // 标准优化
                 let mut opts = HashSet::new();
                 opts.insert("constant_folding".to_string());
                 opts.insert("dead_code_elimination".to_string());
                 opts.insert("common_subexpression_elimination".to_string());
                 opts
             }
-            _ => {  // 高级优化 (3或更高)
+            _ => {
+                // 高级优化 (3或更高)
                 let mut opts = HashSet::new();
                 opts.insert("constant_folding".to_string());
                 opts.insert("dead_code_elimination".to_string());
@@ -151,7 +154,10 @@ impl IROptimizer for DefaultIROptimizer {
             }
 
             // 3. 公共子表达式消除
-            if self.enabled_optimizations.contains("common_subexpression_elimination") {
+            if self
+                .enabled_optimizations
+                .contains("common_subexpression_elimination")
+            {
                 let (new_ops, changed) = self.common_subexpression_elimination(&ops);
                 ops = new_ops;
                 modified = modified || changed;
@@ -322,7 +328,11 @@ impl DefaultIROptimizer {
         for op in ops {
             match op {
                 // x * 2 -> x << 1 (需要添加左移操作)
-                IROp::Mul { dst: _, src1: _, src2: _ } => {
+                IROp::Mul {
+                    dst: _,
+                    src1: _,
+                    src2: _,
+                } => {
                     // 简化实现：保留原操作
                     new_ops.push(op.clone());
                 }
@@ -383,9 +393,17 @@ mod tests {
     fn test_enable_disable_optimization() {
         let mut optimizer = DefaultIROptimizer::default();
         optimizer.enable_optimization("loop_optimization").unwrap();
-        assert!(optimizer.enabled_optimizations.contains("loop_optimization"));
+        assert!(
+            optimizer
+                .enabled_optimizations
+                .contains("loop_optimization")
+        );
 
         optimizer.disable_optimization("loop_optimization").unwrap();
-        assert!(!optimizer.enabled_optimizations.contains("loop_optimization"));
+        assert!(
+            !optimizer
+                .enabled_optimizations
+                .contains("loop_optimization")
+        );
     }
 }

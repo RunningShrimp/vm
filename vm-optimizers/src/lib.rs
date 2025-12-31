@@ -2,12 +2,12 @@
 //!
 //! 提供分代GC、并发GC、写屏障、内存优化、机器学习优化等功能
 
+pub mod adaptive;
 pub mod gc;
 pub mod gc_concurrent;
-pub mod gc_write_barrier;
 pub mod gc_generational;
+pub mod gc_write_barrier;
 pub mod memory;
-pub mod adaptive;
 pub mod ml;
 pub mod pgo;
 
@@ -18,29 +18,17 @@ pub use gc::{
 };
 
 // 重新导出并发GC的公共类型
-pub use gc_concurrent::{
-    GCColor,
-    GCStats,
-    ConcurrentGC,
-};
+pub use gc_concurrent::{ConcurrentGC, GCColor, GCStats};
 
 // 重新导出写屏障的公共类型
 pub use gc_write_barrier::{
-    BarrierType,
-    SATBBarrier,
-    CardMarkingBarrier,
-    WriteBarrier,
-    BarrierStats,
+    BarrierStats, BarrierType, CardMarkingBarrier, SATBBarrier, WriteBarrier,
 };
 
 // 重新导出分代GC的公共类型
 pub use gc_generational::{
-    Generation,
-    YoungGCStrategy,
-    GenerationalGC,
-    GenerationalGCStats,
+    Generation, GenerationalGC, GenerationalGCStats, OldGenerationConfig, YoungGCStrategy,
     YoungGenerationConfig,
-    OldGenerationConfig,
 };
 
 // Re-export Memory Optimizer types

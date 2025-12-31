@@ -11,8 +11,8 @@
 //! - 统计信息
 
 use vm_optimizers::{
-    AdaptiveQuota, AllocStats, GcStats, LockFreeWriteBarrier, OptimizedGc,
-    ParallelMarker, WriteBarrierType,
+    AdaptiveQuota, AllocStats, GcStats, LockFreeWriteBarrier, OptimizedGc, ParallelMarker,
+    WriteBarrierType,
 };
 
 // ============================================================================
@@ -268,7 +268,10 @@ mod stats_tests {
 
         // 验证当前暂停时间被更新
         assert!(pause2 >= 0);
-        assert_eq!(stats2.total_pause_time_us, stats1.total_pause_time_us + pause2);
+        assert_eq!(
+            stats2.total_pause_time_us,
+            stats1.total_pause_time_us + pause2
+        );
     }
 
     /// 测试19: 零回收效率

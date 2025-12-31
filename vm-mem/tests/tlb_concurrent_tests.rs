@@ -14,8 +14,8 @@ use vm_mem::tlb::core::lockfree::{LockFreeTlb, TlbEntry};
 mod basic_concurrent_tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Barrier;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
     /// 测试1: 多线程并发TLB查找
@@ -42,7 +42,12 @@ mod basic_concurrent_tests {
                 for i in 0..1000 {
                     let vpn = (i % 100) * 4096;
                     let result = tlb_clone.lookup(vpn, 0);
-                    assert!(result.is_some(), "Thread {} failed lookup at {}", thread_id, i);
+                    assert!(
+                        result.is_some(),
+                        "Thread {} failed lookup at {}",
+                        thread_id,
+                        i
+                    );
                 }
             }));
         }
@@ -697,8 +702,8 @@ mod basic_concurrent_tests {
 mod advanced_concurrent_tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Barrier;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
     use std::time::Duration;
 

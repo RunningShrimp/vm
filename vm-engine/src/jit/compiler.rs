@@ -43,7 +43,6 @@ impl JITCompiler {
     /// 编译IR块
     pub fn compile(&mut self, block: &IRBlock) -> VmResult<CompiledIRBlock> {
         use std::collections::HashMap;
-        
 
         // 调用后端编译
         self.backend.compile_block(block)?;
@@ -93,7 +92,7 @@ impl JITCompiler {
                 let slot_index = stack_slots.len();
                 stack_slots.push(crate::jit::codegen::StackSlot {
                     index: slot_index,
-                    size: 8,  // 64位寄存器
+                    size: 8, // 64位寄存器
                     alignment: 8,
                     purpose: crate::jit::codegen::StackSlotPurpose::Spill,
                 });
@@ -111,14 +110,38 @@ impl JITCompiler {
                 let reg_allocation = match op {
                     vm_ir::IROp::Add { dst, src1, src2 } => {
                         let mut alloc = HashMap::new();
-                        alloc.insert("dst".to_string(), vreg_to_preg.get(&dst.to_string()).cloned().unwrap_or_default());
-                        alloc.insert("src1".to_string(), vreg_to_preg.get(&src1.to_string()).cloned().unwrap_or_default());
-                        alloc.insert("src2".to_string(), vreg_to_preg.get(&src2.to_string()).cloned().unwrap_or_default());
+                        alloc.insert(
+                            "dst".to_string(),
+                            vreg_to_preg
+                                .get(&dst.to_string())
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
+                        alloc.insert(
+                            "src1".to_string(),
+                            vreg_to_preg
+                                .get(&src1.to_string())
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
+                        alloc.insert(
+                            "src2".to_string(),
+                            vreg_to_preg
+                                .get(&src2.to_string())
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
                         alloc
                     }
                     vm_ir::IROp::MovImm { dst, .. } => {
                         let mut alloc = HashMap::new();
-                        alloc.insert("dst".to_string(), vreg_to_preg.get(&dst.to_string()).cloned().unwrap_or_default());
+                        alloc.insert(
+                            "dst".to_string(),
+                            vreg_to_preg
+                                .get(&dst.to_string())
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
                         alloc
                     }
                     _ => HashMap::new(),
@@ -170,7 +193,11 @@ impl JITCompiler {
     }
 
     /// 运行JIT编译并执行代码
-    pub fn run(&mut self, _mmu: &mut dyn std::any::Any, block: &vm_ir::IRBlock) -> vm_core::ExecResult {
+    pub fn run(
+        &mut self,
+        _mmu: &mut dyn std::any::Any,
+        block: &vm_ir::IRBlock,
+    ) -> vm_core::ExecResult {
         use vm_core::{ExecResult, ExecStats, ExecStatus, GuestAddr};
 
         // 编译IR块

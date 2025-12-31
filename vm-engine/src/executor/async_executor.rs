@@ -61,14 +61,22 @@ impl AsyncExecutionContext {
 
     /// 缓存编译的代码块
     pub fn cache_block(&self, block_id: u64, code: Vec<u8>) {
-        println!("[ASYNC-EXEC] Caching block: {}, size: {}", block_id, code.len());
+        println!(
+            "[ASYNC-EXEC] Caching block: {}, size: {}",
+            block_id,
+            code.len()
+        );
         let mut cache = self.block_cache.write();
         cache.insert(block_id, code);
 
         let mut stats = self.stats.write();
         stats.cached_blocks = cache.len() as u64;
         stats.compilation_count += 1;
-        println!("[ASYNC-EXEC] Cache size: {}, compilations: {}", cache.len(), stats.compilation_count);
+        println!(
+            "[ASYNC-EXEC] Cache size: {}, compilations: {}",
+            cache.len(),
+            stats.compilation_count
+        );
     }
 
     /// 获取缓存的代码块
@@ -76,7 +84,15 @@ impl AsyncExecutionContext {
         println!("[ASYNC-EXEC] Getting cached block: {}", block_id);
         let cache = self.block_cache.read();
         let result = cache.get(&block_id).cloned();
-        println!("[ASYNC-EXEC] Block {} {} in cache", block_id, if result.is_some() { "found" } else { "not found" });
+        println!(
+            "[ASYNC-EXEC] Block {} {} in cache",
+            block_id,
+            if result.is_some() {
+                "found"
+            } else {
+                "not found"
+            }
+        );
         result
     }
 
@@ -93,7 +109,10 @@ impl AsyncExecutionContext {
             stats.avg_time_us = (stats.avg_time_us * (stats.total_executions - 1) + time_us)
                 / stats.total_executions;
         }
-        println!("[ASYNC-EXEC] Total executions: {}, avg time: {}us", stats.total_executions, stats.avg_time_us);
+        println!(
+            "[ASYNC-EXEC] Total executions: {}, avg time: {}us",
+            stats.total_executions, stats.avg_time_us
+        );
     }
 
     /// 获取执行统计
@@ -118,8 +137,14 @@ impl AsyncExecutionContext {
 impl Drop for AsyncExecutionContext {
     fn drop(&mut self) {
         println!("[ASYNC-EXEC] Dropping context: {:?}", self.executor_type);
-        println!("[ASYNC-EXEC] Final cache size: {}", self.block_cache.read().len());
-        println!("[ASYNC-EXEC] Final stats: executions={}", self.stats.read().total_executions);
+        println!(
+            "[ASYNC-EXEC] Final cache size: {}",
+            self.block_cache.read().len()
+        );
+        println!(
+            "[ASYNC-EXEC] Final stats: executions={}",
+            self.stats.read().total_executions
+        );
     }
 }
 

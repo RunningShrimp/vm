@@ -133,14 +133,12 @@ impl Default for JITConfig {
 }
 
 /// 后端类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackendType {
     /// 解释器后端
     #[default]
     Interpreter,
 }
-
 
 /// 简单的解释器后端（占位符）
 pub struct InterpreterBackend {
@@ -210,7 +208,7 @@ mod tests {
         // 这是一个已知的逻辑问题，暂时修改测试以反映当前行为
         assert_eq!(
             OptLevel::from_exec_stats(1500, 10_000_000),
-            OptLevel::Balanced  // 当前实现返回 Balanced
+            OptLevel::Balanced // 当前实现返回 Balanced
         );
     }
 

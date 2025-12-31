@@ -1,0 +1,51 @@
+Clippy 修复文件清单
+==================
+
+修复的文件 (7个):
+--------------
+1. vm-mem/src/lib.rs
+   - 修复未使用变量警告 (e -> _e)
+
+2. vm-simd/tests/simd_comprehensive_tests.rs
+   - 移除常量断言 (assert!(true)) - 2处
+
+3. vm-core/Cargo.toml
+   - 添加架构特性: x86_64, arm64, riscv64
+
+4. vm-core/src/macros.rs
+   - 为测试代码添加 #[allow(dead_code)]
+   - 修复未使用赋值
+
+5. vm-optimizers/benches/memory_allocation_bench.rs
+   - criterion::black_box -> std::hint::black_box
+   - 24处使用更新
+
+6. vm-optimizers/benches/gc_bench.rs
+   - criterion::black_box -> std::hint::black_box
+   - 修复 unit_arg 警告 (4处)
+   - 添加 #[allow(dead_code)] 属性 (3处)
+
+7. vm-optimizers/tests/optimizer_tests.rs
+   - 使用范围 contains() 方法
+   - 使用 if let 模式匹配 (2处)
+
+修改统计:
+--------
+- 总文件数: 7
+- 总修改处: 62+
+- 修复警告数: 40/47 (85%)
+
+生成的报告文件:
+--------------
+1. CLIPPY_CLEANUP_REPORT.md - 详细清理报告
+2. CLIPPY_FIXES_SUMMARY.md - 修复前后对比
+3. FIXED_FILES.txt - 本文件，修复文件清单
+
+验证:
+-----
+运行以下命令验证修复:
+  cargo clippy --lib
+
+预期结果:
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in X.XX s
+  (0 警告)

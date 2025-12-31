@@ -7279,6 +7279,7 @@ dependencies = [
  "crossbeam-utils",
  "futures",
  "log",
+ "num_cpus",
  "parking_lot",
  "rand 0.8.5",
  "rayon",

@@ -15,8 +15,10 @@
 use vm_cross_arch_support::{
     Architecture, EncodingContext, Endianness, RegId,
     encoding::{MemoryFlags, MemoryOperand},
+    instruction_patterns::{
+        ArithmeticType, BranchType, InstructionCategory, LogicalType, MemoryType,
+    },
     memory_access::{AccessType, AccessWidth, Alignment, EndiannessConverter, MemoryAccessPattern},
-    instruction_patterns::{ArithmeticType, BranchType, InstructionCategory, LogicalType, MemoryType},
     register::{RegisterClass, RegisterSet},
 };
 
@@ -237,8 +239,7 @@ mod encoding_context_tests {
     /// 测试24: 上下文添加特性
     #[test]
     fn test_context_with_feature() {
-        let ctx = EncodingContext::new(Architecture::X86_64)
-            .with_feature("AVX", true);
+        let ctx = EncodingContext::new(Architecture::X86_64).with_feature("AVX", true);
         assert!(ctx.has_feature("AVX"));
     }
 
@@ -252,8 +253,7 @@ mod encoding_context_tests {
     /// 测试26: 上下文特性禁用
     #[test]
     fn test_context_disabled_feature() {
-        let ctx = EncodingContext::new(Architecture::ARM64)
-            .with_feature("SVE", false);
+        let ctx = EncodingContext::new(Architecture::ARM64).with_feature("SVE", false);
         assert!(!ctx.has_feature("SVE"));
     }
 
@@ -584,7 +584,15 @@ mod memory_access_tests {
     /// 测试57: AccessWidth枚举
     #[test]
     fn test_access_width() {
-        for width in [AccessWidth::Byte, AccessWidth::HalfWord, AccessWidth::Word, AccessWidth::DoubleWord, AccessWidth::QuadWord].iter() {
+        for width in [
+            AccessWidth::Byte,
+            AccessWidth::HalfWord,
+            AccessWidth::Word,
+            AccessWidth::DoubleWord,
+            AccessWidth::QuadWord,
+        ]
+        .iter()
+        {
             let _ = format!("{:?}", width);
         }
     }
@@ -592,7 +600,14 @@ mod memory_access_tests {
     /// 测试58: Alignment枚举
     #[test]
     fn test_alignment() {
-        for align in [Alignment::Natural, Alignment::Unaligned, Alignment::Aligned1, Alignment::Aligned8].iter() {
+        for align in [
+            Alignment::Natural,
+            Alignment::Unaligned,
+            Alignment::Aligned1,
+            Alignment::Aligned8,
+        ]
+        .iter()
+        {
             let _ = format!("{:?}", align);
         }
     }
@@ -600,7 +615,9 @@ mod memory_access_tests {
     /// 测试59: EndiannessConverter创建
     #[test]
     fn test_endianness_converter() {
-        use vm_cross_arch_support::memory_access::{Endianness as MemoryEndianness, ConversionStrategy};
+        use vm_cross_arch_support::memory_access::{
+            ConversionStrategy, Endianness as MemoryEndianness,
+        };
         let converter = EndiannessConverter::new(
             MemoryEndianness::Little,
             MemoryEndianness::Big,
@@ -620,7 +637,14 @@ mod memory_access_tests {
     /// 测试61: 多种访问宽度
     #[test]
     fn test_various_access_widths() {
-        for width in [AccessWidth::Byte, AccessWidth::HalfWord, AccessWidth::Word, AccessWidth::DoubleWord].iter() {
+        for width in [
+            AccessWidth::Byte,
+            AccessWidth::HalfWord,
+            AccessWidth::Word,
+            AccessWidth::DoubleWord,
+        ]
+        .iter()
+        {
             let _ = width;
         }
     }
@@ -628,7 +652,14 @@ mod memory_access_tests {
     /// 测试62: 多种对齐
     #[test]
     fn test_various_alignments() {
-        for align in [Alignment::Natural, Alignment::Unaligned, Alignment::Aligned4, Alignment::Aligned8].iter() {
+        for align in [
+            Alignment::Natural,
+            Alignment::Unaligned,
+            Alignment::Aligned4,
+            Alignment::Aligned8,
+        ]
+        .iter()
+        {
             let _ = align;
         }
     }

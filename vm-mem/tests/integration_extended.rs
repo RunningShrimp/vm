@@ -7,7 +7,7 @@ use vm_mem::{UnifiedMmu, UnifiedMmuConfig};
 /// 创建测试MMU
 fn create_test_mmu() -> UnifiedMmu {
     UnifiedMmu::new(
-        1024 * 1024,  // 1MB
+        1024 * 1024, // 1MB
         false,
         UnifiedMmuConfig::default(),
     )
@@ -48,10 +48,18 @@ fn test_different_data_sizes() {
 
     for &size in &sizes {
         let write_result = mmu.write(addr, 0x12345678, size);
-        assert!(write_result.is_ok(), "Write with size {} should succeed", size);
+        assert!(
+            write_result.is_ok(),
+            "Write with size {} should succeed",
+            size
+        );
 
         let read_result = mmu.read(addr, size);
-        assert!(read_result.is_ok(), "Read with size {} should succeed", size);
+        assert!(
+            read_result.is_ok(),
+            "Read with size {} should succeed",
+            size
+        );
     }
 }
 
@@ -60,9 +68,7 @@ fn test_pattern_write_read() {
     let mut mmu = create_test_mmu();
 
     // 写入特定模式
-    let patterns = [
-        0x00, 0xFF, 0xAA, 0x55, 0x5A, 0xA5
-    ];
+    let patterns = [0x00, 0xFF, 0xAA, 0x55, 0x5A, 0xA5];
 
     for (i, &pattern) in patterns.iter().enumerate() {
         let addr = GuestAddr(0x2000 + i as u64);
@@ -131,8 +137,12 @@ fn test_stats_tracking() {
     let addr = GuestAddr(0x5000);
 
     let stats_before = mmu.stats();
-    let hits_before = stats_before.tlb_hits.load(std::sync::atomic::Ordering::Relaxed);
-    let misses_before = stats_before.tlb_misses.load(std::sync::atomic::Ordering::Relaxed);
+    let hits_before = stats_before
+        .tlb_hits
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let misses_before = stats_before
+        .tlb_misses
+        .load(std::sync::atomic::Ordering::Relaxed);
 
     // 执行一些操作
     for _ in 0..10 {
@@ -141,9 +151,16 @@ fn test_stats_tracking() {
     }
 
     let stats_after = mmu.stats();
-    let _ = (hits_before, misses_before,
-             stats_after.tlb_hits.load(std::sync::atomic::Ordering::Relaxed),
-             stats_after.tlb_misses.load(std::sync::atomic::Ordering::Relaxed));
+    let _ = (
+        hits_before,
+        misses_before,
+        stats_after
+            .tlb_hits
+            .load(std::sync::atomic::Ordering::Relaxed),
+        stats_after
+            .tlb_misses
+            .load(std::sync::atomic::Ordering::Relaxed),
+    );
 
     // 统计应该有变化（具体取决于TLB实现）
 }
@@ -168,7 +185,8 @@ fn test_concurrent_sequential_mix() {
 
     // 写入
     for i in 0..5 {
-        mmu.write(GuestAddr(base.0 + i as u64 * 8), i as u64, 8).unwrap();
+        mmu.write(GuestAddr(base.0 + i as u64 * 8), i as u64, 8)
+            .unwrap();
     }
 
     // 读取并验证
@@ -180,6 +198,7 @@ fn test_concurrent_sequential_mix() {
 
     // 再次写入不同的值
     for i in 5..10 {
-        mmu.write(GuestAddr(base.0 + i as u64 * 8), i as u64, 8).unwrap();
+        mmu.write(GuestAddr(base.0 + i as u64 * 8), i as u64, 8)
+            .unwrap();
     }
 }

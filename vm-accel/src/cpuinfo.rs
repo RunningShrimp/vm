@@ -539,14 +539,8 @@ mod tests {
             }
             _ => {
                 // Other architectures should have both false
-                assert_eq!(
-                    info.features.vmx, false,
-                    "VMX should be false on non-x86 CPUs"
-                );
-                assert_eq!(
-                    info.features.svm, false,
-                    "SVM should be false on non-x86 CPUs"
-                );
+                assert!(!info.features.vmx, "VMX should be false on non-x86 CPUs");
+                assert!(!info.features.svm, "SVM should be false on non-x86 CPUs");
             }
         }
     }

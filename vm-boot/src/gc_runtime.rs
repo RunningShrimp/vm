@@ -10,7 +10,7 @@ use vm_optimizers::gc_concurrent::ConcurrentGC;
 pub use vm_optimizers::{
     gc_concurrent::{ConcurrentGC as OptimizedGc, GCColor as GcPhase, GCStats},
     gc_generational::GcResult,
-    gc_write_barrier::{WriteBarrier as LockFreeWriteBarrier, BarrierType as WriteBarrierType},
+    gc_write_barrier::{BarrierType as WriteBarrierType, WriteBarrier as LockFreeWriteBarrier},
 };
 
 /// Re-export incremental GC (placeholder)

@@ -3,7 +3,7 @@
 //! 提供基础的代码生成功能
 
 use std::collections::HashMap;
-use vm_core::{VmResult, GuestAddr};
+use vm_core::{GuestAddr, VmResult};
 use vm_ir::IROp;
 
 use crate::jit::core::{JITCompilationResult, JITCompilationStats};
@@ -150,10 +150,10 @@ impl CodeGenerator {
             original_insn_count: block.ops.len(),
             optimized_insn_count: block.ops.len(),
             machine_insn_count: insn_count,
-            compilation_time_ns: 0,  // 由上层设置
-            optimization_time_ns: 0,  // 由上层设置
-            register_allocation_time_ns: 0,  // 由上层设置
-            instruction_scheduling_time_ns: 0,  // 由上层设置
+            compilation_time_ns: 0,            // 由上层设置
+            optimization_time_ns: 0,           // 由上层设置
+            register_allocation_time_ns: 0,    // 由上层设置
+            instruction_scheduling_time_ns: 0, // 由上层设置
             code_generation_time_ns: code_gen_time.as_nanos() as u64,
         };
 
@@ -184,7 +184,12 @@ impl CodeGenerator {
             IROp::Mul { dst, src1, src2 } => {
                 code.extend_from_slice(&self.encode_arith(*dst, *src1, *src2, 0x02));
             }
-            IROp::Div { dst, src1, src2, signed: _ } => {
+            IROp::Div {
+                dst,
+                src1,
+                src2,
+                signed: _,
+            } => {
                 code.extend_from_slice(&self.encode_arith(*dst, *src1, *src2, 0x03));
             }
 
@@ -214,11 +219,27 @@ impl CodeGenerator {
             }
 
             // 内存操作
-            IROp::Load { dst, base, offset, size, .. } => {
-                code.extend_from_slice(&self.encode_memory(*dst, *base, *offset, *size, 0x30, false));
+            IROp::Load {
+                dst,
+                base,
+                offset,
+                size,
+                ..
+            } => {
+                code.extend_from_slice(
+                    &self.encode_memory(*dst, *base, *offset, *size, 0x30, false),
+                );
             }
-            IROp::Store { src, base, offset, size, .. } => {
-                code.extend_from_slice(&self.encode_memory(*src, *base, *offset, *size, 0x31, true));
+            IROp::Store {
+                src,
+                base,
+                offset,
+                size,
+                ..
+            } => {
+                code.extend_from_slice(
+                    &self.encode_memory(*src, *base, *offset, *size, 0x31, true),
+                );
             }
 
             // 立即数操作
@@ -277,7 +298,15 @@ impl CodeGenerator {
     }
 
     /// 编码内存操作
-    fn encode_memory(&self, base: u32, addr: u32, offset: i64, size: u8, opcode: u8, _is_store: bool) -> Vec<u8> {
+    fn encode_memory(
+        &self,
+        base: u32,
+        addr: u32,
+        offset: i64,
+        size: u8,
+        opcode: u8,
+        _is_store: bool,
+    ) -> Vec<u8> {
         let mut code = Vec::with_capacity(19);
         code.push(opcode);
         code.push(size);
@@ -366,8 +395,8 @@ impl Default for CodeGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_ir::IRBlock;
     use vm_core::GuestAddr;
+    use vm_ir::IRBlock;
 
     #[test]
     fn test_codegen_creation() {
@@ -454,10 +483,7 @@ mod tests {
                     scheduling_info: SchedulingInfo::default(),
                 },
                 CompiledIROp {
-                    op: IROp::MovImm {
-                        dst: 0,
-                        imm: 42,
-                    },
+                    op: IROp::MovImm { dst: 0, imm: 42 },
                     register_allocation: HashMap::new(),
                     scheduling_info: SchedulingInfo::default(),
                 },

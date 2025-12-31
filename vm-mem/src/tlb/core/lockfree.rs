@@ -8,9 +8,8 @@
 //! - 支持高并发场景
 
 use dashmap::DashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// TLB条目
 #[derive(Debug, Clone, Copy)]
@@ -155,7 +154,10 @@ impl LockFreeTlb {
     }
 
     pub fn with_shards(shard_count: usize) -> Self {
-        assert!(shard_count.is_power_of_two(), "shard_count must be power of 2");
+        assert!(
+            shard_count.is_power_of_two(),
+            "shard_count must be power of 2"
+        );
 
         let stats = Arc::new(AtomicTlbStats::new());
         let shards = (0..shard_count)

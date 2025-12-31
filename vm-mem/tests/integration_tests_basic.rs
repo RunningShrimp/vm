@@ -7,7 +7,7 @@ use vm_mem::UnifiedMmu;
 #[test]
 fn test_basic_mmu_operations() {
     let mut mmu = UnifiedMmu::new(
-        1024 * 1024,  // 1MB
+        1024 * 1024, // 1MB
         false,
         vm_mem::unified_mmu::UnifiedMmuConfig::default(),
     );
@@ -56,6 +56,8 @@ fn test_stats_access() {
 
     let stats = mmu.stats();
     // 验证可访问 - 使用load()读取AtomicU64
-    let _ = (stats.tlb_hits.load(std::sync::atomic::Ordering::Relaxed),
-             stats.tlb_misses.load(std::sync::atomic::Ordering::Relaxed));
+    let _ = (
+        stats.tlb_hits.load(std::sync::atomic::Ordering::Relaxed),
+        stats.tlb_misses.load(std::sync::atomic::Ordering::Relaxed),
+    );
 }

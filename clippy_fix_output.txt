@@ -1,0 +1,94 @@
+    Blocking waiting for file lock on build directory
+    Checking vm-core v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-core)
+   Compiling vm-desktop v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-desktop)
+   Compiling vm-codegen v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-codegen)
+    Checking vm-gpu v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-gpu)
+    Checking security-sandbox v0.1.0 (/Users/wangbiao/Desktop/project/vm/security-sandbox)
+    Checking syscall-compat v0.1.0 (/Users/wangbiao/Desktop/project/vm/syscall-compat)
+    Checking vm-simd v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-simd)
+    Checking vm-ir v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-ir)
+    Checking vm-mem v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-mem)
+    Checking vm-optimizers v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-optimizers)
+    Checking vm-platform v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-platform)
+    Checking vm-passthrough v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-passthrough)
+    Checking vm-osal v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-osal)
+    Checking vm-interface v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-interface)
+    Checking vm-cross-arch-support v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-cross-arch-support)
+warning: vm-codegen@0.1.0: Skip codegen examples (set VM_CODEGEN_GEN=1 to enable)
+    Checking vm-smmu v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-smmu)
+    Checking vm-engine v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-engine)
+    Checking vm-runtime v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-runtime)
+    Checking vm-device v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-device)
+    Checking vm-plugin v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-plugin)
+    Checking vm-monitor v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-monitor)
+    Checking vm-debug v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-debug)
+    Checking vm-accel v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-accel)
+       Fixed vm-engine/src/jit/branch_prediction.rs (1 fix)
+warning: all variants have the same postfix: `Scheduling`
+   --> vm-engine/src/jit/core.rs:105:1
+    |
+105 | / pub enum InstructionSchedulingStrategy {
+106 | |     /// 列表调度
+107 | |     ListScheduling,
+108 | |     /// 跟踪调度
+...   |
+113 | |     NoScheduling,
+114 | | }
+    | |_^
+    |
+    = help: remove the postfixes and use full paths to the variants instead of glob imports
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#enum_variant_names
+    = note: `#[warn(clippy::enum_variant_names)]` on by default
+
+warning: all variants have the same postfix: `Scheduling`
+   --> vm-engine/src/jit/instruction_scheduler.rs:933:1
+    |
+933 | / pub enum SchedulingStrategy {
+934 | |     /// 列表调度
+935 | |     ListScheduling,
+936 | |     /// 关键路径调度
+...   |
+941 | |     DynamicScheduling,
+942 | | }
+    | |_^
+    |
+    = help: remove the postfixes and use full paths to the variants instead of glob imports
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#enum_variant_names
+
+warning: name `LRU` contains a capitalized acronym
+  --> vm-engine/src/jit/branch_target_cache.rs:89:5
+   |
+89 |     LRU,
+   |     ^^^ help: consider making the acronym lowercase, except the initial letter: `Lru`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#upper_case_acronyms
+   = note: `#[warn(clippy::upper_case_acronyms)]` on by default
+
+warning: name `LFU` contains a capitalized acronym
+  --> vm-engine/src/jit/branch_target_cache.rs:91:5
+   |
+91 |     LFU,
+   |     ^^^ help: consider making the acronym lowercase, except the initial letter (notice the capitalization): `Lfu`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#upper_case_acronyms
+
+warning: name `FIFO` contains a capitalized acronym
+  --> vm-engine/src/jit/branch_target_cache.rs:93:5
+   |
+93 |     FIFO,
+   |     ^^^^ help: consider making the acronym lowercase, except the initial letter (notice the capitalization): `Fifo`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#upper_case_acronyms
+
+warning: `vm-engine` (lib) generated 5 warnings
+    Checking tiered-compiler v0.1.0 (/Users/wangbiao/Desktop/project/vm/tiered-compiler)
+    Checking perf-bench v0.1.0 (/Users/wangbiao/Desktop/project/vm/perf-bench)
+       Fixed vm-device/src/block.rs (2 fixes)
+    Checking vm-frontend v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-frontend)
+    Checking vm-boot v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-boot)
+    Checking parallel-jit v0.1.0 (/Users/wangbiao/Desktop/project/vm/parallel-jit)
+       Fixed vm-frontend/src/riscv64/mul.rs (4 fixes)
+       Fixed vm-frontend/src/riscv64/div.rs (2 fixes)
+    Checking vm-service v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-service)
+    Checking vm-cli v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 13s

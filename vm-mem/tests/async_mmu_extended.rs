@@ -10,12 +10,12 @@
 //! - 错误处理
 //! - 性能基准
 
-use vm_core::{AccessType, GuestAddr, GuestPhysAddr, VmError};
-use vm_mem::SoftMmu;
-use vm_mem::async_mmu::async_impl::{AsyncMmuWrapper, AsyncMMU};
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, VmError};
+use vm_mem::SoftMmu;
+use vm_mem::async_mmu::async_impl::{AsyncMMU, AsyncMmuWrapper};
 
 // 辅助函数：创建测试用的MMU实例
 fn create_test_mmu() -> AsyncMmuWrapper {
@@ -187,7 +187,7 @@ mod batch_operation_tests {
 
         // 在bare模式下，虚拟地址应该等于物理地址
         for (i, pa) in pas.iter().enumerate() {
-            assert_eq!(pa.0, requests[i].0 .0);
+            assert_eq!(pa.0, requests[i].0.0);
         }
     }
 
@@ -207,7 +207,7 @@ mod batch_operation_tests {
         assert_eq!(pas.len(), 100);
 
         for (i, pa) in pas.iter().enumerate() {
-            assert_eq!(pa.0, requests[i].0 .0);
+            assert_eq!(pa.0, requests[i].0.0);
         }
     }
 
@@ -243,9 +243,7 @@ mod batch_operation_tests {
         let async_mmu = create_test_mmu();
 
         let data = [0xAAu8; 256];
-        let result = async_mmu
-            .write_bulk_async(GuestAddr(0x1000), &data)
-            .await;
+        let result = async_mmu.write_bulk_async(GuestAddr(0x1000), &data).await;
 
         assert!(result.is_ok());
 
@@ -337,9 +335,7 @@ mod batch_operation_tests {
 
         // 写入1MB数据
         let data = vec![0xCCu8; 1024 * 1024];
-        let result = async_mmu
-            .write_bulk_async(GuestAddr(0x1000), &data)
-            .await;
+        let result = async_mmu.write_bulk_async(GuestAddr(0x1000), &data).await;
 
         assert!(result.is_ok());
 
@@ -374,7 +370,7 @@ mod batch_operation_tests {
         assert_eq!(pas.len(), 6);
 
         for (i, pa) in pas.iter().enumerate() {
-            assert_eq!(pa.0, requests[i].0 .0);
+            assert_eq!(pa.0, requests[i].0.0);
         }
     }
 
@@ -406,8 +402,8 @@ mod batch_operation_tests {
 #[cfg(test)]
 mod concurrent_access_tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Barrier;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use tokio::task::JoinSet;
 
     /// 测试21: 并发异步翻译
@@ -447,9 +443,7 @@ mod concurrent_access_tests {
                 barrier_clone.wait();
                 let addr = ((i + 1) * 0x1000) as u64;
                 let value = (i as u64) * 0x1111111111111111;
-                mmu_clone
-                    .write_async(GuestAddr(addr), value, 8)
-                    .await
+                mmu_clone.write_async(GuestAddr(addr), value, 8).await
             });
         }
 
@@ -511,10 +505,7 @@ mod concurrent_access_tests {
                 for j in 0..5 {
                     let addr = ((i * 5 + j + 1) * 0x1000) as u64;
                     let value = ((i * 5 + j) as u64) * 0x1111111111111111;
-                    if let Err(e) = mmu_clone
-                        .write_async(GuestAddr(addr), value, 8)
-                        .await
-                    {
+                    if let Err(e) = mmu_clone.write_async(GuestAddr(addr), value, 8).await {
                         return Err::<(), VmError>(e);
                     }
 
@@ -636,10 +627,7 @@ mod concurrent_access_tests {
                 for j in 0..50 {
                     let addr = ((i * 50 + j + 1) * 0x1000) as u64;
                     let value = (j as u64) * 0x1111111111111111;
-                    if let Err(e) = mmu_clone
-                        .write_async(GuestAddr(addr), value, 8)
-                        .await
-                    {
+                    if let Err(e) = mmu_clone.write_async(GuestAddr(addr), value, 8).await {
                         return Err::<(), VmError>(e);
                     }
                 }
@@ -738,9 +726,7 @@ mod concurrent_access_tests {
                 let value = (i as u64) * 0x0101010101010101;
 
                 // 使用try操作避免unwrap导致panic
-                let write_result = mmu_clone
-                    .write_async(GuestAddr(addr), value, size)
-                    .await;
+                let write_result = mmu_clone.write_async(GuestAddr(addr), value, size).await;
 
                 if write_result.is_err() {
                     return Err::<(), VmError>(write_result.unwrap_err());
@@ -798,7 +784,10 @@ mod error_handling_tests {
         })
         .await;
 
-        assert!(result.is_ok(), "Batch operation should complete within 5 seconds");
+        assert!(
+            result.is_ok(),
+            "Batch operation should complete within 5 seconds"
+        );
         assert!(result.unwrap().is_ok());
     }
 
@@ -868,7 +857,11 @@ mod performance_tests {
         let elapsed = start.elapsed();
 
         // 性能基准: 10000次翻译应该在合理时间内完成
-        assert!(elapsed.as_millis() < 1000, "Translation too slow: {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() < 1000,
+            "Translation too slow: {:?}",
+            elapsed
+        );
 
         println!(
             "Translation performance: {} translations in {:?} ({:.2} TPS)",
@@ -973,8 +966,14 @@ mod performance_tests {
             .unwrap();
         let read_time = start.elapsed();
 
-        println!("Write throughput: {:.2} MB/s", 10.0 / write_time.as_secs_f64());
-        println!("Read throughput: {:.2} MB/s", 10.0 / read_time.as_secs_f64());
+        println!(
+            "Write throughput: {:.2} MB/s",
+            10.0 / write_time.as_secs_f64()
+        );
+        println!(
+            "Read throughput: {:.2} MB/s",
+            10.0 / read_time.as_secs_f64()
+        );
 
         // 性能基准: 读写速度应该 > 100 MB/s
         assert!(write_time.as_secs_f64() < 0.1, "Write too slow");
@@ -1030,13 +1029,14 @@ mod performance_tests {
 
         let elapsed = start.elapsed();
 
-        println!(
-            "Mixed workload performance: completed in {:?}",
-            elapsed
-        );
+        println!("Mixed workload performance: completed in {:?}", elapsed);
 
         // 性能基准: 混合负载应该在合理时间内完成
-        assert!(elapsed.as_secs() < 5, "Mixed workload too slow: {:?}", elapsed);
+        assert!(
+            elapsed.as_secs() < 5,
+            "Mixed workload too slow: {:?}",
+            elapsed
+        );
     }
 }
 

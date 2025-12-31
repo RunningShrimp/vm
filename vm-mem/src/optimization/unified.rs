@@ -2,9 +2,9 @@
 //!
 //! 提供跨vm-mem、vm-core的统一内存管理API
 
+use crate::tlb::core::unified::UnifiedTlb;
 use std::sync::Arc;
 use vm_core::{GuestAddr, GuestPhysAddr, VmResult};
-use crate::tlb::core::unified::UnifiedTlb;
 
 /// 统一内存管理器
 pub trait UnifiedMemoryManager: Send + Sync {
@@ -199,9 +199,9 @@ impl MemoryPool {
             }
         }
 
-        Err(vm_core::VmError::Memory(vm_core::error::MemoryError::InvalidAddress(
-            vm_core::GuestAddr(addr.0),
-        )))
+        Err(vm_core::VmError::Memory(
+            vm_core::error::MemoryError::InvalidAddress(vm_core::GuestAddr(addr.0)),
+        ))
     }
 }
 
@@ -247,9 +247,9 @@ impl PhysicalMemoryManager for MemoryPool {
             }
         }
 
-        Err(vm_core::VmError::Memory(vm_core::error::MemoryError::InvalidAddress(
-            vm_core::GuestAddr(addr.0),
-        )))
+        Err(vm_core::VmError::Memory(
+            vm_core::error::MemoryError::InvalidAddress(vm_core::GuestAddr(addr.0)),
+        ))
     }
 
     fn read(&self, _addr: GuestPhysAddr, _size: u8) -> VmResult<u64> {

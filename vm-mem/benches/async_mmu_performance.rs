@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 
 use vm_core::{AccessType, GuestAddr};
 use vm_mem::SoftMmu;
-use vm_mem::async_mmu::async_impl::{AsyncMmuWrapper, AsyncMMU};
+use vm_mem::async_mmu::async_impl::{AsyncMMU, AsyncMmuWrapper};
 
 // Use std::hint::black_box instead of criterion's deprecated version
 use std::hint::black_box;
@@ -51,9 +51,8 @@ fn bench_async_batch_translate(c: &mut Criterion) {
                     .map(|i| (GuestAddr((i + 1) * 0x1000), AccessType::Read))
                     .collect();
 
-                b.to_async(&rt).iter(|| {
-                    async_mmu.translate_bulk_async(black_box(&requests))
-                });
+                b.to_async(&rt)
+                    .iter(|| async_mmu.translate_bulk_async(black_box(&requests)));
             },
         );
     }
@@ -121,9 +120,8 @@ fn bench_async_bulk_operations(c: &mut Criterion) {
             let data = vec![0xABu8; *size];
             let addr = GuestAddr(0x1000);
 
-            b.to_async(&rt).iter(|| {
-                async_mmu.write_bulk_async(addr, black_box(&data))
-            });
+            b.to_async(&rt)
+                .iter(|| async_mmu.write_bulk_async(addr, black_box(&data)));
         });
     }
 
@@ -175,9 +173,7 @@ fn bench_async_tlb_flush(c: &mut Criterion) {
     let async_mmu = create_test_mmu();
 
     c.bench_function("async_tlb_flush", |b| {
-        b.to_async(&rt).iter(|| {
-            async_mmu.flush_tlb_async()
-        });
+        b.to_async(&rt).iter(|| async_mmu.flush_tlb_async());
     });
 }
 
@@ -202,9 +198,7 @@ fn bench_async_mixed_operations(c: &mut Criterion) {
                             let addr = GuestAddr((i + 1) * 0x1000);
 
                             // 翻译
-                            let _ = async_mmu
-                                .translate_async(addr, AccessType::Read)
-                                .await?;
+                            let _ = async_mmu.translate_async(addr, AccessType::Read).await?;
 
                             // 写入
                             let _ = async_mmu.write_async(addr, i as u64, 8).await?;

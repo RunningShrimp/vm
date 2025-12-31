@@ -3,9 +3,9 @@
 //! 测试执行器、协程和调度器的各种功能和场景
 
 use vm_engine::executor::{
-    AsyncExecutionContext, Coroutine, CoroutineId, CoroutineState, ExecutionResult,
-    ExecutionStats, ExecutorType, HybridExecutor, InterpreterExecutor, JitExecutor, Scheduler,
-    VCPU, VCPUState, VCPUStats,
+    AsyncExecutionContext, Coroutine, CoroutineId, CoroutineState, ExecutionResult, ExecutionStats,
+    ExecutorType, HybridExecutor, InterpreterExecutor, JitExecutor, Scheduler, VCPU, VCPUState,
+    VCPUStats,
 };
 
 // ============================================================================
@@ -436,7 +436,10 @@ mod hybrid_executor_tests {
         let interp_stats_after = executor.get_interpreter_stats();
 
         // JIT统计不应因解释器执行而改变
-        assert_eq!(jit_stats_before.total_executions, jit_stats_after.total_executions);
+        assert_eq!(
+            jit_stats_before.total_executions,
+            jit_stats_after.total_executions
+        );
 
         // 解释器统计应该增加
         assert!(interp_stats_after.total_executions > interp_stats_before.total_executions);

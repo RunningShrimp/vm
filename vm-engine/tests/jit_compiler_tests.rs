@@ -3,8 +3,8 @@
 //! 测试JIT编译器的各种功能和场景
 
 use vm_core::GuestAddr;
-use vm_ir::{IRBlock, IROp, Terminator, RegId, MemFlags};
 use vm_engine::jit::{JITCompiler, JITConfig, OptLevel};
+use vm_ir::{IRBlock, IROp, MemFlags, RegId, Terminator};
 
 #[cfg(test)]
 mod basic_compilation_tests {
@@ -178,10 +178,7 @@ mod basic_compilation_tests {
             ops: Vec::new(),
             term: Terminator::Ret,
         };
-        block.ops.push(IROp::MovImm {
-            dst: 1,
-            imm: 42,
-        });
+        block.ops.push(IROp::MovImm { dst: 1, imm: 42 });
         block.ops.push(IROp::AddImm {
             dst: 2,
             src: 1,
@@ -290,10 +287,7 @@ mod optimization_tests {
             ops: Vec::new(),
             term: Terminator::Ret,
         };
-        block.ops.push(IROp::MovImm {
-            dst: 0,
-            imm: 10,
-        });
+        block.ops.push(IROp::MovImm { dst: 0, imm: 10 });
         block.ops.push(IROp::AddImm {
             dst: 1,
             src: 0,
@@ -351,10 +345,7 @@ mod optimization_tests {
         };
 
         // 立即数操作
-        block.ops.push(IROp::MovImm {
-            dst: 0,
-            imm: 100,
-        });
+        block.ops.push(IROp::MovImm { dst: 0, imm: 100 });
 
         // 算术操作
         block.ops.push(IROp::Add {
@@ -457,18 +448,9 @@ mod optimization_tests {
         };
 
         // 添加冗余操作（可以被优化器消除）
-        block.ops.push(IROp::MovImm {
-            dst: 0,
-            imm: 10,
-        });
-        block.ops.push(IROp::Mov {
-            dst: 1,
-            src: 0,
-        });
-        block.ops.push(IROp::Mov {
-            dst: 2,
-            src: 1,
-        });
+        block.ops.push(IROp::MovImm { dst: 0, imm: 10 });
+        block.ops.push(IROp::Mov { dst: 1, src: 0 });
+        block.ops.push(IROp::Mov { dst: 2, src: 1 });
 
         block.term = Terminator::Ret;
 
@@ -488,10 +470,7 @@ mod optimization_tests {
         };
 
         // 可折叠的常量操作
-        block.ops.push(IROp::MovImm {
-            dst: 0,
-            imm: 10,
-        });
+        block.ops.push(IROp::MovImm { dst: 0, imm: 10 });
         block.ops.push(IROp::AddImm {
             dst: 1,
             src: 0,
@@ -801,10 +780,7 @@ mod edge_case_tests {
         };
 
         block.ops.push(IROp::Nop);
-        block.ops.push(IROp::MovImm {
-            dst: 0,
-            imm: 1,
-        });
+        block.ops.push(IROp::MovImm { dst: 0, imm: 1 });
         block.ops.push(IROp::Nop);
         block.ops.push(IROp::AddImm {
             dst: 1,
@@ -959,10 +935,7 @@ mod logical_extended_tests {
             term: Terminator::Ret,
         };
 
-        block.ops.push(IROp::Not {
-            dst: 1,
-            src: 0,
-        });
+        block.ops.push(IROp::Not { dst: 1, src: 0 });
 
         block.term = Terminator::Ret;
 
@@ -1253,10 +1226,7 @@ mod special_terminator_tests {
         let block = IRBlock {
             start_pc: GuestAddr(0),
             ops: Vec::new(),
-            term: Terminator::JmpReg {
-                base: 1,
-                offset: 0,
-            },
+            term: Terminator::JmpReg { base: 1, offset: 0 },
         };
 
         let mut compiler = JITCompiler::new();
@@ -1369,10 +1339,7 @@ mod misc_tests {
             term: Terminator::Ret,
         };
 
-        block.ops.push(IROp::Mov {
-            dst: 1,
-            src: 2,
-        });
+        block.ops.push(IROp::Mov { dst: 1, src: 2 });
 
         block.term = Terminator::Ret;
 

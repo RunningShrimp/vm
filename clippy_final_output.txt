@@ -1,0 +1,499 @@
+    Checking vm-engine v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-engine)
+    Checking vm-smmu v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-smmu)
+    Checking vm-device v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-device)
+    Checking vm-runtime v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-runtime)
+    Checking vm-interface v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-interface)
+   Compiling vm-desktop v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-desktop)
+    Checking vm-cross-arch-support v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-cross-arch-support)
+    Checking vm-mem v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-mem)
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+  --> vm-mem/benches/async_mmu_performance.rs:31:11
+   |
+31 |         b.to_async(&rt).iter(|| {
+   |           ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+  --> vm-mem/benches/async_mmu_performance.rs:54:19
+   |
+54 |                 b.to_async(&rt).iter(|| {
+   |                   ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+  --> vm-mem/benches/async_mmu_performance.rs:82:15
+   |
+82 |             b.to_async(&rt).iter(|| {
+   |               ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+   --> vm-mem/benches/async_mmu_performance.rs:101:15
+    |
+101 |             b.to_async(&rt).iter(|| {
+    |               ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+error[E0614]: type `{integer}` cannot be dereferenced
+   --> vm-mem/benches/async_mmu_performance.rs:121:37
+    |
+121 |             let data = vec![0xABu8; *size];
+    |                                     ^^^^^ can't be dereferenced
+
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+   --> vm-mem/benches/async_mmu_performance.rs:124:15
+    |
+124 |             b.to_async(&rt).iter(|| {
+    |               ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+   --> vm-mem/benches/async_mmu_performance.rs:143:19
+    |
+143 |                 b.to_async(&rt).iter(|| {
+    |                   ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+    Checking vm-accel v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-accel)
+error[E0308]: mismatched types
+   --> vm-mem/benches/async_mmu_performance.rs:152:54
+    |
+152 | ...                   let addr = GuestAddr((i + 1) * 0x1000);
+    |                                  --------- ^^^^^^^^^^^^^^^^ expected `u64`, found `usize`
+    |                                  |
+    |                                  arguments to this struct are incorrect
+    |
+note: tuple struct defined here
+   --> vm-core/src/lib.rs:114:12
+    |
+114 | pub struct GuestAddr(pub u64);
+    |            ^^^^^^^^^
+help: you can convert a `usize` to a `u64` and panic if the converted value doesn't fit
+    |
+152 |                                 let addr = GuestAddr(((i + 1) * 0x1000).try_into().unwrap());
+    |                                                      +                +++++++++++++++++++++
+
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+   --> vm-mem/benches/async_mmu_performance.rs:178:11
+    |
+178 |         b.to_async(&rt).iter(|| {
+    |           ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+ --> vm-mem/benches/lockfree_tlb.rs:5:41
+  |
+5 | use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+  |                                         ^^^^^^^^^
+  |
+  = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-mem/benches/lockfree_tlb.rs:23:17
+   |
+23 |                 black_box(tlb.lookup(0x1000, 0));
+   |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-mem/benches/lockfree_tlb.rs:41:21
+   |
+41 |                     black_box(tlb.insert(entry));
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-mem/benches/lockfree_tlb.rs:69:21
+   |
+69 |                     black_box(tlb.lookup_batch(&requests));
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-mem/benches/lockfree_tlb.rs:106:33
+    |
+106 | ...                   black_box(tlb_clone.lookup(i * 4096, 0));
+    |                       ^^^^^^^^^
+
+error[E0614]: type `{integer}` cannot be dereferenced
+  --> vm-mem/benches/lockfree_tlb.rs:87:75
+   |
+87 |                 let barrier = std::sync::Arc::new(std::sync::Barrier::new(*num_threads));
+   |                                                                           ^^^^^^^^^^^^ can't be dereferenced
+
+error[E0614]: type `{integer}` cannot be dereferenced
+  --> vm-mem/benches/lockfree_tlb.rs:98:41
+   |
+98 |                     for thread_id in 0..*num_threads {
+   |                                         ^^^^^^^^^^^^ can't be dereferenced
+
+warning: unused imports: `AddressTranslator`, `MemoryAccess`, `MmioManager`, and `MmuAsAny`
+   --> vm-device/src/virtio_9p.rs:240:19
+    |
+240 |     use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, VmError};
+    |                   ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `super::*`
+   --> vm-device/src/virtio_balloon.rs:245:9
+    |
+245 |     use super::*;
+    |         ^^^^^^^^
+
+warning: unused import: `MMU`
+   --> vm-device/src/virtio_console.rs:192:49
+    |
+192 |     use vm_core::{AddressTranslator, GuestAddr, MMU, MemoryAccess, MmioManager, MmuAsAny};
+    |                                                 ^^^
+
+For more information about this error, try `rustc --explain E0614`.
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+   --> vm-mem/benches/async_mmu_performance.rs:196:19
+    |
+196 |                 b.to_async(&rt).iter(|| {
+    |                   ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+error[E0308]: mismatched types
+   --> vm-mem/benches/async_mmu_performance.rs:215:29
+    |
+215 | ...                   Ok::<(), vm_core::VmError>(())
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `()`, found `Result<(), CoreVmError>`
+    |
+    = note: expected unit type `()`
+                    found enum `std::result::Result<(), vm_core::CoreVmError>`
+note: return type inferred to be `()` here
+   --> vm-mem/benches/async_mmu_performance.rs:205:37
+    |
+205 |   ...                   let _ = async_mmu
+    |  _______________________________^
+206 | | ...                       .translate_async(addr, AccessType::Read)
+207 | | ...                       .await?;
+    | |_________________________________^
+help: you might have meant to return this value
+    |
+215 |                             return Ok::<(), vm_core::VmError>(())
+    |                             ++++++
+
+warning: unused import: `super::*`
+   --> vm-device/src/virtio_input.rs:232:9
+    |
+232 |     use super::*;
+    |         ^^^^^^^^
+
+warning: `vm-mem` (bench "lockfree_tlb") generated 5 warnings
+error: could not compile `vm-mem` (bench "lockfree_tlb") due to 2 previous errors; 5 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+error[E0599]: no method named `to_async` found for mutable reference `&mut criterion::Bencher<'_>` in the current scope
+   --> vm-mem/benches/async_mmu_performance.rs:234:11
+    |
+234 |         b.to_async(&rt).iter(|| {
+    |           ^^^^^^^^ method not found in `&mut criterion::Bencher<'_>`
+
+warning: unused import: `super::*`
+   --> vm-device/src/virtio_sound.rs:300:9
+    |
+300 |     use super::*;
+    |         ^^^^^^^^
+
+Some errors have detailed explanations: E0308, E0599, E0614.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `vm-mem` (bench "async_mmu_performance") due to 12 previous errors
+warning: unused import: `ScatterGatherList`
+ --> vm-device/src/zero_copy_io.rs:5:44
+  |
+5 | use crate::virtio_zerocopy::{MappingEntry, ScatterGatherList, SgSegment};
+  |                                            ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::mem`
+ --> vm-device/src/zero_copy_io.rs:6:5
+  |
+6 | use std::mem;
+  |     ^^^^^^^^
+
+warning: unused import: `std::ops::Range`
+ --> vm-device/src/zero_copy_io.rs:7:5
+  |
+7 | use std::ops::Range;
+  |     ^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> vm-accel/src/vcpu_affinity.rs:512:13
+    |
+512 |         let mut allocator = NUMAAwareAllocator::new(2, 1024 * 1024 * 1024); // 1GB per node
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> vm-accel/src/vcpu_affinity.rs:531:13
+    |
+531 |         let mut allocator = NUMAAwareAllocator::new(2, 1024 * 1024 * 1024);
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: used `assert_eq!` with a literal bool
+   --> vm-accel/src/cpuinfo.rs:513:13
+    |
+513 | /             assert_eq!(
+514 | |                 info.features.svm, false,
+515 | |                 "SVM should be false on non-AMD CPUs"
+516 | |             );
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#bool_assert_comparison
+    = note: `#[warn(clippy::bool_assert_comparison)]` on by default
+help: replace it with `assert!(..)`
+    |
+513 ~             assert!(
+514 ~                 !info.features.svm,
+    |
+
+warning: used `assert_eq!` with a literal bool
+   --> vm-accel/src/cpuinfo.rs:529:17
+    |
+529 | /                 assert_eq!(
+530 | |                     info.features.svm, false,
+531 | |                     "SVM should be false on Intel CPUs"
+532 | |                 );
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#bool_assert_comparison
+help: replace it with `assert!(..)`
+    |
+529 ~                 assert!(
+530 ~                     !info.features.svm,
+    |
+
+warning: used `assert_eq!` with a literal bool
+   --> vm-accel/src/cpuinfo.rs:538:17
+    |
+538 |                 assert_eq!(info.features.vmx, false, "VMX should be false on AMD CPUs");
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#bool_assert_comparison
+help: replace it with `assert!(..)`
+    |
+538 -                 assert_eq!(info.features.vmx, false, "VMX should be false on AMD CPUs");
+538 +                 assert!(!info.features.vmx, "VMX should be false on AMD CPUs");
+    |
+
+warning: used `assert_eq!` with a literal bool
+   --> vm-accel/src/cpuinfo.rs:542:17
+    |
+542 | /                 assert_eq!(
+543 | |                     info.features.vmx, false,
+544 | |                     "VMX should be false on non-x86 CPUs"
+545 | |                 );
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#bool_assert_comparison
+help: replace it with `assert!(..)`
+    |
+542 ~                 assert!(
+543 ~                     !info.features.vmx,
+    |
+
+warning: used `assert_eq!` with a literal bool
+   --> vm-accel/src/cpuinfo.rs:546:17
+    |
+546 | /                 assert_eq!(
+547 | |                     info.features.svm, false,
+548 | |                     "SVM should be false on non-x86 CPUs"
+549 | |                 );
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#bool_assert_comparison
+help: replace it with `assert!(..)`
+    |
+546 ~                 assert!(
+547 ~                     !info.features.svm,
+    |
+
+warning: called `unwrap` on `cpus` after checking its variant with `is_ok`
+   --> vm-accel/src/vcpu_numa_manager.rs:390:26
+    |
+389 |             if cpus.is_ok() {
+    |             --------------- help: try: `if let Ok(<item>) = cpus`
+390 |                 assert!(!cpus.unwrap().is_empty());
+    |                          ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_unwrap
+    = note: `#[warn(clippy::unnecessary_unwrap)]` on by default
+
+warning: `vm-accel` (lib test) generated 8 warnings (run `cargo clippy --fix --lib -p vm-accel --tests` to apply 7 suggestions)
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_9p.rs:250:13
+    |
+250 |         let mut fs = Virtio9P::new("/tmp");
+    |             ----^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_9p.rs:251:13
+    |
+251 |         let mut mmu = MockMmu {
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `mmu`
+   --> vm-device/src/virtio_9p.rs:251:13
+    |
+251 |         let mut mmu = MockMmu {
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_console.rs:301:13
+    |
+301 |         let mut console = VirtioConsole::new(1);
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_console.rs:302:13
+    |
+302 |         let mut mmu = MockMmu {
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `mmu`
+   --> vm-device/src/virtio_console.rs:302:13
+    |
+302 |         let mut mmu = MockMmu {
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_crypto.rs:346:13
+    |
+346 |         let mut crypto = VirtioCrypto::new();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_crypto.rs:347:13
+    |
+347 |         let mut mmu = MockMmu {
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `mmu`
+   --> vm-device/src/virtio_crypto.rs:347:13
+    |
+347 |         let mut mmu = MockMmu {
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_rng.rs:225:13
+    |
+225 |         let mut rng = VirtioRng::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> vm-device/src/virtio_rng.rs:226:13
+    |
+226 |         let mut mmu = MockMmu {
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `mmu`
+   --> vm-device/src/virtio_rng.rs:226:13
+    |
+226 |         let mut mmu = MockMmu {
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_mmu`
+
+warning: struct `MockMmu` is never constructed
+   --> vm-device/src/virtio_balloon.rs:248:12
+    |
+248 |     struct MockMmu {
+    |            ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `MockMmu` is never constructed
+   --> vm-device/src/virtio_input.rs:236:12
+    |
+236 |     struct MockMmu {
+    |            ^^^^^^^
+
+warning: struct `MockMmu` is never constructed
+   --> vm-device/src/virtio_memory.rs:342:12
+    |
+342 |     struct MockMmu {
+    |            ^^^^^^^
+
+warning: struct `MockMmu` is never constructed
+   --> vm-device/src/virtio_sound.rs:304:12
+    |
+304 |     struct MockMmu {
+    |            ^^^^^^^
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-device/src/io_multiplexing.rs:615:9
+    |
+615 |         stats.events_processed = 100;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `io_multiplexing::IoStats { events_processed: 100, total_latency_ns: 1_000_000_000, ..Default::default() }` and removing relevant reassignments
+   --> vm-device/src/io_multiplexing.rs:614:9
+    |
+614 |         let mut stats = IoStats::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+    = note: `#[warn(clippy::field_reassign_with_default)]` on by default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-device/src/io_multiplexing.rs:625:9
+    |
+625 |         stats.events_processed = 1000;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `io_multiplexing::IoStats { events_processed: 1000, total_latency_ns: 1_000_000, ..Default::default() }` and removing relevant reassignments
+   --> vm-device/src/io_multiplexing.rs:624:9
+    |
+624 |         let mut stats = IoStats::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+
+warning: use `std::ptr::eq` when comparing raw pointers
+   --> vm-device/src/zero_copy_io.rs:154:20
+    |
+154 |                 if (*entry).data as *const u8 == _buffer.as_ptr() {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `std::ptr::eq((*entry).data, _buffer.as_ptr())`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ptr_eq
+    = note: `#[warn(clippy::ptr_eq)]` on by default
+
+warning: this returns a `Result<_, ()>`
+   --> vm-device/src/zero_copy_io.rs:412:5
+    |
+412 |     pub fn add_segment(&self, paddr: u64, len: u32, flags: u16) -> Result<(), ()> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: use a custom `Error` type instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#result_unit_err
+    = note: `#[warn(clippy::result_unit_err)]` on by default
+
+warning: `to_string` applied to a type that implements `Display` in `println!` args
+   --> vm-device/src/gpu_mdev.rs:312:42
+    |
+312 |             println!("  GPU at {}:", addr.to_string());
+    |                                          ^^^^^^^^^^^^ help: remove this
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#to_string_in_format_args
+    = note: `#[warn(clippy::to_string_in_format_args)]` on by default
+
+warning: `to_string` applied to a type that implements `Display` in `println!` args
+   --> vm-device/src/gpu_passthrough.rs:300:32
+    |
+300 |                 gpu.pci_address.to_string()
+    |                                ^^^^^^^^^^^^ help: remove this
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#to_string_in_format_args
+
+warning: `vm-device` (lib test) generated 30 warnings (run `cargo clippy --fix --lib -p vm-device --tests` to apply 23 suggestions)

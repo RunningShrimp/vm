@@ -385,9 +385,8 @@ mod tests {
 
         // Check that we can get CPUs for each node
         for node in 0..topology.num_nodes() {
-            let cpus = topology.get_node_cpus(node);
-            if cpus.is_ok() {
-                assert!(!cpus.unwrap().is_empty());
+            if let Ok(cpus) = topology.get_node_cpus(node) {
+                assert!(!cpus.is_empty());
             }
         }
     }

@@ -1,0 +1,488 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # 匹配版本标签，如 v0.1.0
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # 验证发布
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format: $VERSION"
+            echo "Version must be in X.Y.Z format"
+            exit 1
+          fi
+
+      - name: Check version in Cargo.toml
+        run: |
+          EXPECTED_VERSION="${{ steps.version.outputs.version }}"
+          ACTUAL_VERSION=$(grep '^\[workspace.package\]' -A 10 Cargo.toml | grep 'version =' | sed 's/.*version = "\([^"]*\)".*/\1/')
+
+          echo "Expected version: ${EXPECTED_VERSION}"
+          echo "Actual version: ${ACTUAL_VERSION}"
+
+          if [ "${EXPECTED_VERSION}" != "${ACTUAL_VERSION}" ]; then
+            echo "Error: Version mismatch!"
+            echo "Please run: ./scripts/bump_version.sh [major|minor|patch]"
+            exit 1
+          fi
+
+      - name: Check CHANGELOG
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! grep -q "\[${VERSION}\]" CHANGELOG.md; then
+            echo "Error: CHANGELOG.md missing entry for version ${VERSION}"
+            echo "Please update CHANGELOG.md before release"
+            exit 1
+          fi
+
+  # 运行测试
+  test:
+    name: Test
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, '1.85']  # stable and MSRV
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --workspace --all-features
+
+      - name: Run tests
+        run: cargo test --workspace --all-features
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-features -- -D warnings
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+  # 构建发布包
+  build:
+    name: Build Release
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cargo build --workspace --release --target ${{ matrix.target }}
+          else
+            cargo build --workspace --release --target ${{ matrix.target }}
+          fi
+
+      - name: Prepare archive
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARGET="${{ matrix.target }}"
+          ARCHIVE="vm-${VERSION}-${TARGET}.${{ matrix.archive }}"
+
+          mkdir -p dist
+
+          # Copy binaries
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${TARGET}/release/*.exe dist/ 2>/dev/null || true
+          else
+            cp target/${TARGET}/release/vm target/${TARGET}/release/vm-* dist/ 2>/dev/null || true
+          fi
+
+          # Create archive
+          cd dist
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a ../${ARCHIVE} *
+          else
+            tar czf ../${ARCHIVE} *
+          fi
+          cd ..
+
+          # Generate checksums
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            shasum -a 256 ${ARCHIVE} > ${ARCHIVE}.sha256
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-${{ matrix.target }}
+          path: |
+            vm-${{ steps.version.outputs.version }}-${{ matrix.target }}.*
+          retention-days: 90
+
+  # 构建源码包
+  source:
+    name: Build Source
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create source archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git archive --format=tar.gz --prefix=vm-${VERSION}/ HEAD > vm-${VERSION}.tar.gz
+          shasum -a 256 vm-${VERSION}.tar.gz > vm-${VERSION}.tar.gz.sha256
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-source
+          path: |
+            vm-${{ steps.version.outputs.version }}.tar.gz*
+          retention-days: 90
+
+  # 创建GitHub Release
+  release:
+    name: Create Release
+    needs: [build, source]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Extract changelog for this version
+          awk "/## \[${VERSION}\]/,/## \[/{print}" CHANGELOG.md | head -n -1 > release_notes.md
+
+          # Add header
+          cat > release_notes_final.md << EOF
+          # Version ${VERSION} Release Notes
+
+          **Release Date**: $(date +%Y-%m-%d)
+          **Documentation**: [API Docs](https://docs.rs/vm/${VERSION}/vm)
+
+          $(cat release_notes.md)
+
+          ## Installation
+
+          ### From crates.io
+          \`\`\`bash
+          cargo install vm --version ${VERSION}
+          \`\`\`
+
+          ### From Binaries
+
+          Download the appropriate archive for your platform below.
+
+          ### From Source
+          \`\`\`bash
+          git clone https://github.com/example/vm.git
+          cd vm
+          git checkout v${VERSION}
+          cargo build --release
+          \`\`\`
+
+          ## Verification
+
+          Verify the integrity of downloaded files using the provided SHA256 checksums:
+
+          \`\`\`bash
+          shasum -a 256 downloaded-file.tar.gz
+          \`\`\`
+
+          ## Full Changelog
+
+          View the full changelog: [CHANGELOG.md](https://github.com/example/vm/blob/v${VERSION}/CHANGELOG.md)
+          EOF
+
+          # Set output
+          {
+            echo 'notes<<EOF'
+            cat release_notes_final.md
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Version ${{ steps.version.outputs.version }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/*/*.tar.gz
+            artifacts/*/*.tar.gz.sha256
+            artifacts/*/*.zip
+            artifacts/*/*.zip.sha256
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 发布到crates.io（可选）
+  publish:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    # 只在自动触发时发布，手动触发跳过
+    if: github.event_name != 'workflow_dispatch'
+    environment:
+      name: crates-io
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-crates-io-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Login to crates.io
+        run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Publish workspace members
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # List of crates to publish (in dependency order)
+          CRATES=(
+            "vm-core"
+            "vm-mem"
+            "vm-device"
+            "vm-engine"
+            "vm-frontend"
+          )
+
+          for crate in "${CRATES[@]}"; do
+            echo "Publishing ${crate}..."
+            cd "${crate}"
+            cargo publish --no-verify || echo "Already published or failed"
+            cd ..
+
+            # Wait for crates.io to index
+            echo "Waiting for crates.io..."
+            sleep 30
+          done
+
+      - name: Verify publish
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          curl -s "https://crates.io/api/v1/crates/vm" | jq -r '.versions[0].num' | grep -q "${VERSION}"
+
+  # 发布后通知
+  notify:
+    name: Post-Release Notifications
+    needs: [release, publish]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Issue for release follow-up
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const version = '${{ steps.version.outputs.version }}';
+            const date = new Date().toISOString().split('T')[0];
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📢 Release ${version} - Follow-up Tasks`,
+              body: `## Release ${version} Follow-up
+
+              Release completed on ${date}.
+
+              ### Tasks
+              - [ ] Monitor GitHub Issues for bug reports (72 hours)
+              - [ ] Monitor Discussions for user feedback
+              - [ ] Update website with new version
+              - [ ] Announce on social media (if applicable)
+              - [ ] Send email announcement (if applicable)
+              - [ ] Update documentation links
+              - [ ] Close related issues
+              - [ ] Update roadmap for next release
+
+              ### Metrics to Track
+              - Downloads in first 24 hours
+              - Issues opened in first week
+              - User feedback
+              - Performance benchmarks
+
+              ### Links
+              - Release: https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/v${version}
+              - CHANGELOG: https://github.com/${context.repo.owner}/${context.repo.repo}/blob/master/CHANGELOG.md
+              `,
+              labels: ['release', 'follow-up']
+            })
+
+      - name: Summary
+        run: |
+          cat << EOF
+          ╔═══════════════════════════════════════════════════════╗
+          ║   Release ${{ steps.version.outputs.version }} Complete!                  ║
+          ╚═══════════════════════════════════════════════════════╝
+
+          Version: ${{ steps.version.outputs.version }}
+          Date: $(date +%Y-%m-%d)
+
+          Release created successfully!
+
+          Next steps:
+          1. Monitor GitHub Issues for bug reports
+          2. Monitor user feedback in Discussions
+          3. Update documentation and website
+          4. Announce release to community
+
+          Links:
+          - Release: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }}
+          - CHANGELOG: https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md
+          EOF

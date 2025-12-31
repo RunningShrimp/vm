@@ -1,0 +1,1284 @@
+warning: unused variable: `e`
+    --> vm-mem/src/lib.rs:1352:59
+     |
+1352 |         let mmio_op = self.check_mmio_region(pa).map_err(|e| {
+     |                                                           ^ help: if this is intentional, prefix it with an underscore: `_e`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-mem` (lib) generated 1 warning (run `cargo clippy --fix --lib -p vm-mem` to apply 1 suggestion)
+    Checking vm-optimizers v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-optimizers)
+    Checking wgpu v28.0.0
+    Checking objc2-cloud-kit v0.3.2
+    Checking objc2-core-data v0.3.2
+    Checking objc2-quartz-core v0.3.2
+    Checking objc2-core-image v0.3.2
+    Checking vm-frontend v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-frontend)
+warning: vm-codegen@0.1.0: Skip codegen examples (set VM_CODEGEN_GEN=1 to enable)
+    Checking hyper v1.8.1
+   Compiling tauri v2.9.5
+    Checking vm-codegen v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-codegen)
+    Checking ravif v0.12.0
+   Compiling tauri-macros v2.5.2
+   Compiling vm-desktop v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-desktop)
+    Checking vm-cross-arch-support v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-cross-arch-support)
+    Checking image v0.25.9
+    Checking objc2-app-kit v0.3.2
+    Checking vm-engine v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-engine)
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+  --> vm-engine/src/interpreter/async_device_io.rs:16:5
+   |
+16 | use tokio::sync::mpsc;
+   |     ^^^^^ use of unresolved module or unlinked crate `tokio`
+   |
+   = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+  --> vm-engine/src/interpreter/async_interrupt_handler.rs:18:5
+   |
+18 | use tokio::sync::mpsc;
+   |     ^^^^^ use of unresolved module or unlinked crate `tokio`
+   |
+   = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+    Checking vm-runtime v0.1.0 (/Users/wangbiao/Desktop/project/vm/vm-runtime)
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+  --> vm-engine/src/executor/distributed/scheduler.rs:35:17
+   |
+35 |                 tokio::time::sleep(config.fault_tolerance.health_check_interval).await;
+   |                 ^^^^^ use of unresolved module or unlinked crate `tokio`
+   |
+   = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:135:9
+    |
+135 |         tokio::task::block_in_place(|| {
+    |         ^^^^^ use of unresolved module or unlinked crate `tokio`
+    |
+    = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:162:17
+    |
+162 |                 tokio::task::yield_now().await;
+    |                 ^^^^^ use of unresolved module or unlinked crate `tokio`
+    |
+    = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:309:30
+    |
+309 |                 let result = tokio::task::block_in_place(|| {
+    |                              ^^^^^ use of unresolved module or unlinked crate `tokio`
+    |
+    = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_interrupt_handler.rs:258:13
+    |
+258 |             tokio::task::yield_now().await;
+    |             ^^^^^ use of unresolved module or unlinked crate `tokio`
+    |
+    = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+warning: unused import: `vm_ir::Terminator`
+  --> vm-engine/src/interpreter/async_executor.rs:20:5
+   |
+20 | use vm_ir::Terminator;
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+    Checking hyper-util v0.1.19
+error[E0599]: no method named `expect` found for struct `parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, usize>` in the current scope
+   --> vm-engine/src/executor/distributed/coordinator.rs:110:14
+    |
+107 |           let mut index = self
+    |  _________________________-
+108 | |             .next_vm_index
+109 | |             .lock()
+110 | |             .expect("Next VM index mutex should not be poisoned");
+    | |             -^^^^^^ method not found in `parking_lot::lock_api::MutexGuard<'_, parking_lot::RawMutex, usize>`
+    | |_____________|
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+  --> vm-engine/src/executor/distributed/discovery.rs:55:9
+   |
+55 |         tokio::spawn(async move {
+   |         ^^^^^ use of unresolved module or unlinked crate `tokio`
+   |
+   = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+  --> vm-engine/src/executor/distributed/scheduler.rs:33:9
+   |
+33 |         tokio::spawn(async move {
+   |         ^^^^^ use of unresolved module or unlinked crate `tokio`
+   |
+   = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:304:26
+    |
+304 |             let handle = tokio::spawn(async move {
+    |                          ^^^^^ use of unresolved module or unlinked crate `tokio`
+    |
+    = help: if you wanted to use a crate named `tokio`, use `cargo add tokio` to add it to your `Cargo.toml`
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_allocation_bench.rs:10:53
+   |
+10 | use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+   |                                                     ^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_allocation_bench.rs:55:17
+   |
+55 |                 black_box(data);
+   |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_allocation_bench.rs:65:21
+   |
+65 |                     black_box(data);
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_allocation_bench.rs:85:17
+   |
+85 |                 black_box(data);
+   |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_allocation_bench.rs:95:21
+   |
+95 |                     black_box(data);
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:111:17
+    |
+111 |                 black_box(Box::new([0u8; 8]));
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:119:17
+    |
+119 |                 black_box(Box::new([0u8; 64]));
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:127:17
+    |
+127 |                 black_box(Box::new([0u8; 256]));
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:144:17
+    |
+144 |                 black_box(allocs);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:155:17
+    |
+155 |                 black_box(allocs);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:166:17
+    |
+166 |                 black_box(allocs);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:187:29
+    |
+187 | ...                   black_box(Box::new([0u8; 256]));
+    |                       ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:202:29
+    |
+202 | ...                   black_box(data);
+    |                       ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:228:13
+    |
+228 |             black_box(&pool);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:240:13
+    |
+240 |             black_box(&pool);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:252:13
+    |
+252 |             black_box(&pool);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:270:13
+    |
+270 |             black_box(allocs);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:282:13
+    |
+282 |             black_box(allocs);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:292:13
+    |
+292 |             black_box(allocs);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:307:13
+    |
+307 |             black_box(allocs);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:355:13
+    |
+355 |             black_box(allocs);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:371:13
+    |
+371 |             black_box((ptr, elapsed));
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:380:13
+    |
+380 |             black_box((ptr, elapsed));
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_allocation_bench.rs:389:13
+    |
+389 |             black_box((ptr, elapsed));
+    |             ^^^^^^^^^
+
+error[E0252]: the name `Terminator` is defined multiple times
+  --> vm-engine/src/interpreter/async_executor.rs:23:5
+   |
+20 | use vm_ir::Terminator;
+   |     ----------------- previous import of the type `Terminator` here
+...
+23 | use vm_ir::Terminator;
+   |     ^^^^^^^^^^^^^^^^^ `Terminator` reimported here
+   |
+   = note: `Terminator` must be defined only once in the type namespace of this module
+
+warning: struct `TrackingAllocator` is never constructed
+  --> vm-optimizers/benches/memory_allocation_bench.rs:23:8
+   |
+23 | struct TrackingAllocator {
+   |        ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-optimizers` (bench "memory_allocation_bench") generated 25 warnings
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:469:7
+    |
+469 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:483:7
+    |
+483 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:489:7
+    |
+489 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:507:7
+    |
+507 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor.rs:525:7
+    |
+525 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor_integration.rs:170:7
+    |
+170 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_executor_integration.rs:184:7
+    |
+184 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_interrupt_handler.rs:331:7
+    |
+331 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_interrupt_handler.rs:337:7
+    |
+337 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_interrupt_handler.rs:348:7
+    |
+348 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`
+   --> vm-engine/src/interpreter/async_interrupt_handler.rs:387:7
+    |
+387 |     #[tokio::test]
+    |       ^^^^^ use of unresolved module or unlinked crate `tokio`
+
+warning: manual `RangeInclusive::contains` implementation
+   --> vm-optimizers/tests/optimizer_tests.rs:101:17
+    |
+101 |         assert!(hit_rate >= 0.0 && hit_rate <= 100.0);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use: `(0.0..=100.0).contains(&hit_rate)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_range_contains
+    = note: `#[warn(clippy::manual_range_contains)]` on by default
+
+warning: called `unwrap` on `addr1` after checking its variant with `is_ok`
+   --> vm-optimizers/tests/optimizer_tests.rs:754:24
+    |
+753 |         if addr1.is_ok() && addr2.is_ok() {
+    |            ------------- the check is happening here
+754 |             assert_ne!(addr1.unwrap(), addr2.unwrap());
+    |                        ^^^^^^^^^^^^^^
+    |
+    = help: try using `if let` or `match`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_unwrap
+    = note: `#[warn(clippy::unnecessary_unwrap)]` on by default
+
+warning: called `unwrap` on `addr2` after checking its variant with `is_ok`
+   --> vm-optimizers/tests/optimizer_tests.rs:754:40
+    |
+753 |         if addr1.is_ok() && addr2.is_ok() {
+    |                             ------------- the check is happening here
+754 |             assert_ne!(addr1.unwrap(), addr2.unwrap());
+    |                                        ^^^^^^^^^^^^^^
+    |
+    = help: try using `if let` or `match`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_unwrap
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/gc_bench.rs:12:53
+   |
+12 | use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+   |                                                     ^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/gc_bench.rs:67:21
+   |
+67 |                     black_box(gc.collect_minor(bytes_collected).unwrap());
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/gc_bench.rs:97:21
+   |
+97 |                     black_box(gc.collect_major(bytes_collected).unwrap());
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:117:17
+    |
+117 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:121:21
+    |
+121 |                     black_box(gc.collect_minor(64000).unwrap());
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:133:17
+    |
+133 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:136:21
+    |
+136 |                     black_box(gc.collect_minor(128000).unwrap());
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:148:17
+    |
+148 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:151:21
+    |
+151 |                     black_box(gc.collect_minor(102400).unwrap());
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:181:21
+    |
+181 |                     black_box(gc.collect_major(bytes_collected).unwrap());
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:187:21
+    |
+187 |                     black_box((bytes_collected, pause_time));
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:209:13
+    |
+209 |             black_box(gc.collect_minor(1_280_000).unwrap());
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:212:13
+    |
+212 |             black_box(stats);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:232:17
+    |
+232 |                 black_box(gc.collect_minor(bytes).unwrap());
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:237:13
+    |
+237 |             black_box(gc.collect_major(bytes).unwrap());
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:240:13
+    |
+240 |             black_box(stats);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:265:21
+    |
+265 |                     black_box(gc.collect_minor(bytes).unwrap());
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:271:13
+    |
+271 |             black_box(gc.collect_major(bytes).unwrap());
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:274:13
+    |
+274 |             black_box(stats);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:291:17
+    |
+291 |                 black_box(&mut data);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:303:17
+    |
+303 |                 black_box(&barrier);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:316:13
+    |
+316 |             black_box(barrier.get_dirty_set());
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:332:13
+    |
+332 |             black_box(barrier.overhead_us());
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:354:34
+    |
+354 |                     let marked = black_box(marker.process_marks());
+    |                                  ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:355:21
+    |
+355 |                     black_box(marked);
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:369:26
+    |
+369 |             let marked = black_box(marker.process_marks());
+    |                          ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:370:13
+    |
+370 |             black_box(marked);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:393:25
+    |
+393 |                         black_box(quota.get_quota());
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:411:13
+    |
+411 |             black_box(quota.get_quota());
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:433:25
+    |
+433 |             let stats = black_box(gc.get_stats());
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:434:13
+    |
+434 |             black_box(stats);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:452:17
+    |
+452 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:468:17
+    |
+468 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:484:17
+    |
+484 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:506:17
+    |
+506 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/gc_bench.rs:522:17
+    |
+522 |                 black_box(obj);
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/gc_bench.rs:43:9
+   |
+43 |         black_box(&self.data);
+   |         ^^^^^^^^^
+
+warning: `vm-optimizers` (test "optimizer_tests") generated 3 warnings (run `cargo clippy --fix --test "optimizer_tests" -p vm-optimizers` to apply 1 suggestion)
+warning: fields `id` and `data` are never read
+  --> vm-optimizers/benches/gc_bench.rs:28:5
+   |
+27 | struct TestObject {
+   |        ---------- fields in this struct
+28 |     id: u64,
+   |     ^^
+29 |     size: usize,
+30 |     data: Vec<u8>,
+   |     ^^^^
+   |
+   = note: `TestObject` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `touch` is never used
+  --> vm-optimizers/benches/gc_bench.rs:42:8
+   |
+33 | impl TestObject {
+   | --------------- method in this implementation
+...
+42 |     fn touch(&self) {
+   |        ^^^^^
+
+warning: passing a unit value to a function
+  --> vm-optimizers/benches/gc_bench.rs:67:21
+   |
+67 |                     black_box(gc.collect_minor(bytes_collected).unwrap());
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+   = note: `#[warn(clippy::unit_arg)]` on by default
+help: move the expression in front of the call and replace it with the unit literal `()`
+   |
+67 ~                     gc.collect_minor(bytes_collected).unwrap();
+68 ~                     black_box(());
+   |
+
+warning: passing a unit value to a function
+  --> vm-optimizers/benches/gc_bench.rs:97:21
+   |
+97 |                     black_box(gc.collect_major(bytes_collected).unwrap());
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+   |
+97 ~                     gc.collect_major(bytes_collected).unwrap();
+98 ~                     black_box(());
+   |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:121:21
+    |
+121 |                     black_box(gc.collect_minor(64000).unwrap());
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+121 ~                     gc.collect_minor(64000).unwrap();
+122 ~                     black_box(());
+    |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:136:21
+    |
+136 |                     black_box(gc.collect_minor(128000).unwrap());
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+136 ~                     gc.collect_minor(128000).unwrap();
+137 ~                     black_box(());
+    |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:151:21
+    |
+151 |                     black_box(gc.collect_minor(102400).unwrap());
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+151 ~                     gc.collect_minor(102400).unwrap();
+152 ~                     black_box(());
+    |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:181:21
+    |
+181 |                     black_box(gc.collect_major(bytes_collected).unwrap());
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+181 ~                     gc.collect_major(bytes_collected).unwrap();
+182 ~                     black_box(());
+    |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:209:13
+    |
+209 |             black_box(gc.collect_minor(1_280_000).unwrap());
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+209 ~             gc.collect_minor(1_280_000).unwrap();
+210 ~             black_box(());
+    |
+
+warning: unused import: `vm_ir::IRBlock`
+   --> vm-engine/src/jit/codegen.rs:369:9
+    |
+369 |     use vm_ir::IRBlock;
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `vm_core::GuestAddr`
+   --> vm-engine/src/jit/codegen.rs:370:9
+    |
+370 |     use vm_core::GuestAddr;
+    |         ^^^^^^^^^^^^^^^^^^
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:232:17
+    |
+232 |                 black_box(gc.collect_minor(bytes).unwrap());
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+232 ~                 gc.collect_minor(bytes).unwrap();
+233 ~                 black_box(());
+    |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:237:13
+    |
+237 |             black_box(gc.collect_major(bytes).unwrap());
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+237 ~             gc.collect_major(bytes).unwrap();
+238 ~             black_box(());
+    |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:265:21
+    |
+265 |                     black_box(gc.collect_minor(bytes).unwrap());
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+265 ~                     gc.collect_minor(bytes).unwrap();
+266 ~                     black_box(());
+    |
+
+warning: passing a unit value to a function
+   --> vm-optimizers/benches/gc_bench.rs:271:13
+    |
+271 |             black_box(gc.collect_major(bytes).unwrap());
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+271 ~             gc.collect_major(bytes).unwrap();
+272 ~             black_box(());
+    |
+
+warning: casting the result of `i64::abs()` to u64
+   --> vm-optimizers/benches/gc_bench.rs:408:38
+    |
+408 |                 let pause = 10_000 + ((i as i64 - 50) * 100).abs() as u64;
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `((i as i64 - 50) * 100).unsigned_abs()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#cast_abs_to_unsigned
+    = note: `#[warn(clippy::cast_abs_to_unsigned)]` on by default
+
+warning: `vm-optimizers` (bench "gc_bench") generated 51 warnings (run `cargo clippy --fix --bench "gc_bench" -p vm-optimizers` to apply 12 suggestions)
+warning: unused import: `vm_ir::Terminator`
+  --> vm-engine/src/interpreter/async_executor.rs:23:5
+   |
+23 | use vm_ir::Terminator;
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: this import is redundant
+  --> vm-optimizers/benches/numa_memory_bench.rs:13:1
+   |
+13 | use rand;
+   | ^^^^^^^^^ help: remove it entirely
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#single_component_path_imports
+   = note: `#[warn(clippy::single_component_path_imports)]` on by default
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/numa_memory_bench.rs:12:53
+   |
+12 | use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+   |                                                     ^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/numa_memory_bench.rs:44:32
+   |
+44 |                     let size = black_box(4096);
+   |                                ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/numa_memory_bench.rs:49:21
+   |
+49 |                     black_box(addr);
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/numa_memory_bench.rs:70:25
+   |
+70 |                         black_box(addr);
+   |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:100:21
+    |
+100 |                     black_box(addr);
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:113:21
+    |
+113 |                     black_box(data);
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:146:21
+    |
+146 |                     black_box(addr1);
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:147:21
+    |
+147 |                     black_box(addr2);
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:171:25
+    |
+171 |                         black_box(addrs[idx]);
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:198:25
+    |
+198 |                         black_box(tlb.translate(addr).unwrap());
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:220:25
+    |
+220 |                         black_box(tlb.translate(addr).unwrap());
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:242:17
+    |
+242 |                 black_box(tlb.translate(addr).unwrap());
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:255:17
+    |
+255 |                 black_box(tlb.translate(addr).unwrap());
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:275:13
+    |
+275 |             black_box(stats);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:299:21
+    |
+299 |                     black_box(tlb.translate_batch(&addrs).unwrap());
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:316:25
+    |
+316 |                         black_box(tlb.translate(addr).unwrap());
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:349:25
+    |
+349 |                         black_box(pt.lookup(vaddr));
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:371:21
+    |
+371 |                     black_box(pt.batch_lookup(&vaddrs));
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:391:17
+    |
+391 |                 black_box(tlb.translate(addr).unwrap());
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:403:17
+    |
+403 |                 black_box(tlb.translate(addr).unwrap());
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `rand::thread_rng`: Renamed to `rng`
+   --> vm-optimizers/benches/numa_memory_bench.rs:411:29
+    |
+411 |         let mut rng = rand::thread_rng();
+    |                             ^^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:417:17
+    |
+417 |                 black_box(tlb.translate(addr).unwrap());
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:446:33
+    |
+446 |                     let moved = black_box(allocator.rebalance());
+    |                                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:447:21
+    |
+447 |                     black_box(moved);
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:481:25
+    |
+481 |                         black_box(optimizer.translate(addr).unwrap());
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:488:21
+    |
+488 |                     black_box(stats);
+    |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:510:25
+    |
+510 |             let stats = black_box(tlb.get_stats());
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:511:13
+    |
+511 |             black_box(stats);
+    |             ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:537:25
+    |
+537 |                         black_box(addr);
+    |                         ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/numa_memory_bench.rs:542:21
+    |
+542 |                     black_box(stats);
+    |                     ^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> vm-optimizers/benches/numa_memory_bench.rs:411:13
+    |
+411 |         let mut rng = rand::thread_rng();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `rng`
+   --> vm-optimizers/benches/numa_memory_bench.rs:411:13
+    |
+411 |         let mut rng = rand::thread_rng();
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_rng`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `TLB_SIZES` is never used
+  --> vm-optimizers/benches/numa_memory_bench.rs:23:7
+   |
+23 | const TLB_SIZES: &[usize] = &[64, 256, 1024, 4096];
+   |       ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vm-optimizers` (bench "numa_memory_bench") generated 34 warnings (run `cargo clippy --fix --bench "numa_memory_bench" -p vm-optimizers` to apply 3 suggestions)
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+ --> vm-optimizers/benches/memory_concurrent_bench.rs:6:41
+  |
+6 | use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+  |                                         ^^^^^^^^^
+  |
+  = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_concurrent_bench.rs:22:50
+   |
+22 |                 let result = tlb.translate_batch(black_box(&addrs));
+   |                                                  ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_concurrent_bench.rs:23:17
+   |
+23 |                 black_box(result)
+   |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_concurrent_bench.rs:45:75
+   |
+45 |                     rt.block_on(async || { tlb.translate_batch_concurrent(black_box(&addrs)).await });
+   |                                                                           ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_concurrent_bench.rs:46:17
+   |
+46 |                 black_box(result)
+   |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_concurrent_bench.rs:75:56
+   |
+75 |                         tlb.translate_batch_concurrent(black_box(&addrs)).await
+   |                                                        ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+  --> vm-optimizers/benches/memory_concurrent_bench.rs:77:21
+   |
+77 |                     black_box(result)
+   |                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_concurrent_bench.rs:105:53
+    |
+105 |                 let result = optimizer.batch_access(black_box(&addrs));
+    |                                                     ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_concurrent_bench.rs:106:17
+    |
+106 |                 black_box(result)
+    |                 ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_concurrent_bench.rs:120:76
+    |
+120 |                     .block_on(async || { optimizer.batch_access_concurrent(black_box(&addrs)).await });
+    |                                                                            ^^^^^^^^^
+
+warning: use of deprecated function `criterion::black_box`: use `std::hint::black_box()` instead
+   --> vm-optimizers/benches/memory_concurrent_bench.rs:121:17
+    |
+121 |                 black_box(result)
+    |                 ^^^^^^^^^
+
+error[E0277]: `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:45:33: 45:41}` is not a future
+   --> vm-optimizers/benches/memory_concurrent_bench.rs:45:33
+    |
+ 45 |                     rt.block_on(async || { tlb.translate_batch_concurrent(black_box(&addrs)).await });
+    |                        -------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:45:33: 45:41}` is not a future
+    |                        |
+    |                        required by a bound introduced by this call
+    |
+    = help: the trait `std::future::Future` is not implemented for `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:45:33: 45:41}`
+note: required by a bound in `tokio::runtime::Runtime::block_on`
+   --> /Users/wangbiao/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/tokio-1.48.0/src/runtime/runtime.rs:337:24
+    |
+337 |     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+    |                        ^^^^^^ required by this bound in `Runtime::block_on`
+help: use parentheses to call this closure
+    |
+ 45 |                     rt.block_on(async || { tlb.translate_batch_concurrent(black_box(&addrs)).await }());
+    |                                                                                                     ++
+
+error[E0277]: `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:74:46: 74:54}` is not a future
+   --> vm-optimizers/benches/memory_concurrent_bench.rs:74:46
+    |
+ 74 |                       let result = rt.block_on(async || {
+    |  _____________________________________--------_^
+    | |                                     |
+    | |                                     required by a bound introduced by this call
+ 75 | |                         tlb.translate_batch_concurrent(black_box(&addrs)).await
+ 76 | |                     });
+    | |_____________________^ `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:74:46: 74:54}` is not a future
+    |
+    = help: the trait `std::future::Future` is not implemented for `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:74:46: 74:54}`
+note: required by a bound in `tokio::runtime::Runtime::block_on`
+   --> /Users/wangbiao/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/tokio-1.48.0/src/runtime/runtime.rs:337:24
+    |
+337 |     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+    |                        ^^^^^^ required by this bound in `Runtime::block_on`
+help: use parentheses to call this closure
+    |
+ 76 |                     }());
+    |                      ++
+
+error[E0277]: `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:120:31: 120:39}` is not a future
+   --> vm-optimizers/benches/memory_concurrent_bench.rs:120:31
+    |
+120 |                     .block_on(async || { optimizer.batch_access_concurrent(black_box(&addrs)).await });
+    |                      -------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:120:31: 120:39}` is not a future
+    |                      |
+    |                      required by a bound introduced by this call
+    |
+    = help: the trait `std::future::Future` is not implemented for `{async closure@vm-optimizers/benches/memory_concurrent_bench.rs:120:31: 120:39}`
+note: required by a bound in `tokio::runtime::Runtime::block_on`
+   --> /Users/wangbiao/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/tokio-1.48.0/src/runtime/runtime.rs:337:24
+    |
+337 |     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+    |                        ^^^^^^ required by this bound in `Runtime::block_on`
+help: use parentheses to call this closure
+    |
+120 |                     .block_on(async || { optimizer.batch_access_concurrent(black_box(&addrs)).await }());
+    |                                                                                                      ++
+
+For more information about this error, try `rustc --explain E0277`.
+warning: `vm-optimizers` (bench "memory_concurrent_bench") generated 11 warnings
+error: could not compile `vm-optimizers` (bench "memory_concurrent_bench") due to 3 previous errors; 11 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+error: this comparison involving the minimum or maximum element for this type contains a case that is always true or always false
+   --> vm-optimizers/tests/gc_tests.rs:209:17
+    |
+209 |         assert!(stats.min_pause_time_us >= 0);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: because `0` is the minimum value for this type, this comparison is always true
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#absurd_extreme_comparisons
+    = note: `#[deny(clippy::absurd_extreme_comparisons)]` on by default
+
+error: this comparison involving the minimum or maximum element for this type contains a case that is always true or always false
+   --> vm-optimizers/tests/gc_tests.rs:270:17
+    |
+270 |         assert!(pause2 >= 0);
+    |                 ^^^^^^^^^^^
+    |
+    = help: because `0` is the minimum value for this type, this comparison is always true
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#absurd_extreme_comparisons
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-optimizers/tests/gc_tests.rs:325:9
+    |
+325 |         stats.bytes_allocated = 1000;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `vm_optimizers::AllocStats { bytes_allocated: 1000, bytes_used: 500, ..Default::default() }` and removing relevant reassignments
+   --> vm-optimizers/tests/gc_tests.rs:323:9
+    |
+323 |         let mut stats = AllocStats::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+    = note: `#[warn(clippy::field_reassign_with_default)]` on by default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-optimizers/tests/gc_tests.rs:344:9
+    |
+344 |         stats.bytes_allocated = 1000;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `vm_optimizers::AllocStats { bytes_allocated: 1000, bytes_used: 1000, ..Default::default() }` and removing relevant reassignments
+   --> vm-optimizers/tests/gc_tests.rs:342:9
+    |
+342 |         let mut stats = AllocStats::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-optimizers/tests/gc_tests.rs:355:9
+    |
+355 |         stats.bytes_allocated = 1000;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `vm_optimizers::AllocStats { bytes_allocated: 1000, bytes_used: 700, ..Default::default() }` and removing relevant reassignments
+   --> vm-optimizers/tests/gc_tests.rs:353:9
+    |
+353 |         let mut stats = AllocStats::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-optimizers/tests/gc_tests.rs:367:9
+    |
+367 |         stats.bytes_allocated = 1000;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `vm_optimizers::AllocStats { bytes_allocated: 1000, bytes_used: 1000, ..Default::default() }` and removing relevant reassignments
+   --> vm-optimizers/tests/gc_tests.rs:365:9
+    |
+365 |         let mut stats = AllocStats::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> vm-optimizers/tests/gc_tests.rs:378:9
+    |
+378 |         stats.bytes_allocated = 1000;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `vm_optimizers::AllocStats { bytes_allocated: 1000, bytes_used: 0, ..Default::default() }` and removing relevant reassignments
+   --> vm-optimizers/tests/gc_tests.rs:376:9
+    |
+376 |         let mut stats = AllocStats::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#field_reassign_with_default
+
+warning: comparison is useless due to type limits
+   --> vm-optimizers/tests/gc_tests.rs:209:17
+    |
+209 |         assert!(stats.min_pause_time_us >= 0);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: comparison is useless due to type limits
+   --> vm-optimizers/tests/gc_tests.rs:270:17
+    |
+270 |         assert!(pause2 >= 0);
+    |                 ^^^^^^^^^^^
+
+warning: `vm-optimizers` (test "gc_tests") generated 7 warnings
+error: could not compile `vm-optimizers` (test "gc_tests") due to 2 previous errors; 7 warnings emitted
+Some errors have detailed explanations: E0433, E0599.
+For more information about an error, try `rustc --explain E0433`.
+warning: `vm-engine` (lib) generated 1 warning
+error: could not compile `vm-engine` (lib) due to 11 previous errors; 1 warning emitted
+warning: variable does not need to be mutable
+   --> vm-engine/src/jit/code_cache.rs:123:13
+    |
+123 |         let mut cache = CodeCache::new(10);
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0252, E0433, E0599.
+For more information about an error, try `rustc --explain E0252`.
+warning: `vm-engine` (lib test) generated 4 warnings
+error: could not compile `vm-engine` (lib test) due to 23 previous errors; 4 warnings emitted

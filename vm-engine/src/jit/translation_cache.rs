@@ -252,7 +252,8 @@ impl TranslationCache {
     pub fn get_hot_entries(&self, limit: usize) -> Vec<(u64, &CacheEntry)> {
         let mut entries: Vec<_> = self.entries.iter().collect();
         entries.sort_by(|a, b| b.1.access_count.cmp(&a.1.access_count));
-        entries.into_iter()
+        entries
+            .into_iter()
             .take(limit)
             .map(|(k, v)| (*k, v))
             .collect()
@@ -260,7 +261,9 @@ impl TranslationCache {
 
     /// 获取缓存大小（字节）
     pub fn size_in_bytes(&self) -> usize {
-        self.entries.values().map(|entry| {
+        self.entries
+            .values()
+            .map(|entry| {
                 let code_size = entry.code.code.len() + std::mem::size_of::<CompiledCode>();
                 let entry_size = std::mem::size_of::<CacheEntry>();
                 code_size + entry_size
@@ -439,9 +442,30 @@ mod tests {
         let mut cache = TranslationCache::new();
 
         let entries = vec![
-            (1, Arc::new(CompiledCode { code: vec![1], size: 1, exec_addr: 0 })),
-            (2, Arc::new(CompiledCode { code: vec![2], size: 1, exec_addr: 0 })),
-            (3, Arc::new(CompiledCode { code: vec![3], size: 1, exec_addr: 0 })),
+            (
+                1,
+                Arc::new(CompiledCode {
+                    code: vec![1],
+                    size: 1,
+                    exec_addr: 0,
+                }),
+            ),
+            (
+                2,
+                Arc::new(CompiledCode {
+                    code: vec![2],
+                    size: 1,
+                    exec_addr: 0,
+                }),
+            ),
+            (
+                3,
+                Arc::new(CompiledCode {
+                    code: vec![3],
+                    size: 1,
+                    exec_addr: 0,
+                }),
+            ),
         ];
 
         cache.warmup(entries);

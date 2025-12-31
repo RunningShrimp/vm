@@ -3,13 +3,13 @@ mod compiler;
 mod core;
 
 // 声明所有JIT子模块
+mod branch_target_cache;
+mod code_cache;
+mod codegen;
+pub mod executable_memory;
 mod instruction_scheduler;
 mod optimizer;
-mod codegen;
-mod code_cache;
-pub mod executable_memory;
 mod tiered_cache;
-mod branch_target_cache;
 
 pub mod branch_prediction;
 pub mod register_allocator;
@@ -19,7 +19,6 @@ pub use backend::{
     BackendType, CompiledCode, JITBackend, JITBackendImpl, JITConfig, JITStats, OptLevel,
 };
 pub use compiler::JITCompiler;
-
 
 /// 自适应阈值配置
 #[derive(Debug, Clone, Default)]

@@ -2,7 +2,6 @@
 //!
 //! 实现SATB和Card Marking写屏障
 
-
 /// 写屏障类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BarrierType {
@@ -29,8 +28,7 @@ impl SATBBarrier {
     /// 写屏障：字段更新前调用
     #[inline]
     pub fn pre_write_barrier(&self, _old_ref: usize) {
-        if !self.enabled.load(std::sync::atomic::Ordering::Relaxed) {
-        }
+        if !self.enabled.load(std::sync::atomic::Ordering::Relaxed) {}
         // 简化实现：实际应该记录到缓冲区
     }
 
@@ -64,8 +62,7 @@ impl CardMarkingBarrier {
     /// 写屏障：字段更新后调用
     #[inline]
     pub fn post_write_barrier(&self, _field_addr: usize) {
-        if !self.enabled.load(std::sync::atomic::Ordering::Relaxed) {
-        }
+        if !self.enabled.load(std::sync::atomic::Ordering::Relaxed) {}
         // 简化实现：实际应该标记卡片
     }
 

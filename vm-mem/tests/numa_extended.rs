@@ -15,8 +15,8 @@ use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Instant;
 
-use vm_mem::NumaAllocator;
 use vm_mem::NumaAllocPolicy;
+use vm_mem::NumaAllocator;
 use vm_mem::NumaNodeInfo;
 
 // 辅助函数：创建测试用的NUMA节点配置
@@ -24,15 +24,15 @@ fn create_test_nodes() -> Vec<NumaNodeInfo> {
     vec![
         NumaNodeInfo {
             node_id: 0,
-            total_memory: 8 * 1024 * 1024 * 1024, // 8GB
+            total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
             available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-            cpu_mask: 0xFF, // CPU 0-7
+            cpu_mask: 0xFF,                           // CPU 0-7
         },
         NumaNodeInfo {
             node_id: 1,
-            total_memory: 8 * 1024 * 1024 * 1024, // 8GB
+            total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
             available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-            cpu_mask: 0xFF00, // CPU 8-15
+            cpu_mask: 0xFF00,                         // CPU 8-15
         },
     ]
 }
@@ -130,7 +130,11 @@ mod basic_allocation_tests {
             let ptr = allocator.allocate(layout);
 
             // 验证分配成功
-            assert!(ptr.is_ok(), "Allocation with alignment {} should succeed", alignment);
+            assert!(
+                ptr.is_ok(),
+                "Allocation with alignment {} should succeed",
+                alignment
+            );
 
             let ptr = ptr.unwrap();
             allocator.deallocate(ptr, 1024);
@@ -465,7 +469,10 @@ mod concurrent_allocation_tests {
 
         // 验证统计信息
         let stats = allocator.stats();
-        println!("Total allocs: {}", stats.local_allocs.load(Ordering::Relaxed));
+        println!(
+            "Total allocs: {}",
+            stats.local_allocs.load(Ordering::Relaxed)
+        );
     }
 
     /// 测试24: 不同策略并发测试
@@ -527,7 +534,8 @@ mod concurrent_allocation_tests {
 
         // 验证统计信息
         let stats = allocator.stats();
-        let total = stats.local_allocs.load(Ordering::Relaxed) + stats.remote_allocs.load(Ordering::Relaxed);
+        let total = stats.local_allocs.load(Ordering::Relaxed)
+            + stats.remote_allocs.load(Ordering::Relaxed);
 
         // 在某些平台上，Local策略可能不正确跟踪统计信息
         // 只要不崩溃就认为测试通过
@@ -565,8 +573,14 @@ mod performance_tests {
         }
         let dealloc_time = start.elapsed();
 
-        println!("Allocation throughput: {} allocations in {:?}", 10000, alloc_time);
-        println!("Deallocation throughput: {} deallocations in {:?}", 10000, dealloc_time);
+        println!(
+            "Allocation throughput: {} allocations in {:?}",
+            10000, alloc_time
+        );
+        println!(
+            "Deallocation throughput: {} deallocations in {:?}",
+            10000, dealloc_time
+        );
 
         // 性能基准: 10000次分配应该在合理时间内完成
         assert!(alloc_time.as_secs() < 5, "Allocation too slow");

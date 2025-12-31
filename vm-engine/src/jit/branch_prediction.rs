@@ -517,7 +517,11 @@ impl BranchPredictionOptimizer {
                 // 无条件分支 - 预测总是跳转
                 self.btb.insert(pc, target.0);
             }
-            vm_ir::Terminator::CondJmp { cond: _, target_true, target_false: _ } => {
+            vm_ir::Terminator::CondJmp {
+                cond: _,
+                target_true,
+                target_false: _,
+            } => {
                 // 条件分支 - 可以添加预测
                 self.btb.insert(pc, target_true.0);
             }

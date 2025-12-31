@@ -13,8 +13,10 @@ use std::time::Instant;
 /// Re-export vm-optimizers GC types
 pub use vm_optimizers::{
     gc_concurrent::{ConcurrentGC, GCColor, GCStats},
-    gc_generational::{GenerationalGC, GenerationalGCStats, YoungGenerationConfig, OldGenerationConfig, GcResult},
-    gc_write_barrier::{WriteBarrier, BarrierType, SATBBarrier, CardMarkingBarrier, BarrierStats},
+    gc_generational::{
+        GcResult, GenerationalGC, GenerationalGCStats, OldGenerationConfig, YoungGenerationConfig,
+    },
+    gc_write_barrier::{BarrierStats, BarrierType, CardMarkingBarrier, SATBBarrier, WriteBarrier},
 };
 
 /// 占位符类型用于兼容旧代码

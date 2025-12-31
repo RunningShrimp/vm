@@ -1,0 +1,15 @@
+[package]
+name = "vm-fuzz"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+vm-core = { path = "../vm-core" }
+vm-mem = { path = "../vm-mem" }
+vm-frontend = { path = "../vm-frontend" }
+vm-device = { path = "../vm-device" }

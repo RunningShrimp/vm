@@ -250,8 +250,8 @@ fn bench_memory_intensive_block(c: &mut Criterion) {
             base: ((i + 1) % 32) as RegId,
             offset: (i * 8) as i64,
             size: 8,
-        flags: vm_ir::MemFlags::default(),
-                });
+            flags: vm_ir::MemFlags::default(),
+        });
     }
     let block = IRBlock {
         start_pc: vm_core::GuestAddr(0),
@@ -553,16 +553,12 @@ fn bench_aligned_memory_operations(c: &mut Criterion) {
             term: Terminator::Ret,
         };
 
-        group.bench_with_input(
-            BenchmarkId::new("load", alignment),
-            alignment,
-            |b, _| {
-                let mut compiler = JITCompiler::new();
-                b.iter(|| {
-                    black_box(compiler.compile(black_box(&block))).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("load", alignment), alignment, |b, _| {
+            let mut compiler = JITCompiler::new();
+            b.iter(|| {
+                black_box(compiler.compile(black_box(&block))).unwrap();
+            });
+        });
     }
 
     group.finish();
@@ -683,8 +679,8 @@ fn bench_store_intensive_compilation(c: &mut Criterion) {
             base: ((i + 1) % 32) as RegId,
             offset: (i * 8) as i64,
             size: 8,
-        flags: vm_ir::MemFlags::default(),
-                });
+            flags: vm_ir::MemFlags::default(),
+        });
     }
     let block = IRBlock {
         start_pc: vm_core::GuestAddr(0),
@@ -711,16 +707,16 @@ fn bench_load_store_mixed(c: &mut Criterion) {
                 base: ((i + 1) % 32) as RegId,
                 offset: (i * 8) as i64,
                 size: 8,
-            flags: vm_ir::MemFlags::default(),
-                });
+                flags: vm_ir::MemFlags::default(),
+            });
         } else {
             ops.push(IROp::Store {
                 src: (i % 32) as RegId,
                 base: ((i + 1) % 32) as RegId,
                 offset: (i * 8) as i64,
                 size: 8,
-            flags: vm_ir::MemFlags::default(),
-                });
+                flags: vm_ir::MemFlags::default(),
+            });
         }
     }
     let block = IRBlock {
@@ -982,8 +978,8 @@ fn bench_real_workload_memory(c: &mut Criterion) {
             base: 1, // 数组基址
             offset: (i * 8) as i64,
             size: 8,
-        flags: vm_ir::MemFlags::default(),
-                });
+            flags: vm_ir::MemFlags::default(),
+        });
         ops.push(IROp::Add {
             dst: (i % 32) as RegId,
             src1: (i % 32) as RegId,
@@ -994,8 +990,8 @@ fn bench_real_workload_memory(c: &mut Criterion) {
             base: 1,
             offset: (i * 8) as i64,
             size: 8,
-        flags: vm_ir::MemFlags::default(),
-                });
+            flags: vm_ir::MemFlags::default(),
+        });
     }
     let block = IRBlock {
         start_pc: vm_core::GuestAddr(0),
@@ -1134,7 +1130,7 @@ fn bench_random_ir_blocks(c: &mut Criterion) {
                     base: src1,
                     offset: (i * 8) as i64,
                     size: 8,
-                flags: vm_ir::MemFlags::default(),
+                    flags: vm_ir::MemFlags::default(),
                 }),
                 _ => unreachable!(),
             }
@@ -1191,8 +1187,8 @@ fn bench_memory_bandwidth_sensitive(c: &mut Criterion) {
             base: 1,
             offset: (i * 8) as i64,
             size: 8,
-        flags: vm_ir::MemFlags::default(),
-                });
+            flags: vm_ir::MemFlags::default(),
+        });
     }
     let block = IRBlock {
         start_pc: vm_core::GuestAddr(0),
@@ -1242,7 +1238,12 @@ fn bench_memory_usage_by_opt_level(c: &mut Criterion) {
 
     let block = create_test_block(500);
 
-    for opt_level in [OptLevel::None, OptLevel::Basic, OptLevel::Balanced, OptLevel::Aggressive] {
+    for opt_level in [
+        OptLevel::None,
+        OptLevel::Basic,
+        OptLevel::Balanced,
+        OptLevel::Aggressive,
+    ] {
         let mut config = JITConfig::default();
         config.opt_level = opt_level;
 

@@ -2,7 +2,6 @@
 //!
 //! 提供跨平台的可执行内存分配和管理功能
 
-
 /// 可执行内存管理器
 pub struct ExecutableMemory {
     data: Vec<u8>,
@@ -39,7 +38,7 @@ impl ExecutableMemory {
     pub fn make_executable(&mut self) -> bool {
         #[cfg(unix)]
         unsafe {
-            use libc::{c_void, mprotect, PROT_EXEC, PROT_READ};
+            use libc::{PROT_EXEC, PROT_READ, c_void, mprotect};
 
             let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
             let aligned_addr = (self.ptr as usize) & !(page_size - 1);
@@ -83,7 +82,7 @@ impl ExecutableMemory {
     pub fn make_writable(&mut self) -> bool {
         #[cfg(unix)]
         unsafe {
-            use libc::{c_void, mprotect, PROT_READ, PROT_WRITE};
+            use libc::{PROT_READ, PROT_WRITE, c_void, mprotect};
 
             let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
             let aligned_addr = (self.ptr as usize) & !(page_size - 1);
@@ -132,7 +131,6 @@ impl ExecutableMemory {
         #[cfg(target_arch = "aarch64")]
         unsafe {
             use std::arch::asm;
-            
 
             // ARM64需要手动刷新指令缓存
             let addr = self.ptr as usize;

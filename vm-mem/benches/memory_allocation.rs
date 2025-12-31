@@ -3,8 +3,8 @@
 //! 测试物理内存管理器的读写吞吐量
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use vm_mem::PhysicalMemory;
 use vm_core::mmu_traits::MemoryAccess;
+use vm_mem::PhysicalMemory;
 
 // Use std::hint::black_box instead of criterion's deprecated version
 use std::hint::black_box;

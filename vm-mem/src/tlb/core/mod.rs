@@ -14,8 +14,8 @@ pub mod unified;
 
 // 重新导出主要类型
 pub use basic::*;
-pub use concurrent::*;
-pub use lockfree::*;
+pub use concurrent::{ConcurrentTlbConfig, ShardedTlb};
+pub use lockfree::{LockFreeTlb, TlbEntry as LockFreeTlbEntry};
 pub use per_cpu::*;
 
 // 从unified模块导入，但重命名TlbStats以避免冲突
