@@ -1,36 +1,309 @@
-name: Performance Benchmarks
+name: Nightly Benchmarks and Regression Detection
 
 on:
+  schedule:
+    # Run nightly at 00:00 UTC
+    - cron: '0 0 * * *'
   push:
-    branches: [ master, main ]
+    branches: [master, main]
+    paths:
+      - 'vm-engine/**'
+      - 'vm-core/**'
+      - 'vm-mem/**'
+      - 'perf-bench/**'
+      - 'benches/**'
   pull_request:
-    branches: [ master, main ]
+    branches: [master, main]
+    paths:
+      - 'vm-engine/**'
+      - 'vm-core/**'
+      - 'vm-mem/**'
+      - 'perf-bench/**'
+      - 'benches/**'
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
+  # ============================================================================
+  # Performance benchmarks
+  # ============================================================================
   benchmark:
-    name: Run Benchmarks
+    name: Performance Benchmarks
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch history for comparison
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          override: true
 
-    - name: Run benchmarks
-      run: |
-        cargo bench --bench memory_pool_bench
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-latest-bench-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
-      with:
-        name: benchmark-results
-        path: target/criterion
+      - name: Run benchmarks
+        run: |
+          echo "Running performance benchmarks..."
+
+          # Run all benchmarks
+          cargo bench --workspace --all-features -- --save-baseline main
+
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Comparing with baseline..."
+          cargo bench --workspace --all-features -- --baseline main
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            target/criterion
+            **/criterion
+          retention-days: 30
+
+      - name: Generate benchmark report
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmark run completed at $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Find and display benchmark results
+          find target -name "*.json" -path "*/criterion/*" | head -5
+
+  # ============================================================================
+  # Memory benchmarks
+  # ============================================================================
+  memory-benchmark:
+    name: Memory Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          override: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-latest-memory-bench-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run memory benchmarks
+        run: |
+          echo "Running memory benchmarks..."
+
+          # Run memory pool benchmarks
+          cargo bench --bench memory_pool_bench -- --measurement-time=10
+
+      - name: Check for memory leaks
+        run: |
+          echo "Analyzing memory usage patterns..."
+          # Add custom memory leak detection here
+          cargo test --release --test "*memory*" -- --nocapture
+
+      - name: Upload memory benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-benchmark-results
+          path: target/criterion
+          retention-days: 30
+
+  # ============================================================================
+  # Performance regression detection
+  # ============================================================================
+  regression-detection:
+    name: Performance Regression Detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install critcmp
+        run: cargo install critcmp
+
+      - name: Run benchmarks
+        run: |
+          cargo bench --workspace --all-features -- --save-baseline new
+
+      - name: Download previous baseline
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results
+          path: previous-baseline
+
+      - name: Compare with previous baseline
+        run: |
+          if [ -d previous-baseline ]; then
+            echo "Comparing with previous baseline..."
+            critcmp new previous || true
+
+            # Check for regressions (10% threshold)
+            critcmp new previous --threshold 10 > regression-report.txt || true
+
+            if grep -q "Performance has regressed" regression-report.txt; then
+              echo "❌ Performance regression detected!"
+              cat regression-report.txt
+              echo "## Performance Regression Detected" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat regression-report.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              exit 1
+            else
+              echo "✅ No performance regressions detected"
+            fi
+          else
+            echo "⚠️  No previous baseline found for comparison"
+          fi
+
+      - name: Upload new baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: target/criterion
+          retention-days: 90
+
+  # ============================================================================
+  # Compile time benchmarks
+  # ============================================================================
+  compile-time:
+    name: Compile Time Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          override: true
+
+      - name: Clean build
+        run: |
+          cargo clean
+
+      - name: Measure build time
+        run: |
+          echo "Measuring build time..."
+          time cargo build --workspace --all-features 2>&1 | tee build-time.log
+
+          # Extract build time from log
+          BUILD_TIME=$(grep "real" build-time.log | awk '{print $2}')
+          echo "Build time: ${BUILD_TIME}"
+
+          # Save to summary
+          echo "## Build Time Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total build time**: ${BUILD_TIME}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check binary size
+        run: |
+          echo "Analyzing binary sizes..."
+
+          echo "## Binary Size Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Binary | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+
+          for bin in target/release/*; do
+            if [ -f "$bin" ]; then
+              SIZE=$(du -h "$bin" | awk '{print $1}')
+              NAME=$(basename "$bin")
+              echo "| ${NAME} | ${SIZE} |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Check for bloating dependencies
+        run: |
+          echo "Checking for large dependencies..."
+          cargo tree --workspace | wc -l | awk '{print "Total dependencies: " $1}'
+
+          # Find largest crates
+          cargo build --workspace --all-features --release --timings
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-analysis
+          path: |
+            build-time.log
+            target/release
+          retention-days: 7
+
+  # ============================================================================
+  # Nightly summary
+  # ============================================================================
+  nightly-summary:
+    name: Nightly Summary
+    runs-on: ubuntu-latest
+    needs: [benchmark, memory-benchmark, regression-detection, compile-time]
+    if: always()
+
+    steps:
+      - name: Generate nightly summary
+        run: |
+          echo "## Nightly Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Benchmarks: ${{ needs.benchmark.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Memory: ${{ needs.memory-benchmark.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Regression Detection: ${{ needs.regression-detection.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Compile Time: ${{ needs.compile-time.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.regression-detection.result }}" == "failure" ]; then
+            echo "⚠️  Performance regression detected!" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create issue on failure
+        if: needs.regression-detection.result == 'failure'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '⚠️ Performance Regression Detected',
+              body: `Performance regression detected in nightly benchmarks.
+
+              **Commit**: ${{ github.sha }}
+              **Date**: ${new Date().toISOString()}
+
+              Please review the benchmark results to identify the cause of the regression.`,
+              labels: ['performance', 'regression', 'nightly']
+            })

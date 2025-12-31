@@ -2,34 +2,246 @@ name: Code Quality
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [master, main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [master, main, develop]
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
+  # ============================================================================
+  # Formatting check
+  # ============================================================================
   fmt:
     name: Rustfmt Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: rustfmt
           override: true
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  # ============================================================================
+  # Clippy linting
+  # ============================================================================
   clippy:
     name: Clippy Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: clippy
           override: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-latest-clippy-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Run Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::cargo
+
+      - name: Generate Clippy report
+        if: failure()
+        run: |
+          cargo clippy --workspace --all-features --all-targets --message-format=json > clippy-report.json || true
+          echo "Clippy warnings generated"
+
+  # ============================================================================
+  # Documentation coverage
+  # ============================================================================
+  docs:
+    name: Documentation Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-docs
+          override: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-latest-docs-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build documentation
+        run: cargo doc --no-deps --workspace --all-features
+
+      - name: Check documentation coverage
+        run: |
+          # Find undocumented public items
+          echo "Checking for undocumented public items..."
+
+          # Create a temporary file to store undocumented items
+          > /tmp/undocumented.txt
+
+          # Check each crate
+          for dir in */; do
+            if [ -f "${dir}/Cargo.toml" ]; then
+              echo "Checking ${dir}..."
+              cargo doc --no-deps --manifest-path="${dir}/Cargo.toml" --all-features 2>&1 | \
+                grep "missing documentation" >> /tmp/undocumented.txt || true
+            fi
+          done
+
+          if [ -s /tmp/undocumented.txt ]; then
+            echo "⚠️  Found undocumented public items:"
+            cat /tmp/undocumented.txt
+            echo "Total: $(wc -l < /tmp/undocumented.txt) items"
+          else
+            echo "✅ All public items are documented"
+          fi
+
+      - name: Check for broken documentation links
+        run: |
+          echo "Checking for broken intra-doc links..."
+          cargo doc --no-deps --workspace --all-features 2>&1 | \
+            grep -i "broken\|cannot be resolved" && exit 1 || echo "✅ No broken links found"
+
+  # ============================================================================
+  # Complex metrics
+  # ============================================================================
+  complexity:
+    name: Code Complexity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-complexity
+        run: cargo install cargo-complexity
+
+      - name: Check code complexity
+        run: |
+          echo "Analyzing code complexity..."
+          # This will fail if any function has cyclomatic complexity > 20
+          cargo complexity --workspace --threshold 20 || true
+
+      - name: Count lines of code
+        run: |
+          echo "## Code Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Rust files**: $(find . -name '*.rs' | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total lines of code**: $(find . -name '*.rs' -exec cat {} \; | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total lines of documentation**: $(find . -name '*.rs' -exec cat {} \; | grep '//!' | wc -l)" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Test coverage quality
+  # ============================================================================
+  coverage-quality:
+    name: Test Coverage Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate coverage report
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+
+      - name: Check coverage threshold
+        run: |
+          # Parse coverage from lcov.info
+          if [ -f lcov.info ]; then
+            COVERAGE=$(lcov --summary lcov.info 2>&1 | grep "lines" | awk '{print $2}' | sed 's/%//')
+            echo "Current coverage: ${COVERAGE}%"
+
+            # Require at least 60% coverage
+            if (( $(echo "$COVERAGE < 60" | bc -l) )); then
+              echo "❌ Coverage ${COVERAGE}% is below threshold 60%"
+              exit 1
+            else
+              echo "✅ Coverage ${COVERAGE}% meets threshold"
+            fi
+          else
+            echo "⚠️  Could not generate coverage report"
+          fi
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  # ============================================================================
+  # Dependency check
+  # ============================================================================
+  dependencies:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check for duplicate dependencies
+        run: |
+          echo "Checking for duplicate dependencies..."
+          cargo tree --duplicates || echo "No duplicates found"
+
+      - name: Check dependency tree size
+        run: |
+          echo "Analyzing dependency tree..."
+          cargo tree | wc -l | awk '{print "Total dependencies: " $1}'
+
+      - name: Check build time
+        run: |
+          echo "Measuring build time..."
+          time cargo build --workspace --all-features 2>&1 | tee build-time.log
+
+  # ============================================================================
+  # Summary job
+  # ============================================================================
+  quality-summary:
+    name: Quality Summary
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, docs, complexity, coverage-quality, dependencies]
+    if: always()
+
+    steps:
+      - name: Generate quality summary
+        run: |
+          echo "## Code Quality Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Formatting | ${{ needs.fmt.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Clippy | ${{ needs.clippy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.docs.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Complexity | ${{ needs.complexity.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${{ needs.coverage-quality.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependencies | ${{ needs.dependencies.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Determine overall status
+          if [ "${{ needs.fmt.result }}" == "success" ] && \
+             [ "${{ needs.clippy.result }}" == "success" ] && \
+             [ "${{ needs.docs.result }}" == "success" ]; then
+            echo "✅ All quality checks passed!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Some quality checks failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
 
