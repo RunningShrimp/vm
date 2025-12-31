@@ -11,11 +11,115 @@ use crate::{AccessType, TlbEntry, VmError};
 
 /// Trait defining the asynchronous interface for a Translation Lookaside Buffer (TLB).
 ///
-/// This trait provides a unified interface for all TLB implementations across different
-/// architectures, allowing them to be used interchangeably in the virtual machine.
-#[async_trait]
-pub trait AsyncTranslationLookasideBuffer {
-    /// Asynchronously translate a virtual address to a physical address.
+/// 实现高效的 TLB 异步操作，包括：
+/// - 并发 TLB 访问
+/// - 异步批量刷新
+/// - 选择性失效
+/// - TLB 一致性维护
+use std::sync::Arc;
+
+/// TLB 访问记录
+#[derive(Clone, Debug)]
+pub struct AccessRecord {
+    /// 访问时间戳
+    pub timestamp_us: u64,
+    /// 访问类型
+    pub access_type: AccessType,
+    /// 访问频率
+    pub frequency: u64,
+}
+
+/// TLB 一致性状态
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
+pub enum TLBConsistency {
+    /// 有效
+    Valid,
+    /// 待刷新
+    Pending,
+    /// 无效
+    Invalid,
+}
+
+/// 高性能异步 TLB 缓存
+pub struct AsyncTLBCache {
+    /// TLB 表项存储 (虚拟地址 -> (物理地址, 访问权限, 一致性状态))
+    entries: Arc<RwLock<HashMap<GuestAddr, (GuestPhysAddr, AccessType, TLBConsistency)>>>,
+    /// 访问记录 (用于 LRU)
+    access_records: Arc<parking_lot::Mutex<HashMap<GuestAddr, AccessRecord>>>,
+    /// TLB 容量
+    capacity: usize,
+    /// 预取队列大小
+    prefetch_queue_size: usize,
+    /// 统计信息
+    stats: Arc<parking_lot::Mutex<TLBCacheStats>>,
+}
+
+/// TLB 缓存统计
+#[derive(Clone, Debug, Default)]
+pub struct TLBCacheStats {
+    /// 命中次数
+    pub hits: u64,
+    /// 缺失次数
+    pub misses: u64,
+    /// 刷新次数
+    pub flushes: u64,
+    /// 批量刷新次数
+    pub batch_flushes: u64,
+    /// 预取次数
+    pub prefetches: u64,
+    /// 平均命中率
+    pub hit_rate: f64,
+}
+
+impl AsyncTLBCache {
+    /// 创建新的 TLB 缓存
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            entries: Arc::new(RwLock::new(HashMap::new())),
+            access_records: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            capacity,
+            prefetch_queue_size: 100,
+            stats: Arc::new(parking_lot::Mutex::new(TLBCacheStats::default())),
+        }
+    }
+
+    /// 查找 TLB 表项
+    pub fn lookup(&self, va: GuestAddr) -> Option<(GuestPhysAddr, AccessType)> {
+        let entries = self.entries.write();
+
+        if let Some(&(pa, access, consistency)) = entries.get(&va) {
+            if consistency == TLBConsistency::Valid {
+                let mut stats = self.stats.lock();
+                stats.hits += 1;
+                return Some((pa, access));
+            }
+        }
+
+        let mut stats = self.stats.lock();
+        stats.misses += 1;
+        None
+    }
+
+    /// 异步查找（带预取提示）
+    pub async fn lookup_async_with_hint(
+        &self,
+        va: GuestAddr,
+        prefetch_addrs: Option<&[GuestAddr]>,
+    ) -> Option<(GuestPhysAddr, AccessType)> {
+        let result = self.lookup(va);
+
+        // 如果提供了预取地址，异步处理
+        if let Some(addrs) = prefetch_addrs {
+            if result.is_none() {
+                // 可以在这里触发异步预取
+                let _ = self.async_prefetch(addrs).await;
+            }
+        }
+
+        result
+    }
+
+    /// 异步预取（优化版：智能预取策略）
     ///
     /// # Arguments
     /// - `va`: The virtual address to translate.
@@ -64,16 +168,153 @@ pub trait AsyncTranslationLookasideBuffer {
     /// - `Err(VmError)`: An error if the entries could not be flushed.
     async fn flush_asid(&mut self, asid: u16) -> Result<(), VmError>;
 
-    /// Asynchronously flush TLB entries by virtual page range.
-    ///
-    /// # Arguments
-    /// - `start_va`: The start of the virtual address range to flush.
-    /// - `end_va`: The end of the virtual address range to flush.
-    ///
-    /// # Returns
-    /// - `Ok(())`: If the entries were successfully flushed.
-    /// - `Err(VmError)`: An error if the entries could not be flushed.
-    async fn flush_range(&mut self, start_va: u64, end_va: u64) -> Result<(), VmError>;
+                for prefetch_addr in [prefetch_addr_forward, prefetch_addr_backward] {
+                    if !entries.contains_key(&prefetch_addr)
+                        && !prefetch_candidates.contains(&prefetch_addr)
+                    {
+                        prefetch_candidates.push(prefetch_addr);
+                    }
+                }
+            }
+        }
+
+        prefetch_candidates
+    }
+
+    /// 插入 TLB 表项
+    pub fn insert(&self, va: GuestAddr, pa: GuestPhysAddr, access: AccessType) {
+        let mut entries = self.entries.write();
+
+        // 容量检查
+        if entries.len() >= self.capacity {
+            // 移除 LRU 表项
+            if let Some(lru_va) = self.find_lru_entry() {
+                entries.remove(&lru_va);
+            }
+        }
+
+        entries.insert(va, (pa, access, TLBConsistency::Valid));
+
+        // 记录访问
+        let mut records = self.access_records.lock();
+        records.insert(
+            va,
+            AccessRecord {
+                timestamp_us: 0,
+                access_type: access,
+                frequency: 1,
+            },
+        );
+    }
+
+    /// 查找 LRU 表项
+    fn find_lru_entry(&self) -> Option<GuestAddr> {
+        let records = self.access_records.lock();
+        records
+            .iter()
+            .min_by_key(|(_, record)| record.timestamp_us)
+            .map(|(&va, _)| va)
+    }
+
+    /// 刷新单个 TLB 表项
+    pub fn flush_entry(&self, va: GuestAddr) {
+        let mut entries = self.entries.write();
+        entries.remove(&va);
+
+        let mut stats = self.stats.lock();
+        stats.flushes += 1;
+    }
+
+    /// 批量刷新 TLB 表项
+    pub async fn batch_flush(&self, addresses: &[GuestAddr]) -> Result<(), VmError> {
+        let mut entries = self.entries.write();
+
+        for &va in addresses {
+            entries.remove(&va);
+        }
+
+        let mut stats = self.stats.lock();
+        stats.batch_flushes += 1;
+        stats.flushes += addresses.len() as u64;
+
+        Ok(())
+    }
+
+    /// 选择性刷新（根据条件）
+    pub async fn selective_flush<F>(&self, predicate: F) -> Result<u64, VmError>
+    where
+        F: Fn(&GuestAddr) -> bool,
+    {
+        let mut entries = self.entries.write();
+        let mut count = 0;
+
+        let addresses: Vec<_> = entries.keys().filter(|va| predicate(va)).copied().collect();
+
+        for va in addresses {
+            entries.remove(&va);
+            count += 1;
+        }
+
+        let mut stats = self.stats.lock();
+        stats.flushes += count;
+
+        Ok(count)
+    }
+
+    /// 刷新所有 TLB
+    pub fn flush_all(&self) {
+        let mut entries = self.entries.write();
+        entries.clear();
+
+        let mut stats = self.stats.lock();
+        stats.flushes += 1;
+    }
+
+    /// 标记为待刷新
+    pub fn mark_pending(&self, va: GuestAddr) {
+        let mut entries = self.entries.write();
+        if let Some((pa, access, _)) = entries.get(&va).copied() {
+            entries.insert(va, (pa, access, TLBConsistency::Pending));
+        }
+    }
+
+    /// 批量标记为待刷新
+    pub async fn batch_mark_pending(&self, addresses: &[GuestAddr]) -> Result<(), VmError> {
+        let mut entries = self.entries.write();
+
+        for &va in addresses {
+            if let Some((pa, access, _)) = entries.get(&va).copied() {
+                entries.insert(va, (pa, access, TLBConsistency::Pending));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 获取统计信息
+    pub fn get_stats(&self) -> TLBCacheStats {
+        let mut stats = self.stats.lock().clone();
+
+        // 计算命中率
+        let total = stats.hits + stats.misses;
+        if total > 0 {
+            stats.hit_rate = stats.hits as f64 / total as f64;
+        }
+
+        stats
+    }
+
+    /// 重置统计信息
+    pub fn reset_stats(&self) {
+        let mut stats = self.stats.lock();
+        *stats = TLBCacheStats::default();
+    }
+
+    /// 获取 TLB 使用率
+    pub fn get_occupancy(&self) -> f64 {
+        let entries = self.entries.write();
+        entries.len() as f64 / self.capacity as f64
+    }
 }
 
 /// A virtual page key used for TLB lookups.

@@ -2854,6 +2854,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "inkwell"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbac11e485159a525867fb7e6aa61981453e6a72f625fde6a4ab3047b0c6dec9"
+dependencies = [
+ "either",
+ "inkwell_internals",
+ "libc",
+ "once_cell",
+ "parking_lot",
+]
+
+[[package]]
+name = "inkwell_internals"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87d00c17e264ce02be5bc23d7bff959188ec7137beddd06b8b6b05a7c680ea85"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "io-uring"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7219,6 +7243,18 @@ dependencies = [
 name = "vm-ir"
 version = "0.1.0"
 dependencies = [
+ "vm-core",
+]
+
+[[package]]
+name = "vm-ir-lift"
+version = "0.1.0"
+dependencies = [
+ "bincode 2.0.1",
+ "capstone",
+ "criterion",
+ "inkwell",
+ "llvm-sys",
  "parking_lot",
  "thiserror 2.0.17",
  "vm-core",

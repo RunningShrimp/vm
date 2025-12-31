@@ -833,14 +833,77 @@ pub struct SyscallContext {
     pub brk_addr: GuestAddr,
 }
 
-impl Default for SyscallContext {
-    fn default() -> Self {
+/// vCPU 退出原因
+#[derive(Debug)]
+pub enum VcpuExit {
+    /// Halt 指令
+    Halt,
+    /// MMIO 访问
+    Mmio {
+        addr: GuestAddr,
+        is_write: bool,
+        size: u8,
+        data: u64,
+    },
+    /// I/O 端口访问（x86）
+    Io {
+        port: u16,
+        is_write: bool,
+        size: u8,
+        data: u32,
+    },
+    /// 中断窗口打开
+    IrqWindowOpen,
+    /// 关机请求
+    Shutdown,
+    /// 未知退出
+    Unknown(i32),
+}
+
+// ============================================================================
+// VirtualMachine 核心结构
+// ============================================================================
+
+/// 虚拟机状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum VmState {
+    Created,
+    Running,
+    Paused,
+    Stopped,
+}
+
+/// 虚拟机核心结构
+#[cfg(not(feature = "no_std"))]
+pub struct VirtualMachine<B> {
+    /// 配置
+    config: VmConfig,
+    /// 状态
+    state: VmState,
+    /// MMU（共享访问）
+    mmu: Arc<Mutex<Box<dyn MMU>>>,
+    /// vCPU 列表
+    vcpus: Vec<Arc<Mutex<dyn ExecutionEngine<B>>>>,
+    /// 执行统计
+    stats: ExecStats,
+    /// 快照管理器
+    snapshot_manager: Mutex<snapshot::SnapshotMetadataManager>,
+    /// 模板管理器
+    template_manager: Mutex<template::TemplateManager>,
+}
+
+#[cfg(not(feature = "no_std"))]
+impl<B: 'static> VirtualMachine<B> {
+    /// 使用提供的 MMU 创建 VM
+    pub fn with_mmu(config: VmConfig, mmu: Box<dyn MMU>) -> Self {
         Self {
-            syscall_no: 0,
-            args: [0; 6],
-            ret: 0,
-            errno: 0,
-            brk_addr: GuestAddr(0),
+            config,
+            state: VmState::Created,
+            mmu: Arc::new(Mutex::new(mmu)),
+            vcpus: Vec::new(),
+            stats: ExecStats::default(),
+            snapshot_manager: Mutex::new(snapshot::SnapshotMetadataManager::new()),
+            template_manager: Mutex::new(template::TemplateManager::new()),
         }
     }
 }

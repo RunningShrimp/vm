@@ -168,9 +168,9 @@ pub struct VmSnapshot {
 }
 
 /// 快照文件管理器
-///
+/// 
 /// 管理虚拟机快照的文件 I/O 操作，包括保存和加载完整的虚拟机状态。
-///
+/// 
 /// 注意：这与 `vm-core` 中的 `SnapshotMetadataManager` 不同：
 /// - `SnapshotMetadataManager`: 管理快照的元数据和快照树结构
 /// - `SnapshotFileManager`: 管理快照文件的读写
@@ -178,6 +178,10 @@ pub struct SnapshotFileManager {
     /// 快照存储目录
     snapshot_dir: PathBuf,
 }
+
+/// 向后兼容的类型别名
+#[deprecated(since = "0.2.0", note = "Use SnapshotFileManager instead")]
+pub type SnapshotManager = SnapshotFileManager;
 
 impl SnapshotFileManager {
     /// 创建新的快照管理器

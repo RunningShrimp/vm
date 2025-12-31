@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/vm-accel/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-boot/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-device/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-hybrid/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-interpreter/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-jit/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-jit/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-frontend-arm64/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-frontend-riscv64/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-frontend-x86_64/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-ir/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-mem/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-mem/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-osal/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-passthrough/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-simd/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-tests/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-tests/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/aot-builder/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-adaptive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-codegen/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-codegen/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-cross-arch/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-debug/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-hybrid/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-interpreter/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-jit/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-engine-jit/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-frontend-arm64/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-frontend-x86_64/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-gpu/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-interface/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-interface/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-ir-lift/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-mem/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-monitor/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-plugin/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-runtime/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-runtime/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-service/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-simd/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vm-tests/benches" isTestSource="true" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

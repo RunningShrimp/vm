@@ -303,11 +303,7 @@ async fn ack_alert_handler(
 
 /// 健康检查
 async fn health_handler(
-    State((metrics_collector, _, _)): State<(
-        Arc<MetricsCollector>,
-        Arc<AlertManager>,
-        Arc<PerformanceAnalyzer>,
-    )>,
+    State((metrics_collector, _, _)): State<(Arc<MetricsCollector>, Arc<AlertManager>, Arc<PerformanceAnalyzer>)>,
 ) -> impl IntoResponse {
     let uptime = metrics_collector.get_uptime().await;
     let health = HealthStatus {

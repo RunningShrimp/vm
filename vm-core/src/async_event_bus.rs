@@ -2,13 +2,15 @@
 //!
 //! 提供异步事件处理能力，支持事件队列、批处理和重试机制。
 
-#![cfg(feature = "async")]
-
 use crate::VmError;
-use crate::jit::domain_event_bus::{DomainEventBus, EventHandler, EventSubscriptionId};
+use crate::domain_event_bus::{DomainEventBus, EventHandler, EventSubscriptionId};
+// #[allow(dead_code)] use crate::domain_events::DomainEvent; // 保留以备将来使用
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}};
-use std::time::SystemTime;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
+use std::time::{Duration, SystemTime};
 
 use tokio::time::sleep;
 use tokio::sync::mpsc;

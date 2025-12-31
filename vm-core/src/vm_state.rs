@@ -23,10 +23,10 @@ pub struct VirtualMachineState<B> {
     pub vcpus: Vec<Arc<Mutex<dyn ExecutionEngine<B>>>>,
     /// 执行统计
     pub stats: ExecStats,
-    // /// 快照管理器
-    // pub snapshot_manager: Arc<Mutex<snapshot::SnapshotMetadataManager>>,
-    // /// 模板管理器
-    // pub template_manager: Arc<Mutex<template::TemplateManager>>,
+    /// 快照管理器
+    pub snapshot_manager: Arc<Mutex<snapshot::SnapshotMetadataManager>>,
+    /// 模板管理器
+    pub template_manager: Arc<Mutex<template::TemplateManager>>,
 }
 
 impl<B: 'static> VirtualMachineState<B> {
@@ -38,6 +38,8 @@ impl<B: 'static> VirtualMachineState<B> {
             mmu: Arc::new(Mutex::new(mmu)),
             vcpus: Vec::new(),
             stats: ExecStats::default(),
+            snapshot_manager: Arc::new(Mutex::new(snapshot::SnapshotMetadataManager::new())),
+            template_manager: Arc::new(Mutex::new(template::TemplateManager::new())),
         }
     }
 
@@ -71,10 +73,10 @@ impl<B: 'static> VirtualMachineState<B> {
         &self.stats
     }
 
-    // /// 获取快照管理器
-    // pub fn snapshot_manager(&self) -> Arc<Mutex<snapshot::SnapshotMetadataManager>> {
-    //     Arc::clone(&self.snapshot_manager)
-    // }
+    /// 获取快照管理器
+    pub fn snapshot_manager(&self) -> Arc<Mutex<snapshot::SnapshotMetadataManager>> {
+        Arc::clone(&self.snapshot_manager)
+    }
 
     // /// 获取模板管理器
     // pub fn template_manager(&self) -> Arc<Mutex<template::TemplateManager>> {
