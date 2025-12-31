@@ -387,9 +387,11 @@ impl TranslationOptimizer {
     /// 获取缓存的锁
     ///
     /// # 返回值
-    /// - `Result<parking_lot::MutexGuard<'_, TranslationCache>, String>`: 缓存锁或错误
-    fn lock_cache(&self) -> Result<parking_lot::MutexGuard<'_, TranslationCache>, String> {
-        self.cache.lock())
+    /// - `std::sync::MutexGuard<'_, TranslationCache>`: 缓存锁
+    fn lock_cache(&self) -> std::sync::MutexGuard<'_, TranslationCache> {
+        self.cache.lock().unwrap_or_else(|e| {
+            panic!("Failed to lock cache: {:?}", e)
+        })
     }
 
     /// 设置优化选项
@@ -433,7 +435,7 @@ impl TranslationOptimizer {
     pub fn translate(&self, ir_block: &IRBlock, riscv_pc_start: GuestAddr, _riscv_pc_end: GuestAddr) -> Result<Vec<u8>, String> {
         // 1. 在翻译缓存中查找
         if self.cache_enabled {
-            let cache = self.lock_cache()?;
+            let cache = self.lock_cache();
             if let Some(cached_code) = cache.lookup(riscv_pc_start) {
                 return Ok(cached_code);
             }
@@ -474,7 +476,7 @@ impl TranslationOptimizer {
 
         // 6. 插入缓存
         if self.cache_enabled {
-            let mut cache = self.lock_cache()?;
+            let mut cache = self.lock_cache();
             let _ = cache.insert(riscv_pc_start, x86_machine_code.clone());
         }
 
@@ -540,7 +542,7 @@ impl TranslationOptimizer {
                 }
 
                 // MUL: dst = src1 * src2 (signed)
-                IROp::Mul { dst, src1, src2, signed: true } => {
+                IROp::Mul { dst, src1, src2 } => {
                     // IMUL r64, r/m64 (two-operand form)
                     if dst != src1 {
                         emit_mov_reg_reg(&mut code, *dst, *src1);
@@ -729,42 +731,42 @@ impl TranslationOptimizer {
 
                 // ========== 比较指令 ==========
                 // SLT: dst = (src1 < src2) ? 1 : 0 (signed)
-                IROp::CmpLt { dst, src1, src2 } => {
+                IROp::CmpLt { dst, lhs: src1, rhs: src2 } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xC); // SETL (less)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // SLTU: dst = (src1 < src2) ? 1 : 0 (unsigned)
-                IROp::CmpLtU { dst, src1, src2 } => {
+                IROp::CmpLtU { dst, lhs: src1, rhs: src2 } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xB); // SETB (below)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // SGE: dst = (src1 >= src2) ? 1 : 0 (signed)
-                IROp::CmpGe { dst, src1, src2 } => {
+                IROp::CmpGe { dst, lhs: src1, rhs: src2 } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xD); // SETGE (greater or equal)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // SGEU: dst = (src1 >= src2) ? 1 : 0 (unsigned)
-                IROp::CmpGeU { dst, src1, src2 } => {
+                IROp::CmpGeU { dst, lhs: src1, rhs: src2 } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xA); // SETAE (above or equal)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // EQ: dst = (src1 == src2) ? 1 : 0
-                IROp::CmpEq { dst, src1, src2 } => {
+                IROp::CmpEq { dst, lhs: src1, rhs: src2 } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0x4); // SETE (equal)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // NE: dst = (src1 != src2) ? 1 : 0
-                IROp::CmpNe { dst, src1, src2 } => {
+                IROp::CmpNe { dst, lhs: src1, rhs: src2 } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0x5); // SETNE (not equal)
                     emit_movzx_reg(&mut code, *dst);
@@ -2082,13 +2084,8 @@ impl TranslationOptimizer {
 
     /// 获取缓存统计
     pub fn get_cache_stats(&self) -> TranslationCacheStats {
-        match self.lock_cache() {
-            Ok(cache) => cache.get_stats(),
-            Err(e) => {
-                eprintln!("Failed to acquire cache lock in get_cache_stats: {}", e);
-                TranslationCacheStats::default()
-            }
-        }
+        let cache = self.lock_cache();
+        cache.get_stats()
     }
 
     /// 获取融合统计
@@ -2126,9 +2123,11 @@ impl TranslationCache {
     /// 获取统计信息的锁
     ///
     /// # 返回值
-    /// - `Result<parking_lot::MutexGuard<'_, TranslationCacheStats>, String>`: 统计锁或错误
-    fn lock_stats(&self) -> Result<parking_lot::MutexGuard<'_, TranslationCacheStats>, String> {
-        self.stats.lock())
+    /// - `std::sync::MutexGuard<'_, TranslationCacheStats>`: 统计锁
+    fn lock_stats(&self) -> std::sync::MutexGuard<'_, TranslationCacheStats> {
+        self.stats.lock().unwrap_or_else(|e| {
+            panic!("Failed to lock stats: {:?}", e)
+        })
     }
 
     /// 查找缓存
@@ -2139,17 +2138,13 @@ impl TranslationCache {
     /// # 返回值
     /// - `Option<Vec<u8>>`: 缓存的x86机器码
     pub fn lookup(&self, riscv_pc: GuestAddr) -> Option<Vec<u8>> {
-        if let Ok(mut stats) = self.lock_stats() {
-            if let Some(cached_code) = self.entries.get(&riscv_pc) {
-                stats.hits += 1;
-                Some(cached_code.clone())
-            } else {
-                stats.misses += 1;
-                None
-            }
+        let mut stats = self.lock_stats();
+        if let Some(cached_code) = self.entries.get(&riscv_pc) {
+            stats.hits += 1;
+            Some(cached_code.clone())
         } else {
-            // If stats lock fails, still perform lookup without updating stats
-            self.entries.get(&riscv_pc).cloned()
+            stats.misses += 1;
+            None
         }
     }
 
@@ -2167,10 +2162,9 @@ impl TranslationCache {
             return Err(format!("Translation entry too large: {} bytes (max 16KB)", size_bytes));
         }
 
-        let mut stats = self.lock_stats()?;
-
+        // Check if we need to evict entries
         if self.current_size >= self.max_size {
-            // 简单的FIFO替换策略
+            // Simple FIFO replacement strategy
             let keys: Vec<_> = self.entries.keys().cloned().collect();
             if let Some(&key) = keys.first() {
                 if self.entries.remove(&key).is_some() {
@@ -2181,11 +2175,19 @@ impl TranslationCache {
             }
         }
 
+        // Insert new entry
         self.entries.insert(riscv_pc, x86_machine_code);
         self.current_size += 1;
-        stats.current_size = self.current_size;
-        if stats.current_size > stats.max_size {
-            stats.max_size = self.current_size;
+
+        // Update stats
+        {
+            let mut stats = self.stats.lock().unwrap_or_else(|e| {
+                panic!("Failed to lock stats: {:?}", e)
+            });
+            stats.current_size = self.current_size;
+            if stats.current_size > stats.max_size {
+                stats.max_size = self.current_size;
+            }
         }
 
         Ok(self.current_size)
@@ -2193,30 +2195,23 @@ impl TranslationCache {
 
     /// 获取统计
     pub fn get_stats(&self) -> TranslationCacheStats {
-        match self.lock_stats() {
-            Ok(stats) => stats.clone(),
-            Err(e) => {
-                eprintln!("Failed to acquire stats lock in get_stats: {}", e);
-                TranslationCacheStats::default()
-            }
-        }
+        let stats = self.lock_stats();
+        stats.clone()
     }
 
     /// 重置统计
     pub fn reset_stats(&mut self) {
-        if let Ok(mut stats) = self.lock_stats() {
-            stats.hits = 0;
-            stats.misses = 0;
-        }
+        let mut stats = self.lock_stats();
+        stats.hits = 0;
+        stats.misses = 0;
     }
 
     /// 清空缓存
     pub fn clear(&mut self) {
         self.entries.clear();
         self.current_size = 0;
-        if let Ok(mut stats) = self.lock_stats() {
-            stats.current_size = 0;
-        }
+        let mut stats = self.lock_stats();
+        stats.current_size = 0;
     }
 }
 
@@ -2308,7 +2303,8 @@ mod tests {
         };
         let result = optimizer.translate(&ir_block, vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x1010));
         assert!(result.is_ok());
-        assert_eq!(result.expect("optimizer translate should succeed"), vec![0x90]);
+        // Empty IR block with Ret terminator should generate RET (0xC3)
+        assert_eq!(result.expect("optimizer translate should succeed"), vec![0xC3]);
     }
 
     #[test]

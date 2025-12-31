@@ -10,6 +10,7 @@ pub mod executable_memory;
 mod instruction_scheduler;
 mod optimizer;
 mod tiered_cache;
+pub mod translation_optimizer;
 
 pub mod branch_prediction;
 pub mod register_allocator;

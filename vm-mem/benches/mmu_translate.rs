@@ -1,4 +1,5 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use vm_core::AddressTranslator;
 use vm_core::AccessType;
 use vm_mem::SoftMmu;
 

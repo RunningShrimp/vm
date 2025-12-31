@@ -1,4 +1,5 @@
 //! 异步MMU性能基准测试
+use vm_core::AddressTranslator;
 //!
 //! 测试异步MMU操作的延迟和吞吐量
 

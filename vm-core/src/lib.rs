@@ -34,6 +34,7 @@ extern crate alloc;
 
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 // 模块定义
 pub mod config;
@@ -594,26 +595,8 @@ pub enum ExecMode {
     HardwareAssisted,
 }
 
-/// 虚拟机状态
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VmState {
-    /// 寄存器状态
-    pub regs: GuestRegs,
-    /// 内存状态
-    pub memory: Vec<u8>,
-    /// 程序计数器
-    pub pc: GuestAddr,
-}
-
-impl Default for VmState {
-    fn default() -> Self {
-        Self {
-            regs: GuestRegs::default(),
-            memory: Vec::new(),
-            pc: GuestAddr(0),
-        }
-    }
-}
+// VmState struct has been removed - use VirtualMachineState instead
+// The old VmState struct conflicted with the VmState enum defined below
 
 /// 虚拟机结果类型
 pub type VmResult<T> = Result<T, VmError>;
@@ -865,8 +848,9 @@ pub enum VcpuExit {
 // ============================================================================
 
 /// 虚拟机状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum VmState {
+    #[default]
     Created,
     Running,
     Paused,
@@ -909,7 +893,8 @@ impl<B: 'static> VirtualMachine<B> {
 }
 
 /// VCPU状态容器
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct VcpuStateContainer {
     /// VCPU ID
     pub vcpu_id: usize,
@@ -917,7 +902,10 @@ pub struct VcpuStateContainer {
     pub state: VmState,
     /// 是否运行中
     pub running: bool,
+    /// CPU寄存器状态
+    pub regs: crate::GuestRegs,
 }
+
 
 pub use regs::GuestRegs;
 

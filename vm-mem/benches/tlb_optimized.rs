@@ -1,4 +1,5 @@
 //! TLB优化性能基准测试
+use vm_core::AddressTranslator;
 //!
 //! 测试多级TLB和并发TLB的性能表现
 

@@ -4,6 +4,62 @@ use vm_ir::{AtomicOp, IRBlock, IROp, MemFlags, Terminator};
 mod vector;
 use vector::VectorDecoder;
 
+// Type alias for convenience
+pub type VmResult<T> = Result<T, VmError>;
+
+// Placeholder RiscvCPU struct for extension implementations
+// This will be properly implemented when the CPU core is added
+pub struct RiscvCPU<'a> {
+    pub regs: [u64; 32],
+    pub pc: GuestAddr,
+    pub fp_regs: f_extension::FPRegisters,
+    pub fcsr: f_extension::FCSR,
+    pub mmu: &'a mut dyn MMU,
+    pub _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> RiscvCPU<'a> {
+    pub fn new(mmu: &'a mut dyn MMU) -> Self {
+        Self {
+            regs: [0; 32],
+            pc: GuestAddr(0),
+            fp_regs: f_extension::FPRegisters::default(),
+            fcsr: f_extension::FCSR::default(),
+            mmu,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    // Helper methods for memory access (delegates to MMU trait)
+    pub fn read_u64(&mut self, addr: u64) -> Result<u64, VmError> {
+        self.mmu.read(GuestAddr(addr), 8)
+    }
+
+    pub fn write_u64(&mut self, addr: u64, value: u64) -> Result<(), VmError> {
+        self.mmu.write(GuestAddr(addr), value, 8)
+    }
+
+    pub fn read_u32(&mut self, addr: u64) -> Result<u32, VmError> {
+        self.mmu.read(GuestAddr(addr), 4).map(|v| v as u32)
+    }
+
+    pub fn write_u32(&mut self, addr: u64, value: u32) -> Result<(), VmError> {
+        self.mmu.write(GuestAddr(addr), value as u64, 4)
+    }
+}
+
+// RISC-V扩展模块
+pub mod f_extension;
+pub use f_extension::{
+    FCSR, FExtensionExecutor, FFlags, FPRegisters, RoundingMode,
+};
+
+pub mod d_extension;
+pub use d_extension::DExtensionExecutor;
+
+pub mod c_extension;
+pub use c_extension::{CDecoder, CInstruction};
+
 /// RISC-V 指令表示
 #[derive(Debug, Clone)]
 pub struct RiscvInstruction {

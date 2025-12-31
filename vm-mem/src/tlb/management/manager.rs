@@ -62,6 +62,25 @@ impl StandardTlbManager {
     pub fn stats(&self) -> (u64, u64) {
         (self.hits, self.misses)
     }
+
+    /// 清除指定页面的TLB条目
+    pub fn flush_page(&mut self, addr: GuestAddr) {
+        // 清除普通条目（所有ASID）
+        let keys_to_remove: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.guest_addr == addr)
+            .map(|(k, _)| *k)
+            .collect();
+
+        for key in keys_to_remove {
+            self.entries.remove(&key);
+            self.lru.pop(&key);
+        }
+
+        // 清除全局页条目
+        self.global_entries.remove(&addr.0);
+    }
 }
 
 impl TlbManager for StandardTlbManager {

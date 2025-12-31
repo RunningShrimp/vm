@@ -247,11 +247,9 @@ pub struct PerformanceAnalysis {
 /// 自适应优化器
 pub struct AdaptiveOptimizer {
     /// 配置
-    #[allow(dead_code)]
-    config: AdaptiveOptimizerConfig,
+    _config: AdaptiveOptimizerConfig,
     /// 性能监控器
-    #[allow(dead_code)]
-    performance_monitor: Arc<PerformanceMonitor>,
+    _performance_monitor: Arc<PerformanceMonitor>,
     /// 硬件特性
     hardware_profile: HardwareProfile,
     /// 历史性能分析
@@ -259,8 +257,7 @@ pub struct AdaptiveOptimizer {
     /// 当前优化状态
     optimization_state: OptimizationState,
     /// 最后优化时间
-    #[allow(dead_code)]
-    last_optimization_time: Instant,
+    _last_optimization_time: Instant,
     /// 优化尝试计数
     optimization_attempts: usize,
     /// 当前活跃的优化建议
@@ -302,12 +299,12 @@ impl AdaptiveOptimizer {
         let hardware_profile = Self::detect_hardware_profile();
 
         Self {
-            config,
-            performance_monitor,
+            _config: config,
+            _performance_monitor: performance_monitor,
             hardware_profile,
             performance_history: VecDeque::with_capacity(100),
             optimization_state: OptimizationState::default(),
-            last_optimization_time: Instant::now(),
+            _last_optimization_time: Instant::now(),
             optimization_attempts: 0,
             active_recommendations: HashMap::new(),
         }
@@ -317,7 +314,7 @@ impl AdaptiveOptimizer {
     #[cfg(feature = "async")]
     pub async fn run_optimization_loop(&mut self) {
         let mut interval =
-            tokio::time::interval(Duration::from_secs(self.config.adjustment_interval_seconds));
+            tokio::time::interval(Duration::from_secs(self._config.adjustment_interval_seconds));
 
         loop {
             interval.tick().await;
@@ -329,8 +326,8 @@ impl AdaptiveOptimizer {
     #[cfg(feature = "async")]
     async fn perform_optimization_cycle(&mut self) {
         // 检查冷却时间
-        if self.last_optimization_time.elapsed()
-            < Duration::from_secs(self.config.optimization_cooldown_seconds)
+        if self._last_optimization_time.elapsed()
+            < Duration::from_secs(self._config.optimization_cooldown_seconds)
         {
             return;
         }
@@ -351,10 +348,10 @@ impl AdaptiveOptimizer {
         for recommendation in recommendations {
             if self.should_apply_recommendation(&recommendation) {
                 self.apply_recommendation(recommendation).await;
-                self.last_optimization_time = Instant::now();
+                self._last_optimization_time = Instant::now();
                 self.optimization_attempts += 1;
 
-                if self.optimization_attempts >= self.config.max_optimization_attempts {
+                if self.optimization_attempts >= self._config.max_optimization_attempts {
                     break;
                 }
             }
@@ -365,8 +362,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 分析当前性能
-    #[allow(dead_code)]
-    fn analyze_performance(&self) -> PerformanceAnalysis {
+    fn _analyze_performance(&self) -> PerformanceAnalysis {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -377,7 +373,7 @@ impl AdaptiveOptimizer {
 
         // CPU使用率
         if let Some(stats) = self
-            .performance_monitor
+            ._performance_monitor
             .get_metric_stats("system.cpu.usage", 300)
         {
             metrics.insert("cpu_usage".to_string(), stats.avg);
@@ -385,7 +381,7 @@ impl AdaptiveOptimizer {
 
         // 内存使用率
         if let Some(stats) = self
-            .performance_monitor
+            ._performance_monitor
             .get_metric_stats("system.memory.usage", 300)
         {
             metrics.insert("memory_usage".to_string(), stats.avg);
@@ -393,7 +389,7 @@ impl AdaptiveOptimizer {
 
         // JIT编译时间
         if let Some(stats) = self
-            .performance_monitor
+            ._performance_monitor
             .get_metric_stats("vm.jit.compile_time", 300)
         {
             metrics.insert("jit_compile_time".to_string(), stats.avg);
@@ -401,7 +397,7 @@ impl AdaptiveOptimizer {
 
         // TLB命中率
         if let Some(stats) = self
-            .performance_monitor
+            ._performance_monitor
             .get_metric_stats("vm.tlb.hit_rate", 300)
         {
             metrics.insert("tlb_hit_rate".to_string(), stats.avg);
@@ -427,8 +423,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别工作负载模式
-    #[allow(dead_code)]
-    fn identify_workload_pattern(&self, metrics: &HashMap<String, f64>) -> WorkloadPattern {
+    fn _identify_workload_pattern(&self, metrics: &HashMap<String, f64>) -> WorkloadPattern {
         let cpu_usage = metrics.get("cpu_usage").copied().unwrap_or(0.0);
         let memory_usage = metrics.get("memory_usage").copied().unwrap_or(0.0);
         let jit_compile_time = metrics.get("jit_compile_time").copied().unwrap_or(0.0);
@@ -446,8 +441,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别性能瓶颈
-    #[allow(dead_code)]
-    fn identify_bottlenecks(&self, metrics: &HashMap<String, f64>) -> Vec<String> {
+    fn _identify_bottlenecks(&self, metrics: &HashMap<String, f64>) -> Vec<String> {
         let mut bottlenecks = Vec::new();
 
         if let Some(cpu_usage) = metrics.get("cpu_usage")
@@ -478,8 +472,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别优化机会
-    #[allow(dead_code)]
-    fn identify_optimization_opportunities(
+    fn _identify_optimization_opportunities(
         &self,
         metrics: &HashMap<String, f64>,
         workload_pattern: &WorkloadPattern,
@@ -524,8 +517,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 生成优化建议
-    #[allow(dead_code)]
-    fn generate_recommendations(
+    fn _generate_recommendations(
         &self,
         analysis: &PerformanceAnalysis,
     ) -> Vec<OptimizationRecommendation> {
@@ -603,8 +595,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 判断是否应该应用建议
-    #[allow(dead_code)]
-    fn should_apply_recommendation(&self, recommendation: &OptimizationRecommendation) -> bool {
+    fn _should_apply_recommendation(&self, recommendation: &OptimizationRecommendation) -> bool {
         // 检查置信度和优先级
         if recommendation.confidence < 0.6 || matches!(recommendation.priority, Priority::Low) {
             return false;
@@ -617,7 +608,7 @@ impl AdaptiveOptimizer {
 
         // 检查实施成本
         if matches!(recommendation.implementation_cost, Cost::High)
-            && self.optimization_attempts >= self.config.max_optimization_attempts / 2
+            && self.optimization_attempts >= self._config.max_optimization_attempts / 2
         {
             return false;
         }
@@ -626,8 +617,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 应用优化建议
-    #[allow(dead_code)]
-    async fn apply_recommendation(&mut self, recommendation: OptimizationRecommendation) {
+    async fn _apply_recommendation(&mut self, recommendation: OptimizationRecommendation) {
         println!(
             "Applying optimization recommendation: {}",
             recommendation.description
@@ -668,8 +658,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 清理过期建议
-    #[allow(dead_code)]
-    fn cleanup_expired_recommendations(&mut self) {
+    fn _cleanup_expired_recommendations(&mut self) {
         // 简单的清理策略：保留最近的建议
         if self.active_recommendations.len() > 10 {
             let keys_to_remove: Vec<String> = self

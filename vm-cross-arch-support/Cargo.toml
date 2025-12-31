@@ -11,6 +11,7 @@ thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 static_assertions = "1.1"
+lru = "0.12"
 
 [features]
 default = ["std"]

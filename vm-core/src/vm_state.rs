@@ -3,9 +3,9 @@
 //! 定义虚拟机的纯数据结构，符合DDD贫血模型原则。
 //! 所有业务逻辑应位于服务层（VirtualMachineService）。
 
-// use crate::snapshot;
-// use crate::template;
 use crate::{ExecStats, ExecutionEngine, MMU, VmConfig, VmLifecycleState};
+use crate::snapshot::SnapshotMetadataManager;
+use crate::template::TemplateManager;
 use std::sync::{Arc, Mutex};
 
 /// 虚拟机状态容器
@@ -24,9 +24,9 @@ pub struct VirtualMachineState<B> {
     /// 执行统计
     pub stats: ExecStats,
     /// 快照管理器
-    pub snapshot_manager: Arc<Mutex<snapshot::SnapshotMetadataManager>>,
+    pub snapshot_manager: Arc<Mutex<SnapshotMetadataManager>>,
     /// 模板管理器
-    pub template_manager: Arc<Mutex<template::TemplateManager>>,
+    pub template_manager: Arc<Mutex<TemplateManager>>,
 }
 
 impl<B: 'static> VirtualMachineState<B> {
@@ -38,8 +38,8 @@ impl<B: 'static> VirtualMachineState<B> {
             mmu: Arc::new(Mutex::new(mmu)),
             vcpus: Vec::new(),
             stats: ExecStats::default(),
-            snapshot_manager: Arc::new(Mutex::new(snapshot::SnapshotMetadataManager::new())),
-            template_manager: Arc::new(Mutex::new(template::TemplateManager::new())),
+            snapshot_manager: Arc::new(Mutex::new(SnapshotMetadataManager::new())),
+            template_manager: Arc::new(Mutex::new(TemplateManager::new())),
         }
     }
 
@@ -74,7 +74,7 @@ impl<B: 'static> VirtualMachineState<B> {
     }
 
     /// 获取快照管理器
-    pub fn snapshot_manager(&self) -> Arc<Mutex<snapshot::SnapshotMetadataManager>> {
+    pub fn snapshot_manager(&self) -> Arc<Mutex<SnapshotMetadataManager>> {
         Arc::clone(&self.snapshot_manager)
     }
 
@@ -92,8 +92,8 @@ impl<B: 'static> Clone for VirtualMachineState<B> {
             mmu: Arc::clone(&self.mmu),
             vcpus: self.vcpus.clone(),
             stats: self.stats.clone(),
-            // snapshot_manager: Arc::clone(&self.snapshot_manager),
-            // template_manager: Arc::clone(&self.template_manager),
+            snapshot_manager: Arc::clone(&self.snapshot_manager),
+            template_manager: Arc::clone(&self.template_manager),
         }
     }
 }

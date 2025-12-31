@@ -25,7 +25,9 @@ pub mod memory;
 pub mod optimization;
 pub mod tlb;
 pub mod unified_mmu;
+pub mod unified_mmu_v2;
 
+/// @deprecated 使用unified_mmu_v2::HybridMMU替代
 #[cfg(feature = "async")]
 pub mod async_mmu;
 
@@ -47,7 +49,9 @@ pub use tlb::SingleLevelTlb;
 // 显式导入 TlbStats 避免冲突
 pub use domain_services::AddressTranslationDomainService;
 pub use tlb::BasicTlbStats as TlbStats;
+/// @deprecated 使用unified_mmu_v2中的类型替代
 pub use unified_mmu::{MmuOptimizationStrategy, UnifiedMmu, UnifiedMmuConfig, UnifiedMmuStats};
+pub use unified_mmu_v2::{HybridMMU, UnifiedMMU as UnifiedMMUV2, UnifiedMmuConfigV2, UnifiedMmuStats as UnifiedMmuStatsV2};
 
 // Re-export common types from vm_core for test convenience
 pub use vm_core::{GuestAddr, GuestPhysAddr};

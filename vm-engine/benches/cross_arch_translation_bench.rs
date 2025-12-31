@@ -1,16 +1,15 @@
 //! 跨架构翻译性能基准测试
 //!
-//! 测试RISC-V到x86的翻译性能，包括指令融合、常量传播等优化
+//! 测试RISC-V到x86的翻译性能，验证P1-2缓存效果
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
 use vm_core::GuestAddr;
-use vm_engine::jit::translation_optimizer::{InstructionFusion, TranslationOptimizer};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 /// 创建RISC-V算术操作IR块
 fn create_arithmetic_ir_block(size: usize) -> IRBlock {
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(GuestAddr(0x1000));
 
     for i in 0..size {
         let dst = (i % 16) as u32;
@@ -20,18 +19,8 @@ fn create_arithmetic_ir_block(size: usize) -> IRBlock {
         match i % 4 {
             0 => builder.push(IROp::Add { dst, src1, src2 }),
             1 => builder.push(IROp::Sub { dst, src1, src2 }),
-            2 => builder.push(IROp::Mul {
-                dst,
-                src1,
-                src2,
-                signed: false,
-            }),
-            _ => builder.push(IROp::Div {
-                dst,
-                src1,
-                src2,
-                signed: false,
-            }),
+            2 => builder.push(IROp::Mul { dst, src1, src2 }),
+            _ => builder.push(IROp::Div { dst, src1, src2 }),
         }
     }
 
@@ -41,7 +30,7 @@ fn create_arithmetic_ir_block(size: usize) -> IRBlock {
 
 /// 创建RISC-V内存操作IR块
 fn create_memory_ir_block(size: usize) -> IRBlock {
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(GuestAddr(0x1000));
 
     for i in 0..size {
         let dst = (i % 16) as u32;
@@ -72,7 +61,7 @@ fn create_memory_ir_block(size: usize) -> IRBlock {
 
 /// 创建可融合的IR块（测试指令融合）
 fn create_fusible_ir_block(size: usize) -> IRBlock {
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(GuestAddr(0x1000));
 
     for i in 0..size {
         let dst = (i % 16) as u32;
@@ -99,7 +88,7 @@ fn create_fusible_ir_block(size: usize) -> IRBlock {
 
 /// 创建常量密集的IR块（测试常量传播）
 fn create_constant_dense_ir_block(size: usize) -> IRBlock {
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(GuestAddr(0x1000));
 
     // 创建大量常量操作
     for i in 0..size {
@@ -214,7 +203,7 @@ fn bench_dead_code_elimination(c: &mut Criterion) {
     let mut group = c.benchmark_group("dead_code_elimination");
 
     // 创建包含死代码的IR块
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(GuestAddr(0x1000));
 
     // 有用的代码
     for i in 0..500 {
@@ -324,7 +313,7 @@ fn bench_operation_translation(c: &mut Criterion) {
 
     // 分支操作
     group.bench_function("branch", |b| {
-        let mut builder = IRBuilder::new(0x1000);
+        let mut builder = IRBuilder::new(GuestAddr(0x1000));
         for i in 0..500 {
             builder.push(IROp::CmpEq {
                 dst: (i % 16) as u32,
@@ -334,7 +323,7 @@ fn bench_operation_translation(c: &mut Criterion) {
             builder.push(IROp::Beq {
                 src1: ((i + 1) % 16) as u32,
                 src2: ((i + 2) % 16) as u32,
-                target: 0x1000 + (i * 4) as u64,
+                target: GuestAddr(0x1000 + (i * 4) as u64),
             });
         }
         builder.set_term(Terminator::Ret);

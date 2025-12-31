@@ -33,9 +33,8 @@ pub struct FileDescriptor {
     pub flags: i32,
 }
 
-#[allow(dead_code)]
 /// System call argument structure: mbind
-type MbindArgs = (
+type _MbindArgs = (
     u64,   // start
     usize, // len
     i32,   // mode
@@ -44,9 +43,8 @@ type MbindArgs = (
     u32,   // flags
 );
 
-#[allow(dead_code)]
 /// System call argument structure: pselect6
-type Pselect6Args = (
+type _Pselect6Args = (
     i32, // n
     u64, // inp
     u64, // outp
@@ -55,9 +53,8 @@ type Pselect6Args = (
     u64, // sigmask
 );
 
-#[allow(dead_code)]
 /// System call argument structure: futex
-type FutexArgs = (
+type _FutexArgs = (
     u64, // uaddr
     i32, // futex_op
     i32, // val
@@ -66,9 +63,8 @@ type FutexArgs = (
     u32, // val3
 );
 
-#[allow(dead_code)]
 /// System call argument structure: ppoll
-type PpollArgs = (
+type _PpollArgs = (
     u64,   // ufds
     usize, // nfds
     u64,   // tsp
@@ -76,9 +72,8 @@ type PpollArgs = (
     usize, // sigsetsize
 );
 
-#[allow(dead_code)]
 /// System call argument structure: sendto
-type SendtoArgs = (
+type _SendtoArgs = (
     i32,   // sockfd
     u64,   // buf
     usize, // len
@@ -87,9 +82,8 @@ type SendtoArgs = (
     u32,   // addrlen
 );
 
-#[allow(dead_code)]
 /// System call argument structure: recvfrom
-type RecvfromArgs = (
+type _RecvfromArgs = (
     i32,      // sockfd
     u64,      // buf
     usize,    // len
@@ -98,9 +92,8 @@ type RecvfromArgs = (
     *mut u32, // addrlen
 );
 
-#[allow(dead_code)]
 /// System call argument structure: splice
-type SpliceArgs = (
+type _SpliceArgs = (
     i32,   // fd_in
     u64,   // off_in
     i32,   // fd_out
@@ -109,9 +102,8 @@ type SpliceArgs = (
     u32,   // flags
 );
 
-#[allow(dead_code)]
 /// 系统调用参数结构体：afs_syscall
-type AfsSyscallArgs = (
+type _AfsSyscallArgs = (
     i32, // a
     u64, // b
     u64, // c
@@ -120,9 +112,8 @@ type AfsSyscallArgs = (
     u64, // f
 );
 
-#[allow(dead_code)]
 /// 系统调用参数结构体：tuxcall
-type TuxcallArgs = (
+type _TuxcallArgs = (
     u64, // a
     u64, // b
     u64, // c
@@ -131,9 +122,8 @@ type TuxcallArgs = (
     u64, // f
 );
 
-#[allow(dead_code)]
 /// 系统调用参数结构体：security
-type SecurityArgs = (
+type _SecurityArgs = (
     u64, // a
     u64, // b
     u64, // c
@@ -142,9 +132,8 @@ type SecurityArgs = (
     u64, // f
 );
 
-#[allow(dead_code)]
 /// 系统调用参数结构体：epoll_pwait
-type EpollPwaitArgs = (
+type _EpollPwaitArgs = (
     i32,   // epfd
     u64,   // events
     i32,   // maxevents
@@ -153,9 +142,8 @@ type EpollPwaitArgs = (
     usize, // sigsetsize
 );
 
-#[allow(dead_code)]
 /// 系统调用参数结构体：move_pages
-type MovePagesArgs = (
+type _MovePagesArgs = (
     i32,   // pid
     usize, // nr_pages
     u64,   // pages
@@ -164,9 +152,8 @@ type MovePagesArgs = (
     i32,   // flags
 );
 
-#[allow(dead_code)]
 /// 系统调用参数结构体：process_vm_readv
-type ProcessVmReadvArgs = (
+type _ProcessVmReadvArgs = (
     i32,   // pid
     u64,   // lvec
     usize, // liovcnt
@@ -175,9 +162,8 @@ type ProcessVmReadvArgs = (
     u64,   // flags
 );
 
-#[allow(dead_code)]
 /// 系统调用参数结构体：process_vm_writev
-type ProcessVmWritevArgs = (
+type _ProcessVmWritevArgs = (
     i32,   // pid
     u64,   // lvec
     usize, // liovcnt
@@ -191,23 +177,20 @@ pub struct SyscallHandler {
     // 文件描述符表
     fd_table: Vec<Option<FileDescriptor>>,
     // 内存分配信息
-    #[allow(dead_code)]
-    brk_addr: GuestAddr,
+    _brk_addr: GuestAddr,
 }
 
-#[allow(dead_code)]
 impl Default for SyscallHandler {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[allow(dead_code)]
 impl SyscallHandler {
     pub fn new() -> Self {
         let mut handler = Self {
             fd_table: Vec::new(),
-            brk_addr: GuestAddr(0),
+            _brk_addr: GuestAddr(0),
         };
         // 初始化标准文件描述符
         handler.fd_table.push(Some(FileDescriptor {
@@ -299,14 +282,12 @@ impl SyscallHandler {
     }
 
     // 辅助函数：从 Guest 内存读取 C 字符串
-    #[allow(dead_code)]
-    fn read_c_string(&self, _addr: u64, _mmu: &dyn MMU) -> Result<String, i32> {
+    fn _read_c_string(&self, _addr: u64, _mmu: &dyn MMU) -> Result<String, i32> {
         Ok(String::new())
     }
 
     // 系统调用占位符实现
-    #[allow(dead_code)]
-    fn sys_read(
+    fn _sys_read(
         &mut self,
         _fd: i32,
         _buf: u64,
@@ -316,8 +297,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_write(
+    fn _sys_write(
         &mut self,
         _fd: i32,
         _buf: u64,
@@ -327,8 +307,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_open(
+    fn _sys_open(
         &mut self,
         _pathname: u64,
         _flags: i32,
@@ -338,34 +317,28 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_close(&mut self, _fd: i32) -> SyscallResult {
+    fn _sys_close(&mut self, _fd: i32) -> SyscallResult {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_stat(&mut self, _pathname: u64, _statbuf: u64, _mmu: &mut dyn MMU) -> SyscallResult {
+    fn _sys_stat(&mut self, _pathname: u64, _statbuf: u64, _mmu: &mut dyn MMU) -> SyscallResult {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_fstat(&mut self, _fd: i32, _statbuf: u64, _mmu: &mut dyn MMU) -> SyscallResult {
+    fn _sys_fstat(&mut self, _fd: i32, _statbuf: u64, _mmu: &mut dyn MMU) -> SyscallResult {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_lstat(&mut self, _pathname: u64, _statbuf: u64, _mmu: &mut dyn MMU) -> SyscallResult {
+    fn _sys_lstat(&mut self, _pathname: u64, _statbuf: u64, _mmu: &mut dyn MMU) -> SyscallResult {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_lseek(&mut self, _fd: i32, _offset: i64, _whence: i32) -> SyscallResult {
+    fn _sys_lseek(&mut self, _fd: i32, _offset: i64, _whence: i32) -> SyscallResult {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
     #[allow(clippy::too_many_arguments)]
-    fn sys_mmap(
+    fn _sys_mmap(
         &mut self,
         _addr: u64,
         _len: usize,
@@ -378,8 +351,7 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_mprotect(
+    fn _sys_mprotect(
         &mut self,
         _addr: u64,
         _len: usize,
@@ -389,29 +361,25 @@ impl SyscallHandler {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_munmap(&mut self, _addr: u64, _len: usize, _mmu: &mut dyn MMU) -> SyscallResult {
+    fn _sys_munmap(&mut self, _addr: u64, _len: usize, _mmu: &mut dyn MMU) -> SyscallResult {
         SyscallResult::Error(-38)
     }
 
-    #[allow(dead_code)]
-    fn sys_brk(&mut self, _addr: u64) -> SyscallResult {
+    fn _sys_brk(&mut self, _addr: u64) -> SyscallResult {
         if _addr == 0 {
-            SyscallResult::Success((self.brk_addr.0) as i64)
+            SyscallResult::Success((self._brk_addr.0) as i64)
         } else {
-            self.brk_addr = GuestAddr(_addr);
+            self._brk_addr = GuestAddr(_addr);
             SyscallResult::Success(_addr as i64)
         }
     }
 
-    #[allow(dead_code)]
-    fn sys_exit(&mut self, _status: i32) -> SyscallResult {
+    fn _sys_exit(&mut self, _status: i32) -> SyscallResult {
         println!("sys_exit: status={}", _status);
         SyscallResult::Exit(_status)
     }
 
-    #[allow(dead_code)]
-    fn sys_exit_group(&mut self, _status: i32) -> SyscallResult {
+    fn _sys_exit_group(&mut self, _status: i32) -> SyscallResult {
         println!("sys_exit_group: status={}", _status);
         SyscallResult::Exit(_status)
     }

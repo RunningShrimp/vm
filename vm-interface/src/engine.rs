@@ -285,17 +285,17 @@ impl ExecutionEngine<IRBlock> for InterpreterEngine {
     fn get_vcpu_state(&self) -> VcpuStateContainer {
         VcpuStateContainer {
             vcpu_id: 0, // 默认VCPU ID
-            state: vm_core::VmState {
-                regs: vm_core::GuestRegs::default(),
-                memory: vec![],
-                pc: self.state.pc,
-            },
+            state: vm_core::VmState::Running,
             running: true,
+            regs: vm_core::GuestRegs {
+                pc: self.state.pc .0,
+                ..Default::default()
+            },
         }
     }
 
     fn set_vcpu_state(&mut self, state: &VcpuStateContainer) {
-        self.state.pc = state.state.pc;
+        self.state.pc = vm_core::GuestAddr(state.regs.pc);
         // 其他状态可以根据需要设置
     }
 

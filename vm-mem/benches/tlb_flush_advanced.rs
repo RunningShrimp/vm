@@ -1,4 +1,5 @@
 //! TLB刷新策略高级优化基准测试
+use vm_core::AddressTranslator;
 //!
 //! 比较基础刷新策略与高级优化策略的性能差异
 

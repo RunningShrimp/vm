@@ -3,8 +3,8 @@
 //! 本模块定义性能基线,用于检测性能回归
 
 use criterion::{Criterion, black_box};
-use std::time::Duration;
-use vm_engine::jit::core::{JITConfig, JITEngine};
+use vm_core::GuestAddr;
+use vm_engine::jit::{JITCompiler, JITConfig};
 use vm_ir::{IRBuilder, IROp, Terminator};
 
 /// 性能基线结构
@@ -200,7 +200,7 @@ pub fn run_baseline_tests(c: &mut Criterion) {
 
     // JIT编译基线测试
     group.bench_function("jit_compile_100", |b| {
-        let mut builder = IRBuilder::new(0x1000);
+        let mut builder = IRBuilder::new(GuestAddr(0x1000));
         for i in 0..100 {
             builder.push(IROp::Add {
                 dst: (i % 16) as u32,
@@ -212,15 +212,15 @@ pub fn run_baseline_tests(c: &mut Criterion) {
         let ir_block = builder.build();
 
         let config = JITConfig::default();
-        let mut jit_engine = JITEngine::new(config);
+        let mut jit_compiler = JITCompiler::with_config(config).unwrap();
 
         b.iter(|| {
-            black_box(jit_engine.compile(black_box(&ir_block)));
+            black_box(jit_compiler.compile(black_box(&ir_block)).unwrap());
         });
     });
 
     group.bench_function("jit_compile_1000", |b| {
-        let mut builder = IRBuilder::new(0x1000);
+        let mut builder = IRBuilder::new(GuestAddr(0x1000));
         for i in 0..1000 {
             builder.push(IROp::Add {
                 dst: (i % 16) as u32,
@@ -232,10 +232,10 @@ pub fn run_baseline_tests(c: &mut Criterion) {
         let ir_block = builder.build();
 
         let config = JITConfig::default();
-        let mut jit_engine = JITEngine::new(config);
+        let mut jit_compiler = JITCompiler::with_config(config).unwrap();
 
         b.iter(|| {
-            black_box(jit_engine.compile(black_box(&ir_block)));
+            black_box(jit_compiler.compile(black_box(&ir_block)).unwrap());
         });
     });
 

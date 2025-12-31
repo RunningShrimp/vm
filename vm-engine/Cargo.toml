@@ -73,6 +73,7 @@ all-engines = ["jit", "interpreter", "executor"]
 criterion = { workspace = true }
 rand = "0.8"
 proptest = "1.0"
+vm-cross-arch-support = { path = "../vm-cross-arch-support" }
 
 [[bench]]
 name = "jit_compilation_bench"
@@ -84,6 +85,10 @@ harness = false
 
 [[bench]]
 name = "cross_arch_translation_bench"
+harness = false
+
+[[bench]]
+name = "p1_2_cache_bench"
 harness = false
 
 [[bench]]

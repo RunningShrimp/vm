@@ -1,4 +1,5 @@
 //! 内存操作性能基准测试
+use vm_core::AddressTranslator;
 //!
 //! 测试物理内存管理器的读写吞吐量
 

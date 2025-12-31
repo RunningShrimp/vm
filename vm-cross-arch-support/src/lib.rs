@@ -19,9 +19,12 @@
 //! - Memory access optimization and analysis
 
 pub mod encoding;
+pub mod encoding_cache;
 pub mod instruction_patterns;
 pub mod memory_access;
 pub mod register;
+pub mod pattern_cache;
+pub mod translation_pipeline;
 
 // Re-exports for convenience
 pub use encoding::{
@@ -47,6 +50,23 @@ pub use register::{
     MappingStats, MappingStrategy, RegisterAllocator, RegisterClass, RegisterError, RegisterInfo,
     RegisterMapper, RegisterSet, RegisterType,
 };
+
+pub use encoding_cache::{
+    Arch as CacheArch, EncodingCacheStats, EncodingError as CacheEncodingError,
+    Instruction as CachedInstruction, InstructionEncodingCache, Operand as CacheOperand,
+};
+
+pub use pattern_cache::{
+    Arch as PatternArch, CacheStats, InstructionPattern as PatternInstructionPattern,
+    OperandType as PatternOperandType, PatternFeatures, PatternMatchCache,
+};
+
+pub use translation_pipeline::{
+    CrossArchTranslationPipeline, RegisterMappingCache, TranslationError, TranslationStats,
+};
+
+// Re-export RegisterId from translation_pipeline module
+pub use translation_pipeline::RegId as TranslationRegId;
 
 #[cfg(test)]
 mod tests {

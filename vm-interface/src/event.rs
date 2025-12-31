@@ -228,7 +228,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
 
         let counter_clone = counter.clone();
-        publisher.subscribe("test_event", move |_| {
+        publisher.subscribe("component_started", move |_| {
             counter_clone.fetch_add(1, Ordering::Relaxed);
         });
 

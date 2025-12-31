@@ -6,6 +6,9 @@ pub mod adaptive;
 pub mod gc;
 pub mod gc_concurrent;
 pub mod gc_generational;
+pub mod gc_incremental_enhanced;
+pub mod gc_generational_enhanced;
+pub mod gc_adaptive;
 pub mod gc_write_barrier;
 pub mod memory;
 pub mod ml;
@@ -29,6 +32,24 @@ pub use gc_write_barrier::{
 pub use gc_generational::{
     Generation, GenerationalGC, GenerationalGCStats, OldGenerationConfig, YoungGCStrategy,
     YoungGenerationConfig,
+};
+
+// Re-export Enhanced Incremental GC types
+pub use gc_incremental_enhanced::{
+    IncrementalGC, IncrementalGCConfig, IncrementalGCStats, MarkStack,
+};
+
+// Re-export Enhanced Generational GC types
+pub use gc_generational_enhanced::{
+    CardTable as EnhancedCardTable, GenerationalGC as GenerationalGCEnhanced,
+    GenerationalGCConfig as EnhancedGenerationalGCConfig,
+    GenerationalGCStats as EnhancedGenerationalGCStats, ObjectMetadata,
+};
+
+// Re-export Adaptive GC Tuner types
+pub use gc_adaptive::{
+    AdaptiveGCTuner, AdaptiveGCConfig, AdaptiveGCStats, GCPerformanceMetrics, GCProblem,
+    PerformanceHistory, TuningAction,
 };
 
 // Re-export Memory Optimizer types

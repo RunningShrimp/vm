@@ -70,6 +70,8 @@ pub mod compiler_backend;
 pub mod llvm_backend;
 pub mod cranelift_backend;
 pub mod parallel_compiler;
+pub mod async_precompiler;
+pub mod incremental_cache;
 pub mod compile_cache;
 pub mod inline_cache;
 mod jit_helpers;
@@ -89,6 +91,12 @@ mod async_execution_engine;
 pub mod adaptive_optimizer;
 pub mod ml_guided_jit;
 pub mod ml_model;
+
+// Phase 2-2: ML优化增强模块
+pub mod ml_model_enhanced;
+pub mod ml_random_forest;
+pub mod ml_ab_testing;
+
 // concurrent_gc 已合并到 unified_gc，模块已移除
 
 // 优化型JIT编译器模块

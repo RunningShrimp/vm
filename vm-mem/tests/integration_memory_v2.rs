@@ -1,18 +1,14 @@
-//! Memory Management Integration Tests (Rewritten for current API)
+//! Memory Management Integration Tests (v2 API)
 //!
-//! Updated to match current vm-mem API
-//! Only tests basic functionality - comprehensive tests to be added
+//! Updated to use unified_mmu_v2::HybridMMU
 
-use vm_core::{GuestAddr, VmError};
-use vm_mem::UnifiedMmu;
+use vm_core::{AccessType, GuestAddr, VmError};
+use vm_mem::unified_mmu_v2::{HybridMMU, UnifiedMmuConfigV2, UnifiedMMU};
 
-/// Create a test MMU with current API
-fn create_test_mmu() -> UnifiedMmu {
-    UnifiedMmu::new(
-        1024 * 1024, // size: 1MB
-        false,       // use_hugepages: false
-        vm_mem::unified_mmu::UnifiedMmuConfig::default(),
-    )
+/// Create a test MMU with v2 API
+fn create_test_mmu() -> HybridMMU {
+    let config = UnifiedMmuConfigV2::default();
+    HybridMMU::new(1024 * 1024, config)
 }
 
 #[test]

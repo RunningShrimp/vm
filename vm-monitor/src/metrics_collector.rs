@@ -939,59 +939,6 @@ impl MetricsCollector {
         }
     }
 
-    // ========== 系统集成配置方法 ==========
-
-    /// 设置TLB容量（从TLB系统获取）
-    pub async fn set_tlb_capacity(&self, capacity: usize) {
-        let mut cap = self.tlb_capacity.write().await;
-        *cap = capacity;
-    }
-
-    /// 记录GC回收的对象数
-    pub fn record_objects_collected(&self, count: u64) {
-        self.objects_collected.fetch_add(count, Ordering::Relaxed);
-    }
-
-    /// 记录页面错误
-    pub fn record_page_fault(&self) {
-        self.page_faults.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// 批量记录页面错误
-    pub fn record_page_faults(&self, count: u64) {
-        self.page_faults.fetch_add(count, Ordering::Relaxed);
-    }
-
-    /// 设置最大vCPU数量（从系统配置获取）
-    pub async fn set_max_vcpu_count(&self, count: usize) {
-        let mut max_vcpus = self.max_vcpu_count.write().await;
-        *max_vcpus = count;
-    }
-
-    /// 设置负载均衡策略（从系统获取）
-    pub async fn set_load_balancing_policy(&self, policy: String) {
-        let mut lb_policy = self.load_balancing_policy.write().await;
-        *lb_policy = policy;
-    }
-
-    /// 配置系统集成参数（一次性设置多个）
-    pub async fn configure_system_integration(
-        &self,
-        tlb_capacity: Option<usize>,
-        max_vcpu_count: Option<usize>,
-        load_balancing_policy: Option<String>,
-    ) {
-        if let Some(cap) = tlb_capacity {
-            self.set_tlb_capacity(cap).await;
-        }
-        if let Some(count) = max_vcpu_count {
-            self.set_max_vcpu_count(count).await;
-        }
-        if let Some(policy) = load_balancing_policy {
-            self.set_load_balancing_policy(policy).await;
-        }
-    }
-
     // 私有辅助方法
     async fn calculate_cache_hit_rate(&self) -> f64 {
         // 缓存命中率：JIT执行次数 / (JIT执行次数 + 编译次数)

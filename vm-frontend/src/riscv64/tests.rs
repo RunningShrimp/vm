@@ -334,3 +334,144 @@ mod integration_tests {
         assert_eq!(decoded.next_pc, GuestAddr(0x1004));
     }
 }
+
+// ============================================================================
+// F Extension Tests (Single-Precision Floating-Point)
+// ============================================================================
+
+#[cfg(test)]
+mod f_extension_tests {
+    use super::super::f_extension::{FPRegisters, FCSR, FFlags, RoundingMode, FExtensionExecutor};
+
+    /// Test FP register creation and default values
+    #[test]
+    fn test_fp_registers_default() {
+        let regs = FPRegisters::default();
+        for i in 0..32 {
+            assert_eq!(regs.get(i), 0.0);
+        }
+    }
+
+    /// Test FP register get/set
+    #[test]
+    fn test_fp_registers_get_set() {
+        let mut regs = FPRegisters::default();
+        regs.set(1, 1.5);
+        assert_eq!(regs.get(1), 1.5);
+        assert!((regs.get(1) - 1.5).abs() < f32::EPSILON);
+    }
+
+    /// Test FP register bit manipulation
+    #[test]
+    fn test_fp_registers_bits() {
+        let mut regs = FPRegisters::default();
+        regs.set(5, 3.14159);
+
+        let bits = regs.get_bits(5);
+        assert_eq!(bits, 3.14159_f32.to_bits());
+
+        // Test setting from bits
+        regs.set_bits(6, bits);
+        assert!((regs.get(6) - 3.14159).abs() < f32::EPSILON);
+    }
+
+    /// Test FCSR default
+    #[test]
+    fn test_fcsr_default() {
+        let fcsr = FCSR::default();
+        assert!(!fcsr.flags.nv);
+        assert!(!fcsr.flags.dz);
+        assert!(!fcsr.flags.of);
+        assert!(!fcsr.flags.uf);
+        assert!(!fcsr.flags.nx);
+        assert_eq!(fcsr.rm, RoundingMode::RNE);
+    }
+
+    /// Test RoundingMode variants
+    #[test]
+    fn test_rounding_modes() {
+        assert_eq!(RoundingMode::RNE as i32, 0);
+        assert_eq!(RoundingMode::RTZ as i32, 1);
+        assert_eq!(RoundingMode::RDN as i32, 2);
+        assert_eq!(RoundingMode::RUP as i32, 3);
+        assert_eq!(RoundingMode::RMM as i32, 4);
+    }
+
+    /// Test FExtensionExecutor creation
+    #[test]
+    fn test_f_extension_executor_creation() {
+        let executor = FExtensionExecutor::new();
+        assert!(!executor.exceptions_enabled);
+    }
+
+    /// Test FP operations with executor
+    #[test]
+    fn test_f_extension_basic_operations() {
+        let mut executor = FExtensionExecutor::new();
+
+        // Set some values
+        executor.fp_regs.set(1, 2.0);
+        executor.fp_regs.set(2, 3.0);
+
+        // Test FADD.S would be here but requires MMU context
+        // Just verify we can access the registers
+        assert!((executor.fp_regs.get(1) - 2.0).abs() < f32::EPSILON);
+        assert!((executor.fp_regs.get(2) - 3.0).abs() < f32::EPSILON);
+    }
+}
+
+// ============================================================================
+// D Extension Tests (Double-Precision Floating-Point)
+// ============================================================================
+
+#[cfg(test)]
+mod d_extension_tests {
+    use super::super::d_extension::DExtensionExecutor;
+
+    /// Test DExtensionExecutor creation
+    #[test]
+    fn test_d_extension_executor_creation() {
+        let executor = DExtensionExecutor::new();
+        assert!(!executor.exceptions_enabled);
+    }
+
+    /// Test D extension executor default state
+    #[test]
+    fn test_d_extension_default_state() {
+        let executor = DExtensionExecutor::new();
+
+        // Check all registers start at 0.0
+        for i in 0..16 {
+            assert_eq!(executor.fp_regs.get_f64(i), 0.0);
+        }
+    }
+}
+
+// ============================================================================
+// C Extension Tests (Compressed Instructions)
+// ============================================================================
+
+#[cfg(test)]
+mod c_extension_tests {
+    use super::super::c_extension::{CDecoder, CInstruction};
+
+    /// Test CDecoder creation
+    #[test]
+    fn test_c_decoder_creation() {
+        let decoder = CDecoder::new();
+        // Just ensure we can create a decoder
+    }
+
+    /// Test compressed instruction identification
+    #[test]
+    fn test_compressed_insn_detection() {
+        // Compressed instructions have bits [1:0] != 11
+        let compressed_insn: u16 = 0x0001; // Not compressed
+        let is_compressed = (compressed_insn & 0x3) != 0x3;
+        assert!(!is_compressed);
+
+        let compressed_insn2: u16 = 0x0002; // Compressed pattern
+        let is_compressed2 = (compressed_insn2 & 0x3) != 0x3;
+        assert!(is_compressed2);
+    }
+}

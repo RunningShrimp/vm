@@ -1,4 +1,5 @@
 //! 专门测试bulk_read的简单基准测试
+use vm_core::AddressTranslator;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use vm_core::mmu_traits::MemoryAccess;

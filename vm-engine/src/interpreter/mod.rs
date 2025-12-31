@@ -798,23 +798,20 @@ impl Interpreter {
     pub fn get_vcpu_state(&self) -> vm_core::VcpuStateContainer {
         vm_core::VcpuStateContainer {
             vcpu_id: 0, // Default to 0 since this is not tracked in the interpreter
-            state: vm_core::VmState {
-                regs: vm_core::GuestRegs {
-                    pc: self.pc.0,
-                    sp: self.regs[2],
-                    fp: self.regs[3],
-                    gpr: self.regs,
-                },
-                memory: Vec::new(), // Memory is not tracked here
-                pc: self.pc,
-            },
+            state: vm_core::VmState::Running,
             running: false, // Not used in this context
+            regs: vm_core::GuestRegs {
+                pc: self.pc.0,
+                sp: self.regs[2],
+                fp: self.regs[3],
+                gpr: self.regs,
+            },
         }
     }
 
     pub fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
-        self.regs = state.state.regs.gpr;
-        self.pc = state.state.pc;
+        self.regs = state.regs.gpr;
+        self.pc = vm_core::GuestAddr(state.regs.pc);
     }
 }
 
@@ -848,23 +845,20 @@ impl ExecutionEngine<IRBlock> for Interpreter {
     fn get_vcpu_state(&self) -> vm_core::VcpuStateContainer {
         vm_core::VcpuStateContainer {
             vcpu_id: 0, // Default to 0 since this is not tracked in the interpreter
-            state: vm_core::VmState {
-                regs: vm_core::GuestRegs {
-                    pc: self.pc.0,
-                    sp: self.regs[2],
-                    fp: self.regs[3],
-                    gpr: self.regs,
-                },
-                memory: Vec::new(), // Memory is not tracked here
-                pc: self.pc,
-            },
+            state: vm_core::VmState::Running,
             running: false, // Not used in this context
+            regs: vm_core::GuestRegs {
+                pc: self.pc.0,
+                sp: self.regs[2],
+                fp: self.regs[3],
+                gpr: self.regs,
+            },
         }
     }
 
     fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
-        self.regs = state.state.regs.gpr;
-        self.pc = state.state.pc;
+        self.regs = state.regs.gpr;
+        self.pc = vm_core::GuestAddr(state.regs.pc);
     }
 
     fn run(&mut self, mmu: &mut dyn MMU, block: &IRBlock) -> ExecResult {

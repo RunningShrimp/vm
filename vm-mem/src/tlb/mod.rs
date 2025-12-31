@@ -26,6 +26,9 @@
 pub mod core;
 pub use core::{basic, concurrent, per_cpu, unified};
 
+// 统一层次结构
+pub mod unified_hierarchy;
+
 // 优化策略
 pub mod optimization;
 pub use optimization::{access_pattern, adaptive, predictor, prefetch};
@@ -72,3 +75,6 @@ pub use optimization::prefetch::{TlbPrefetchExample, TlbPrefetchGuide};
 
 #[cfg(feature = "optimizations")]
 pub use core::unified::multilevel_tlb_impl::SingleLevelTlb;
+
+// 统一层次结构类型
+pub use unified_hierarchy::{AdaptiveTlbManager, HierarchyStats, ReplacementPolicy, UnifiedTlbHierarchy};

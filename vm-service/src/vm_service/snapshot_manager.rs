@@ -427,9 +427,9 @@ pub fn create_snapshot<B: 'static>(
         let vcpu_state = engine_lock.get_vcpu_state();
         vcpus.push(VcpuSnapshot {
             id: i as u32,
-            pc: vcpu_state.state.pc.0,
-            sp: vcpu_state.state.regs.sp,
-            gpr: vcpu_state.state.regs.gpr.to_vec(),
+            pc: vcpu_state.regs.pc,
+            sp: vcpu_state.regs.sp,
+            gpr: vcpu_state.regs.gpr.to_vec(),
         });
     }
 
@@ -488,13 +488,9 @@ pub fn restore_snapshot<B: 'static>(
 
             // 获取当前状态并更新寄存器值
             let mut vcpu_state = engine_lock.get_vcpu_state();
-            vcpu_state.state.pc = GuestAddr(vcpu_snapshot.pc);
-            vcpu_state.state.regs.sp = vcpu_snapshot.sp;
-            vcpu_state
-                .state
-                .regs
-                .gpr
-                .copy_from_slice(&vcpu_snapshot.gpr);
+            vcpu_state.regs.pc = vcpu_snapshot.pc;
+            vcpu_state.regs.sp = vcpu_snapshot.sp;
+            vcpu_state.regs.gpr.copy_from_slice(&vcpu_snapshot.gpr);
 
             // 设置更新后的状态
             engine_lock.set_vcpu_state(&vcpu_state);
@@ -638,9 +634,9 @@ pub fn serialize_state<B: 'static>(state: Arc<Mutex<VirtualMachineState<B>>>) ->
         let vcpu_state = engine_lock.get_vcpu_state();
         vcpus_data.push((
             i as u32,
-            vcpu_state.state.pc.0,
-            vcpu_state.state.regs.sp,
-            vcpu_state.state.regs.gpr.to_vec(),
+            vcpu_state.regs.pc,
+            vcpu_state.regs.sp,
+            vcpu_state.regs.gpr.to_vec(),
         ));
     }
 
@@ -697,9 +693,9 @@ pub fn deserialize_state<B: 'static>(
 
             // Get current state and update registers
             let mut vcpu_state = engine_lock.get_vcpu_state();
-            vcpu_state.state.pc = GuestAddr(pc);
-            vcpu_state.state.regs.sp = sp;
-            vcpu_state.state.regs.gpr.copy_from_slice(&gpr);
+            vcpu_state.regs.pc = pc;
+            vcpu_state.regs.sp = sp;
+            vcpu_state.regs.gpr.copy_from_slice(&gpr);
 
             // Set updated state
             engine_lock.set_vcpu_state(&vcpu_state);
@@ -735,9 +731,9 @@ pub async fn create_snapshot_async<B: 'static>(
         let vcpu_state = engine_lock.get_vcpu_state();
         vcpus.push(VcpuSnapshot {
             id: i as u32,
-            pc: vcpu_state.state.pc.0,
-            sp: vcpu_state.state.regs.sp,
-            gpr: vcpu_state.state.regs.gpr.to_vec(),
+            pc: vcpu_state.regs.pc,
+            sp: vcpu_state.regs.sp,
+            gpr: vcpu_state.regs.gpr.to_vec(),
         });
     }
 
@@ -814,8 +810,8 @@ pub async fn restore_snapshot_async<B: 'static>(
 
             // Get current state and update registers
             let mut vcpu_state = engine_lock.get_vcpu_state();
-            vcpu_state.state.pc = GuestAddr(vcpu_snapshot.pc);
-            vcpu_state.state.regs.sp = vcpu_snapshot.sp;
+            vcpu_state.regs.pc = vcpu_snapshot.pc;
+            vcpu_state.regs.sp = vcpu_snapshot.sp;
             vcpu_state
                 .state
                 .regs

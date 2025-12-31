@@ -1,4 +1,5 @@
 //! TLB增强统计功能性能基准测试
+use vm_core::AddressTranslator;
 //!
 //! 测试新增的TLB统计功能：
 //! - 延迟分布统计（LatencyDistribution）

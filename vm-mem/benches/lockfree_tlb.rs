@@ -1,4 +1,5 @@
 //! 无锁TLB性能基准测试
+use vm_core::AddressTranslator;
 //!
 //! 测试无锁TLB实现的性能指标
 

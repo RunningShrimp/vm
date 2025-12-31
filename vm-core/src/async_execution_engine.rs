@@ -24,10 +24,6 @@
 //! }
 //! ```
 
-#[allow(unused_imports)]
-use crate::{ExecResult, GuestAddr, VmError};
-
-#[allow(unused_imports)]
 use crate::{ExecResult, GuestAddr, VmError};
 use async_trait::async_trait;
 

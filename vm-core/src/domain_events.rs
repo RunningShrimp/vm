@@ -4,8 +4,7 @@
 //! 所有领域事件都是不可变的，表示已经发生的事实。
 
 use crate::VmState;
-#[allow(unused_imports)]
-use crate::{GuestAddr, VmError};
+use crate::GuestAddr;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 

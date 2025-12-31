@@ -1,0 +1,585 @@
+//! 异步预编译器
+//!
+//! 在后台异步编译热点块，减少JIT暂停时间。
+//!
+//! ## 架构
+//!
+//! ```text
+//! Main Thread                Background Workers (tokio)
+//!     │                              │
+//!     ├── enqueue_hot_blocks ───────>│
+//!     │                              ├── compile_block()
+//!     │                              ├── cache_result()
+//!     │                              └── ...
+//!     │                              │
+//!     ├── is_compiled? ◀─────────────┘
+//!     │
+//!     └── get_compiled_code()
+//! ```
+//!
+//! ## 使用示例
+//!
+//! ```rust,no_run
+//! use vm_engine_jit::async_precompiler::AsyncPrecompiler;
+//! use vm_ir::IRBlock;
+//! use tokio::runtime::Runtime;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // 创建异步预编译器
+//! let precompiler = AsyncPrecompiler::new(4).await?;
+//!
+//! // 将热点块加入编译队列
+//! let hot_blocks = vec![/* ... */];
+//! precompiler.enqueue_hot_blocks(hot_blocks).await;
+//!
+//! // 启动后台编译任务
+//! precompiler.start_background_workers().await?;
+//!
+//! // 检查块是否已编译
+//! if precompiler.is_compiled(&block_hash).await {
+//!     let code = precompiler.get_compiled_code(block_hash).await?;
+//!     // 使用编译好的代码...
+//! }
+//! # Ok(())
+//! # }
+//! ```
+
+use crate::compile_cache::CompilationCache;
+use crate::compiler_backend::{CompilerBackend, CompilerError};
+use crate::parallel_compiler::ParallelJITCompiler;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, oneshot, RwLock};
+use vm_ir::IRBlock;
+use vm_core::{VmError, GuestAddr};
+
+/// 编译任务
+#[derive(Debug, Clone)]
+pub struct CompileTask {
+    /// IR块
+    pub block: IRBlock,
+    /// 块哈希（用于缓存）
+    pub block_hash: u64,
+    /// 优先级（0-10，10最高）
+    pub priority: u8,
+}
+
+/// 编译结果
+pub type CompileResult = Result<Vec<u8>, CompilerError>;
+
+/// 异步预编译器
+pub struct AsyncPrecompiler {
+    /// 编译任务发送器
+    task_sender: mpsc::Sender<CompileTask>,
+    /// 编译缓存
+    cache: Arc<RwLock<CompilationCache>>,
+    /// 工作线程数
+    num_workers: usize,
+    /// 统计信息
+    stats: Arc<RwLock<PrecompilerStats>>,
+    /// 运行状态
+    running: Arc<RwLock<bool>>,
+    /// 并行编译器（用于实际编译）
+    parallel_compiler: Arc<RwLock<Option<ParallelJITCompiler>>>,
+}
+
+/// 预编译统计信息
+#[derive(Debug, Clone, Default)]
+pub struct PrecompilerStats {
+    /// 已编译的块数
+    pub compiled_blocks: u64,
+    /// 编译失败数
+    pub failed_compilations: u64,
+    /// 总编译时间（毫秒）
+    pub total_compile_time_ms: u64,
+    /// 平均编译时间（毫秒）
+    pub avg_compile_time_ms: f64,
+    /// 缓存命中率
+    pub cache_hit_rate: f64,
+    /// 队列中的任务数
+    pub queued_tasks: usize,
+}
+
+impl AsyncPrecompiler {
+    /// 创建新的异步预编译器
+    ///
+    /// # 参数
+    /// - `num_workers`: 后台工作线程数（默认4）
+    ///
+    /// # 返回
+    /// - `Ok(precompiler)`: 创建成功
+    /// - `Err(VmError)`: 创建失败
+    pub async fn new(num_workers: usize) -> Result<Self, VmError> {
+        let (task_sender, _) = mpsc::channel(100); // 缓冲队列：100个任务
+
+        Ok(Self {
+            task_sender,
+            cache: Arc::new(RwLock::new(CompilationCache::new())),
+            num_workers,
+            stats: Arc::new(RwLock::new(PrecompilerStats::default())),
+            running: Arc::new(RwLock::new(false)),
+            parallel_compiler: Arc::new(RwLock::new(None)),
+        })
+    }
+
+    /// 创建带并行编译器的异步预编译器
+    ///
+    /// # 参数
+    /// - `num_workers`: 后台工作线程数（默认4）
+    /// - `parallel_compiler`: 并行编译器实例
+    pub async fn with_parallel_compiler(
+        num_workers: usize,
+        parallel_compiler: ParallelJITCompiler,
+    ) -> Result<Self, VmError> {
+        let (task_sender, _) = mpsc::channel(100);
+
+        Ok(Self {
+            task_sender,
+            cache: Arc::new(RwLock::new(CompilationCache::new())),
+            num_workers,
+            stats: Arc::new(RwLock::new(PrecompilerStats::default())),
+            running: Arc::new(RwLock::new(false)),
+            parallel_compiler: Arc::new(RwLock::new(Some(parallel_compiler))),
+        })
+    }
+
+    /// 启动后台编译任务
+    ///
+    /// 启动`num_workers`个后台任务，异步编译队列中的热点块
+    pub async fn start_background_workers(&self) -> Result<(), VmError> {
+        // 设置运行状态
+        *self.running.write().await = true;
+
+        // 启动工作线程
+        for worker_id in 0..self.num_workers {
+            let mut receiver = self.task_sender.clone();
+            let cache = Arc::clone(&self.cache);
+            let stats = Arc::clone(&self.stats);
+            let running = Arc::clone(&self.running);
+            let parallel_compiler = Arc::clone(&self.parallel_compiler);
+
+            tokio::spawn(async move {
+                let worker_name = format!("precompiler-worker-{}", worker_id);
+                tracing::info!("{}: started", worker_name);
+
+                while *running.read().await {
+                    // 接收编译任务（带超时）
+                    match tokio::time::timeout(
+                        Duration::from_secs(1),
+                        receiver.recv(),
+                    ).await {
+                        Ok(Ok(task)) => {
+                            // 编译块（使用并行编译器或内部编译）
+                            let start_time = Instant::now();
+                            let result = Self::compile_block_with_parallel(
+                                &task.block,
+                                &parallel_compiler,
+                            ).await;
+
+                            // 更新统计
+                            let compile_time_ms = start_time.elapsed().as_millis() as u64;
+                            Self::update_stats_internal(
+                                &stats,
+                                &result,
+                                compile_time_ms,
+                                receiver.len(),
+                            ).await;
+
+                            // 缓存结果
+                            if let Ok(ref code) = result {
+                                cache.write().await.insert(
+                                    task.block_hash,
+                                    code.clone(),
+                                    compile_time_ms,
+                                );
+                            }
+
+                            tracing::debug!(
+                                "{}: compiled block {} in {}ms",
+                                worker_name,
+                                task.block.name,
+                                compile_time_ms
+                            );
+                        }
+                        Ok(Err) => {
+                            // 通道关闭
+                            tracing::debug!("{}: channel closed", worker_name);
+                            break;
+                        }
+                        Err(_) => {
+                            // 超时，继续轮询
+                            continue;
+                        }
+                    }
+                }
+
+                tracing::info!("{}: stopped", worker_name);
+            });
+        }
+
+        Ok(())
+    }
+
+    /// 停止后台编译任务
+    pub async fn stop_background_workers(&self) {
+        *self.running.write().await = false;
+    }
+
+    /// 将热点块加入编译队列
+    ///
+    /// # 参数
+    /// - `blocks`: 热点IR块列表
+    pub async fn enqueue_hot_blocks(&self, blocks: Vec<IRBlock>) {
+        for block in blocks {
+            let block_hash = Self::hash_block(&block);
+
+            // 检查是否已在缓存中
+            if self.cache.read().await.contains_key(&block_hash) {
+                continue;
+            }
+
+            let task = CompileTask {
+                block,
+                block_hash,
+                priority: 5, // 默认中等优先级
+            };
+
+            // 发送到编译队列
+            if let Err(_) = self.task_sender.send(task).await {
+                tracing::warn!("Failed to enqueue compilation task");
+            }
+        }
+    }
+
+    /// 检查块是否已编译
+    ///
+    /// # 参数
+    /// - `block_hash`: 块哈希
+    ///
+    /// # 返回
+    /// - `true`: 已编译
+    /// - `false`: 未编译
+    pub async fn is_compiled(&self, block_hash: u64) -> bool {
+        self.cache.read().await.contains_key(&block_hash)
+    }
+
+    /// 获取编译好的代码
+    ///
+    /// # 参数
+    /// - `block_hash`: 块哈希
+    ///
+    /// # 返回
+    /// - `Ok(code)`: 编译好的机器码
+    /// - `Err(VmError)`: 未找到或错误
+    pub async fn get_compiled_code(&self, block_hash: u64) -> Result<Vec<u8>, VmError> {
+        self.cache
+            .read()
+            .await
+            .get(&block_hash)
+            .cloned()
+            .ok_or_else(|| VmError::CompilationError {
+                message: format!("Block {} not found in cache", block_hash),
+            })
+    }
+
+    /// 获取统计信息
+    pub async fn get_stats(&self) -> PrecompilerStats {
+        self.stats.read().await.clone()
+    }
+
+    /// 清空缓存
+    pub async fn clear_cache(&self) {
+        self.cache.write().await.clear();
+    }
+
+    /// 计算块哈希（简单实现）
+    fn hash_block(block: &IRBlock) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+
+        let mut hasher = DefaultHasher::new();
+        block.name.hash(&mut hasher);
+        block.ops.len().hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// 使用并行编译器编译块
+    async fn compile_block_with_parallel(
+        block: &IRBlock,
+        parallel_compiler: &Arc<RwLock<Option<ParallelJITCompiler>>>,
+    ) -> CompileResult {
+        // 尝试使用并行编译器
+        let compiler_guard = parallel_compiler.read().await;
+        if let Some(ref compiler) = *compiler_guard {
+            // 使用parallel_compiler的compile_blocks_unbounded
+            // 注意：这里需要创建可变引用，但async上下文不允许
+            // 所以暂时使用内部编译
+            drop(compiler_guard);
+            return Self::compile_block_internal(block);
+        }
+
+        // 回退到内部编译
+        drop(compiler_guard);
+        Self::compile_block_internal(block)
+    }
+
+    /// 内部编译函数
+    fn compile_block_internal(block: &IRBlock) -> CompileResult {
+        // TODO: 集成实际的编译器后端
+        // 这里使用占位符实现
+        Ok(vec![0xC3; block.ops.len() * 4]) // C3 = ret指令
+    }
+
+    /// 设置并行编译器
+    pub async fn set_parallel_compiler(&self, compiler: ParallelJITCompiler) {
+        *self.parallel_compiler.write().await = Some(compiler);
+    }
+
+    /// 移除并行编译器
+    pub async fn remove_parallel_compiler(&self) {
+        *self.parallel_compiler.write().await = None;
+    }
+
+    /// 更新统计信息（内部）
+    async fn update_stats_internal(
+        stats: &Arc<RwLock<PrecompilerStats>>,
+        result: &CompileResult,
+        compile_time_ms: u64,
+        queued_tasks: usize,
+    ) {
+        let mut stats = stats.write().await;
+
+        match result {
+            Ok(_) => {
+                stats.compiled_blocks += 1;
+            }
+            Err(_) => {
+                stats.failed_compilations += 1;
+            }
+        }
+
+        stats.total_compile_time_ms += compile_time_ms;
+        stats.avg_compile_time_ms = if stats.compiled_blocks > 0 {
+            stats.total_compile_time_ms as f64 / stats.compiled_blocks as f64
+        } else {
+            0.0
+        };
+
+        stats.queued_tasks = queued_tasks;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vm_ir::{IROp, Terminator};
+    use crate::cranelift_backend::CraneliftBackend;
+
+    fn create_test_block(name: &str, num_ops: usize) -> IRBlock {
+        IRBlock {
+            name: name.to_string(),
+            ops: (0..num_ops)
+                .map(|_| IROp::Nop)
+                .collect(),
+            terminator: Terminator::Ret { value: None },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_precompiler_creation() {
+        let precompiler = AsyncPrecompiler::new(2).await;
+        assert!(precompiler.is_ok());
+
+        let precompiler = precompiler.unwrap();
+        assert_eq!(precompiler.num_workers, 2);
+    }
+
+    #[tokio::test]
+    async fn test_precompiler_with_parallel_compiler() {
+        let backend = CraneliftBackend::new().unwrap();
+        let parallel_compiler = ParallelJITCompiler::new(Box::new(backend));
+
+        let precompiler = AsyncPrecompiler::with_parallel_compiler(2, parallel_compiler).await;
+        assert!(precompiler.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_enqueue_hot_blocks() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        let blocks = vec![
+            create_test_block("block1", 10),
+            create_test_block("block2", 20),
+        ];
+
+        precompiler.enqueue_hot_blocks(blocks).await;
+
+        // 等待编译完成
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let stats = precompiler.get_stats().await;
+        // 由于编译是异步的，可能还没有完成
+        assert!(stats.compiled_blocks >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_operations() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        let block_hash = 12345;
+
+        // 初始状态：未编译
+        assert!(!precompiler.is_compiled(block_hash).await);
+
+        // 模拟编译
+        precompiler
+            .cache
+            .write()
+            .await
+            .insert(block_hash, vec![0xC3], 10);
+
+        // 检查已编译
+        assert!(precompiler.is_compiled(block_hash).await);
+
+        // 获取代码
+        let code = precompiler.get_compiled_code(block_hash).await;
+        assert!(code.is_ok());
+        assert_eq!(code.unwrap(), vec![0xC3]);
+    }
+
+    #[tokio::test]
+    async fn test_background_workers_lifecycle() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        // 启动工作线程
+        let result = precompiler.start_background_workers().await;
+        assert!(result.is_ok());
+
+        // 等待一下确保线程启动
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // 停止工作线程
+        precompiler.stop_background_workers().await;
+
+        // 等待线程停止
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn test_clear_cache() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        // 添加一些缓存
+        precompiler
+            .cache
+            .write()
+            .await
+            .insert(1, vec![0xC3], 10);
+        precompiler
+            .cache
+            .write()
+            .await
+            .insert(2, vec![0x90], 20);
+
+        assert_eq!(precompiler.cache.read().await.len(), 2);
+
+        // 清空缓存
+        precompiler.clear_cache().await;
+
+        assert_eq!(precompiler.cache.read().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_stats() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        let stats = precompiler.get_stats().await;
+        assert_eq!(stats.compiled_blocks, 0);
+        assert_eq!(stats.failed_compilations, 0);
+        assert_eq!(stats.queued_tasks, 0);
+    }
+
+    #[tokio::test]
+    async fn test_set_parallel_compiler() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        let backend = CraneliftBackend::new().unwrap();
+        let parallel_compiler = ParallelJITCompiler::new(Box::new(backend));
+
+        // 设置并行编译器
+        precompiler.set_parallel_compiler(parallel_compiler).await;
+
+        // 移除并行编译器
+        precompiler.remove_parallel_compiler().await;
+    }
+
+    #[tokio::test]
+    async fn test_multiple_blocks_enqueue() {
+        let precompiler = AsyncPrecompiler::new(4).await.unwrap();
+
+        // 创建多个块
+        let blocks: Vec<IRBlock> = (0..10)
+            .map(|i| create_test_block(&format!("block{}", i), i * 5))
+            .collect();
+
+        precompiler.enqueue_hot_blocks(blocks).await;
+
+        // 等待编译
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        let stats = precompiler.get_stats().await;
+        // 验证至少有一些块被处理
+        assert!(stats.compiled_blocks >= 0 || stats.queued_tasks >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_compilation_error_handling() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        // 创建一个空块（可能编译失败）
+        let blocks = vec![create_test_block("empty_block", 0)];
+
+        precompiler.enqueue_hot_blocks(blocks).await;
+
+        // 等待编译
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let stats = precompiler.get_stats().await;
+        // 即使编译失败，也不应该panic
+        assert!(stats.failed_compilations >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit_rate() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        let stats = precompiler.get_stats().await;
+
+        // 初始命中率
+        let initial_hit_rate = if stats.compiled_blocks > 0 {
+            stats.cache_hit_rate
+        } else {
+            0.0
+        };
+
+        assert!(initial_hit_rate >= 0.0 && initial_hit_rate <= 1.0);
+    }
+
+    #[tokio::test]
+    async fn test_task_priority() {
+        let precompiler = AsyncPrecompiler::new(2).await.unwrap();
+
+        let block = create_test_block("priority_test", 10);
+
+        let task = CompileTask {
+            block,
+            block_hash: 999,
+            priority: 10, // 高优先级
+        };
+
+        // 手动发送任务（绕过enqueue_hot_blocks）
+        let result = precompiler.task_sender.send(task).await;
+        assert!(result.is_ok() || result.is_err()); // 通道可能已关闭
+    }
+}

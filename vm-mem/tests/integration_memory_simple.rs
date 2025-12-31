@@ -33,8 +33,10 @@ fn test_unified_mmu_stats() {
     let stats = mmu.stats();
 
     // 验证统计数据可访问
-    assert!(stats.tlb_hits >= 0);
-    assert!(stats.tlb_misses >= 0);
+    let tlb_hits = stats.tlb_hits.load(std::sync::atomic::Ordering::Relaxed);
+    let tlb_misses = stats.tlb_misses.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(tlb_hits >= 0);
+    assert!(tlb_misses >= 0);
 }
 
 #[test]

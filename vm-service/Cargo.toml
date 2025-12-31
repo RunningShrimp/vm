@@ -49,3 +49,4 @@ smmu = ["vm-accel/smmu", "devices", "vm-device/smmu", "vm-smmu"]
 
 [dev-dependencies]
 vm-mem = { path = "../vm-mem" }
+tokio = { workspace = true, features = ["sync", "rt-multi-thread", "time", "macros"] }

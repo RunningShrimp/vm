@@ -273,8 +273,7 @@ impl GdbSession {
 
     /// 格式化寄存器为十六进制字符串
     fn format_registers(&self, vcpu: &VcpuStateContainer) -> String {
-        vcpu.state
-            .regs
+        vcpu.regs
             .gpr
             .iter()
             .map(|r| format!("{:016x}", r))
@@ -285,12 +284,12 @@ impl GdbSession {
     /// 从十六进制字符串解析寄存器
     fn parse_registers(&self, vcpu: &mut VcpuStateContainer, hex: &str) -> Result<(), String> {
         let mut offset = 0;
-        for i in 0..vcpu.state.regs.gpr.len() {
+        for i in 0..vcpu.regs.gpr.len() {
             if offset + 16 > hex.len() {
                 break;
             }
             let reg_hex = &hex[offset..offset + 16];
-            vcpu.state.regs.gpr[i] = u64::from_str_radix(reg_hex, 16)
+            vcpu.regs.gpr[i] = u64::from_str_radix(reg_hex, 16)
                 .map_err(|_| "Invalid register value".to_string())?;
             offset += 16;
         }
