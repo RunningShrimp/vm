@@ -101,22 +101,147 @@ fn bench_memory_operations(c: &mut Criterion) {
 #[cfg(feature = "gpu")]
 fn bench_gpu_acceleration(c: &mut Criterion) {
     let mut group = c.benchmark_group("gpu_acceleration");
-    
-    // GPU内存复制
-    group.bench_function("gpu_memcpy", |b| {
+
+    // GPU内存复制 - Host to Device
+    group.bench_function("gpu_memcpy_h2d", |b| {
+        use vm_passthrough::cuda::CudaAccelerator;
+
+        let accelerator = CudaAccelerator::new(0).unwrap();
+        let size = 1024 * 1024; // 1MB
+        let src = vec![0u8; size];
+
+        let d_ptr = accelerator.malloc(size).unwrap();
+
         b.iter(|| {
-            // TODO: 实现GPU memcpy基准
+            // Host to Device memcpy
+            let _ = accelerator.memcpy_sync(d_ptr, &src, vm_passthrough::cuda::CudaMemcpyKind::HostToDevice);
+        });
+
+        // 清理
+        let _ = accelerator.free(d_ptr);
+    });
+
+    // GPU内存复制 - Device to Host
+    group.bench_function("gpu_memcpy_d2h", |b| {
+        use vm_passthrough::cuda::CudaAccelerator;
+
+        let accelerator = CudaAccelerator::new(0).unwrap();
+        let size = 1024 * 1024; // 1MB
+        let src = vec![42u8; size];
+        let mut dst = vec![0u8; size];
+
+        let d_ptr = accelerator.malloc(size).unwrap();
+        let _ = accelerator.memcpy_sync(d_ptr, &src, vm_passthrough::cuda::CudaMemcpyKind::HostToDevice);
+
+        b.iter(|| {
+            // Device to Host memcpy
+            let _ = accelerator.memcpy_sync(
+                vm_passthrough::cuda::CudaDevicePtr { ptr: dst.as_mut_ptr() as u64, size },
+                unsafe { std::slice::from_raw_parts(src.as_ptr() as *const u8, src.len()) },
+                vm_passthrough::cuda::CudaMemcpyKind::DeviceToHost
+            );
+        });
+
+        accelerator.free(d_ptr);
+    });
+
+    // GPU内存复制 - Device to Device (如果支持)
+    group.bench_function("gpu_memcpy_d2d", |b| {
+        use vm_passthrough::cuda::CudaAccelerator;
+
+        let accelerator = CudaAccelerator::new(0).unwrap();
+        let size = 1024 * 1024; // 1MB
+
+        let d_src = accelerator.malloc(size).unwrap();
+        let d_dst = accelerator.malloc(size).unwrap();
+
+        b.iter(|| {
+            // Device to Device memcpy (如果实现)
+            // 注意：当前CUDA实现中D2D还未实现，这里使用模拟操作
+            let _ = accelerator.memcpy_sync(d_dst, unsafe {
+                std::slice::from_raw_parts(d_src.ptr as *const u8, size)
+            }, vm_passthrough::cuda::CudaMemcpyKind::DeviceToDevice);
+        });
+
+        accelerator.free(d_src);
+        accelerator.free(d_dst);
+    });
+
+    // GPU kernel执行基准
+    group.bench_function("gpu_kernel_execution", |b| {
+        use vm_passthrough::cuda::{CudaAccelerator, GpuKernel};
+
+        let accelerator = CudaAccelerator::new(0).unwrap();
+
+        // 创建测试内核
+        let kernel = GpuKernel::new("vector_add".to_string());
+
+        let n = 1024 * 1024;
+        let a = vec![1.0f32; n];
+        let b = vec![2.0f32; n];
+        let mut c = vec![0.0f32; n];
+
+        // 分配GPU内存并复制数据
+        let d_a = accelerator.malloc(n * std::mem::size_of::<f32>()).unwrap();
+        let d_b = accelerator.malloc(n * std::mem::size_of::<f32>()).unwrap();
+        let d_c = accelerator.malloc(n * std::mem::size_of::<f32>()).unwrap();
+
+        // 复制数据到GPU
+        let _ = accelerator.memcpy_sync(d_a, unsafe {
+            std::slice::from_raw_parts(a.as_ptr() as *const u8, a.len() * std::mem::size_of::<f32>())
+        }, vm_passthrough::cuda::CudaMemcpyKind::HostToDevice);
+
+        let _ = accelerator.memcpy_sync(d_b, unsafe {
+            std::slice::from_raw_parts(b.as_ptr() as *const u8, b.len() * std::mem::size_of::<f32>())
+        }, vm_passthrough::cuda::CudaMemcpyKind::HostToDevice);
+
+        b.iter(|| {
+            // 启动kernel（当前是模拟实现）
+            let _ = kernel.launch(((n + 255) / 256, 1, 1), (256, 1, 1));
+
+            // 等待GPU操作完成
+            let _ = accelerator.stream.synchronize();
+        });
+
+        // 将结果复制回主机
+        let _ = accelerator.memcpy_sync(
+            vm_passthrough::cuda::CudaDevicePtr {
+                ptr: c.as_mut_ptr() as u64,
+                size: n * std::mem::size_of::<f32>()
+            },
+            unsafe { std::slice::from_raw_parts(d_c.ptr as *const u8, n * std::mem::size_of::<f32>()) },
+            vm_passthrough::cuda::CudaMemcpyKind::DeviceToHost
+        );
+
+        // 验证结果
+        assert_eq!(c[0], 3.0);
+
+        // 清理GPU内存
+        accelerator.free(d_a);
+        accelerator.free(d_b);
+        accelerator.free(d_c);
+    });
+
+    // GPU内存分配和释放基准
+    group.bench_function("gpu_malloc_free", |b| {
+        use vm_passthrough::cuda::CudaAccelerator;
+
+        let accelerator = CudaAccelerator::new(0).unwrap();
+        let size = 1024 * 1024; // 1MB
+
+        b.iter(|| {
+            let d_ptr = accelerator.malloc(size).unwrap();
+            let _ = accelerator.free(d_ptr);
         });
     });
-    
-    // GPU kernel执行
-    group.bench_function("gpu_kernel", |b| {
-        b.iter(|| {
-            // TODO: 实现GPU kernel基准
-        });
-    });
-    
+
     group.finish();
+}
+
+#[cfg(not(feature = "gpu"))]
+fn bench_gpu_acceleration(_c: &mut Criterion) {
+    // 当GPU功能未启用时，跳过GPU基准测试
+    log::info!("GPU benchmarks skipped - compile with 'cargo bench --features gpu' to enable GPU benchmarks");
 }
 
 /// 辅助函数：生成测试IR块

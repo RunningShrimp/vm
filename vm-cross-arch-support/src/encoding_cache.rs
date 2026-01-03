@@ -10,13 +10,19 @@
 //! ## 使用示例
 //!
 //! ```rust,no_run
-//! use vm_cross_arch_support::Arch;
-//! use vm_cross_arch_support::encoding_cache::InstructionEncodingCache;
+//! use vm_cross_arch_support::encoding_cache::{Arch, InstructionEncodingCache, Instruction, Operand};
 //!
 //! let cache = InstructionEncodingCache::new();
 //!
+//! // 创建测试指令
+//! let instruction = Instruction {
+//!     arch: Arch::X86_64,
+//!     opcode: 0x90,
+//!     operands: vec![Operand::Register(0)],
+//! };
+//!
 //! // 编码或获取缓存的编码
-//! let encoded = cache.encode_or_lookup(&instruction)?;
+//! let encoded = cache.encode_or_lookup(&instruction).unwrap();
 //! ```
 
 use std::collections::HashMap;
