@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, '1.85']  # stable and MSRV
+        rust: [stable, '1.92']  # stable and current version (matching rust-toolchain.toml)
         include:
           - os: ubuntu-latest
             rust: nightly

@@ -1,6 +1,8 @@
 version: 2
 updates:
+  # ============================================================================
   # Cargo依赖更新
+  # ============================================================================
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
@@ -12,6 +14,7 @@ updates:
       - "maintainer"
     assignees:
       - "maintainer"
+    milestone: 4  # 关联到v0.4.0里程碑
     commit-message:
       prefix: "deps"
       include: "scope"
@@ -23,14 +26,40 @@ updates:
     allow:
       - dependency-type: "direct"
       - dependency-type: "indirect"
+    # 自动合并补丁版本更新（需要通过所有CI检查）
+    auto-merge-level: "patch"
     ignore:
       # 忽略大版本变更，需要手动审查
       - dependency-name: "cranelift*"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "llvm-sys*"
         update-types: ["version-update:semver-major"]
       # 忽略特定包的小版本更新以减少PR噪音
       - dependency-name: "proc-macro2"
+        update-types: ["version-update:semver-patch"]
+    # 分组相关依赖更新
+    groups:
+      # 同步更新所有cranelift包
+      cranelift-dependencies:
+        patterns:
+          - "cranelift*"
+        exclude-patterns:
+          - "cranelift-codegen"
+          - "cranelift-frontend"
+        update-types: ["version-update:semver-patch"]
+      # 同步更新同步相关依赖
+      synchronization-dependencies:
+        patterns:
+          - "tokio*"
+          - "async-trait"
+          - "futures*"
+        update-types: ["version-update:semver-patch"]
+      # 同步更新序列化依赖
+      serialization-dependencies:
+        patterns:
+          - "serde*"
+          - "bincode"
+          - "rmp-serde"
         update-types: ["version-update:semver-patch"]
 
   # GitHub Actions更新
