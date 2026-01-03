@@ -11,9 +11,9 @@ updates:
       time: "00:00"      # 午夜0点
     open-pull-requests-limit: 10  # 最多同时开启10个PR
     reviewers:
-      - "maintainer"
+      - "wangbiao"
     assignees:
-      - "maintainer"
+      - "wangbiao"
     milestone: 4  # 关联到v0.4.0里程碑
     commit-message:
       prefix: "deps"
