@@ -46,18 +46,17 @@ use parking_lot::RwLock;
 use vm_core::VmError;
 
 pub mod decoder;
-// TODO: Implement these modules
-// pub mod ir_gen;
+pub mod ir_gen;
 #[cfg(feature = "llvm")]
-// pub mod llvm_integration;
 pub mod inkwell_integration;
-// pub mod optimizer;
-// pub mod riscv64_semantics;
+pub mod optimizer;
+pub mod riscv64_semantics;
 pub mod semantics;
 
 // Re-export commonly used types
 pub use decoder::{ISA, Instruction, InstructionDecoder, OperandType, create_decoder};
-// pub use ir_gen::{BasicBlock, IRBuilder, IROptimizer, LLVMFunction};
+pub use ir_gen::{BasicBlock, IRBuilder};
+pub use optimizer::{OptimizationLevel, OptimizationPreset, PassManager, OptimizationStats};
 // #[cfg(feature = "llvm")]
 // pub use llvm_integration::{
 //     LLVMCodeGenerator, LLVMContext, LLVMFunction as LLVMFunc, LLVMFunctionBuilder,
