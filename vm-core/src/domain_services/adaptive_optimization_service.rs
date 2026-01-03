@@ -514,7 +514,9 @@ mod tests {
             // Spread timestamps over the last 30 seconds
             let offset_secs = (i as f64 / 10000.0) * 30.0;
             history.push(ExecutionDataPoint {
-                timestamp: base_time.checked_sub(Duration::from_secs_f64(offset_secs)).unwrap_or(base_time),
+                timestamp: base_time
+                    .checked_sub(Duration::from_secs_f64(offset_secs))
+                    .unwrap_or(base_time),
                 duration: Duration::from_micros(200 + (i % 50) as u64), // ~200us avg
                 memory_usage: 1024,
                 optimization_level: 1,
@@ -594,7 +596,9 @@ mod tests {
             // This creates a clear negative slope
             let offset_secs = (30 - i) as f64 * 0.1; // Spread over last 3 seconds
             improving_history.push(ExecutionDataPoint {
-                timestamp: base_time.checked_sub(Duration::from_secs_f64(offset_secs)).unwrap_or(base_time),
+                timestamp: base_time
+                    .checked_sub(Duration::from_secs_f64(offset_secs))
+                    .unwrap_or(base_time),
                 duration: Duration::from_nanos(10000 - i * 300), // Decreasing from 10000ns to 1000ns
                 memory_usage: 1024,
                 optimization_level: 1,
@@ -602,7 +606,11 @@ mod tests {
         }
 
         let trend = service.analyze_performance_trend(&improving_history);
-        assert_eq!(trend, PerformanceTrend::Improving, "Should detect improving performance with strong downward trend");
+        assert_eq!(
+            trend,
+            PerformanceTrend::Improving,
+            "Should detect improving performance with strong downward trend"
+        );
 
         // Test degrading performance - need a strong upward trend
         let mut degrading_history = Vec::new();
@@ -612,7 +620,9 @@ mod tests {
             // This creates a clear positive slope
             let offset_secs = (30 - i) as f64 * 0.1; // Spread over last 3 seconds
             degrading_history.push(ExecutionDataPoint {
-                timestamp: base_time.checked_sub(Duration::from_secs_f64(offset_secs)).unwrap_or(base_time),
+                timestamp: base_time
+                    .checked_sub(Duration::from_secs_f64(offset_secs))
+                    .unwrap_or(base_time),
                 duration: Duration::from_nanos(1000 + i * 300), // Increasing from 1000ns to 10000ns
                 memory_usage: 1024,
                 optimization_level: 1,
@@ -620,6 +630,10 @@ mod tests {
         }
 
         let trend = service.analyze_performance_trend(&degrading_history);
-        assert_eq!(trend, PerformanceTrend::Degrading, "Should detect degrading performance with strong upward trend");
+        assert_eq!(
+            trend,
+            PerformanceTrend::Degrading,
+            "Should detect degrading performance with strong upward trend"
+        );
     }
 }

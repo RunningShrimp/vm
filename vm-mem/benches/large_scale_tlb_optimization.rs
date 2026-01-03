@@ -9,8 +9,8 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 use vm_core::{AccessType, GuestAddr};
 use vm_mem::mmu::{PageTableFlags, PageWalkResult};
 use vm_mem::tlb::core::{
-    basic::SoftwareTlb, optimized_hash::OptimizedHashTlb, unified::MultiLevelTlb,
-    MultiLevelTlbConfig, TlbReplacePolicy,
+    MultiLevelTlbConfig, TlbReplacePolicy, basic::SoftwareTlb, optimized_hash::OptimizedHashTlb,
+    unified::MultiLevelTlb,
 };
 
 /// Benchmark: TLB lookup performance at different scales

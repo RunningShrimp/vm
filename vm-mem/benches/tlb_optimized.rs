@@ -2,9 +2,9 @@
 //!
 //! 测试多级TLB和并发TLB的性能表现
 
-use vm_core::AddressTranslator;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use vm_core::AddressTranslator;
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use vm_core::{AccessType, GuestAddr};
@@ -67,7 +67,10 @@ fn bench_concurrent_tlb(c: &mut Criterion) {
     // 预热
     for i in 0..1000 {
         let addr = GuestAddr((i * 4096) as u64);
-        let _ = concurrent_mmu.lock().unwrap().translate(addr, AccessType::Read);
+        let _ = concurrent_mmu
+            .lock()
+            .unwrap()
+            .translate(addr, AccessType::Read);
     }
 
     // 单线程基准
@@ -75,7 +78,10 @@ fn bench_concurrent_tlb(c: &mut Criterion) {
         b.iter(|| {
             for i in 0..1000 {
                 let addr = black_box(GuestAddr((i * 4096) as u64));
-                let _ = concurrent_mmu.lock().unwrap().translate(addr, AccessType::Read);
+                let _ = concurrent_mmu
+                    .lock()
+                    .unwrap()
+                    .translate(addr, AccessType::Read);
             }
         })
     });
@@ -94,7 +100,8 @@ fn bench_concurrent_tlb(c: &mut Criterion) {
                         let mmu_clone = concurrent_mmu.clone();
                         let handle = thread::spawn(move || {
                             for i in 0..iterations_per_thread {
-                                let addr = GuestAddr(((t * iterations_per_thread + i) * 4096) as u64);
+                                let addr =
+                                    GuestAddr(((t * iterations_per_thread + i) * 4096) as u64);
                                 let _ = mmu_clone.lock().unwrap().translate(addr, AccessType::Read);
                             }
                         });

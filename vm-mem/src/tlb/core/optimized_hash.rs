@@ -38,9 +38,7 @@ impl PackedTlbEntry {
     #[inline]
     fn new(_vpn: u64, ppn: u64, flags: u64, asid: u16) -> Self {
         // Pack data: ppn (40 bits) | flags (12 bits) | asid (16 bits)
-        let packed_data = (ppn & 0xFF_FFFF_FFFF) |
-            ((flags & 0xFFF) << 40) |
-            ((asid as u64) << 52);
+        let packed_data = (ppn & 0xFF_FFFF_FFFF) | ((flags & 0xFFF) << 40) | ((asid as u64) << 52);
 
         Self {
             tag: AtomicU64::new(0),
@@ -153,8 +151,8 @@ impl OptimizedHashTlb {
     #[inline]
     fn hash(&self, vpn: u64, asid: u16) -> usize {
         // Simple but effective hash: mix VPN and ASID
-        let hash = vpn.wrapping_mul(0x9e3779b97f4a7c15)
-            ^ ((asid as u64).wrapping_mul(0x517cc1b727220a95));
+        let hash =
+            vpn.wrapping_mul(0x9e3779b97f4a7c15) ^ ((asid as u64).wrapping_mul(0x517cc1b727220a95));
 
         // Fast modulo using mask (only works because capacity is power of 2)
         (hash as usize) & self.index_mask
@@ -180,7 +178,12 @@ impl OptimizedHashTlb {
     /// * `Some((gpa, flags))` - Translation successful (gpa as GuestAddr)
     /// * `None` - TLB miss
     #[inline]
-    pub fn translate(&self, gva: GuestAddr, asid: u16, access: AccessType) -> Option<(GuestAddr, u64)> {
+    pub fn translate(
+        &self,
+        gva: GuestAddr,
+        asid: u16,
+        access: AccessType,
+    ) -> Option<(GuestAddr, u64)> {
         // Compute VPN (page number)
         let vpn = gva.0 >> 12;
 
@@ -278,9 +281,7 @@ impl OptimizedHashTlb {
 
     /// Get current usage (number of valid entries)
     pub fn usage(&self) -> usize {
-        self.entries.iter()
-            .filter(|e| e.is_valid())
-            .count()
+        self.entries.iter().filter(|e| e.is_valid()).count()
     }
 }
 
@@ -298,7 +299,12 @@ impl ConcurrentOptimizedHashTlb {
     }
 
     /// Translate a virtual address (thread-safe)
-    pub fn translate(&self, gva: GuestAddr, asid: u16, access: AccessType) -> Option<(GuestAddr, u64)> {
+    pub fn translate(
+        &self,
+        gva: GuestAddr,
+        asid: u16,
+        access: AccessType,
+    ) -> Option<(GuestAddr, u64)> {
         let inner = self.inner.lock().unwrap();
         inner.translate(gva, asid, access)
     }
@@ -371,7 +377,10 @@ mod tests {
         // So we just verify that some entries were inserted
         let usage = tlb.usage();
         assert!(usage > 0, "TLB should have some entries");
-        assert!(usage <= insert_count, "Usage should not exceed insert count");
+        assert!(
+            usage <= insert_count,
+            "Usage should not exceed insert count"
+        );
 
         // Flush all
         tlb.flush_all();

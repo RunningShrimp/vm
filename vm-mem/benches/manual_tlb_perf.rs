@@ -3,9 +3,7 @@ use std::time::Instant;
 
 use vm_core::{AccessType, GuestAddr};
 use vm_mem::mmu::{PageTableFlags, PageWalkResult};
-use vm_mem::tlb::core::{
-    basic::SoftwareTlb, optimized_hash::OptimizedHashTlb, TlbReplacePolicy,
-};
+use vm_mem::tlb::core::{TlbReplacePolicy, basic::SoftwareTlb, optimized_hash::OptimizedHashTlb};
 
 fn main() {
     println!("=== TLB Performance Comparison ===\n");
@@ -40,8 +38,7 @@ fn main() {
             }
         }
         let basic_duration = start.elapsed();
-        let basic_avg_ns =
-            basic_duration.as_nanos() as f64 / (iterations * page_count) as f64;
+        let basic_avg_ns = basic_duration.as_nanos() as f64 / (iterations * page_count) as f64;
 
         // ============ Test Optimized Hash TLB ============
         let hash_capacity = page_count.next_power_of_two();
@@ -61,8 +58,7 @@ fn main() {
             }
         }
         let hash_duration = start.elapsed();
-        let hash_avg_ns =
-            hash_duration.as_nanos() as f64 / (iterations * page_count) as f64;
+        let hash_avg_ns = hash_duration.as_nanos() as f64 / (iterations * page_count) as f64;
 
         // Calculate improvement
         let speedup = basic_avg_ns / hash_avg_ns;

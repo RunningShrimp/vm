@@ -755,8 +755,15 @@ mod tests {
         }
 
         // 验证结果 - should have all 400 items (with some tolerance for concurrent access)
-        assert!(results.len() >= 390, "Should have consumed most items, got {}", results.len());
-        assert!(results.len() <= 400, "Should not have more items than produced");
+        assert!(
+            results.len() >= 390,
+            "Should have consumed most items, got {}",
+            results.len()
+        );
+        assert!(
+            results.len() <= 400,
+            "Should not have more items than produced"
+        );
     }
 
     #[test]
