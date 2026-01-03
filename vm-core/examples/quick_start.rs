@@ -15,11 +15,11 @@
 //! cargo run --example quick_start --features "vm-frontend/riscv64"
 //! ```
 
-use vm_core::{GuestAddr, GuestArch, VmConfig, ExecMode, AccessType};
-use vm_mem::{PagingMode, PhysicalMemory, UnifiedMMUV2};
-use vm_frontend::Riscv64Decoder;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
+use vm_core::{AccessType, ExecMode, GuestAddr, GuestArch, VmConfig};
+use vm_frontend::Riscv64Decoder;
+use vm_mem::{PagingMode, PhysicalMemory, UnifiedMMUV2};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("======================================");

@@ -1,4 +1,4 @@
-# Rust formatter configuration for VM project
+# Rust formatter configuration for VM project (Stable)
 
 # Maximum line width
 max_width = 100
@@ -33,38 +33,6 @@ use_field_init_shorthand = true
 # Use try shorthand
 use_try_shorthand = true
 
-# Format code in doc comments
-format_code_in_doc_comments = true
-
-# Wrap comments at max width
-wrap_comments = true
-
-# Comment width
-comment_width = 100
-
-# Normalize comments
-normalize_comments = true
-
-# Normalize doc attributes
-normalize_doc_attributes = true
-
-# Format strings
-format_strings = true
-
 # Edition (for edition-specific formatting)
-edition = "2024"
+edition = "2021"
 
-# Style edition (replaces deprecated `version`)
-style_edition = "2024"
-
-# Indent style
-indent_style = "Block"
-
-# Group imports
-group_imports = "StdExternalCrate"
-
-# Struct field alignment
-struct_field_align_threshold = 0
-
-# Enum discriminant alignment
-enum_discrim_align_threshold = 0

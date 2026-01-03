@@ -16,12 +16,12 @@
 //! cargo run --example tlb_usage --features "vm-frontend/riscv64"
 //! ```
 
-use vm_core::{GuestAddr, GuestPhysAddr, AccessType, TlbEntry, TlbManager};
-use vm_mem::{
-    MultiLevelTlb, MultiLevelTlbConfig, ConcurrentTlbManager, ConcurrentTlbConfig,
-    AdaptiveReplacementPolicy, TlbFactory
-};
 use std::time::Instant;
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbEntry, TlbManager};
+use vm_mem::{
+    AdaptiveReplacementPolicy, ConcurrentTlbConfig, ConcurrentTlbManager, MultiLevelTlb,
+    MultiLevelTlbConfig, TlbFactory,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("======================================");
@@ -102,7 +102,10 @@ fn basic_tlb_usage() -> Result<(), Box<dyn std::error::Error>> {
         asid,
     };
     tlb.update(entry);
-    println!("  ✓ 插入条目: virt=0x{:x} -> phys=0x{:x}", test_addr, entry.phys_addr);
+    println!(
+        "  ✓ 插入条目: virt=0x{:x} -> phys=0x{:x}",
+        test_addr, entry.phys_addr
+    );
     println!();
 
     // 再次查找
@@ -146,9 +149,9 @@ fn multi_level_tlb_usage() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     let config = MultiLevelTlbConfig {
-        l1_size: 16,   // L1 TLB: 快速但小
-        l2_size: 64,   // L2 TLB: 中等速度和大小
-        l3_size: 256,  // L3 TLB: 较慢但大
+        l1_size: 16,  // L1 TLB: 快速但小
+        l2_size: 64,  // L2 TLB: 中等速度和大小
+        l3_size: 256, // L3 TLB: 较慢但大
         asid_bits: 8,
     };
     let mut tlb = MultiLevelTlb::new(config);
@@ -188,8 +191,15 @@ fn multi_level_tlb_usage() -> Result<(), Box<dyn std::error::Error>> {
     println!("  测试结果:");
     println!("    查找次数: {}", iterations);
     println!("    命中次数: {}", hits);
-    println!("    命中率: {:.1}%", (hits as f64 / iterations as f64) * 100.0);
-    println!("    总耗时: {:?} ({:.2} ns/次)", elapsed, elapsed.as_nanos() as f64 / iterations as f64);
+    println!(
+        "    命中率: {:.1}%",
+        (hits as f64 / iterations as f64) * 100.0
+    );
+    println!(
+        "    总耗时: {:?} ({:.2} ns/次)",
+        elapsed,
+        elapsed.as_nanos() as f64 / iterations as f64
+    );
     println!();
 
     // 显示统计信息
@@ -218,7 +228,7 @@ fn concurrent_tlb_usage() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     let config = ConcurrentTlbConfig {
-        num_shards: 16,  // 16个分片减少锁竞争
+        num_shards: 16, // 16个分片减少锁竞争
         entries_per_shard: 64,
         asid_bits: 8,
         replacement_policy: AdaptiveReplacementPolicy::Arc,
@@ -273,18 +283,19 @@ fn concurrent_tlb_usage() -> Result<(), Box<dyn std::error::Error>> {
             let mut local_hits = 0;
             for i in 0..100 {
                 let addr = GuestAddr(0x1000 + (thread_id * 16 + (i % 16)) * 0x1000);
-                    if tlb_clone.lookup(addr, thread_id as u16, AccessType::Read).is_some() {
-                        local_hits += 1;
-                    }
+                if tlb_clone
+                    .lookup(addr, thread_id as u16, AccessType::Read)
+                    .is_some()
+                {
+                    local_hits += 1;
                 }
+            }
             local_hits
         });
         handles.push(handle);
     }
 
-    let total_hits: u32 = handles.into_iter()
-        .map(|h| h.join().unwrap())
-        .sum();
+    let total_hits: u32 = handles.into_iter().map(|h| h.join().unwrap()).sum();
 
     let elapsed = start.elapsed();
     println!("  ✓ 4个线程并发查找400次");

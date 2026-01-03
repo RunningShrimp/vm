@@ -16,13 +16,13 @@
 use std::time::Instant;
 
 use vm_cross_arch_support::{
+    TranslationRegId, // 使用translation_pipeline的RegId枚举
     encoding::{Architecture, EncodingContext, RegId},
     memory_access::{
         AccessType, AccessWidth, Alignment, DefaultMemoryAccessOptimizer, MemoryAccessAnalyzer,
-        MemoryAccessPattern, MemoryAccessOptimizer,
+        MemoryAccessOptimizer, MemoryAccessPattern,
     },
     register::{MappingStrategy, RegisterMapper, RegisterSet},
-    TranslationRegId,  // 使用translation_pipeline的RegId枚举
     translation_pipeline::RegisterMappingCache,
 };
 
@@ -84,16 +84,24 @@ fn example2_register_mapping() {
     println!("  {}", "-".repeat(30));
 
     let x86_regs = vec![
-        ("RAX", 0u16), ("RCX", 1), ("RDX", 2), ("RBX", 3),
-        ("RSP", 4), ("RBP", 5), ("RSI", 6), ("RDI", 7),
+        ("RAX", 0u16),
+        ("RCX", 1),
+        ("RDX", 2),
+        ("RBX", 3),
+        ("RSP", 4),
+        ("RBP", 5),
+        ("RSI", 6),
+        ("RDI", 7),
     ];
 
     for (name, idx) in &x86_regs {
         let src_reg = RegId(*idx);
         match reg_mapper.map_register(src_reg) {
             Ok(dst_reg) => {
-                println!("  {:<10} r{:>2}       r{:>2}       {:?}",
-                    name, idx, dst_reg.0, name);
+                println!(
+                    "  {:<10} r{:>2}       r{:>2}       {:?}",
+                    name, idx, dst_reg.0, name
+                );
             }
             Err(e) => {
                 println!("  {:<10} 映射失败: {:?}", name, e);
@@ -105,19 +113,28 @@ fn example2_register_mapping() {
 
     let src_set_arm = RegisterSet::new(Architecture::ARM64);
     let dst_set_riscv = RegisterSet::new(Architecture::RISCV64);
-    let mut reg_mapper_arm = RegisterMapper::new(src_set_arm, dst_set_riscv, MappingStrategy::Direct);
+    let mut reg_mapper_arm =
+        RegisterMapper::new(src_set_arm, dst_set_riscv, MappingStrategy::Direct);
 
     let arm_regs = vec![
-        ("X0", 0u16), ("X1", 1), ("X2", 2), ("X3", 3),
-        ("X4", 4), ("X5", 5), ("SP", 31), ("LR", 30),
+        ("X0", 0u16),
+        ("X1", 1),
+        ("X2", 2),
+        ("X3", 3),
+        ("X4", 4),
+        ("X5", 5),
+        ("SP", 31),
+        ("LR", 30),
     ];
 
     for (name, idx) in &arm_regs {
         let src_reg = RegId(*idx);
         match reg_mapper_arm.map_register(src_reg) {
             Ok(dst_reg) => {
-                println!("  {:<10} x{:>2}       r{:>2}       {:?}",
-                    name, idx, dst_reg.0, name);
+                println!(
+                    "  {:<10} x{:>2}       r{:>2}       {:?}",
+                    name, idx, dst_reg.0, name
+                );
             }
             Err(e) => {
                 println!("  {:<10} 映射失败: {:?}", name, e);
@@ -178,35 +195,49 @@ fn example4_memory_access_analysis() {
 
     // 创建内存访问模式
     let pattern1 = MemoryAccessPattern::new(
-        RegId(0),   // 使用encoding模块的RegId (u16 wrapper)
+        RegId(0), // 使用encoding模块的RegId (u16 wrapper)
         0x1000,
         AccessWidth::DoubleWord,
-    ).with_access_type(AccessType::Read);
+    )
+    .with_access_type(AccessType::Read);
 
     let pattern2 = MemoryAccessPattern::new(
-        RegId(1),   // 未对齐地址
+        RegId(1), // 未对齐地址
         0x1003,
         AccessWidth::DoubleWord,
-    ).with_access_type(AccessType::Write)
-     .with_alignment(Alignment::Unaligned);
+    )
+    .with_access_type(AccessType::Write)
+    .with_alignment(Alignment::Unaligned);
 
-    let pattern3 = MemoryAccessPattern::new(
-        RegId(2),
-        0x1010,
-        AccessWidth::Word,
-    ).with_access_type(AccessType::ReadWrite);
+    let pattern3 = MemoryAccessPattern::new(RegId(2), 0x1010, AccessWidth::Word)
+        .with_access_type(AccessType::ReadWrite);
 
     println!("\n添加访问模式到分析器:");
-    println!("  模式1: addr=0x{:04x}, size={}, align={:?}, type={:?}",
-        pattern1.offset, pattern1.size(), pattern1.alignment, pattern1.access_type);
+    println!(
+        "  模式1: addr=0x{:04x}, size={}, align={:?}, type={:?}",
+        pattern1.offset,
+        pattern1.size(),
+        pattern1.alignment,
+        pattern1.access_type
+    );
     analyzer.add_pattern(pattern1);
 
-    println!("  模式2: addr=0x{:04x}, size={}, align={:?}, type={:?}",
-        pattern2.offset, pattern2.size(), pattern2.alignment, pattern2.access_type);
+    println!(
+        "  模式2: addr=0x{:04x}, size={}, align={:?}, type={:?}",
+        pattern2.offset,
+        pattern2.size(),
+        pattern2.alignment,
+        pattern2.access_type
+    );
     analyzer.add_pattern(pattern2);
 
-    println!("  模式3: addr=0x{:04x}, size={}, align={:?}, type={:?}",
-        pattern3.offset, pattern3.size(), pattern3.alignment, pattern3.access_type);
+    println!(
+        "  模式3: addr=0x{:04x}, size={}, align={:?}, type={:?}",
+        pattern3.offset,
+        pattern3.size(),
+        pattern3.alignment,
+        pattern3.access_type
+    );
     analyzer.add_pattern(pattern3);
 
     // 执行分析
@@ -236,26 +267,36 @@ fn example5_memory_access_optimization() {
     // 创建几个内存访问模式进行优化
     let patterns = vec![
         MemoryAccessPattern::new(
-            RegId(0),   // RAX
+            RegId(0), // RAX
             0x1000,
             AccessWidth::DoubleWord,
-        ).with_access_type(AccessType::Read),
+        )
+        .with_access_type(AccessType::Read),
         MemoryAccessPattern::new(
-            RegId(1),   // RCX
+            RegId(1), // RCX
             0x1008,
             AccessWidth::Word,
-        ).with_access_type(AccessType::Write),
+        )
+        .with_access_type(AccessType::Write),
         MemoryAccessPattern::new(
-            RegId(2),   // RDX (未对齐地址)
+            RegId(2), // RDX (未对齐地址)
             0x1003,
             AccessWidth::DoubleWord,
-        ).with_access_type(AccessType::Read).with_alignment(Alignment::Unaligned),
+        )
+        .with_access_type(AccessType::Read)
+        .with_alignment(Alignment::Unaligned),
     ];
 
     println!("\n原始访问模式:");
     for (i, pattern) in patterns.iter().enumerate() {
-        println!("  {} addr=0x{:04x}, size={}, type={:?}, align={:?}",
-            i + 1, pattern.offset, pattern.size(), pattern.access_type, pattern.alignment);
+        println!(
+            "  {} addr=0x{:04x}, size={}, type={:?}, align={:?}",
+            i + 1,
+            pattern.offset,
+            pattern.size(),
+            pattern.access_type,
+            pattern.alignment
+        );
     }
 
     // 分析并优化每个模式
@@ -266,10 +307,18 @@ fn example5_memory_access_optimization() {
         let elapsed = start.elapsed();
 
         println!("  模式{}:", i + 1);
-        println!("    原始: addr=0x{:04x}, size={}, align={:?}",
-            pattern.offset, pattern.size(), pattern.alignment);
-        println!("    优化: addr=0x{:04x}, size={}, align={:?}",
-            optimized.optimized.offset, optimized.optimized.size(), optimized.optimized.alignment);
+        println!(
+            "    原始: addr=0x{:04x}, size={}, align={:?}",
+            pattern.offset,
+            pattern.size(),
+            pattern.alignment
+        );
+        println!(
+            "    优化: addr=0x{:04x}, size={}, align={:?}",
+            optimized.optimized.offset,
+            optimized.optimized.size(),
+            optimized.optimized.alignment
+        );
         println!("    优化类型: {:?}", optimized.optimization_type);
         println!("    性能提升: {:.1}%", optimized.performance_gain * 100.0);
         println!("    优化耗时: {:?}", elapsed);
@@ -294,7 +343,10 @@ fn example6_architecture_comparison() {
         ("RISC-V", Architecture::RISCV64),
     ];
 
-    println!("  {:<10} {:<15} {:<15} {:<15}", "架构", "寄存器数", "寻址模式", "特色特性");
+    println!(
+        "  {:<10} {:<15} {:<15} {:<15}",
+        "架构", "寄存器数", "寻址模式", "特色特性"
+    );
     println!("  {}", "-".repeat(55));
 
     for (name, arch) in &architectures {
@@ -318,8 +370,10 @@ fn example6_architecture_comparison() {
             ),
         };
 
-        println!("  {:<10} {:<15} {:<15} {:<15}",
-            name, reg_count, addr_modes, features);
+        println!(
+            "  {:<10} {:<15} {:<15} {:<15}",
+            name, reg_count, addr_modes, features
+        );
     }
 
     println!("\n性能考虑因素:");
@@ -364,11 +418,8 @@ fn example7_full_translation_demo() {
     println!("\n步骤2: 内存访问分析");
     let mut analyzer = MemoryAccessAnalyzer::new();
 
-    let pattern = MemoryAccessPattern::new(
-        RegId(0),
-        0x1000,
-        AccessWidth::DoubleWord,
-    ).with_access_type(AccessType::Read);
+    let pattern = MemoryAccessPattern::new(RegId(0), 0x1000, AccessWidth::DoubleWord)
+        .with_access_type(AccessType::Read);
 
     println!("  地址: 0x{:04x}", pattern.offset);
     println!("  大小: {} 字节", pattern.size());
@@ -378,29 +429,36 @@ fn example7_full_translation_demo() {
     analyzer.add_pattern(pattern);
 
     let result = analyzer.analyze();
-    println!("  分析结果: 总访问数={}, 未对齐={}",
-        result.total_accesses, result.unaligned_accesses);
+    println!(
+        "  分析结果: 总访问数={}, 未对齐={}",
+        result.total_accesses, result.unaligned_accesses
+    );
 
     println!("\n步骤3: 内存访问优化");
     let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
 
-    let pattern_to_optimize = MemoryAccessPattern::new(
-        RegId(0),
-        0x1000,
-        AccessWidth::DoubleWord,
-    ).with_access_type(AccessType::Read).with_alignment(Alignment::Unaligned);
+    let pattern_to_optimize = MemoryAccessPattern::new(RegId(0), 0x1000, AccessWidth::DoubleWord)
+        .with_access_type(AccessType::Read)
+        .with_alignment(Alignment::Unaligned);
 
     let optimized = optimizer.optimize_access_pattern(&pattern_to_optimize);
 
-    println!("  原始模式: addr=0x{:04x}, align={:?}",
-        pattern_to_optimize.offset, pattern_to_optimize.alignment);
-    println!("  优化模式: addr=0x{:04x}, align={:?}",
-        optimized.optimized.offset, optimized.optimized.alignment);
+    println!(
+        "  原始模式: addr=0x{:04x}, align={:?}",
+        pattern_to_optimize.offset, pattern_to_optimize.alignment
+    );
+    println!(
+        "  优化模式: addr=0x{:04x}, align={:?}",
+        optimized.optimized.offset, optimized.optimized.alignment
+    );
     println!("  优化类型: {:?}", optimized.optimization_type);
     println!("  性能提升: {:.1}%", optimized.performance_gain * 100.0);
 
     println!("\n步骤4: 翻译统计");
-    println!("  寄存器映射缓存命中率: {:.1}%", reg_cache.hit_rate() * 100.0);
+    println!(
+        "  寄存器映射缓存命中率: {:.1}%",
+        reg_cache.hit_rate() * 100.0
+    );
 }
 
 // ============================================================================
