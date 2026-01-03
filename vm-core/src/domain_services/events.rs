@@ -5,8 +5,8 @@
 //! This module re-exports the domain events from the main domain_events module
 //! and adds additional events specific to domain services.
 
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
 /// Memory access type for page table operations
@@ -80,11 +80,19 @@ impl DomainEvent for TranslationEvent {
     fn event_type(&self) -> &'static str {
         match self {
             TranslationEvent::StrategySelected { .. } => "translation.strategy_selected",
-            TranslationEvent::CompatibilityValidated { .. } => "translation.compatibility_validated",
+            TranslationEvent::CompatibilityValidated { .. } => {
+                "translation.compatibility_validated"
+            }
             TranslationEvent::TranslationPlanned { .. } => "translation.translation_planned",
-            TranslationEvent::InstructionEncodingValidated { .. } => "translation.instruction_encoding_validated",
-            TranslationEvent::RegisterMappingCompleted { .. } => "translation.register_mapping_completed",
-            TranslationEvent::PipelineOrchestrationCompleted { .. } => "translation.pipeline_orchestration_completed",
+            TranslationEvent::InstructionEncodingValidated { .. } => {
+                "translation.instruction_encoding_validated"
+            }
+            TranslationEvent::RegisterMappingCompleted { .. } => {
+                "translation.register_mapping_completed"
+            }
+            TranslationEvent::PipelineOrchestrationCompleted { .. } => {
+                "translation.pipeline_orchestration_completed"
+            }
         }
     }
 
@@ -137,7 +145,8 @@ pub enum OptimizationEvent {
     StrategySelected {
         strategy: String,
         hotspot_count: usize,
-        resource_utilization: crate::domain_services::adaptive_optimization_service::ResourceUtilization,
+        resource_utilization:
+            crate::domain_services::adaptive_optimization_service::ResourceUtilization,
         occurred_at: SystemTime,
     },
     /// Resource constraint violation detected
@@ -175,10 +184,7 @@ pub enum OptimizationEvent {
         occurred_at: SystemTime,
     },
     /// Cache miss occurred
-    CacheMiss {
-        key: u64,
-        occurred_at: SystemTime,
-    },
+    CacheMiss { key: u64, occurred_at: SystemTime },
     /// Cache entry was put
     CachePut {
         tier: String,
@@ -271,15 +277,21 @@ pub enum OptimizationEvent {
 impl DomainEvent for OptimizationEvent {
     fn event_type(&self) -> &'static str {
         match self {
-            OptimizationEvent::PipelineConfigCreated { .. } => "optimization.pipeline_config_created",
+            OptimizationEvent::PipelineConfigCreated { .. } => {
+                "optimization.pipeline_config_created"
+            }
             OptimizationEvent::StageCompleted { .. } => "optimization.stage_completed",
             OptimizationEvent::PipelineCompleted { .. } => "optimization.pipeline_completed",
             OptimizationEvent::HotspotsDetected { .. } => "optimization.hotspots_detected",
             OptimizationEvent::StrategySelected { .. } => "optimization.strategy_selected",
-            OptimizationEvent::ResourceConstraintViolation { .. } => "optimization.resource_constraint_violation",
+            OptimizationEvent::ResourceConstraintViolation { .. } => {
+                "optimization.resource_constraint_violation"
+            }
             OptimizationEvent::ResourceAllocated { .. } => "optimization.resource_allocated",
             OptimizationEvent::ResourceReleased { .. } => "optimization.resource_released",
-            OptimizationEvent::PerformanceThresholdUpdated { .. } => "optimization.performance_threshold_updated",
+            OptimizationEvent::PerformanceThresholdUpdated { .. } => {
+                "optimization.performance_threshold_updated"
+            }
             OptimizationEvent::CacheHit { .. } => "optimization.cache_hit",
             OptimizationEvent::CacheMiss { .. } => "optimization.cache_miss",
             OptimizationEvent::CachePut { .. } => "optimization.cache_put",
@@ -287,13 +299,25 @@ impl DomainEvent for OptimizationEvent {
             OptimizationEvent::CachePromotion { .. } => "optimization.cache_promotion",
             OptimizationEvent::CacheResized { .. } => "optimization.cache_resized",
             OptimizationEvent::CachePrefetch { .. } => "optimization.cache_prefetch",
-            OptimizationEvent::TargetOptimizationCompleted { .. } => "optimization.target_optimization_completed",
-            OptimizationEvent::OptimizationEffectivenessMonitored { .. } => "optimization.effectiveness_monitored",
-            OptimizationEvent::PerformanceBottleneckAnalysisCompleted { .. } => "optimization.bottleneck_analysis_completed",
-            OptimizationEvent::OptimizationRecommendationsGenerated { .. } => "optimization.recommendations_generated",
+            OptimizationEvent::TargetOptimizationCompleted { .. } => {
+                "optimization.target_optimization_completed"
+            }
+            OptimizationEvent::OptimizationEffectivenessMonitored { .. } => {
+                "optimization.effectiveness_monitored"
+            }
+            OptimizationEvent::PerformanceBottleneckAnalysisCompleted { .. } => {
+                "optimization.bottleneck_analysis_completed"
+            }
+            OptimizationEvent::OptimizationRecommendationsGenerated { .. } => {
+                "optimization.recommendations_generated"
+            }
             OptimizationEvent::OptimizationPlanCreated { .. } => "optimization.plan_created",
-            OptimizationEvent::OptimizationExecutionCompleted { .. } => "optimization.execution_completed",
-            OptimizationEvent::RegisterAllocationCompleted { .. } => "optimization.register_allocation_completed",
+            OptimizationEvent::OptimizationExecutionCompleted { .. } => {
+                "optimization.execution_completed"
+            }
+            OptimizationEvent::RegisterAllocationCompleted { .. } => {
+                "optimization.register_allocation_completed"
+            }
         }
     }
 
@@ -316,9 +340,15 @@ impl DomainEvent for OptimizationEvent {
             OptimizationEvent::CacheResized { occurred_at, .. } => *occurred_at,
             OptimizationEvent::CachePrefetch { occurred_at, .. } => *occurred_at,
             OptimizationEvent::TargetOptimizationCompleted { occurred_at, .. } => *occurred_at,
-            OptimizationEvent::OptimizationEffectivenessMonitored { occurred_at, .. } => *occurred_at,
-            OptimizationEvent::PerformanceBottleneckAnalysisCompleted { occurred_at, .. } => *occurred_at,
-            OptimizationEvent::OptimizationRecommendationsGenerated { occurred_at, .. } => *occurred_at,
+            OptimizationEvent::OptimizationEffectivenessMonitored { occurred_at, .. } => {
+                *occurred_at
+            }
+            OptimizationEvent::PerformanceBottleneckAnalysisCompleted { occurred_at, .. } => {
+                *occurred_at
+            }
+            OptimizationEvent::OptimizationRecommendationsGenerated { occurred_at, .. } => {
+                *occurred_at
+            }
             OptimizationEvent::OptimizationPlanCreated { occurred_at, .. } => *occurred_at,
             OptimizationEvent::OptimizationExecutionCompleted { occurred_at, .. } => *occurred_at,
             OptimizationEvent::RegisterAllocationCompleted { occurred_at, .. } => *occurred_at,
@@ -352,18 +382,11 @@ pub enum TlbEvent {
         level: super::tlb_management_service::TlbLevel,
     },
     /// TLB entries were flushed by ASID
-    FlushAsid {
-        asid: u16,
-    },
+    FlushAsid { asid: u16 },
     /// TLB entries were flushed by range
-    FlushRange {
-        start_va: u64,
-        end_va: u64,
-    },
+    FlushRange { start_va: u64, end_va: u64 },
     /// TLB entries were invalidated by physical address
-    InvalidatePa {
-        pa: u64,
-    },
+    InvalidatePa { pa: u64 },
 }
 
 impl DomainEvent for TlbEvent {
@@ -388,27 +411,15 @@ impl DomainEvent for TlbEvent {
 #[derive(Debug, Clone)]
 pub enum PageTableEvent {
     /// Page fault occurred
-    PageFault {
-        va: u64,
-        access_type: AccessType,
-    },
+    PageFault { va: u64, access_type: AccessType },
     /// Access violation occurred
-    AccessViolation {
-        va: u64,
-        access_type: AccessType,
-    },
+    AccessViolation { va: u64, access_type: AccessType },
     /// Invalid entry encountered
-    InvalidEntry {
-        va: u64,
-    },
+    InvalidEntry { va: u64 },
     /// Cache entry was invalidated
-    CacheInvalidated {
-        va: u64,
-    },
+    CacheInvalidated { va: u64 },
     /// Cache was flushed
-    CacheFlushed {
-        count: usize,
-    },
+    CacheFlushed { count: usize },
 }
 
 impl DomainEvent for PageTableEvent {
@@ -449,9 +460,7 @@ pub enum ExecutionEvent {
         priority: super::execution_manager_service::ExecutionPriority,
     },
     /// Execution context was started
-    ContextStarted {
-        id: u64,
-    },
+    ContextStarted { id: u64 },
     /// Execution context was completed
     ContextCompleted {
         id: u64,
@@ -459,18 +468,11 @@ pub enum ExecutionEvent {
         instructions_executed: u64,
     },
     /// Execution context failed
-    ContextFailed {
-        id: u64,
-        error: String,
-    },
+    ContextFailed { id: u64, error: String },
     /// Execution context was paused
-    ContextPaused {
-        id: u64,
-    },
+    ContextPaused { id: u64 },
     /// Execution context was resumed
-    ContextResumed {
-        id: u64,
-    },
+    ContextResumed { id: u64 },
 }
 
 impl DomainEvent for ExecutionEvent {
@@ -501,26 +503,15 @@ pub enum VmLifecycleEvent {
         config_snapshot: VmConfigSnapshot,
     },
     /// VM was started
-    VmStarted {
-        vm_id: String,
-    },
+    VmStarted { vm_id: String },
     /// VM was paused
-    VmPaused {
-        vm_id: String,
-    },
+    VmPaused { vm_id: String },
     /// VM was resumed
-    VmResumed {
-        vm_id: String,
-    },
+    VmResumed { vm_id: String },
     /// VM was stopped
-    VmStopped {
-        vm_id: String,
-        reason: String,
-    },
+    VmStopped { vm_id: String, reason: String },
     /// VM was destroyed
-    VmDestroyed {
-        vm_id: String,
-    },
+    VmDestroyed { vm_id: String },
     /// VM state transition occurred
     StateTransition {
         vm_id: String,
@@ -528,10 +519,7 @@ pub enum VmLifecycleEvent {
         to_state: String,
     },
     /// VM state changed (alias for StateTransition)
-    VmStateChanged {
-        vm_id: String,
-        to: String,
-    },
+    VmStateChanged { vm_id: String, to: String },
 }
 
 impl DomainEvent for VmLifecycleEvent {
@@ -665,7 +653,7 @@ impl DomainEventEnum {
     pub fn name(&self) -> &'static str {
         self.event_type()
     }
-    
+
     /// Get the event timestamp as duration since epoch
     pub fn timestamp(&self) -> u64 {
         self.occurred_at()
@@ -685,7 +673,7 @@ pub trait DomainEventHandler: Send + Sync {
 pub trait DomainEventBus: Send + Sync {
     /// Publish a domain event
     fn publish(&self, event: DomainEventEnum);
-    
+
     /// Subscribe to domain events
     fn subscribe(&self, handler: Arc<dyn DomainEventHandler>);
 }
@@ -924,7 +912,7 @@ mod tests {
         let handler_events = handler.get_events();
         assert_eq!(handler_events.len(), 1);
     }
-    
+
     #[test]
     fn test_mock_event_bus() {
         let event_bus = MockDomainEventBus::new();
@@ -943,7 +931,7 @@ mod tests {
         event_bus.clear();
         assert_eq!(event_bus.event_count(), 0);
     }
-    
+
     #[test]
     fn test_collecting_event_handler() {
         let handler = CollectingEventHandler::new();
@@ -968,7 +956,7 @@ mod tests {
         handler.clear();
         assert_eq!(handler.event_count(), 0);
     }
-    
+
     #[test]
     fn test_domain_event_properties() {
         let event = DomainEventEnum::Translation(TranslationEvent::StrategySelected {
@@ -977,11 +965,11 @@ mod tests {
             strategy: "Optimized".to_string(),
             occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12345),
         });
-        
+
         assert_eq!(event.name(), "translation.strategy_selected");
         assert_eq!(event.timestamp(), 12345);
     }
-    
+
     #[test]
     fn test_in_memory_event_bus_max_events() {
         let event_bus = InMemoryDomainEventBus::with_max_events(2);

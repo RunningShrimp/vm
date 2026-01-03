@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::domain_services::events::{DomainEventEnum, ExecutionEvent};
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, ExecutionEvent};
 use crate::{CoreError, GuestAddr, VmError, VmResult};
 
 /// Execution context state
@@ -258,17 +258,16 @@ impl ExecutionManagerDomainService {
         self.ready_queue.push((priority, id));
         self.ready_queue.sort_by(|a, b| b.0.cmp(&a.0));
 
-        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
-            message: "Context not found".to_string(),
-            current: "absent".to_string(),
-            expected: "present".to_string(),
-        }))?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| {
+            VmError::Core(CoreError::InvalidState {
+                message: "Context not found".to_string(),
+                current: "absent".to_string(),
+                expected: "present".to_string(),
+            })
+        })?;
         context.state = ExecutionState::Ready;
 
-        self.publish_event(ExecutionEvent::ContextScheduled {
-            id,
-            priority,
-        });
+        self.publish_event(ExecutionEvent::ContextScheduled { id, priority });
 
         Ok(())
     }
@@ -292,11 +291,13 @@ impl ExecutionManagerDomainService {
 
     /// Complete execution of a context
     pub fn complete_execution(&mut self, id: u64) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
-            message: "Context not found".to_string(),
-            current: "absent".to_string(),
-            expected: "present".to_string(),
-        }))?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| {
+            VmError::Core(CoreError::InvalidState {
+                message: "Context not found".to_string(),
+                current: "absent".to_string(),
+                expected: "present".to_string(),
+            })
+        })?;
         context.state = ExecutionState::Completed;
         self.statistics.active_contexts = self.statistics.active_contexts.saturating_sub(1);
         self.statistics.successful_executions += 1;
@@ -320,11 +321,13 @@ impl ExecutionManagerDomainService {
 
     /// Fail execution of a context
     pub fn fail_execution(&mut self, id: u64, error: VmError) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
-            message: "Context not found".to_string(),
-            current: "absent".to_string(),
-            expected: "present".to_string(),
-        }))?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| {
+            VmError::Core(CoreError::InvalidState {
+                message: "Context not found".to_string(),
+                current: "absent".to_string(),
+                expected: "present".to_string(),
+            })
+        })?;
         context.state = ExecutionState::Failed;
         self.statistics.active_contexts = self.statistics.active_contexts.saturating_sub(1);
         self.statistics.failed_executions += 1;
@@ -340,11 +343,13 @@ impl ExecutionManagerDomainService {
 
     /// Pause a context
     pub fn pause_context(&mut self, id: u64) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
-            message: "Context not found".to_string(),
-            current: "absent".to_string(),
-            expected: "present".to_string(),
-        }))?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| {
+            VmError::Core(CoreError::InvalidState {
+                message: "Context not found".to_string(),
+                current: "absent".to_string(),
+                expected: "present".to_string(),
+            })
+        })?;
         context.state = ExecutionState::Waiting;
 
         self.publish_event(ExecutionEvent::ContextPaused { id });
@@ -354,11 +359,13 @@ impl ExecutionManagerDomainService {
 
     /// Resume a paused context
     pub fn resume_context(&mut self, id: u64) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
-            message: "Context not found".to_string(),
-            current: "absent".to_string(),
-            expected: "present".to_string(),
-        }))?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| {
+            VmError::Core(CoreError::InvalidState {
+                message: "Context not found".to_string(),
+                current: "absent".to_string(),
+                expected: "present".to_string(),
+            })
+        })?;
         context.state = ExecutionState::Ready;
         self.ready_queue.push((ExecutionPriority::Normal, id));
         self.ready_queue.sort_by(|a, b| b.0.cmp(&a.0));
@@ -388,8 +395,8 @@ impl ExecutionManagerDomainService {
 
     /// Update average execution time
     fn update_avg_execution_time(&mut self, duration: Duration) {
-        let total = self.statistics.avg_execution_time.as_nanos() as u64
-            * self.statistics.total_executions;
+        let total =
+            self.statistics.avg_execution_time.as_nanos() as u64 * self.statistics.total_executions;
         let new_total = total + duration.as_nanos() as u64;
         let count = self.statistics.total_executions + 1;
         self.statistics.avg_execution_time = Duration::from_nanos(new_total / count);
@@ -439,7 +446,10 @@ mod tests {
         assert_eq!(ExecutionPriority::from_level(0), ExecutionPriority::Low);
         assert_eq!(ExecutionPriority::from_level(1), ExecutionPriority::Normal);
         assert_eq!(ExecutionPriority::from_level(2), ExecutionPriority::High);
-        assert_eq!(ExecutionPriority::from_level(5), ExecutionPriority::Critical);
+        assert_eq!(
+            ExecutionPriority::from_level(5),
+            ExecutionPriority::Critical
+        );
     }
 
     #[test]
@@ -496,14 +506,18 @@ mod tests {
     #[test]
     fn test_execution_manager_create_context() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
+        manager
+            .create_context(1, GuestAddr(0x1000))
+            .expect("Failed to create context");
         assert!(manager.get_context(1).is_some());
     }
 
     #[test]
     fn test_execution_manager_delete_context() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
+        manager
+            .create_context(1, GuestAddr(0x1000))
+            .expect("Failed to create context");
         manager.delete_context(1).expect("Failed to delete context");
         assert!(manager.get_context(1).is_none());
     }
@@ -511,19 +525,27 @@ mod tests {
     #[test]
     fn test_execution_manager_schedule() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
-        manager.schedule(1, ExecutionPriority::High).expect("Failed to schedule context");
+        manager
+            .create_context(1, GuestAddr(0x1000))
+            .expect("Failed to create context");
+        manager
+            .schedule(1, ExecutionPriority::High)
+            .expect("Failed to schedule context");
         assert!(manager.next_context().is_some());
     }
 
     #[test]
     fn test_execution_manager_complete_execution() {
         let mut manager = ExecutionManagerDomainService::default();
-        manager.create_context(1, GuestAddr(0x1000)).expect("Failed to create context");
+        manager
+            .create_context(1, GuestAddr(0x1000))
+            .expect("Failed to create context");
         manager.next_context().expect("Failed to get next context");
         let ctx = manager.get_context_mut(1).expect("Failed to get context");
         ctx.instructions_executed = 1000;
-        manager.complete_execution(1).expect("Failed to complete execution");
+        manager
+            .complete_execution(1)
+            .expect("Failed to complete execution");
         assert_eq!(manager.get_statistics().successful_executions, 1);
     }
 }

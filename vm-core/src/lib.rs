@@ -79,7 +79,7 @@ pub use error::{
 pub use config::{Config, ConfigBuilder, ConfigDiff, ConfigError, ConfigVecExt};
 
 // Re-export constants
-pub use constants::{DEFAULT_MEMORY_SIZE, PAGE_SIZE, MAX_GUEST_MEMORY};
+pub use constants::{DEFAULT_MEMORY_SIZE, MAX_GUEST_MEMORY, PAGE_SIZE};
 
 // Re-export domain types
 pub use domain::{ExecutionManager, PageTableWalker, TlbEntry, TlbManager, TlbStats};

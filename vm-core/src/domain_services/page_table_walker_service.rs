@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::domain_services::events::{DomainEventEnum, PageTableEvent};
 use crate::domain_event_bus::DomainEventBus;
-use crate::{AccessType, GuestPhysAddr, GuestAddr, VmResult};
+use crate::domain_services::events::{DomainEventEnum, PageTableEvent};
+use crate::{AccessType, GuestAddr, GuestPhysAddr, VmResult};
 
 /// Page table level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -234,7 +234,12 @@ impl PageTableWalkerDomainService {
     }
 
     /// Walk the page tables to translate a virtual address
-    pub fn walk(&mut self, va: GuestAddr, access_type: AccessType, is_user: bool) -> VmResult<WalkResult> {
+    pub fn walk(
+        &mut self,
+        va: GuestAddr,
+        access_type: AccessType,
+        is_user: bool,
+    ) -> VmResult<WalkResult> {
         let start_time = Instant::now();
 
         self.statistics.total_walks += 1;
@@ -243,13 +248,14 @@ impl PageTableWalkerDomainService {
             self.statistics.cache_hits += 1;
 
             if let WalkResult::Success { flags, .. } = cached
-                && !flags.can_access(access_type, is_user) {
-                    return Ok(WalkResult::AccessViolation {
-                        va,
-                        access_type,
-                        required_flags: *flags,
-                    });
-                }
+                && !flags.can_access(access_type, is_user)
+            {
+                return Ok(WalkResult::AccessViolation {
+                    va,
+                    access_type,
+                    required_flags: *flags,
+                });
+            }
 
             return Ok(cached.clone());
         }
@@ -336,7 +342,12 @@ impl PageTableWalkerDomainService {
         })
     }
 
-    fn read_pte(&self, _table_addr: GuestPhysAddr, level: usize, va: GuestAddr) -> VmResult<PageTableEntry> {
+    fn read_pte(
+        &self,
+        _table_addr: GuestPhysAddr,
+        level: usize,
+        va: GuestAddr,
+    ) -> VmResult<PageTableEntry> {
         let vpn = self.extract_vpn(level, va);
         let index = vpn as u64 % self.entries_per_table;
 
@@ -384,7 +395,8 @@ impl PageTableWalkerDomainService {
     fn update_avg_walk_time(&mut self, elapsed: Duration) {
         let total = self.statistics.avg_walk_time.as_nanos() as u64 * self.statistics.total_walks;
         let new_total = total + elapsed.as_nanos() as u64;
-        self.statistics.avg_walk_time = Duration::from_nanos(new_total / (self.statistics.total_walks + 1));
+        self.statistics.avg_walk_time =
+            Duration::from_nanos(new_total / (self.statistics.total_walks + 1));
     }
 
     fn publish_event(&self, event: PageTableEvent) {

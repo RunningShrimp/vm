@@ -4,8 +4,8 @@
 //! These rules validate translation requests and ensure they comply with
 //! business constraints and requirements.
 
-use crate::{GuestArch, VmError, VmResult};
 use crate::error::CoreError;
+use crate::{GuestArch, VmError, VmResult};
 
 /// Trait for translation business rules
 ///
@@ -53,52 +53,60 @@ impl TranslationBusinessRule for ArchitectureCompatibilityRule {
         // Check if translation is supported between these architectures
         match (source, target) {
             // Same architecture - always compatible
-            (GuestArch::X86_64, GuestArch::X86_64) |
-            (GuestArch::Arm64, GuestArch::Arm64) |
-            (GuestArch::Riscv64, GuestArch::Riscv64) => {
+            (GuestArch::X86_64, GuestArch::X86_64)
+            | (GuestArch::Arm64, GuestArch::Arm64)
+            | (GuestArch::Riscv64, GuestArch::Riscv64) => {
                 // Same architecture translation is always supported
                 Ok(())
             }
-            
+
             // x86-64 to ARM64 - supported with optimizations
             (GuestArch::X86_64, GuestArch::Arm64) => {
                 // Check if we have enough resources for optimized translation
                 if context.resource_constraints.memory_limit < 128 * 1024 * 1024 {
                     return Err(VmError::Core(CoreError::InvalidState {
                         message: "Insufficient memory for x86-64 to ARM64 translation".to_string(),
-                        current: format!("{}MB", context.resource_constraints.memory_limit / (1024 * 1024)),
+                        current: format!(
+                            "{}MB",
+                            context.resource_constraints.memory_limit / (1024 * 1024)
+                        ),
                         expected: ">=128MB".to_string(),
                     }));
                 }
                 Ok(())
             }
-            
+
             // x86-64 to RISC-V 64 - supported with limitations
             (GuestArch::X86_64, GuestArch::Riscv64) => {
                 // Check if we can handle the limitations
                 if context.performance_requirements.high_performance {
                     return Err(VmError::Core(CoreError::InvalidState {
-                        message: "High performance not supported for x86-64 to RISC-V 64 translation".to_string(),
+                        message:
+                            "High performance not supported for x86-64 to RISC-V 64 translation"
+                                .to_string(),
                         current: "high_performance=true".to_string(),
                         expected: "high_performance=false".to_string(),
                     }));
                 }
                 Ok(())
             }
-            
+
             // ARM64 to x86-64 - supported with optimizations
             (GuestArch::Arm64, GuestArch::X86_64) => {
                 // Check if we have enough resources for optimized translation
                 if context.resource_constraints.memory_limit < 96 * 1024 * 1024 {
                     return Err(VmError::Core(CoreError::InvalidState {
                         message: "Insufficient memory for ARM64 to x86-64 translation".to_string(),
-                        current: format!("{}MB", context.resource_constraints.memory_limit / (1024 * 1024)),
+                        current: format!(
+                            "{}MB",
+                            context.resource_constraints.memory_limit / (1024 * 1024)
+                        ),
                         expected: ">=96MB".to_string(),
                     }));
                 }
                 Ok(())
             }
-            
+
             // ARM64 to RISC-V 64 - experimental support
             (GuestArch::Arm64, GuestArch::Riscv64) => {
                 // Check if experimental mode is allowed
@@ -111,21 +119,27 @@ impl TranslationBusinessRule for ArchitectureCompatibilityRule {
                 }
                 Ok(())
             }
-            
+
             // RISC-V 64 to x86-64 - supported with limitations
             (GuestArch::Riscv64, GuestArch::X86_64) => {
                 // Check if we can handle the limitations
                 if let Some(min_throughput) = context.performance_requirements.min_throughput
-                    && min_throughput > 500.0 {
-                        return Err(VmError::Core(CoreError::InvalidState {
-                            message: "High throughput not supported for RISC-V 64 to x86-64 translation".to_string(),
-                            current: format!("min_throughput={:?}", context.performance_requirements.min_throughput),
-                            expected: "min_throughput<=500".to_string(),
-                        }));
-                    }
+                    && min_throughput > 500.0
+                {
+                    return Err(VmError::Core(CoreError::InvalidState {
+                        message:
+                            "High throughput not supported for RISC-V 64 to x86-64 translation"
+                                .to_string(),
+                        current: format!(
+                            "min_throughput={:?}",
+                            context.performance_requirements.min_throughput
+                        ),
+                        expected: "min_throughput<=500".to_string(),
+                    }));
+                }
                 Ok(())
             }
-            
+
             // RISC-V 64 to ARM64 - experimental support
             (GuestArch::Riscv64, GuestArch::Arm64) => {
                 // Check if experimental mode is allowed
@@ -138,15 +152,16 @@ impl TranslationBusinessRule for ArchitectureCompatibilityRule {
                 }
                 Ok(())
             }
-            
+
             // Unsupported combinations
-            (_source, _target) => {
-                Err(VmError::Core(CoreError::InvalidState {
-                    message: format!("Translation from {:?} to {:?} is not supported", source, target),
-                    current: format!("{:?} to {:?}", source, target),
-                    expected: "supported architecture combination".to_string(),
-                }))
-            }
+            (_source, _target) => Err(VmError::Core(CoreError::InvalidState {
+                message: format!(
+                    "Translation from {:?} to {:?} is not supported",
+                    source, target
+                ),
+                current: format!("{:?} to {:?}", source, target),
+                expected: "supported architecture combination".to_string(),
+            })),
         }
     }
 }
@@ -173,24 +188,26 @@ impl TranslationBusinessRule for PerformanceThresholdRule {
     ) -> VmResult<()> {
         // Check minimum throughput requirements
         if let Some(min_throughput) = context.performance_requirements.min_throughput
-            && min_throughput > 10000.0 {
-                return Err(VmError::Core(CoreError::InvalidState {
-                    message: "Minimum throughput requirement exceeds system capabilities".to_string(),
-                    current: format!("{} ops/sec", min_throughput),
-                    expected: "<=10000 ops/sec".to_string(),
-                }));
-            }
-        
+            && min_throughput > 10000.0
+        {
+            return Err(VmError::Core(CoreError::InvalidState {
+                message: "Minimum throughput requirement exceeds system capabilities".to_string(),
+                current: format!("{} ops/sec", min_throughput),
+                expected: "<=10000 ops/sec".to_string(),
+            }));
+        }
+
         // Check maximum latency requirements
         if let Some(max_latency) = context.performance_requirements.max_latency
-            && max_latency < std::time::Duration::from_millis(1) {
-                return Err(VmError::Core(CoreError::InvalidState {
-                    message: "Maximum latency requirement is too strict".to_string(),
-                    current: format!("{:?}", max_latency),
-                    expected: ">=1ms".to_string(),
-                }));
-            }
-        
+            && max_latency < std::time::Duration::from_millis(1)
+        {
+            return Err(VmError::Core(CoreError::InvalidState {
+                message: "Maximum latency requirement is too strict".to_string(),
+                current: format!("{:?}", max_latency),
+                expected: ">=1ms".to_string(),
+            }));
+        }
+
         Ok(())
     }
 }
@@ -219,31 +236,36 @@ impl TranslationBusinessRule for ResourceAvailabilityRule {
         if context.resource_constraints.memory_limit < 32 * 1024 * 1024 {
             return Err(VmError::Core(CoreError::InvalidState {
                 message: "Insufficient memory for translation".to_string(),
-                current: format!("{}MB", context.resource_constraints.memory_limit / (1024 * 1024)),
+                current: format!(
+                    "{}MB",
+                    context.resource_constraints.memory_limit / (1024 * 1024)
+                ),
                 expected: ">=32MB".to_string(),
             }));
         }
-        
+
         // Check CPU requirements
         if let Some(cpu_limit) = context.resource_constraints.cpu_limit
-            && cpu_limit < 1 {
-                return Err(VmError::Core(CoreError::InvalidState {
-                    message: "Insufficient CPU resources for translation".to_string(),
-                    current: format!("{} cores", cpu_limit),
-                    expected: ">=1 core".to_string(),
-                }));
-            }
-        
+            && cpu_limit < 1
+        {
+            return Err(VmError::Core(CoreError::InvalidState {
+                message: "Insufficient CPU resources for translation".to_string(),
+                current: format!("{} cores", cpu_limit),
+                expected: ">=1 core".to_string(),
+            }));
+        }
+
         // Check time requirements
         if let Some(time_limit) = context.resource_constraints.time_limit
-            && time_limit < std::time::Duration::from_secs(5) {
-                return Err(VmError::Core(CoreError::InvalidState {
-                    message: "Insufficient time allocated for translation".to_string(),
-                    current: format!("{:?}", time_limit),
-                    expected: ">=5s".to_string(),
-                }));
-            }
-        
+            && time_limit < std::time::Duration::from_secs(5)
+        {
+            return Err(VmError::Core(CoreError::InvalidState {
+                message: "Insufficient time allocated for translation".to_string(),
+                current: format!("{:?}", time_limit),
+                expected: ">=5s".to_string(),
+            }));
+        }
+
         Ok(())
     }
 }
@@ -252,148 +274,138 @@ impl TranslationBusinessRule for ResourceAvailabilityRule {
 mod tests {
     use super::*;
     use crate::domain_services::translation_strategy_service::{
-        TranslationContext, PerformanceRequirements, ResourceConstraints, TimingRequirements
+        PerformanceRequirements, ResourceConstraints, TimingRequirements, TranslationContext,
     };
-    
+
     #[test]
     fn test_architecture_compatibility_rule() {
         let rule = ArchitectureCompatibilityRule;
-        
+
         // Test same architecture (should pass)
         let context = create_test_context();
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::X86_64,
-            &context
-        ).is_ok());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::X86_64, &context)
+                .is_ok()
+        );
+
         // Test x86-64 to ARM64 with sufficient memory (should pass)
         let mut context = create_test_context();
         context.resource_constraints.memory_limit = 128 * 1024 * 1024;
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_ok());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_ok()
+        );
+
         // Test x86-64 to ARM64 with insufficient memory (should fail)
         let mut context = create_test_context();
         context.resource_constraints.memory_limit = crate::DEFAULT_MEMORY_SIZE;
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_err());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_err()
+        );
+
         // Test unsupported combination (should fail)
         let context = create_test_context();
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::X86_64, // This is actually supported, just for test structure
-            &context
-        ).is_ok());
+        assert!(
+            rule.validate_translation_request(
+                GuestArch::X86_64,
+                GuestArch::X86_64, // This is actually supported, just for test structure
+                &context
+            )
+            .is_ok()
+        );
     }
-    
+
     #[test]
     fn test_performance_threshold_rule() {
         let rule = PerformanceThresholdRule;
-        
+
         // Test valid throughput (should pass)
         let mut context = create_test_context();
         context.performance_requirements.min_throughput = Some(5000.0);
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_ok());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_ok()
+        );
+
         // Test invalid throughput (should fail)
         let mut context = create_test_context();
         context.performance_requirements.min_throughput = Some(15000.0);
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_err());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_err()
+        );
+
         // Test valid latency (should pass)
         let mut context = create_test_context();
         context.performance_requirements.max_latency = Some(std::time::Duration::from_millis(10));
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_ok());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_ok()
+        );
+
         // Test invalid latency (should fail)
         let mut context = create_test_context();
         context.performance_requirements.max_latency = Some(std::time::Duration::from_micros(500));
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_err());
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_err()
+        );
     }
-    
+
     #[test]
     fn test_resource_availability_rule() {
         let rule = ResourceAvailabilityRule;
-        
+
         // Test sufficient memory (should pass)
         let mut context = create_test_context();
         context.resource_constraints.memory_limit = crate::DEFAULT_MEMORY_SIZE;
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_ok());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_ok()
+        );
+
         // Test insufficient memory (should fail)
         let mut context = create_test_context();
         context.resource_constraints.memory_limit = 16 * 1024 * 1024;
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_err());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_err()
+        );
+
         // Test sufficient CPU (should pass)
         let mut context = create_test_context();
         context.resource_constraints.cpu_limit = Some(2);
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_ok());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_ok()
+        );
+
         // Test insufficient CPU (should fail)
         let mut context = create_test_context();
         context.resource_constraints.cpu_limit = Some(0);
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_err());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_err()
+        );
+
         // Test sufficient time (should pass)
         let mut context = create_test_context();
         context.resource_constraints.time_limit = Some(std::time::Duration::from_secs(10));
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_ok());
-        
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_ok()
+        );
+
         // Test insufficient time (should fail)
         let mut context = create_test_context();
         context.resource_constraints.time_limit = Some(std::time::Duration::from_secs(2));
-        assert!(rule.validate_translation_request(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &context
-        ).is_err());
+        assert!(
+            rule.validate_translation_request(GuestArch::X86_64, GuestArch::Arm64, &context)
+                .is_err()
+        );
     }
-    
+
     fn create_test_context() -> TranslationContext {
         TranslationContext {
             performance_requirements: PerformanceRequirements {

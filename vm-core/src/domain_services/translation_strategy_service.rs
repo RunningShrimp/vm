@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::rules::translation_rules::TranslationBusinessRule;
 use crate::VmResult;
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
+use crate::domain_services::rules::translation_rules::TranslationBusinessRule;
 
 /// Translation strategy domain service
 ///
@@ -28,17 +28,19 @@ impl TranslationStrategyDomainService {
     /// Create a new translation strategy domain service with default rules
     pub fn new() -> Self {
         let business_rules: Vec<Box<dyn TranslationBusinessRule>> = vec![
-            Box::new(crate::domain_services::rules::translation_rules::ArchitectureCompatibilityRule),
+            Box::new(
+                crate::domain_services::rules::translation_rules::ArchitectureCompatibilityRule,
+            ),
             Box::new(crate::domain_services::rules::translation_rules::PerformanceThresholdRule),
             Box::new(crate::domain_services::rules::translation_rules::ResourceAvailabilityRule),
         ];
-        
+
         Self {
             business_rules,
             event_bus: None,
         }
     }
-    
+
     /// Create a new translation strategy domain service with custom rules
     pub fn with_rules(business_rules: Vec<Box<dyn TranslationBusinessRule>>) -> Self {
         Self {
@@ -63,7 +65,7 @@ impl TranslationStrategyDomainService {
         for rule in &self.business_rules {
             rule.validate_translation_request(source, target, context)?
         }
-        
+
         // Select strategy based on architecture compatibility and performance requirements
         let strategy = if self.is_high_performance_required(context) {
             TranslationStrategy::Optimized
@@ -74,13 +76,13 @@ impl TranslationStrategyDomainService {
         } else {
             TranslationStrategy::Standard
         };
-        
+
         // Publish strategy selection event
         self.publish_strategy_selection_event(source, target, &strategy, context)?;
-        
+
         Ok(strategy)
     }
-    
+
     /// Validate architecture compatibility for translation
     pub fn validate_architecture_compatibility(
         &self,
@@ -90,73 +92,108 @@ impl TranslationStrategyDomainService {
         // Check if translation is supported between these architectures
         let compatibility = match (source, target) {
             // Same architecture - always compatible
-            (crate::GuestArch::X86_64, crate::GuestArch::X86_64) |
-            (crate::GuestArch::Arm64, crate::GuestArch::Arm64) |
-            (crate::GuestArch::Riscv64, crate::GuestArch::Riscv64) => CompatibilityResult::FullyCompatible,
-            
+            (crate::GuestArch::X86_64, crate::GuestArch::X86_64)
+            | (crate::GuestArch::Arm64, crate::GuestArch::Arm64)
+            | (crate::GuestArch::Riscv64, crate::GuestArch::Riscv64) => {
+                CompatibilityResult::FullyCompatible
+            }
+
             // x86-64 to ARM64 - supported with optimizations
-            (crate::GuestArch::X86_64, crate::GuestArch::Arm64) => CompatibilityResult::CompatibleWithOptimizations {
-                optimizations: vec!["simd_conversion".to_string(), "register_mapping".to_string()],
-                performance_impact: 0.95, // 5% performance impact
-            },
-            
+            (crate::GuestArch::X86_64, crate::GuestArch::Arm64) => {
+                CompatibilityResult::CompatibleWithOptimizations {
+                    optimizations: vec![
+                        "simd_conversion".to_string(),
+                        "register_mapping".to_string(),
+                    ],
+                    performance_impact: 0.95, // 5% performance impact
+                }
+            }
+
             // x86-64 to RISC-V 64 - supported with limitations
-            (crate::GuestArch::X86_64, crate::GuestArch::Riscv64) => CompatibilityResult::CompatibleWithLimitations {
-                limitations: vec!["floating_point_precision".to_string(), "instruction_set_subset".to_string()],
-                performance_impact: 0.85, // 15% performance impact
-            },
-            
+            (crate::GuestArch::X86_64, crate::GuestArch::Riscv64) => {
+                CompatibilityResult::CompatibleWithLimitations {
+                    limitations: vec![
+                        "floating_point_precision".to_string(),
+                        "instruction_set_subset".to_string(),
+                    ],
+                    performance_impact: 0.85, // 15% performance impact
+                }
+            }
+
             // ARM64 to x86-64 - supported with optimizations
-            (crate::GuestArch::Arm64, crate::GuestArch::X86_64) => CompatibilityResult::CompatibleWithOptimizations {
-                optimizations: vec!["simd_conversion".to_string(), "register_mapping".to_string()],
-                performance_impact: 0.92, // 8% performance impact
-            },
-            
+            (crate::GuestArch::Arm64, crate::GuestArch::X86_64) => {
+                CompatibilityResult::CompatibleWithOptimizations {
+                    optimizations: vec![
+                        "simd_conversion".to_string(),
+                        "register_mapping".to_string(),
+                    ],
+                    performance_impact: 0.92, // 8% performance impact
+                }
+            }
+
             // ARM64 to RISC-V 64 - experimental support
-            (crate::GuestArch::Arm64, crate::GuestArch::Riscv64) => CompatibilityResult::Experimental {
-                warnings: vec!["incomplete_instruction_set".to_string(), "performance_variability".to_string()],
-                performance_impact: 0.75, // 25% performance impact
-            },
-            
+            (crate::GuestArch::Arm64, crate::GuestArch::Riscv64) => {
+                CompatibilityResult::Experimental {
+                    warnings: vec![
+                        "incomplete_instruction_set".to_string(),
+                        "performance_variability".to_string(),
+                    ],
+                    performance_impact: 0.75, // 25% performance impact
+                }
+            }
+
             // RISC-V 64 to x86-64 - supported with limitations
-            (crate::GuestArch::Riscv64, crate::GuestArch::X86_64) => CompatibilityResult::CompatibleWithLimitations {
-                limitations: vec!["instruction_set_expansion".to_string(), "translation_overhead".to_string()],
-                performance_impact: 0.80, // 20% performance impact
-            },
-            
+            (crate::GuestArch::Riscv64, crate::GuestArch::X86_64) => {
+                CompatibilityResult::CompatibleWithLimitations {
+                    limitations: vec![
+                        "instruction_set_expansion".to_string(),
+                        "translation_overhead".to_string(),
+                    ],
+                    performance_impact: 0.80, // 20% performance impact
+                }
+            }
+
             // RISC-V 64 to ARM64 - experimental support
-            (crate::GuestArch::Riscv64, crate::GuestArch::Arm64) => CompatibilityResult::Experimental {
-                warnings: vec!["register_pressure".to_string(), "translation_complexity".to_string()],
-                performance_impact: 0.70, // 30% performance impact
-            },
-            
+            (crate::GuestArch::Riscv64, crate::GuestArch::Arm64) => {
+                CompatibilityResult::Experimental {
+                    warnings: vec![
+                        "register_pressure".to_string(),
+                        "translation_complexity".to_string(),
+                    ],
+                    performance_impact: 0.70, // 30% performance impact
+                }
+            }
+
             // Unsupported combinations
             (_source, _target) => CompatibilityResult::Unsupported {
-                reason: format!("Translation from {:?} to {:?} is not supported", source, target),
+                reason: format!(
+                    "Translation from {:?} to {:?} is not supported",
+                    source, target
+                ),
             },
         };
-        
+
         // Publish compatibility validation event
         self.publish_compatibility_event(source, target, &compatibility)?;
-        
+
         Ok(compatibility)
     }
-    
+
     /// Check if high performance translation is required
     fn is_high_performance_required(&self, context: &TranslationContext) -> bool {
         context.performance_requirements.high_performance
     }
-    
+
     /// Check if memory-optimized translation is required
     fn is_memory_constrained(&self, context: &TranslationContext) -> bool {
         context.resource_constraints.memory_limit < crate::DEFAULT_MEMORY_SIZE // 64MB
     }
-    
+
     /// Check if real-time translation is required
     fn is_real_time_required(&self, context: &TranslationContext) -> bool {
         context.timing_requirements.real_time
     }
-    
+
     /// Publish strategy selection event
     fn publish_strategy_selection_event(
         &self,
@@ -171,10 +208,10 @@ impl TranslationStrategyDomainService {
             strategy: format!("{:?}", strategy),
             occurred_at: std::time::SystemTime::now(),
         });
-        
+
         self.publish_event(event)
     }
-    
+
     /// Publish compatibility validation event
     fn publish_compatibility_event(
         &self,
@@ -184,22 +221,26 @@ impl TranslationStrategyDomainService {
     ) -> VmResult<()> {
         let compatibility_level = match compatibility {
             CompatibilityResult::FullyCompatible => "fully_compatible".to_string(),
-            CompatibilityResult::CompatibleWithOptimizations { .. } => "compatible_with_optimizations".to_string(),
-            CompatibilityResult::CompatibleWithLimitations { .. } => "compatible_with_limitations".to_string(),
+            CompatibilityResult::CompatibleWithOptimizations { .. } => {
+                "compatible_with_optimizations".to_string()
+            }
+            CompatibilityResult::CompatibleWithLimitations { .. } => {
+                "compatible_with_limitations".to_string()
+            }
             CompatibilityResult::Experimental { .. } => "experimental".to_string(),
             CompatibilityResult::Unsupported { .. } => "unsupported".to_string(),
         };
-        
+
         let event = DomainEventEnum::Translation(TranslationEvent::CompatibilityValidated {
             source_arch: format!("{:?}", source),
             target_arch: format!("{:?}", target),
             compatibility_level,
             occurred_at: std::time::SystemTime::now(),
         });
-        
+
         self.publish_event(event)
     }
-    
+
     /// Publish a domain event
     fn publish_event(&self, event: DomainEventEnum) -> VmResult<()> {
         // Record event in aggregate if we have one
@@ -290,19 +331,17 @@ pub enum CompatibilityResult {
         performance_impact: f64, // 1.0 = no impact, < 1.0 = performance impact
     },
     /// Unsupported combination
-    Unsupported {
-        reason: String,
-    },
+    Unsupported { reason: String },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_translation_strategy_selection() {
         let service = TranslationStrategyDomainService::new();
-        
+
         let context = TranslationContext {
             performance_requirements: PerformanceRequirements {
                 high_performance: true,
@@ -320,58 +359,56 @@ mod tests {
                 max_execution_time: Some(std::time::Duration::from_secs(25)),
             },
         };
-        
+
         // Test x86-64 to ARM64 translation
-        let strategy = service.select_optimal_strategy(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::Arm64,
-            &context,
-        ).expect("Failed to select optimal strategy");
-        
+        let strategy = service
+            .select_optimal_strategy(crate::GuestArch::X86_64, crate::GuestArch::Arm64, &context)
+            .expect("Failed to select optimal strategy");
+
         assert!(matches!(strategy, TranslationStrategy::Optimized));
     }
-    
+
     #[test]
     fn test_architecture_compatibility() {
         let service = TranslationStrategyDomainService::new();
-        
+
         // Test compatible architectures
-        let result = service.validate_architecture_compatibility(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::X86_64,
-        ).expect("Failed to validate architecture compatibility");
-        
+        let result = service
+            .validate_architecture_compatibility(crate::GuestArch::X86_64, crate::GuestArch::X86_64)
+            .expect("Failed to validate architecture compatibility");
+
         assert!(matches!(result, CompatibilityResult::FullyCompatible));
-        
+
         // Test compatible with optimizations
-        let result = service.validate_architecture_compatibility(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::Arm64,
-        ).expect("Failed to validate architecture compatibility for x86_64 to ARM64");
-        
+        let result = service
+            .validate_architecture_compatibility(crate::GuestArch::X86_64, crate::GuestArch::Arm64)
+            .expect("Failed to validate architecture compatibility for x86_64 to ARM64");
+
         if let CompatibilityResult::CompatibleWithOptimizations { optimizations, .. } = result {
             assert!(!optimizations.is_empty());
         } else {
             panic!("Expected CompatibleWithOptimizations");
         }
-        
+
         // Test x86-64 to RISC-V 64 - supported with limitations
-        let result = service.validate_architecture_compatibility(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::Riscv64,
-        ).expect("Failed to validate architecture compatibility for x86_64 to RiscV64");
-        
+        let result = service
+            .validate_architecture_compatibility(
+                crate::GuestArch::X86_64,
+                crate::GuestArch::Riscv64,
+            )
+            .expect("Failed to validate architecture compatibility for x86_64 to RiscV64");
+
         if let CompatibilityResult::CompatibleWithLimitations { limitations, .. } = result {
             assert!(!limitations.is_empty());
         } else {
             panic!("Expected CompatibleWithLimitations");
         }
     }
-    
+
     #[test]
     fn test_memory_constrained_strategy() {
         let service = TranslationStrategyDomainService::new();
-        
+
         let context = TranslationContext {
             performance_requirements: PerformanceRequirements {
                 high_performance: false,
@@ -389,20 +426,18 @@ mod tests {
                 max_execution_time: None,
             },
         };
-        
-        let strategy = service.select_optimal_strategy(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::Arm64,
-            &context,
-        ).expect("Failed to select optimal strategy");
-        
+
+        let strategy = service
+            .select_optimal_strategy(crate::GuestArch::X86_64, crate::GuestArch::Arm64, &context)
+            .expect("Failed to select optimal strategy");
+
         assert!(matches!(strategy, TranslationStrategy::MemoryOptimized));
     }
-    
+
     #[test]
     fn test_real_time_strategy() {
         let service = TranslationStrategyDomainService::new();
-        
+
         let context = TranslationContext {
             performance_requirements: PerformanceRequirements {
                 high_performance: false,
@@ -420,22 +455,19 @@ mod tests {
                 max_execution_time: None,
             },
         };
-        
-        let strategy = service.select_optimal_strategy(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::Arm64,
-            &context,
-        ).expect("Failed to select optimal strategy");
-        
+
+        let strategy = service
+            .select_optimal_strategy(crate::GuestArch::X86_64, crate::GuestArch::Arm64, &context)
+            .expect("Failed to select optimal strategy");
+
         assert!(matches!(strategy, TranslationStrategy::FastTranslation));
     }
-    
+
     #[test]
     fn test_translation_strategy_with_event_bus() {
         let event_bus = Arc::new(DomainEventBus::new());
-        let service = TranslationStrategyDomainService::new()
-            .with_event_bus(event_bus.clone());
-        
+        let service = TranslationStrategyDomainService::new().with_event_bus(event_bus.clone());
+
         let context = TranslationContext {
             performance_requirements: PerformanceRequirements {
                 high_performance: true,
@@ -453,14 +485,12 @@ mod tests {
                 max_execution_time: Some(std::time::Duration::from_secs(25)),
             },
         };
-        
+
         // Test x86-64 to ARM64 translation
-        let strategy = service.select_optimal_strategy(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::Arm64,
-            &context,
-        ).expect("Failed to select optimal strategy");
-        
+        let strategy = service
+            .select_optimal_strategy(crate::GuestArch::X86_64, crate::GuestArch::Arm64, &context)
+            .expect("Failed to select optimal strategy");
+
         assert!(matches!(strategy, TranslationStrategy::Optimized));
     }
 }

@@ -16,11 +16,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain::CacheManager;
 use crate::VmResult;
+use crate::domain::CacheManager;
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 
 /// Type alias for cache manager map to reduce type complexity
 ///
@@ -104,10 +104,7 @@ impl CacheManagementDomainService {
     /// # 参数
     /// - `config`: Cache management configuration
     /// - `cache_managers`: Map of tier name to cache manager implementation
-    pub fn new(
-        config: CacheManagementConfig,
-        cache_managers: CacheManagerMap,
-    ) -> Self {
+    pub fn new(config: CacheManagementConfig, cache_managers: CacheManagerMap) -> Self {
         Self {
             business_rules: Vec::new(),
             event_bus: None,
@@ -199,19 +196,20 @@ impl CacheManagementDomainService {
 
         // If we can't fit in any tier, evict from L3 and try again
         if let Some(l3_tier) = self.config.tiers.last()
-            && let Some(cache_manager) = self.cache_managers.get(&l3_tier.name) {
-                let mut manager = cache_manager.lock().unwrap();
-                manager.evict(&key); // Evict old entry if exists
-                manager.put(key, data.clone());
+            && let Some(cache_manager) = self.cache_managers.get(&l3_tier.name)
+        {
+            let mut manager = cache_manager.lock().unwrap();
+            manager.evict(&key); // Evict old entry if exists
+            manager.put(key, data.clone());
 
-                // Publish cache put event
-                self.publish_optimization_event(OptimizationEvent::CachePut {
-                    tier: l3_tier.name.clone(),
-                    key,
-                    size: data.len(),
-                    occurred_at: std::time::SystemTime::now(),
-                })?;
-            }
+            // Publish cache put event
+            self.publish_optimization_event(OptimizationEvent::CachePut {
+                tier: l3_tier.name.clone(),
+                key,
+                size: data.len(),
+                occurred_at: std::time::SystemTime::now(),
+            })?;
+        }
 
         Ok(())
     }

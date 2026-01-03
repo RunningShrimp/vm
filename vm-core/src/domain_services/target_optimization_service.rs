@@ -6,10 +6,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 use crate::VmResult;
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 
 /// Target architecture for optimization
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -267,112 +267,121 @@ impl TargetOptimizationDomainService {
     /// Create a new target optimization domain service
     pub fn new(config: TargetOptimizationConfig) -> Self {
         let mut pipeline_info = HashMap::new();
-        
+
         // Initialize pipeline information for different architectures
-        pipeline_info.insert(TargetArch::X86_64, vec![
-            PipelineStage {
-                name: "Fetch".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 4,
-            },
-            PipelineStage {
-                name: "Decode".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 4,
-            },
-            PipelineStage {
-                name: "Execute".to_string(),
-                latency: 1,
-                bypassable: true,
-                max_instructions: 4,
-            },
-            PipelineStage {
-                name: "Memory".to_string(),
-                latency: 3,
-                bypassable: true,
-                max_instructions: 2,
-            },
-            PipelineStage {
-                name: "Writeback".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 4,
-            },
-        ]);
-        
-        pipeline_info.insert(TargetArch::AArch64, vec![
-            PipelineStage {
-                name: "Fetch".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 3,
-            },
-            PipelineStage {
-                name: "Decode".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 3,
-            },
-            PipelineStage {
-                name: "Issue".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 3,
-            },
-            PipelineStage {
-                name: "Execute".to_string(),
-                latency: 1,
-                bypassable: true,
-                max_instructions: 3,
-            },
-            PipelineStage {
-                name: "Memory".to_string(),
-                latency: 4,
-                bypassable: true,
-                max_instructions: 2,
-            },
-            PipelineStage {
-                name: "Writeback".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 3,
-            },
-        ]);
-        
-        pipeline_info.insert(TargetArch::RiscV64, vec![
-            PipelineStage {
-                name: "Fetch".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 2,
-            },
-            PipelineStage {
-                name: "Decode".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 2,
-            },
-            PipelineStage {
-                name: "Execute".to_string(),
-                latency: 1,
-                bypassable: true,
-                max_instructions: 2,
-            },
-            PipelineStage {
-                name: "Memory".to_string(),
-                latency: 5,
-                bypassable: true,
-                max_instructions: 1,
-            },
-            PipelineStage {
-                name: "Writeback".to_string(),
-                latency: 1,
-                bypassable: false,
-                max_instructions: 2,
-            },
-        ]);
+        pipeline_info.insert(
+            TargetArch::X86_64,
+            vec![
+                PipelineStage {
+                    name: "Fetch".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 4,
+                },
+                PipelineStage {
+                    name: "Decode".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 4,
+                },
+                PipelineStage {
+                    name: "Execute".to_string(),
+                    latency: 1,
+                    bypassable: true,
+                    max_instructions: 4,
+                },
+                PipelineStage {
+                    name: "Memory".to_string(),
+                    latency: 3,
+                    bypassable: true,
+                    max_instructions: 2,
+                },
+                PipelineStage {
+                    name: "Writeback".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 4,
+                },
+            ],
+        );
+
+        pipeline_info.insert(
+            TargetArch::AArch64,
+            vec![
+                PipelineStage {
+                    name: "Fetch".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 3,
+                },
+                PipelineStage {
+                    name: "Decode".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 3,
+                },
+                PipelineStage {
+                    name: "Issue".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 3,
+                },
+                PipelineStage {
+                    name: "Execute".to_string(),
+                    latency: 1,
+                    bypassable: true,
+                    max_instructions: 3,
+                },
+                PipelineStage {
+                    name: "Memory".to_string(),
+                    latency: 4,
+                    bypassable: true,
+                    max_instructions: 2,
+                },
+                PipelineStage {
+                    name: "Writeback".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 3,
+                },
+            ],
+        );
+
+        pipeline_info.insert(
+            TargetArch::RiscV64,
+            vec![
+                PipelineStage {
+                    name: "Fetch".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 2,
+                },
+                PipelineStage {
+                    name: "Decode".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 2,
+                },
+                PipelineStage {
+                    name: "Execute".to_string(),
+                    latency: 1,
+                    bypassable: true,
+                    max_instructions: 2,
+                },
+                PipelineStage {
+                    name: "Memory".to_string(),
+                    latency: 5,
+                    bypassable: true,
+                    max_instructions: 1,
+                },
+                PipelineStage {
+                    name: "Writeback".to_string(),
+                    latency: 1,
+                    bypassable: false,
+                    max_instructions: 2,
+                },
+            ],
+        );
 
         Self {
             business_rules: Vec::new(),
@@ -439,7 +448,8 @@ impl TargetOptimizationDomainService {
         optimizations_applied += result.optimizations_applied;
 
         // Calculate performance and size improvements
-        let performance_improvement = self.estimate_performance_improvement(code, &optimized_code, instructions)?;
+        let performance_improvement =
+            self.estimate_performance_improvement(code, &optimized_code, instructions)?;
         let size_change = if !code.is_empty() {
             ((optimized_code.len() as f64 - code.len() as f64) / code.len() as f64) * 100.0
         } else {
@@ -482,72 +492,104 @@ impl TargetOptimizationDomainService {
                         let unroll_factor = std::cmp::min(self.config.max_unroll_factor, 4);
                         let result = self.unroll_loop(&optimized_code, loop_info, unroll_factor)?;
                         optimized_code = result.optimized_code;
-                        optimization_details.push(format!("Unrolled loop at 0x{:x} by factor {}", loop_info.start_address, unroll_factor));
+                        optimization_details.push(format!(
+                            "Unrolled loop at 0x{:x} by factor {}",
+                            loop_info.start_address, unroll_factor
+                        ));
                         optimizations_applied += 1;
                     }
-                },
+                }
                 LoopOptimizationStrategy::AdaptiveUnrolling => {
                     let unroll_factor = self.calculate_adaptive_unroll_factor(loop_info);
                     if unroll_factor > 1 {
                         let result = self.unroll_loop(&optimized_code, loop_info, unroll_factor)?;
                         optimized_code = result.optimized_code;
-                        optimization_details.push(format!("Adaptively unrolled loop at 0x{:x} by factor {}", loop_info.start_address, unroll_factor));
+                        optimization_details.push(format!(
+                            "Adaptively unrolled loop at 0x{:x} by factor {}",
+                            loop_info.start_address, unroll_factor
+                        ));
                         optimizations_applied += 1;
                     }
-                },
+                }
                 LoopOptimizationStrategy::Vectorization => {
                     if loop_info.vectorizable && self.config.vectorization_width > 1 {
-                        let result = self.vectorize_loop(&optimized_code, loop_info, self.config.vectorization_width)?;
+                        let result = self.vectorize_loop(
+                            &optimized_code,
+                            loop_info,
+                            self.config.vectorization_width,
+                        )?;
                         optimized_code = result.optimized_code;
-                        optimization_details.push(format!("Vectorized loop at 0x{:x} with width {}", loop_info.start_address, self.config.vectorization_width));
+                        optimization_details.push(format!(
+                            "Vectorized loop at 0x{:x} with width {}",
+                            loop_info.start_address, self.config.vectorization_width
+                        ));
                         optimizations_applied += 1;
                     }
-                },
+                }
                 LoopOptimizationStrategy::Fusion => {
                     // Find adjacent loops that can be fused
                     for other_loop in loops {
                         if loop_info.end_address == other_loop.start_address {
                             let result = self.fuse_loops(&optimized_code, loop_info, other_loop)?;
                             optimized_code = result.optimized_code;
-                            optimization_details.push(format!("Fused loops at 0x{:x} and 0x{:x}", loop_info.start_address, other_loop.start_address));
+                            optimization_details.push(format!(
+                                "Fused loops at 0x{:x} and 0x{:x}",
+                                loop_info.start_address, other_loop.start_address
+                            ));
                             optimizations_applied += 1;
                             break;
                         }
                     }
-                },
+                }
                 LoopOptimizationStrategy::Fission => {
                     if loop_info.body_size > 100 {
                         let result = self.split_loop(&optimized_code, loop_info)?;
                         optimized_code = result.optimized_code;
-                        optimization_details.push(format!("Split loop at 0x{:x} due to large body size", loop_info.start_address));
+                        optimization_details.push(format!(
+                            "Split loop at 0x{:x} due to large body size",
+                            loop_info.start_address
+                        ));
                         optimizations_applied += 1;
                     }
-                },
+                }
                 LoopOptimizationStrategy::Interchange => {
                     if loop_info.loop_carried_dependencies.len() > 1 {
                         let result = self.interchange_loop(&optimized_code, loop_info)?;
                         optimized_code = result.optimized_code;
-                        optimization_details.push(format!("Interchanged loop at 0x{:x} to reduce dependencies", loop_info.start_address));
+                        optimization_details.push(format!(
+                            "Interchanged loop at 0x{:x} to reduce dependencies",
+                            loop_info.start_address
+                        ));
                         optimizations_applied += 1;
                     }
-                },
+                }
                 LoopOptimizationStrategy::Combined => {
                     // Apply multiple optimizations based on loop characteristics
                     let unroll_factor = self.calculate_adaptive_unroll_factor(loop_info);
                     if unroll_factor > 1 {
                         let result = self.unroll_loop(&optimized_code, loop_info, unroll_factor)?;
                         optimized_code = result.optimized_code;
-                        optimization_details.push(format!("Unrolled loop at 0x{:x} by factor {}", loop_info.start_address, unroll_factor));
+                        optimization_details.push(format!(
+                            "Unrolled loop at 0x{:x} by factor {}",
+                            loop_info.start_address, unroll_factor
+                        ));
                         optimizations_applied += 1;
                     }
 
                     if loop_info.vectorizable && self.config.vectorization_width > 1 {
-                        let result = self.vectorize_loop(&optimized_code, loop_info, self.config.vectorization_width)?;
+                        let result = self.vectorize_loop(
+                            &optimized_code,
+                            loop_info,
+                            self.config.vectorization_width,
+                        )?;
                         optimized_code = result.optimized_code;
-                        optimization_details.push(format!("Vectorized loop at 0x{:x} with width {}", loop_info.start_address, self.config.vectorization_width));
+                        optimization_details.push(format!(
+                            "Vectorized loop at 0x{:x} with width {}",
+                            loop_info.start_address, self.config.vectorization_width
+                        ));
                         optimizations_applied += 1;
                     }
-                },
+                }
             }
         }
 
@@ -555,14 +597,18 @@ impl TargetOptimizationDomainService {
             success: true,
             optimized_code,
             performance_improvement: 0.0, // Will be calculated later
-            size_change: 0.0, // Will be calculated later
+            size_change: 0.0,             // Will be calculated later
             optimizations_applied,
             optimization_details,
         })
     }
 
     /// Schedule instructions based on the configured strategy
-    pub fn schedule_instructions(&self, code: &[u8], instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    pub fn schedule_instructions(
+        &self,
+        code: &[u8],
+        instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         let mut optimized_code = code.to_vec();
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
@@ -570,51 +616,55 @@ impl TargetOptimizationDomainService {
         match self.config.scheduling_strategy {
             InstructionSchedulingStrategy::None => {
                 // No scheduling
-            },
+            }
             InstructionSchedulingStrategy::ListScheduling => {
                 let result = self.apply_list_scheduling(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied list scheduling".to_string());
                 optimizations_applied += 1;
-            },
+            }
             InstructionSchedulingStrategy::TraceScheduling => {
                 let result = self.apply_trace_scheduling(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied trace scheduling".to_string());
                 optimizations_applied += 1;
-            },
+            }
             InstructionSchedulingStrategy::SuperblockScheduling => {
                 let result = self.apply_superblock_scheduling(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied superblock scheduling".to_string());
                 optimizations_applied += 1;
-            },
+            }
             InstructionSchedulingStrategy::SoftwarePipelining => {
                 let result = self.apply_software_pipelining(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied software pipelining".to_string());
                 optimizations_applied += 1;
-            },
+            }
             InstructionSchedulingStrategy::ResourceAware => {
                 let result = self.apply_resource_aware_scheduling(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied resource-aware scheduling".to_string());
                 optimizations_applied += 1;
-            },
+            }
         }
 
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 0.0, // Will be calculated later
-            size_change: 0.0, // Will be calculated later
+            size_change: 0.0,             // Will be calculated later
             optimizations_applied,
             optimization_details,
         })
     }
 
     /// Optimize pipeline based on the configured strategy
-    pub fn optimize_pipeline(&self, code: &[u8], instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    pub fn optimize_pipeline(
+        &self,
+        code: &[u8],
+        instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         let mut optimized_code = code.to_vec();
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
@@ -622,44 +672,46 @@ impl TargetOptimizationDomainService {
         match self.config.pipeline_strategy {
             PipelineOptimizationStrategy::None => {
                 // No pipeline optimization
-            },
+            }
             PipelineOptimizationStrategy::BasicHazardDetection => {
                 let result = self.apply_basic_hazard_detection(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied basic hazard detection".to_string());
                 optimizations_applied += 1;
-            },
+            }
             PipelineOptimizationStrategy::AdvancedHazardDetection => {
                 let result = self.apply_advanced_hazard_detection(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
-                optimization_details.push("Applied advanced hazard detection with forwarding".to_string());
+                optimization_details
+                    .push("Applied advanced hazard detection with forwarding".to_string());
                 optimizations_applied += 1;
-            },
+            }
             PipelineOptimizationStrategy::PipelineBalancing => {
                 let result = self.apply_pipeline_balancing(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied pipeline balancing".to_string());
                 optimizations_applied += 1;
-            },
+            }
             PipelineOptimizationStrategy::DynamicScheduling => {
                 let result = self.apply_dynamic_scheduling(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
                 optimization_details.push("Applied dynamic scheduling".to_string());
                 optimizations_applied += 1;
-            },
+            }
             PipelineOptimizationStrategy::OutOfOrderOptimization => {
                 let result = self.apply_out_of_order_optimization(&optimized_code, instructions)?;
                 optimized_code = result.optimized_code;
-                optimization_details.push("Applied out-of-order execution optimization".to_string());
+                optimization_details
+                    .push("Applied out-of-order execution optimization".to_string());
                 optimizations_applied += 1;
-            },
+            }
         }
 
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 0.0, // Will be calculated later
-            size_change: 0.0, // Will be calculated later
+            size_change: 0.0,             // Will be calculated later
             optimizations_applied,
             optimization_details,
         })
@@ -700,10 +752,13 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply target-specific instruction selection
-    fn apply_target_specific_instruction_selection(&self, code: &[u8]) -> VmResult<OptimizationResult> {
+    fn apply_target_specific_instruction_selection(
+        &self,
+        code: &[u8],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would analyze code and replace
         // generic instructions with target-specific optimized versions
-        
+
         let optimized_code = code.to_vec();
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
@@ -711,19 +766,22 @@ impl TargetOptimizationDomainService {
         match self.config.target_arch {
             TargetArch::X86_64 => {
                 // x86-64 specific optimizations
-                optimization_details.push("Applied x86-64 specific instruction selection".to_string());
+                optimization_details
+                    .push("Applied x86-64 specific instruction selection".to_string());
                 optimizations_applied += 1;
-            },
+            }
             TargetArch::AArch64 => {
                 // ARM64 specific optimizations
-                optimization_details.push("Applied ARM64 specific instruction selection".to_string());
+                optimization_details
+                    .push("Applied ARM64 specific instruction selection".to_string());
                 optimizations_applied += 1;
-            },
+            }
             TargetArch::RiscV64 => {
                 // RISC-V64 specific optimizations
-                optimization_details.push("Applied RISC-V64 specific instruction selection".to_string());
+                optimization_details
+                    .push("Applied RISC-V64 specific instruction selection".to_string());
                 optimizations_applied += 1;
-            },
+            }
         }
 
         Ok(OptimizationResult {
@@ -737,15 +795,20 @@ impl TargetOptimizationDomainService {
     }
 
     /// Unroll a loop by the specified factor
-    fn unroll_loop(&self, code: &[u8], _loop_info: &LoopInfo, unroll_factor: usize) -> VmResult<OptimizationResult> {
+    fn unroll_loop(
+        &self,
+        code: &[u8],
+        _loop_info: &LoopInfo,
+        unroll_factor: usize,
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would duplicate the loop body
         // and adjust the loop counter and branch instructions
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate loop unrolling by modifying the code
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
@@ -757,39 +820,52 @@ impl TargetOptimizationDomainService {
     }
 
     /// Vectorize a loop with the specified width
-    fn vectorize_loop(&self, code: &[u8], _loop_info: &LoopInfo, vectorization_width: usize) -> VmResult<OptimizationResult> {
+    fn vectorize_loop(
+        &self,
+        code: &[u8],
+        _loop_info: &LoopInfo,
+        vectorization_width: usize,
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would replace scalar operations
         // with vector operations
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate loop vectorization by modifying the code
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: vectorization_width as f64 * 0.8, // 80% improvement per width
-            size_change: 20.0, // 20% size increase
+            size_change: 20.0,                                         // 20% size increase
             optimizations_applied: 1,
-            optimization_details: vec![format!("Vectorized loop with width {}", vectorization_width)],
+            optimization_details: vec![format!(
+                "Vectorized loop with width {}",
+                vectorization_width
+            )],
         })
     }
 
     /// Fuse two adjacent loops
-    fn fuse_loops(&self, code: &[u8], _loop1: &LoopInfo, _loop2: &LoopInfo) -> VmResult<OptimizationResult> {
+    fn fuse_loops(
+        &self,
+        code: &[u8],
+        _loop1: &LoopInfo,
+        _loop2: &LoopInfo,
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would combine two loops into one
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate loop fusion by modifying the code
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 10.0, // 10% performance improvement
-            size_change: -5.0, // 5% size reduction
+            size_change: -5.0,             // 5% size reduction
             optimizations_applied: 1,
             optimization_details: vec!["Fused two adjacent loops".to_string()],
         })
@@ -798,17 +874,17 @@ impl TargetOptimizationDomainService {
     /// Split a loop into multiple smaller loops
     fn split_loop(&self, code: &[u8], _loop_info: &LoopInfo) -> VmResult<OptimizationResult> {
         // In a real implementation, this would split a loop into multiple smaller loops
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate loop fission by modifying the code
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 5.0, // 5% performance improvement
-            size_change: 10.0, // 10% size increase
+            size_change: 10.0,            // 10% size increase
             optimizations_applied: 1,
             optimization_details: vec!["Split loop into smaller loops".to_string()],
         })
@@ -817,237 +893,289 @@ impl TargetOptimizationDomainService {
     /// Interchange loop to reduce dependencies
     fn interchange_loop(&self, code: &[u8], _loop_info: &LoopInfo) -> VmResult<OptimizationResult> {
         // In a real implementation, this would interchange loop iterations
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate loop interchange by modifying the code
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 15.0, // 15% performance improvement
-            size_change: 0.0, // No size change
+            size_change: 0.0,              // No size change
             optimizations_applied: 1,
             optimization_details: vec!["Interchanged loop to reduce dependencies".to_string()],
         })
     }
 
     /// Apply list scheduling
-    fn apply_list_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_list_scheduling(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions using list scheduling
 
         let optimized_code = code.to_vec();
-        
+
         // Simulate list scheduling by reordering instructions
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 5.0, // 5% performance improvement
-            size_change: 0.0, // No size change
+            size_change: 0.0,             // No size change
             optimizations_applied: 1,
             optimization_details: vec!["Applied list scheduling".to_string()],
         })
     }
 
     /// Apply trace scheduling
-    fn apply_trace_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_trace_scheduling(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions using trace scheduling
 
         let optimized_code = code.to_vec();
-        
+
         // Simulate trace scheduling by reordering instructions
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 8.0, // 8% performance improvement
-            size_change: 0.0, // No size change
+            size_change: 0.0,             // No size change
             optimizations_applied: 1,
             optimization_details: vec!["Applied trace scheduling".to_string()],
         })
     }
 
     /// Apply superblock scheduling
-    fn apply_superblock_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_superblock_scheduling(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions using superblock scheduling
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate superblock scheduling by reordering instructions
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 10.0, // 10% performance improvement
-            size_change: 0.0, // No size change
+            size_change: 0.0,              // No size change
             optimizations_applied: 1,
             optimization_details: vec!["Applied superblock scheduling".to_string()],
         })
     }
 
     /// Apply software pipelining
-    fn apply_software_pipelining(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_software_pipelining(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would apply software pipelining
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate software pipelining by reordering instructions
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 12.0, // 12% performance improvement
-            size_change: 5.0, // 5% size increase
+            size_change: 5.0,              // 5% size increase
             optimizations_applied: 1,
             optimization_details: vec!["Applied software pipelining".to_string()],
         })
     }
 
     /// Apply resource-aware scheduling
-    fn apply_resource_aware_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_resource_aware_scheduling(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions based on resource availability
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate resource-aware scheduling by reordering instructions
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 7.0, // 7% performance improvement
-            size_change: 0.0, // No size change
+            size_change: 0.0,             // No size change
             optimizations_applied: 1,
             optimization_details: vec!["Applied resource-aware scheduling".to_string()],
         })
     }
 
     /// Apply basic hazard detection
-    fn apply_basic_hazard_detection(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_basic_hazard_detection(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would detect and resolve basic pipeline hazards
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate basic hazard detection by inserting NOPs where needed
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 3.0, // 3% performance improvement
-            size_change: 2.0, // 2% size increase
+            size_change: 2.0,             // 2% size increase
             optimizations_applied: 1,
             optimization_details: vec!["Applied basic hazard detection".to_string()],
         })
     }
 
     /// Apply advanced hazard detection with forwarding
-    fn apply_advanced_hazard_detection(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_advanced_hazard_detection(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would detect and resolve pipeline hazards with forwarding
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate advanced hazard detection by inserting forwarding logic
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 6.0, // 6% performance improvement
-            size_change: 1.0, // 1% size increase
+            size_change: 1.0,             // 1% size increase
             optimizations_applied: 1,
-            optimization_details: vec!["Applied advanced hazard detection with forwarding".to_string()],
+            optimization_details: vec![
+                "Applied advanced hazard detection with forwarding".to_string(),
+            ],
         })
     }
 
     /// Apply pipeline balancing
-    fn apply_pipeline_balancing(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_pipeline_balancing(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would balance pipeline stages
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate pipeline balancing by adjusting instruction timing
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 4.0, // 4% performance improvement
-            size_change: 0.0, // No size change
+            size_change: 0.0,             // No size change
             optimizations_applied: 1,
             optimization_details: vec!["Applied pipeline balancing".to_string()],
         })
     }
 
     /// Apply dynamic scheduling
-    fn apply_dynamic_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_dynamic_scheduling(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would apply dynamic scheduling
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate dynamic scheduling by adding dynamic scheduling logic
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 9.0, // 9% performance improvement
-            size_change: 3.0, // 3% size increase
+            size_change: 3.0,             // 3% size increase
             optimizations_applied: 1,
             optimization_details: vec!["Applied dynamic scheduling".to_string()],
         })
     }
 
     /// Apply out-of-order execution optimization
-    fn apply_out_of_order_optimization(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_out_of_order_optimization(
+        &self,
+        code: &[u8],
+        _instructions: &[InstructionInfo],
+    ) -> VmResult<OptimizationResult> {
         // In a real implementation, this would optimize for out-of-order execution
-        
+
         let optimized_code = code.to_vec();
-        
+
         // Simulate out-of-order optimization by reordering instructions
         // This is a placeholder for the actual implementation
-        
+
         Ok(OptimizationResult {
             success: true,
             optimized_code,
             performance_improvement: 11.0, // 11% performance improvement
-            size_change: 0.0, // No size change
+            size_change: 0.0,              // No size change
             optimizations_applied: 1,
             optimization_details: vec!["Applied out-of-order execution optimization".to_string()],
         })
     }
 
     /// Estimate performance improvement
-    fn estimate_performance_improvement(&self, original_code: &[u8], optimized_code: &[u8], instructions: &[InstructionInfo]) -> VmResult<f64> {
+    fn estimate_performance_improvement(
+        &self,
+        original_code: &[u8],
+        optimized_code: &[u8],
+        instructions: &[InstructionInfo],
+    ) -> VmResult<f64> {
         // In a real implementation, this would use a performance model or simulation
         // For now, we'll use a simple heuristic based on code size and instruction count
-        
+
         let size_factor = if !original_code.is_empty() {
             (original_code.len() as f64 - optimized_code.len() as f64) / original_code.len() as f64
         } else {
             0.0
         };
-        
+
         let instruction_factor = if !instructions.is_empty() {
-            let avg_latency = instructions.iter().map(|i| i.latency as f64).sum::<f64>() / instructions.len() as f64;
+            let avg_latency = instructions.iter().map(|i| i.latency as f64).sum::<f64>()
+                / instructions.len() as f64;
             // Assume optimization reduces average latency by 10%
             avg_latency * 0.1
         } else {
             0.0
         };
-        
+
         Ok((size_factor + instruction_factor) * 100.0)
     }
 
     /// Create a pipeline configuration from the target optimization config
-    fn create_pipeline_config(&self) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
-        use crate::domain_services::optimization_pipeline_service::{OptimizationPipelineConfig, OptimizationStage};
+    fn create_pipeline_config(
+        &self,
+    ) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
+        use crate::domain_services::optimization_pipeline_service::{
+            OptimizationPipelineConfig, OptimizationStage,
+        };
 
         let optimization_level = match self.config.optimization_level {
             OptimizationLevel::O0 => 0,
@@ -1065,7 +1193,10 @@ impl TargetOptimizationDomainService {
         ];
 
         // Add instruction scheduling if enabled
-        if !matches!(self.config.scheduling_strategy, InstructionSchedulingStrategy::None) {
+        if !matches!(
+            self.config.scheduling_strategy,
+            InstructionSchedulingStrategy::None
+        ) {
             enabled_stages.push(OptimizationStage::InstructionScheduling);
         }
 
@@ -1084,7 +1215,7 @@ impl TargetOptimizationDomainService {
 
         OptimizationPipelineConfig {
             source_arch: crate::GuestArch::X86_64, // Default, should be parameterized
-            target_arch: crate::GuestArch::X86_64,  // Default, should be parameterized
+            target_arch: crate::GuestArch::X86_64, // Default, should be parameterized
             optimization_level,
             enabled_stages,
         }
@@ -1108,19 +1239,28 @@ mod tests {
     fn test_target_optimization_service_creation() {
         let config = TargetOptimizationConfig::default();
         let service = TargetOptimizationDomainService::new(config);
-        
+
         assert_eq!(service.config.target_arch, TargetArch::X86_64);
         assert_eq!(service.config.optimization_level, OptimizationLevel::O2);
-        assert_eq!(service.config.loop_strategy, LoopOptimizationStrategy::AdaptiveUnrolling);
-        assert_eq!(service.config.scheduling_strategy, InstructionSchedulingStrategy::ResourceAware);
-        assert_eq!(service.config.pipeline_strategy, PipelineOptimizationStrategy::AdvancedHazardDetection);
+        assert_eq!(
+            service.config.loop_strategy,
+            LoopOptimizationStrategy::AdaptiveUnrolling
+        );
+        assert_eq!(
+            service.config.scheduling_strategy,
+            InstructionSchedulingStrategy::ResourceAware
+        );
+        assert_eq!(
+            service.config.pipeline_strategy,
+            PipelineOptimizationStrategy::AdvancedHazardDetection
+        );
     }
 
     #[test]
     fn test_adaptive_unroll_factor_calculation() {
         let config = TargetOptimizationConfig::default();
         let service = TargetOptimizationDomainService::new(config);
-        
+
         // Test with small loop
         let small_loop = LoopInfo {
             start_address: 0x1000,
@@ -1131,10 +1271,10 @@ mod tests {
             loop_carried_dependencies: vec![],
             vectorizable: true,
         };
-        
+
         let unroll_factor = service.calculate_adaptive_unroll_factor(&small_loop);
         assert_eq!(unroll_factor, 1); // Should not unroll very short loops
-        
+
         // Test with medium loop
         let medium_loop = LoopInfo {
             start_address: 0x1000,
@@ -1145,11 +1285,11 @@ mod tests {
             loop_carried_dependencies: vec![],
             vectorizable: true,
         };
-        
+
         let unroll_factor = service.calculate_adaptive_unroll_factor(&medium_loop);
         assert!(unroll_factor > 1);
         assert!(unroll_factor <= service.config.max_unroll_factor);
-        
+
         // Test with large loop with dependencies
         let large_loop = LoopInfo {
             start_address: 0x1000,
@@ -1179,7 +1319,7 @@ mod tests {
             ],
             vectorizable: false,
         };
-        
+
         let unroll_factor = service.calculate_adaptive_unroll_factor(&large_loop);
         assert!(unroll_factor < service.config.max_unroll_factor); // Should be reduced due to dependencies
     }
@@ -1188,35 +1328,33 @@ mod tests {
     fn test_optimization_for_target() {
         let config = TargetOptimizationConfig::default();
         let service = TargetOptimizationDomainService::new(config);
-        
+
         let code = vec![0x90, 0x90, 0x90, 0x90]; // NOP instructions
-        
-        let loops = vec![
-            LoopInfo {
-                start_address: 0x1000,
-                end_address: 0x1100,
-                estimated_iterations: 100,
-                body_size: 30,
-                induction_variables: vec![],
-                loop_carried_dependencies: vec![],
-                vectorizable: true,
-            }
-        ];
-        
-        let instructions = vec![
-            InstructionInfo {
-                address: 0x1000,
-                opcode: "ADD".to_string(),
-                operands: vec!["R1".to_string(), "R2".to_string(), "R3".to_string()],
-                latency: 1,
-                throughput: 1,
-                resources: vec!["ALU".to_string()],
-                pipelined: true,
-            }
-        ];
-        
-        let result = service.optimize_for_target(&code, &loops, &instructions).expect("Failed to optimize for target");
-        
+
+        let loops = vec![LoopInfo {
+            start_address: 0x1000,
+            end_address: 0x1100,
+            estimated_iterations: 100,
+            body_size: 30,
+            induction_variables: vec![],
+            loop_carried_dependencies: vec![],
+            vectorizable: true,
+        }];
+
+        let instructions = vec![InstructionInfo {
+            address: 0x1000,
+            opcode: "ADD".to_string(),
+            operands: vec!["R1".to_string(), "R2".to_string(), "R3".to_string()],
+            latency: 1,
+            throughput: 1,
+            resources: vec!["ALU".to_string()],
+            pipelined: true,
+        }];
+
+        let result = service
+            .optimize_for_target(&code, &loops, &instructions)
+            .expect("Failed to optimize for target");
+
         assert!(result.success);
         assert!(!result.optimized_code.is_empty());
         assert!(result.optimizations_applied > 0);
@@ -1229,55 +1367,65 @@ mod tests {
         let mut config = TargetOptimizationConfig::default();
         config.loop_strategy = LoopOptimizationStrategy::BasicUnrolling;
         config.max_unroll_factor = 4;
-        
+
         let service = TargetOptimizationDomainService::new(config);
-        
+
         let code = vec![0x90, 0x90, 0x90, 0x90];
-        
-        let loops = vec![
-            LoopInfo {
-                start_address: 0x1000,
-                end_address: 0x1100,
-                estimated_iterations: 5,
-                body_size: 20,
-                induction_variables: vec![],
-                loop_carried_dependencies: vec![],
-                vectorizable: false,
-            }
-        ];
-        
-        let result = service.optimize_loops(&code, &loops).expect("Failed to optimize loops");
+
+        let loops = vec![LoopInfo {
+            start_address: 0x1000,
+            end_address: 0x1100,
+            estimated_iterations: 5,
+            body_size: 20,
+            induction_variables: vec![],
+            loop_carried_dependencies: vec![],
+            vectorizable: false,
+        }];
+
+        let result = service
+            .optimize_loops(&code, &loops)
+            .expect("Failed to optimize loops");
         assert!(result.success);
-        assert!(result.optimization_details.iter().any(|detail| detail.contains("Unrolled loop")));
-        
+        assert!(
+            result
+                .optimization_details
+                .iter()
+                .any(|detail| detail.contains("Unrolled loop"))
+        );
+
         // Test Vectorization
         let mut config = TargetOptimizationConfig::default();
         config.loop_strategy = LoopOptimizationStrategy::Vectorization;
         config.vectorization_width = 8;
-        
+
         let service = TargetOptimizationDomainService::new(config);
-        
-        let loops = vec![
-            LoopInfo {
-                start_address: 0x1000,
-                end_address: 0x1100,
-                estimated_iterations: 100,
-                body_size: 30,
-                induction_variables: vec![],
-                loop_carried_dependencies: vec![],
-                vectorizable: true,
-            }
-        ];
-        
-        let result = service.optimize_loops(&code, &loops).expect("Failed to optimize loops");
+
+        let loops = vec![LoopInfo {
+            start_address: 0x1000,
+            end_address: 0x1100,
+            estimated_iterations: 100,
+            body_size: 30,
+            induction_variables: vec![],
+            loop_carried_dependencies: vec![],
+            vectorizable: true,
+        }];
+
+        let result = service
+            .optimize_loops(&code, &loops)
+            .expect("Failed to optimize loops");
         assert!(result.success);
-        assert!(result.optimization_details.iter().any(|detail| detail.contains("Vectorized loop")));
+        assert!(
+            result
+                .optimization_details
+                .iter()
+                .any(|detail| detail.contains("Vectorized loop"))
+        );
     }
 
     #[test]
     fn test_instruction_scheduling_strategies() {
         let code = vec![0x90, 0x90, 0x90, 0x90];
-        
+
         let instructions = vec![
             InstructionInfo {
                 address: 0x1000,
@@ -1298,30 +1446,44 @@ mod tests {
                 pipelined: true,
             },
         ];
-        
+
         // Test ListScheduling
         let mut config = TargetOptimizationConfig::default();
         config.scheduling_strategy = InstructionSchedulingStrategy::ListScheduling;
-        
+
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.schedule_instructions(&code, &instructions).expect("Failed to schedule instructions");
+        let result = service
+            .schedule_instructions(&code, &instructions)
+            .expect("Failed to schedule instructions");
         assert!(result.success);
-        assert!(result.optimization_details.iter().any(|detail| detail.contains("list scheduling")));
-        
+        assert!(
+            result
+                .optimization_details
+                .iter()
+                .any(|detail| detail.contains("list scheduling"))
+        );
+
         // Test ResourceAware
         let mut config = TargetOptimizationConfig::default();
         config.scheduling_strategy = InstructionSchedulingStrategy::ResourceAware;
-        
+
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.schedule_instructions(&code, &instructions).expect("Failed to schedule instructions");
+        let result = service
+            .schedule_instructions(&code, &instructions)
+            .expect("Failed to schedule instructions");
         assert!(result.success);
-        assert!(result.optimization_details.iter().any(|detail| detail.contains("resource-aware scheduling")));
+        assert!(
+            result
+                .optimization_details
+                .iter()
+                .any(|detail| detail.contains("resource-aware scheduling"))
+        );
     }
 
     #[test]
     fn test_pipeline_optimization_strategies() {
         let code = vec![0x90, 0x90, 0x90, 0x90];
-        
+
         let instructions = vec![
             InstructionInfo {
                 address: 0x1000,
@@ -1342,23 +1504,37 @@ mod tests {
                 pipelined: true,
             },
         ];
-        
+
         // Test BasicHazardDetection
         let mut config = TargetOptimizationConfig::default();
         config.pipeline_strategy = PipelineOptimizationStrategy::BasicHazardDetection;
-        
+
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.optimize_pipeline(&code, &instructions).expect("Failed to optimize pipeline");
+        let result = service
+            .optimize_pipeline(&code, &instructions)
+            .expect("Failed to optimize pipeline");
         assert!(result.success);
-        assert!(result.optimization_details.iter().any(|detail| detail.contains("basic hazard detection")));
-        
+        assert!(
+            result
+                .optimization_details
+                .iter()
+                .any(|detail| detail.contains("basic hazard detection"))
+        );
+
         // Test AdvancedHazardDetection
         let mut config = TargetOptimizationConfig::default();
         config.pipeline_strategy = PipelineOptimizationStrategy::AdvancedHazardDetection;
-        
+
         let service = TargetOptimizationDomainService::new(config);
-        let result = service.optimize_pipeline(&code, &instructions).expect("Failed to optimize pipeline");
+        let result = service
+            .optimize_pipeline(&code, &instructions)
+            .expect("Failed to optimize pipeline");
         assert!(result.success);
-        assert!(result.optimization_details.iter().any(|detail| detail.contains("advanced hazard detection")));
+        assert!(
+            result
+                .optimization_details
+                .iter()
+                .any(|detail| detail.contains("advanced hazard detection"))
+        );
     }
 }

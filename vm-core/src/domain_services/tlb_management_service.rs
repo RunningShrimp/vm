@@ -15,9 +15,9 @@
 
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventEnum, TlbEvent};
-use crate::domain_event_bus::DomainEventBus;
 use crate::domain::TlbManager;
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, TlbEvent};
 use crate::{AccessType, GuestAddr, TlbEntry, VmResult};
 
 /// TLB level (ITLB, DTLB, L2 TLB, etc.)
@@ -81,7 +81,12 @@ impl TlbManagementDomainService {
     /// Lookup TLB entry
     ///
     /// Delegates to the infrastructure layer implementation.
-    pub async fn lookup(&mut self, addr: GuestAddr, asid: u16, access: AccessType) -> Option<TlbEntry> {
+    pub async fn lookup(
+        &mut self,
+        addr: GuestAddr,
+        asid: u16,
+        access: AccessType,
+    ) -> Option<TlbEntry> {
         let mut manager = self.tlb_manager.lock().unwrap();
         manager.lookup(addr, asid, access)
     }
@@ -111,7 +116,9 @@ impl TlbManagementDomainService {
         manager.flush();
 
         // Publish domain event
-        self.publish_event(TlbEvent::FlushAll { level: TlbLevel::L2Tlb });
+        self.publish_event(TlbEvent::FlushAll {
+            level: TlbLevel::L2Tlb,
+        });
 
         Ok(())
     }

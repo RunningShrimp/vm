@@ -3,7 +3,7 @@
 //! This service provides validation and compatibility checking for cross-architecture
 //! translation and optimization.
 
-use crate::{VmResult, GuestArch};
+use crate::{GuestArch, VmResult};
 
 /// Architecture compatibility domain service
 ///
@@ -116,10 +116,7 @@ mod tests {
     #[test]
     fn test_same_architecture() {
         let service = ArchitectureCompatibilityDomainService::new();
-        let result = service.validate_translation_support(
-            GuestArch::X86_64,
-            GuestArch::X86_64,
-        );
+        let result = service.validate_translation_support(GuestArch::X86_64, GuestArch::X86_64);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -127,10 +124,7 @@ mod tests {
     #[test]
     fn test_cross_architecture() {
         let service = ArchitectureCompatibilityDomainService::new();
-        let result = service.validate_translation_support(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-        );
+        let result = service.validate_translation_support(GuestArch::X86_64, GuestArch::Arm64);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -138,11 +132,8 @@ mod tests {
     #[test]
     fn test_feature_compatibility() {
         let service = ArchitectureCompatibilityDomainService::new();
-        let result = service.check_feature_compatibility(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            "basic",
-        );
+        let result =
+            service.check_feature_compatibility(GuestArch::X86_64, GuestArch::Arm64, "basic");
         assert!(result.is_ok());
         assert!(result.unwrap());
     }

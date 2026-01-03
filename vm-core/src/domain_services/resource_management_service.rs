@@ -217,8 +217,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 use crate::{VmError, VmResult};
 
@@ -389,7 +389,7 @@ pub struct ResourceManagementConfig {
 impl Default for ResourceManagementConfig {
     fn default() -> Self {
         let mut default_constraints = HashMap::new();
-        
+
         // Default memory constraint (2GB max, 80% warning, 95% critical)
         default_constraints.insert(
             ResourceType::Memory,
@@ -401,19 +401,13 @@ impl Default for ResourceManagementConfig {
                 "bytes".to_string(),
             ),
         );
-        
+
         // Default CPU constraint (100% max, 70% warning, 90% critical)
         default_constraints.insert(
             ResourceType::Cpu,
-            ResourceConstraint::new(
-                ResourceType::Cpu,
-                100,
-                0.7,
-                0.9,
-                "percent".to_string(),
-            ),
+            ResourceConstraint::new(ResourceType::Cpu, 100, 0.7, 0.9, "percent".to_string()),
         );
-        
+
         // Default cache constraint (256MB max, 75% warning, 90% critical)
         default_constraints.insert(
             ResourceType::Cache,
@@ -427,7 +421,7 @@ impl Default for ResourceManagementConfig {
         );
 
         let mut performance_thresholds = HashMap::new();
-        
+
         // Memory performance threshold
         performance_thresholds.insert(
             ResourceType::Memory,
@@ -439,7 +433,7 @@ impl Default for ResourceManagementConfig {
                 adaptive_thresholding: true,
             },
         );
-        
+
         // CPU performance threshold
         performance_thresholds.insert(
             ResourceType::Cpu,
@@ -456,8 +450,8 @@ impl Default for ResourceManagementConfig {
             default_constraints,
             performance_thresholds,
             optimization_budget: ResourceBudget {
-                cpu_budget: 0.3, // 30% of CPU
-                memory_budget: 512 * 1024 * 1024, // 512MB
+                cpu_budget: 0.3,                                 // 30% of CPU
+                memory_budget: 512 * 1024 * 1024,                // 512MB
                 cache_budget: crate::DEFAULT_MEMORY_SIZE as u64, // 64MB
                 allocation_strategy: BudgetAllocationStrategy::Adaptive,
             },
@@ -488,7 +482,7 @@ impl ResourceManagementDomainService {
     /// Create a new resource management domain service
     pub fn new(config: ResourceManagementConfig) -> Self {
         let current_constraints = config.default_constraints.clone();
-        
+
         Self {
             business_rules: Vec::new(),
             event_bus: None,
@@ -519,7 +513,8 @@ impl ResourceManagementDomainService {
 
         // Publish constraint validation event
         if !violated_constraints.is_empty() {
-            let violated_resources: Vec<String> = violated_constraints.iter()
+            let violated_resources: Vec<String> = violated_constraints
+                .iter()
                 .map(|rt| format!("{:?}", rt))
                 .collect();
 
@@ -542,12 +537,18 @@ impl ResourceManagementDomainService {
             rule.validate_pipeline_config(&self.create_pipeline_config())?
         }
 
-        let constraint = self.current_constraints
+        let constraint = self
+            .current_constraints
             .get_mut(&request.resource_type)
-            .ok_or_else(|| VmError::Core(crate::CoreError::InvalidConfig {
-                message: format!("No constraint found for resource type: {:?}", request.resource_type),
-                field: format!("{:?}", request.resource_type),
-            }))?;
+            .ok_or_else(|| {
+                VmError::Core(crate::CoreError::InvalidConfig {
+                    message: format!(
+                        "No constraint found for resource type: {:?}",
+                        request.resource_type
+                    ),
+                    field: format!("{:?}", request.resource_type),
+                })
+            })?;
 
         let available_amount = constraint.max_usage - constraint.current_usage;
         let allocated_amount = request.amount.min(available_amount);
@@ -560,11 +561,17 @@ impl ResourceManagementDomainService {
         let allocation_id = if success {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| VmError::Core(crate::CoreError::Internal {
-                    message: format!("Failed to get system time: {}", e),
-                    module: "resource_management_service".to_string(),
-                }))?;
-            Some(format!("alloc_{:?}_{}", request.resource_type, timestamp.as_nanos()))
+                .map_err(|e| {
+                    VmError::Core(crate::CoreError::Internal {
+                        message: format!("Failed to get system time: {}", e),
+                        module: "resource_management_service".to_string(),
+                    })
+                })?;
+            Some(format!(
+                "alloc_{:?}_{}",
+                request.resource_type,
+                timestamp.as_nanos()
+            ))
         } else {
             None
         };
@@ -574,10 +581,13 @@ impl ResourceManagementDomainService {
             allocated_amount,
             remaining_amount: available_amount - allocated_amount,
             allocation_id,
-            failure_reason: if !success { 
-                Some(format!("Insufficient resources: requested {}, available {}", request.amount, available_amount)) 
-            } else { 
-                None 
+            failure_reason: if !success {
+                Some(format!(
+                    "Insufficient resources: requested {}, available {}",
+                    request.amount, available_amount
+                ))
+            } else {
+                None
             },
         };
 
@@ -600,12 +610,15 @@ impl ResourceManagementDomainService {
         amount: u64,
         allocation_id: &str,
     ) -> VmResult<()> {
-        let constraint = self.current_constraints
+        let constraint = self
+            .current_constraints
             .get_mut(&resource_type)
-            .ok_or_else(|| VmError::Core(crate::CoreError::InvalidConfig {
-                message: format!("No constraint found for resource type: {:?}", resource_type),
-                field: format!("{:?}", resource_type),
-            }))?;
+            .ok_or_else(|| {
+                VmError::Core(crate::CoreError::InvalidConfig {
+                    message: format!("No constraint found for resource type: {:?}", resource_type),
+                    field: format!("{:?}", resource_type),
+                })
+            })?;
 
         // Ensure we don't release more than we've allocated
         let release_amount = amount.min(constraint.current_usage);
@@ -635,9 +648,7 @@ impl ResourceManagementDomainService {
     pub fn get_resource_utilization(&self) -> HashMap<ResourceType, f64> {
         self.current_constraints
             .iter()
-            .map(|(resource_type, constraint)| {
-                (*resource_type, constraint.utilization_ratio())
-            })
+            .map(|(resource_type, constraint)| (*resource_type, constraint.utilization_ratio()))
             .collect()
     }
 
@@ -648,33 +659,34 @@ impl ResourceManagementDomainService {
         current_performance: f64,
     ) -> VmResult<()> {
         if let Some(threshold) = self.config.performance_thresholds.get_mut(&resource_type)
-            && threshold.adaptive_thresholding {
-                // Adjust thresholds based on current performance
-                if current_performance < threshold.min_performance {
-                    // Performance is below threshold, relax requirements
-                    threshold.min_performance *= 0.9;
-                    let new_latency = threshold.max_latency.as_millis() as f64 * 1.1;
-                    threshold.max_latency = std::time::Duration::from_millis(new_latency as u64);
-                } else if current_performance > threshold.min_performance * 1.2 {
-                    // Performance is good, tighten requirements
-                    threshold.min_performance *= 1.05;
-                    let new_latency = threshold.max_latency.as_millis() as f64 * 0.95;
-                    threshold.max_latency = std::time::Duration::from_millis(new_latency as u64);
-                }
-
-                // Clone values before publishing to avoid borrow checker issues
-                let new_min_performance = threshold.min_performance;
-                let new_max_latency = threshold.max_latency;
-                let resource_type_str = format!("{:?}", resource_type);
-
-                // Publish threshold update event
-                self.publish_optimization_event(OptimizationEvent::PerformanceThresholdUpdated {
-                    resource_type: resource_type_str,
-                    new_min_performance,
-                    new_max_latency,
-                    occurred_at: std::time::SystemTime::now(),
-                })?;
+            && threshold.adaptive_thresholding
+        {
+            // Adjust thresholds based on current performance
+            if current_performance < threshold.min_performance {
+                // Performance is below threshold, relax requirements
+                threshold.min_performance *= 0.9;
+                let new_latency = threshold.max_latency.as_millis() as f64 * 1.1;
+                threshold.max_latency = std::time::Duration::from_millis(new_latency as u64);
+            } else if current_performance > threshold.min_performance * 1.2 {
+                // Performance is good, tighten requirements
+                threshold.min_performance *= 1.05;
+                let new_latency = threshold.max_latency.as_millis() as f64 * 0.95;
+                threshold.max_latency = std::time::Duration::from_millis(new_latency as u64);
             }
+
+            // Clone values before publishing to avoid borrow checker issues
+            let new_min_performance = threshold.min_performance;
+            let new_max_latency = threshold.max_latency;
+            let resource_type_str = format!("{:?}", resource_type);
+
+            // Publish threshold update event
+            self.publish_optimization_event(OptimizationEvent::PerformanceThresholdUpdated {
+                resource_type: resource_type_str,
+                new_min_performance,
+                new_max_latency,
+                occurred_at: std::time::SystemTime::now(),
+            })?;
+        }
 
         Ok(())
     }
@@ -689,32 +701,59 @@ impl ResourceManagementDomainService {
 
         match self.config.optimization_budget.allocation_strategy {
             BudgetAllocationStrategy::Equal => {
-                allocation.insert(ResourceType::Cpu, (self.config.optimization_budget.cpu_budget * 100.0) as u64 / 4);
-                allocation.insert(ResourceType::Memory, self.config.optimization_budget.memory_budget / 4);
-                allocation.insert(ResourceType::Cache, self.config.optimization_budget.cache_budget / 4);
-            },
+                allocation.insert(
+                    ResourceType::Cpu,
+                    (self.config.optimization_budget.cpu_budget * 100.0) as u64 / 4,
+                );
+                allocation.insert(
+                    ResourceType::Memory,
+                    self.config.optimization_budget.memory_budget / 4,
+                );
+                allocation.insert(
+                    ResourceType::Cache,
+                    self.config.optimization_budget.cache_budget / 4,
+                );
+            }
             BudgetAllocationStrategy::PriorityBased => {
                 let weight = priority as f64 / 100.0;
-                allocation.insert(ResourceType::Cpu, (self.config.optimization_budget.cpu_budget * 100.0 * weight) as u64);
-                allocation.insert(ResourceType::Memory, (self.config.optimization_budget.memory_budget as f64 * weight) as u64);
-                allocation.insert(ResourceType::Cache, (self.config.optimization_budget.cache_budget as f64 * weight) as u64);
-            },
+                allocation.insert(
+                    ResourceType::Cpu,
+                    (self.config.optimization_budget.cpu_budget * 100.0 * weight) as u64,
+                );
+                allocation.insert(
+                    ResourceType::Memory,
+                    (self.config.optimization_budget.memory_budget as f64 * weight) as u64,
+                );
+                allocation.insert(
+                    ResourceType::Cache,
+                    (self.config.optimization_budget.cache_budget as f64 * weight) as u64,
+                );
+            }
             BudgetAllocationStrategy::PerformanceBased => {
                 // Allocate based on current performance metrics
                 let utilization = self.get_resource_utilization();
                 let cpu_weight = 1.0 - utilization.get(&ResourceType::Cpu).unwrap_or(&0.0);
                 let memory_weight = 1.0 - utilization.get(&ResourceType::Memory).unwrap_or(&0.0);
-                
-                allocation.insert(ResourceType::Cpu, (self.config.optimization_budget.cpu_budget * 100.0 * cpu_weight) as u64);
-                allocation.insert(ResourceType::Memory, (self.config.optimization_budget.memory_budget as f64 * memory_weight) as u64);
-                allocation.insert(ResourceType::Cache, self.config.optimization_budget.cache_budget / 2);
-            },
+
+                allocation.insert(
+                    ResourceType::Cpu,
+                    (self.config.optimization_budget.cpu_budget * 100.0 * cpu_weight) as u64,
+                );
+                allocation.insert(
+                    ResourceType::Memory,
+                    (self.config.optimization_budget.memory_budget as f64 * memory_weight) as u64,
+                );
+                allocation.insert(
+                    ResourceType::Cache,
+                    self.config.optimization_budget.cache_budget / 2,
+                );
+            }
             BudgetAllocationStrategy::Adaptive => {
                 // Adaptive allocation based on current load and operation type
                 let utilization = self.get_resource_utilization();
                 let cpu_available = 1.0 - utilization.get(&ResourceType::Cpu).unwrap_or(&0.0);
                 let memory_available = 1.0 - utilization.get(&ResourceType::Memory).unwrap_or(&0.0);
-                
+
                 // Adjust allocation based on operation type
                 let (cpu_factor, memory_factor) = match operation_type {
                     "compilation" => (0.7, 0.3),
@@ -722,25 +761,39 @@ impl ResourceManagementDomainService {
                     "translation" => (0.6, 0.4),
                     _ => (0.5, 0.5),
                 };
-                
-                allocation.insert(ResourceType::Cpu, (self.config.optimization_budget.cpu_budget * 100.0 * cpu_available * cpu_factor) as u64);
-                allocation.insert(ResourceType::Memory, (self.config.optimization_budget.memory_budget as f64 * memory_available * memory_factor) as u64);
-                allocation.insert(ResourceType::Cache, self.config.optimization_budget.cache_budget / 2);
-            },
+
+                allocation.insert(
+                    ResourceType::Cpu,
+                    (self.config.optimization_budget.cpu_budget
+                        * 100.0
+                        * cpu_available
+                        * cpu_factor) as u64,
+                );
+                allocation.insert(
+                    ResourceType::Memory,
+                    (self.config.optimization_budget.memory_budget as f64
+                        * memory_available
+                        * memory_factor) as u64,
+                );
+                allocation.insert(
+                    ResourceType::Cache,
+                    self.config.optimization_budget.cache_budget / 2,
+                );
+            }
         }
 
         Ok(allocation)
     }
 
     /// Create a pipeline configuration from the resource management config
-    fn create_pipeline_config(&self) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
+    fn create_pipeline_config(
+        &self,
+    ) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
         // Use default x86_64 architecture for both source and target
         // In a real implementation, these would be determined from the VM configuration
         let arch = crate::GuestArch::X86_64;
         crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig::new(
-            arch,
-            arch,
-            2, // optimization level 2
+            arch, arch, 2, // optimization level 2
         )
     }
 
@@ -762,9 +815,10 @@ mod tests {
     fn test_resource_constraint_validation() {
         let config = ResourceManagementConfig::default();
         let service = ResourceManagementDomainService::new(config);
-        
+
         // Initially no constraints should be violated
-        let violated = service.validate_resource_constraints()
+        let violated = service
+            .validate_resource_constraints()
             .expect("validate_resource_constraints should not fail in test");
         assert!(violated.is_empty());
     }
@@ -773,7 +827,7 @@ mod tests {
     fn test_resource_allocation() {
         let config = ResourceManagementConfig::default();
         let mut service = ResourceManagementDomainService::new(config);
-        
+
         let request = ResourceAllocationRequest {
             resource_type: ResourceType::Memory,
             amount: 1024 * 1024, // 1MB
@@ -781,8 +835,9 @@ mod tests {
             purpose: "test allocation".to_string(),
             timeout: None,
         };
-        
-        let result = service.allocate_resources(&request)
+
+        let result = service
+            .allocate_resources(&request)
             .expect("allocate_resources should not fail in test");
         assert!(result.success);
         assert_eq!(result.allocated_amount, 1024 * 1024);
@@ -793,7 +848,7 @@ mod tests {
     fn test_resource_exhaustion() {
         let config = ResourceManagementConfig::default();
         let mut service = ResourceManagementDomainService::new(config);
-        
+
         // Request more memory than available
         let request = ResourceAllocationRequest {
             resource_type: ResourceType::Memory,
@@ -802,8 +857,9 @@ mod tests {
             purpose: "test exhaustion".to_string(),
             timeout: None,
         };
-        
-        let result = service.allocate_resources(&request)
+
+        let result = service
+            .allocate_resources(&request)
             .expect("allocate_resources should not fail in test");
         assert!(!result.success);
         assert!(result.failure_reason.is_some());
@@ -813,10 +869,10 @@ mod tests {
     fn test_gc_trigger() {
         let config = ResourceManagementConfig::default();
         let mut service = ResourceManagementDomainService::new(config);
-        
+
         // Initially GC should not be triggered
         assert!(!service.should_trigger_gc());
-        
+
         // Allocate memory beyond GC threshold
         let request = ResourceAllocationRequest {
             resource_type: ResourceType::Memory,
@@ -825,8 +881,9 @@ mod tests {
             purpose: "test gc trigger".to_string(),
             timeout: None,
         };
-        
-        service.allocate_resources(&request)
+
+        service
+            .allocate_resources(&request)
             .expect("allocate_resources should not fail in test");
         assert!(service.should_trigger_gc());
     }
@@ -835,10 +892,11 @@ mod tests {
     fn test_budget_allocation() {
         let config = ResourceManagementConfig::default();
         let service = ResourceManagementDomainService::new(config);
-        
-        let allocation = service.allocate_optimization_budget("compilation", 75)
+
+        let allocation = service
+            .allocate_optimization_budget("compilation", 75)
             .expect("allocate_optimization_budget should not fail in test");
-        
+
         assert!(allocation.contains_key(&ResourceType::Cpu));
         assert!(allocation.contains_key(&ResourceType::Memory));
         assert!(allocation.contains_key(&ResourceType::Cache));

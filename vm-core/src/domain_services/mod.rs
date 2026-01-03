@@ -145,43 +145,41 @@
 // Re-export DomainEventBus for use in other crates
 pub use crate::domain_event_bus::DomainEventBus;
 
-pub mod vm_lifecycle_service;
-pub mod translation_strategy_service;
-pub mod optimization_pipeline_service;
 pub mod adaptive_optimization_service;
-pub mod resource_management_service;
-pub mod cache_management_service;
-pub mod target_optimization_service;
-pub mod cross_architecture_translation_service;
-pub mod register_allocation_service;
 pub mod architecture_compatibility_service;
-pub mod performance_optimization_service;
-pub mod tlb_management_service;
-pub mod page_table_walker_service;
-pub mod execution_manager_service;
-pub mod rules;
+pub mod cache_management_service;
+pub mod cross_architecture_translation_service;
 pub mod events;
+pub mod execution_manager_service;
+pub mod optimization_pipeline_service;
+pub mod page_table_walker_service;
+pub mod performance_optimization_service;
+pub mod register_allocation_service;
+pub mod resource_management_service;
+pub mod rules;
+pub mod target_optimization_service;
+pub mod tlb_management_service;
+pub mod translation_strategy_service;
+pub mod vm_lifecycle_service;
 
-pub use vm_lifecycle_service::VmLifecycleDomainService;
-pub use translation_strategy_service::TranslationStrategyDomainService;
-pub use optimization_pipeline_service::OptimizationPipelineDomainService;
 pub use adaptive_optimization_service::AdaptiveOptimizationDomainService;
-pub use resource_management_service::ResourceManagementDomainService;
-pub use cache_management_service::CacheManagementDomainService;
-pub use target_optimization_service::TargetOptimizationDomainService;
-pub use cross_architecture_translation_service::CrossArchitectureTranslationDomainService;
-pub use register_allocation_service::RegisterAllocationDomainService;
 pub use architecture_compatibility_service::ArchitectureCompatibilityDomainService;
-pub use performance_optimization_service::PerformanceOptimizationDomainService;
-pub use tlb_management_service::{
-    TlbManagementDomainService, TlbLevel,
-};
-pub use page_table_walker_service::{
-    PageTableWalkerDomainService, PageTableLevel, PageTableEntryFlags, PageTableEntry,
-    WalkResult, WalkStatistics,
-};
+pub use cache_management_service::CacheManagementDomainService;
+pub use cross_architecture_translation_service::CrossArchitectureTranslationDomainService;
+pub use events::{DomainEventEnum, ExecutionEvent, PageTableEvent, TlbEvent};
 pub use execution_manager_service::{
-    ExecutionManagerDomainService, ExecutionState, ExecutionContext, ExecutionPriority,
+    ExecutionContext, ExecutionManagerDomainService, ExecutionPriority, ExecutionState,
     ExecutionStatistics,
 };
-pub use events::{DomainEventEnum, TlbEvent, PageTableEvent, ExecutionEvent};
+pub use optimization_pipeline_service::OptimizationPipelineDomainService;
+pub use page_table_walker_service::{
+    PageTableEntry, PageTableEntryFlags, PageTableLevel, PageTableWalkerDomainService, WalkResult,
+    WalkStatistics,
+};
+pub use performance_optimization_service::PerformanceOptimizationDomainService;
+pub use register_allocation_service::RegisterAllocationDomainService;
+pub use resource_management_service::ResourceManagementDomainService;
+pub use target_optimization_service::TargetOptimizationDomainService;
+pub use tlb_management_service::{TlbLevel, TlbManagementDomainService};
+pub use translation_strategy_service::TranslationStrategyDomainService;
+pub use vm_lifecycle_service::VmLifecycleDomainService;

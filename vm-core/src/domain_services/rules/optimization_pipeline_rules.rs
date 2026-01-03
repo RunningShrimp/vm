@@ -18,8 +18,11 @@ pub trait OptimizationPipelineBusinessRule: Send + Sync {
     /// # Returns
     /// - `Ok(())` if the configuration is valid
     /// - `Err(VmError)` if the configuration violates business rules
-    fn validate_pipeline_config(&self, config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig) -> VmResult<()>;
-    
+    fn validate_pipeline_config(
+        &self,
+        config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig,
+    ) -> VmResult<()>;
+
     /// Validate stage execution
     ///
     /// # Parameters
@@ -34,7 +37,7 @@ pub trait OptimizationPipelineBusinessRule: Send + Sync {
         stage: &crate::domain_services::optimization_pipeline_service::OptimizationStage,
         config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig,
     ) -> VmResult<()>;
-    
+
     /// Check if pipeline should continue to next stage
     ///
     /// # Parameters
@@ -61,7 +64,10 @@ pub trait OptimizationPipelineBusinessRule: Send + Sync {
 pub struct PipelineConfigValidationRule;
 
 impl OptimizationPipelineBusinessRule for PipelineConfigValidationRule {
-    fn validate_pipeline_config(&self, config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig) -> VmResult<()> {
+    fn validate_pipeline_config(
+        &self,
+        config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig,
+    ) -> VmResult<()> {
         // Validate optimization level
         if config.optimization_level > 3 {
             return Err(VmError::Core(crate::error::CoreError::InvalidConfig {
@@ -69,7 +75,7 @@ impl OptimizationPipelineBusinessRule for PipelineConfigValidationRule {
                 message: "Optimization level must be between 0 and 3".to_string(),
             }));
         }
-        
+
         // Validate that at least IR generation and code generation are enabled
         // Note: This validation is commented out as enabled_stages field may not exist in current config
         /*
@@ -99,10 +105,10 @@ impl OptimizationPipelineBusinessRule for PipelineConfigValidationRule {
             last_order = stage.order();
         }
         */
-        
+
         Ok(())
     }
-    
+
     fn validate_stage_execution(
         &self,
         _stage: &crate::domain_services::optimization_pipeline_service::OptimizationStage,
@@ -110,7 +116,7 @@ impl OptimizationPipelineBusinessRule for PipelineConfigValidationRule {
     ) -> VmResult<()> {
         Ok(())
     }
-    
+
     fn should_continue_pipeline(
         &self,
         _current_stage: &crate::domain_services::optimization_pipeline_service::OptimizationStage,
@@ -128,10 +134,13 @@ impl OptimizationPipelineBusinessRule for PipelineConfigValidationRule {
 pub struct StageExecutionValidationRule;
 
 impl OptimizationPipelineBusinessRule for StageExecutionValidationRule {
-    fn validate_pipeline_config(&self, _config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig) -> VmResult<()> {
+    fn validate_pipeline_config(
+        &self,
+        _config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig,
+    ) -> VmResult<()> {
         Ok(())
     }
-    
+
     fn validate_stage_execution(
         &self,
         _stage: &crate::domain_services::optimization_pipeline_service::OptimizationStage,
@@ -151,7 +160,7 @@ impl OptimizationPipelineBusinessRule for StageExecutionValidationRule {
 
         Ok(())
     }
-    
+
     fn should_continue_pipeline(
         &self,
         _current_stage: &crate::domain_services::optimization_pipeline_service::OptimizationStage,
@@ -169,10 +178,13 @@ impl OptimizationPipelineBusinessRule for StageExecutionValidationRule {
 pub struct PipelineContinuationRule;
 
 impl OptimizationPipelineBusinessRule for PipelineContinuationRule {
-    fn validate_pipeline_config(&self, _config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig) -> VmResult<()> {
+    fn validate_pipeline_config(
+        &self,
+        _config: &crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig,
+    ) -> VmResult<()> {
         Ok(())
     }
-    
+
     fn validate_stage_execution(
         &self,
         _stage: &crate::domain_services::optimization_pipeline_service::OptimizationStage,
@@ -180,7 +192,7 @@ impl OptimizationPipelineBusinessRule for PipelineContinuationRule {
     ) -> VmResult<()> {
         Ok(())
     }
-    
+
     fn should_continue_pipeline(
         &self,
         _current_stage: &crate::domain_services::optimization_pipeline_service::OptimizationStage,

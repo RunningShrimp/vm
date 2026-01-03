@@ -6,7 +6,7 @@
 
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
-use crate::{VmLifecycleState, VmConfig, VmResult, VmState};
+use crate::{VmConfig, VmLifecycleState, VmResult, VmState};
 use std::sync::Arc;
 
 /// 聚合根trait
@@ -16,10 +16,10 @@ use std::sync::Arc;
 pub trait AggregateRoot: Send + Sync {
     /// 获取聚合ID
     fn aggregate_id(&self) -> &str;
-    
+
     /// 获取未提交的事件
     fn uncommitted_events(&self) -> Vec<DomainEventEnum>;
-    
+
     /// 标记事件为已提交
     fn mark_events_as_committed(&mut self);
 }
@@ -134,7 +134,7 @@ impl VirtualMachineAggregate {
     pub fn from_events(
         vm_id: String,
         config: VmConfig,
-        events: Vec<DomainEventEnum>,  // Simplified - use DomainEventEnum directly
+        events: Vec<DomainEventEnum>, // Simplified - use DomainEventEnum directly
     ) -> Self {
         let mut aggregate = Self {
             vm_id: vm_id.clone(),
@@ -160,7 +160,8 @@ impl VirtualMachineAggregate {
                 self.state = VmLifecycleState::Created;
             }
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted { .. }) => {
-                if self.state == VmLifecycleState::Created || self.state == VmLifecycleState::Paused {
+                if self.state == VmLifecycleState::Created || self.state == VmLifecycleState::Paused
+                {
                     self.state = VmLifecycleState::Running;
                 }
             }
@@ -227,4 +228,3 @@ mod tests {
         assert_eq!(events.len(), 1);
     }
 }
-

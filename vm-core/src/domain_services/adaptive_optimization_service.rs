@@ -137,10 +137,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 use crate::VmResult;
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 
 /// Hotspot information for adaptive optimization
 #[derive(Debug, Clone)]
@@ -309,15 +309,15 @@ impl AdaptiveOptimizationDomainService {
                 continue;
             }
 
-            let avg_execution_time = history.iter()
-                .map(|dp| dp.duration)
-                .sum::<Duration>() / history.len() as u32;
+            let avg_execution_time =
+                history.iter().map(|dp| dp.duration).sum::<Duration>() / history.len() as u32;
 
             let hotness_score = self.calculate_hotness_score(execution_count, avg_execution_time);
-            
+
             if hotness_score >= self.config.hotness_threshold {
                 let performance_trend = self.analyze_performance_trend(history);
-                let last_execution = history.last()
+                let last_execution = history
+                    .last()
                     .map(|dp| dp.timestamp)
                     .unwrap_or_else(Instant::now);
 
@@ -333,8 +333,12 @@ impl AdaptiveOptimizationDomainService {
         }
 
         // Sort by hotness score (descending)
-        hotspots.sort_by(|a, b| b.hotness_score.partial_cmp(&a.hotness_score).unwrap_or(std::cmp::Ordering::Equal));
-        
+        hotspots.sort_by(|a, b| {
+            b.hotness_score
+                .partial_cmp(&a.hotness_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Limit to max_hotspots
         hotspots.truncate(self.config.max_hotspots);
 
@@ -392,7 +396,8 @@ impl AdaptiveOptimizationDomainService {
 
         // Take the last N data points within the trend analysis window
         let now = Instant::now();
-        let recent_data: Vec<_> = history.iter()
+        let recent_data: Vec<_> = history
+            .iter()
             .filter(|dp| now.duration_since(dp.timestamp) <= self.config.trend_analysis_window)
             .collect();
 
@@ -403,8 +408,13 @@ impl AdaptiveOptimizationDomainService {
         // Calculate performance trend using linear regression
         let n = recent_data.len() as f64;
         let sum_x: f64 = (0..recent_data.len()).map(|i| i as f64).sum();
-        let sum_y: f64 = recent_data.iter().map(|dp| dp.duration.as_nanos() as f64).sum();
-        let sum_xy: f64 = recent_data.iter().enumerate()
+        let sum_y: f64 = recent_data
+            .iter()
+            .map(|dp| dp.duration.as_nanos() as f64)
+            .sum();
+        let sum_xy: f64 = recent_data
+            .iter()
+            .enumerate()
             .map(|(i, dp)| i as f64 * dp.duration.as_nanos() as f64)
             .sum();
         let sum_x2: f64 = (0..recent_data.len()).map(|i| (i as f64).powi(2)).sum();
@@ -424,7 +434,8 @@ impl AdaptiveOptimizationDomainService {
 
     /// Check if any hotspots show performance degradation
     pub fn has_performance_degradation(&self, hotspots: &[Hotspot]) -> bool {
-        hotspots.iter()
+        hotspots
+            .iter()
             .any(|h| h.performance_trend == PerformanceTrend::Degrading)
     }
 
@@ -432,23 +443,23 @@ impl AdaptiveOptimizationDomainService {
     fn calculate_hotness_score(&self, execution_count: u64, avg_time: Duration) -> f64 {
         // Normalize execution count (logarithmic scale)
         let count_score = (execution_count as f64).log10() / 10.0;
-        
+
         // Normalize execution time (inverse relationship - longer time = higher score)
         let time_score = 1.0 - (avg_time.as_nanos() as f64 / 1_000_000.0).min(1.0);
-        
+
         // Combine scores with weights
         (count_score * 0.7 + time_score * 0.3).min(1.0)
     }
 
     /// Create a pipeline configuration from the adaptive optimization config
-    fn create_pipeline_config(&self) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
+    fn create_pipeline_config(
+        &self,
+    ) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
         // Use default x86_64 architecture for both source and target
         // In a real implementation, these would be determined from the VM configuration
         let arch = crate::GuestArch::X86_64;
         crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig::new(
-            arch,
-            arch,
-            2, // optimization level 2
+            arch, arch, 2, // optimization level 2
         )
     }
 
@@ -471,7 +482,7 @@ mod tests {
     fn test_hotspot_detection() {
         let config = AdaptiveOptimizationConfig::default();
         let service = AdaptiveOptimizationDomainService::new(config);
-        
+
         let mut profile = PerformanceProfile {
             execution_history: HashMap::new(),
             performance_by_level: HashMap::new(),
@@ -486,7 +497,7 @@ mod tests {
         let address = 0x1000;
         let mut history = Vec::new();
         let base_time = Instant::now();
-        
+
         for i in 0..1500 {
             history.push(ExecutionDataPoint {
                 timestamp: base_time + Duration::from_micros(i * 100),
@@ -495,10 +506,12 @@ mod tests {
                 optimization_level: 1,
             });
         }
-        
+
         profile.execution_history.insert(address, history);
 
-        let hotspots = service.detect_hotspots(&profile).expect("Failed to detect hotspots");
+        let hotspots = service
+            .detect_hotspots(&profile)
+            .expect("Failed to detect hotspots");
         assert_eq!(hotspots.len(), 1);
         assert_eq!(hotspots[0].address, address);
         assert_eq!(hotspots[0].execution_count, 1500);
@@ -521,7 +534,9 @@ mod tests {
         };
 
         // Test with no hotspots
-        let strategy = service.determine_optimization_strategy(&[], &profile).expect("Failed to determine strategy");
+        let strategy = service
+            .determine_optimization_strategy(&[], &profile)
+            .expect("Failed to determine strategy");
         assert_eq!(strategy, OptimizationStrategy::StandardJit);
 
         // Test with hotspots but no degradation
@@ -534,14 +549,18 @@ mod tests {
             performance_trend: PerformanceTrend::Stable,
         }];
 
-        let strategy = service.determine_optimization_strategy(&hotspots, &profile).expect("Failed to determine strategy");
+        let strategy = service
+            .determine_optimization_strategy(&hotspots, &profile)
+            .expect("Failed to determine strategy");
         assert_eq!(strategy, OptimizationStrategy::Hybrid);
 
         // Test with performance degradation
         let mut degrading_hotspots = hotspots;
         degrading_hotspots[0].performance_trend = PerformanceTrend::Degrading;
 
-        let strategy = service.determine_optimization_strategy(&degrading_hotspots, &profile).expect("Failed to determine strategy");
+        let strategy = service
+            .determine_optimization_strategy(&degrading_hotspots, &profile)
+            .expect("Failed to determine strategy");
         assert_eq!(strategy, OptimizationStrategy::DynamicRecompilation);
     }
 
@@ -549,11 +568,11 @@ mod tests {
     fn test_performance_trend_analysis() {
         let config = AdaptiveOptimizationConfig::default();
         let service = AdaptiveOptimizationDomainService::new(config);
-        
+
         // Test improving performance
         let mut improving_history = Vec::new();
         let base_time = Instant::now();
-        
+
         for i in 0..20 {
             // Decreasing execution times
             improving_history.push(ExecutionDataPoint {
@@ -563,13 +582,13 @@ mod tests {
                 optimization_level: 1,
             });
         }
-        
+
         let trend = service.analyze_performance_trend(&improving_history);
         assert_eq!(trend, PerformanceTrend::Improving);
 
         // Test degrading performance
         let mut degrading_history = Vec::new();
-        
+
         for i in 0..20 {
             // Increasing execution times
             degrading_history.push(ExecutionDataPoint {
@@ -579,7 +598,7 @@ mod tests {
                 optimization_level: 1,
             });
         }
-        
+
         let trend = service.analyze_performance_trend(&degrading_history);
         assert_eq!(trend, PerformanceTrend::Degrading);
     }

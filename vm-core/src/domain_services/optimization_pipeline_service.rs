@@ -14,11 +14,11 @@
 
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain::{OptimizationStrategy, OptimizationType};
 use crate::VmResult;
+use crate::domain::{OptimizationStrategy, OptimizationType};
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 
 /// Optimization stage in the pipeline
 #[derive(Debug, Clone, PartialEq)]
@@ -71,7 +71,10 @@ impl OptimizationPipelineConfig {
         optimization_level: u8,
     ) -> Self {
         let enabled_stages = match optimization_level {
-            0 => vec![OptimizationStage::IrGeneration, OptimizationStage::CodeGeneration],
+            0 => vec![
+                OptimizationStage::IrGeneration,
+                OptimizationStage::CodeGeneration,
+            ],
             1 => vec![
                 OptimizationStage::IrGeneration,
                 OptimizationStage::BasicBlockOptimization,
@@ -292,16 +295,16 @@ mod tests {
     #[test]
     fn test_optimization_stage_name() {
         assert_eq!(OptimizationStage::IrGeneration.name(), "IR Generation");
-        assert_eq!(OptimizationStage::BasicBlockOptimization.name(), "Basic Block Optimization");
+        assert_eq!(
+            OptimizationStage::BasicBlockOptimization.name(),
+            "Basic Block Optimization"
+        );
     }
 
     #[test]
     fn test_pipeline_config_creation() {
-        let config = OptimizationPipelineConfig::new(
-            crate::GuestArch::X86_64,
-            crate::GuestArch::Arm64,
-            2,
-        );
+        let config =
+            OptimizationPipelineConfig::new(crate::GuestArch::X86_64, crate::GuestArch::Arm64, 2);
         assert_eq!(config.optimization_level, 2);
         assert!(!config.enabled_stages.is_empty());
     }

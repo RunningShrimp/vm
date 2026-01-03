@@ -12,9 +12,7 @@ use std::time::Instant;
 use parking_lot::RwLock;
 
 // Import from vm-gc crate to break circular dependency
-use vm_gc::{
-    BaseIncrementalGc, GcError, GcResult as GcResultInternal, OptimizedGc,
-};
+use vm_gc::{BaseIncrementalGc, GcError, GcResult as GcResultInternal, OptimizedGc};
 
 // Re-export WriteBarrierType from vm-gc for convenience
 pub use vm_gc::WriteBarrierType;
@@ -68,11 +66,7 @@ pub struct GcRuntimeStats {
 
 impl GcRuntime {
     pub fn new(num_workers: usize, target_pause_us: u64, barrier_type: WriteBarrierType) -> Self {
-        let gc = Arc::new(OptimizedGc::new(
-            num_workers,
-            target_pause_us,
-            barrier_type,
-        ));
+        let gc = Arc::new(OptimizedGc::new(num_workers, target_pause_us, barrier_type));
         let incremental_gc = Arc::new(BaseIncrementalGc::new(gc.clone()));
 
         Self {

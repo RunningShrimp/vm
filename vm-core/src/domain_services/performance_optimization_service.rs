@@ -4,19 +4,19 @@
 //! coordinating between different optimization strategies and providing a centralized interface
 //! for performance optimization decisions.
 
-use std::sync::Arc;
-use std::collections::HashMap;
-use std::time::SystemTime;
-use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig;
+use crate::GuestArch;
 use crate::VmError;
 use crate::VmResult;
-use crate::GuestArch;
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig;
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 /// Performance optimization domain service
-/// 
+///
 /// This service encapsulates the business logic for managing performance optimization
 /// across different domains, providing a unified interface for optimization decisions.
 pub struct PerformanceOptimizationDomainService {
@@ -35,13 +35,13 @@ impl PerformanceOptimizationDomainService {
             optimization_strategies: HashMap::new(),
             performance_metrics: PerformanceMetrics::default(),
         };
-        
+
         // Initialize optimization strategies
         service.initialize_optimization_strategies();
-        
+
         service
     }
-    
+
     /// Create a new performance optimization domain service with custom rules
     pub fn with_rules(business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>) -> Self {
         let mut service = Self {
@@ -50,19 +50,19 @@ impl PerformanceOptimizationDomainService {
             optimization_strategies: HashMap::new(),
             performance_metrics: PerformanceMetrics::default(),
         };
-        
+
         // Initialize optimization strategies
         service.initialize_optimization_strategies();
-        
+
         service
     }
-    
+
     /// Set the event bus for publishing domain events
     pub fn with_event_bus(mut self, event_bus: Arc<DomainEventBus>) -> Self {
         self.event_bus = Some(event_bus);
         self
     }
-    
+
     /// Analyze performance bottlenecks
     pub fn analyze_performance_bottlenecks(
         &self,
@@ -73,19 +73,19 @@ impl PerformanceOptimizationDomainService {
         for rule in &self.business_rules {
             rule.validate_pipeline_config(&OptimizationPipelineConfig::default())?;
         }
-        
+
         // Analyze CPU bottlenecks
         let cpu_bottlenecks = self.analyze_cpu_bottlenecks(execution_profile)?;
-        
+
         // Analyze memory bottlenecks
         let memory_bottlenecks = self.analyze_memory_bottlenecks(execution_profile)?;
-        
+
         // Analyze I/O bottlenecks
         let io_bottlenecks = self.analyze_io_bottlenecks(execution_profile)?;
-        
+
         // Analyze translation bottlenecks
         let translation_bottlenecks = self.analyze_translation_bottlenecks(execution_profile)?;
-        
+
         // Prioritize bottlenecks
         let prioritized_bottlenecks = self.prioritize_bottlenecks(
             &cpu_bottlenecks,
@@ -93,7 +93,7 @@ impl PerformanceOptimizationDomainService {
             &io_bottlenecks,
             &translation_bottlenecks,
         )?;
-        
+
         let result = PerformanceBottleneckAnalysis {
             target_arch,
             cpu_bottlenecks,
@@ -103,18 +103,20 @@ impl PerformanceOptimizationDomainService {
             prioritized_bottlenecks: prioritized_bottlenecks.clone(),
             overall_impact_score: self.calculate_overall_impact_score(&prioritized_bottlenecks),
         };
-        
+
         // Publish bottleneck analysis event
-        self.publish_optimization_event(OptimizationEvent::PerformanceBottleneckAnalysisCompleted {
-            target_arch: format!("{:?}", target_arch),
-            bottlenecks_found: prioritized_bottlenecks.len(),
-            overall_impact_score: result.overall_impact_score as f64,
-            occurred_at: SystemTime::now(),
-        })?;
-        
+        self.publish_optimization_event(
+            OptimizationEvent::PerformanceBottleneckAnalysisCompleted {
+                target_arch: format!("{:?}", target_arch),
+                bottlenecks_found: prioritized_bottlenecks.len(),
+                overall_impact_score: result.overall_impact_score as f64,
+                occurred_at: SystemTime::now(),
+            },
+        )?;
+
         Ok(result)
     }
-    
+
     /// Recommend optimization strategies
     pub fn recommend_optimization_strategies(
         &self,
@@ -124,37 +126,31 @@ impl PerformanceOptimizationDomainService {
     ) -> VmResult<OptimizationRecommendations> {
         // Generate recommendations for each bottleneck
         let mut recommendations = Vec::new();
-        
+
         for bottleneck in &bottleneck_analysis.prioritized_bottlenecks {
-            let domain_recommendations = self.generate_domain_recommendations(
-                bottleneck,
-                optimization_goals,
-                constraints,
-            )?;
-            
+            let domain_recommendations =
+                self.generate_domain_recommendations(bottleneck, optimization_goals, constraints)?;
+
             recommendations.extend(domain_recommendations);
         }
-        
+
         // Prioritize recommendations
-        let prioritized_recommendations = self.prioritize_recommendations(
-            recommendations,
-            optimization_goals,
-        )?;
-        
+        let prioritized_recommendations =
+            self.prioritize_recommendations(recommendations, optimization_goals)?;
+
         // Estimate optimization impact
-        let impact_estimation = self.estimate_optimization_impact(
-            &prioritized_recommendations,
-            bottleneck_analysis,
-        )?;
-        
+        let impact_estimation =
+            self.estimate_optimization_impact(&prioritized_recommendations, bottleneck_analysis)?;
+
         let result = OptimizationRecommendations {
             target_arch: bottleneck_analysis.target_arch,
             recommendations: prioritized_recommendations.clone(),
             impact_estimation: impact_estimation.clone(),
             total_estimated_improvement: impact_estimation.clone().overall_improvement,
-            implementation_complexity: self.calculate_implementation_complexity(&prioritized_recommendations.clone()),
+            implementation_complexity: self
+                .calculate_implementation_complexity(&prioritized_recommendations.clone()),
         };
-        
+
         // Publish optimization recommendation event
         self.publish_optimization_event(OptimizationEvent::OptimizationRecommendationsGenerated {
             target_arch: format!("{:?}", result.target_arch),
@@ -162,10 +158,10 @@ impl PerformanceOptimizationDomainService {
             total_estimated_improvement: result.total_estimated_improvement as f64,
             occurred_at: SystemTime::now(),
         })?;
-        
+
         Ok(result)
     }
-    
+
     /// Create unified optimization plan
     pub fn create_unified_optimization_plan(
         &self,
@@ -174,19 +170,19 @@ impl PerformanceOptimizationDomainService {
     ) -> VmResult<UnifiedOptimizationPlan> {
         // Group recommendations by domain
         let domain_groups = self.group_recommendations_by_domain(&recommendations.recommendations);
-        
+
         // Create optimization phases
         let phases = self.create_optimization_phases(&domain_groups, constraints)?;
-        
+
         // Calculate resource requirements
         let resource_requirements = self.calculate_plan_resource_requirements(&phases)?;
-        
+
         // Estimate timeline
         let timeline = self.estimate_optimization_timeline(&phases)?;
-        
+
         // Validate plan feasibility
         self.validate_plan_feasibility(&phases, constraints)?;
-        
+
         let result = UnifiedOptimizationPlan {
             target_arch: recommendations.target_arch,
             phases: phases.clone(),
@@ -195,7 +191,7 @@ impl PerformanceOptimizationDomainService {
             expected_improvement: recommendations.total_estimated_improvement,
             risk_assessment: self.assess_plan_risks(&phases.clone()),
         };
-        
+
         // Publish optimization plan created event
         self.publish_optimization_event(OptimizationEvent::OptimizationPlanCreated {
             target_arch: format!("{:?}", result.target_arch),
@@ -203,10 +199,10 @@ impl PerformanceOptimizationDomainService {
             expected_improvement: result.expected_improvement as f64,
             occurred_at: SystemTime::now(),
         })?;
-        
+
         Ok(result)
     }
-    
+
     /// Execute optimization plan
     pub fn execute_optimization_plan(
         &self,
@@ -216,19 +212,19 @@ impl PerformanceOptimizationDomainService {
         let mut phase_results = Vec::new();
         let mut overall_success = true;
         let mut total_improvement = 0.0;
-        
+
         // Execute each phase
         for phase in &plan.phases {
             let phase_result = self.execute_optimization_phase(phase, context)?;
-            
+
             if !phase_result.success {
                 overall_success = false;
             }
-            
+
             total_improvement += phase_result.improvement_achieved;
             phase_results.push(phase_result);
         }
-        
+
         let result = OptimizationExecutionResult {
             target_arch: plan.target_arch,
             phase_results: phase_results.clone(),
@@ -242,7 +238,7 @@ impl PerformanceOptimizationDomainService {
             },
             resource_usage: self.calculate_actual_resource_usage(&phase_results.clone()),
         };
-        
+
         // Publish optimization execution event
         self.publish_optimization_event(OptimizationEvent::OptimizationExecutionCompleted {
             target_arch: format!("{:?}", result.target_arch),
@@ -250,10 +246,10 @@ impl PerformanceOptimizationDomainService {
             actual_improvement: result.total_improvement as f64,
             occurred_at: SystemTime::now(),
         })?;
-        
+
         Ok(result)
     }
-    
+
     /// Monitor optimization effectiveness
     pub fn monitor_optimization_effectiveness(
         &self,
@@ -265,34 +261,29 @@ impl PerformanceOptimizationDomainService {
             &self.performance_metrics.baseline_profile,
             post_optimization_profile,
         )?;
-        
+
         // Analyze effectiveness by domain
-        let domain_effectiveness = self.analyze_domain_effectiveness(
-            execution_result,
-            &performance_comparison,
-        )?;
-        
+        let domain_effectiveness =
+            self.analyze_domain_effectiveness(execution_result, &performance_comparison)?;
+
         // Calculate overall effectiveness
-        let overall_effectiveness = self.calculate_overall_effectiveness(
-            &domain_effectiveness,
-            &performance_comparison,
-        )?;
-        
+        let overall_effectiveness =
+            self.calculate_overall_effectiveness(&domain_effectiveness, &performance_comparison)?;
+
         // Generate improvement recommendations
-        let improvement_recommendations = self.generate_improvement_recommendations(
-            &domain_effectiveness,
-            &performance_comparison,
-        )?;
-        
+        let improvement_recommendations = self
+            .generate_improvement_recommendations(&domain_effectiveness, &performance_comparison)?;
+
         let result = OptimizationEffectivenessReport {
             target_arch: execution_result.target_arch,
             performance_comparison: performance_comparison.clone(),
             domain_effectiveness,
             overall_effectiveness,
             improvement_recommendations,
-            roi_calculation: self.calculate_optimization_roi(execution_result, &performance_comparison),
+            roi_calculation: self
+                .calculate_optimization_roi(execution_result, &performance_comparison),
         };
-        
+
         // Publish effectiveness monitoring event
         self.publish_optimization_event(OptimizationEvent::OptimizationEffectivenessMonitored {
             target_arch: format!("{:?}", result.target_arch),
@@ -300,10 +291,10 @@ impl PerformanceOptimizationDomainService {
             roi: result.roi_calculation.roi_percentage as f64,
             occurred_at: SystemTime::now(),
         })?;
-        
+
         Ok(result)
     }
-    
+
     /// Initialize optimization strategies
     fn initialize_optimization_strategies(&mut self) {
         // CPU optimization strategies
@@ -312,7 +303,8 @@ impl PerformanceOptimizationDomainService {
             vec![
                 OptimizationStrategy {
                     name: "Instruction Scheduling".to_string(),
-                    description: "Optimize instruction scheduling for better pipeline utilization".to_string(),
+                    description: "Optimize instruction scheduling for better pipeline utilization"
+                        .to_string(),
                     impact_level: ImpactLevel::Medium,
                     implementation_complexity: ImplementationComplexity::High,
                     resource_requirements: ResourceRequirements::default(),
@@ -333,14 +325,15 @@ impl PerformanceOptimizationDomainService {
                 },
             ],
         );
-        
+
         // Memory optimization strategies
         self.optimization_strategies.insert(
             OptimizationDomain::Memory,
             vec![
                 OptimizationStrategy {
                     name: "Cache Optimization".to_string(),
-                    description: "Optimize memory access patterns for better cache utilization".to_string(),
+                    description: "Optimize memory access patterns for better cache utilization"
+                        .to_string(),
                     impact_level: ImpactLevel::High,
                     implementation_complexity: ImplementationComplexity::Medium,
                     resource_requirements: ResourceRequirements::default(),
@@ -361,7 +354,7 @@ impl PerformanceOptimizationDomainService {
                 },
             ],
         );
-        
+
         // Translation optimization strategies
         self.optimization_strategies.insert(
             OptimizationDomain::Translation,
@@ -375,7 +368,8 @@ impl PerformanceOptimizationDomainService {
                 },
                 OptimizationStrategy {
                     name: "Block Translation".to_string(),
-                    description: "Translate code blocks instead of individual instructions".to_string(),
+                    description: "Translate code blocks instead of individual instructions"
+                        .to_string(),
                     impact_level: ImpactLevel::High,
                     implementation_complexity: ImplementationComplexity::High,
                     resource_requirements: ResourceRequirements::default(),
@@ -390,11 +384,11 @@ impl PerformanceOptimizationDomainService {
             ],
         );
     }
-    
+
     /// Analyze CPU bottlenecks
     fn analyze_cpu_bottlenecks(&self, profile: &ExecutionProfile) -> VmResult<Vec<CpuBottleneck>> {
         let mut bottlenecks = Vec::new();
-        
+
         // Check for high CPU utilization
         if profile.cpu_utilization > 0.8 {
             bottlenecks.push(CpuBottleneck {
@@ -408,7 +402,7 @@ impl PerformanceOptimizationDomainService {
                 impact_score: profile.cpu_utilization,
             });
         }
-        
+
         // Check for pipeline stalls
         if profile.pipeline_stall_rate > 0.2 {
             bottlenecks.push(CpuBottleneck {
@@ -418,11 +412,14 @@ impl PerformanceOptimizationDomainService {
                 } else {
                     BottleneckSeverity::High
                 },
-                description: format!("Pipeline stall rate is {:.1}%", profile.pipeline_stall_rate * 100.0),
+                description: format!(
+                    "Pipeline stall rate is {:.1}%",
+                    profile.pipeline_stall_rate * 100.0
+                ),
                 impact_score: profile.pipeline_stall_rate,
             });
         }
-        
+
         // Check for branch mispredictions
         if profile.branch_misprediction_rate > 0.1 {
             bottlenecks.push(CpuBottleneck {
@@ -432,18 +429,24 @@ impl PerformanceOptimizationDomainService {
                 } else {
                     BottleneckSeverity::Medium
                 },
-                description: format!("Branch misprediction rate is {:.1}%", profile.branch_misprediction_rate * 100.0),
+                description: format!(
+                    "Branch misprediction rate is {:.1}%",
+                    profile.branch_misprediction_rate * 100.0
+                ),
                 impact_score: profile.branch_misprediction_rate,
             });
         }
-        
+
         Ok(bottlenecks)
     }
-    
+
     /// Analyze memory bottlenecks
-    fn analyze_memory_bottlenecks(&self, profile: &ExecutionProfile) -> VmResult<Vec<MemoryBottleneck>> {
+    fn analyze_memory_bottlenecks(
+        &self,
+        profile: &ExecutionProfile,
+    ) -> VmResult<Vec<MemoryBottleneck>> {
         let mut bottlenecks = Vec::new();
-        
+
         // Check for cache miss rate
         if profile.cache_miss_rate > 0.1 {
             bottlenecks.push(MemoryBottleneck {
@@ -457,7 +460,7 @@ impl PerformanceOptimizationDomainService {
                 impact_score: profile.cache_miss_rate,
             });
         }
-        
+
         // Check for memory bandwidth utilization
         if profile.memory_bandwidth_utilization > 0.8 {
             bottlenecks.push(MemoryBottleneck {
@@ -467,13 +470,17 @@ impl PerformanceOptimizationDomainService {
                 } else {
                     BottleneckSeverity::High
                 },
-                description: format!("Memory bandwidth utilization is {:.1}%", profile.memory_bandwidth_utilization * 100.0),
+                description: format!(
+                    "Memory bandwidth utilization is {:.1}%",
+                    profile.memory_bandwidth_utilization * 100.0
+                ),
                 impact_score: profile.memory_bandwidth_utilization,
             });
         }
-        
+
         // Check for memory latency
-        if profile.average_memory_latency > 100.0 { // 100ns threshold
+        if profile.average_memory_latency > 100.0 {
+            // 100ns threshold
             bottlenecks.push(MemoryBottleneck {
                 bottleneck_type: MemoryBottleneckType::HighLatency,
                 severity: if profile.average_memory_latency > 200.0 {
@@ -481,18 +488,21 @@ impl PerformanceOptimizationDomainService {
                 } else {
                     BottleneckSeverity::Medium
                 },
-                description: format!("Average memory latency is {:.1}ns", profile.average_memory_latency),
+                description: format!(
+                    "Average memory latency is {:.1}ns",
+                    profile.average_memory_latency
+                ),
                 impact_score: (profile.average_memory_latency / 1000.0).min(1.0),
             });
         }
-        
+
         Ok(bottlenecks)
     }
-    
+
     /// Analyze I/O bottlenecks
     fn analyze_io_bottlenecks(&self, profile: &ExecutionProfile) -> VmResult<Vec<IoBottleneck>> {
         let mut bottlenecks = Vec::new();
-        
+
         // Check for I/O wait time
         if profile.io_wait_time > 0.2 {
             bottlenecks.push(IoBottleneck {
@@ -506,14 +516,17 @@ impl PerformanceOptimizationDomainService {
                 impact_score: profile.io_wait_time,
             });
         }
-        
+
         Ok(bottlenecks)
     }
-    
+
     /// Analyze translation bottlenecks
-    fn analyze_translation_bottlenecks(&self, profile: &ExecutionProfile) -> VmResult<Vec<TranslationBottleneck>> {
+    fn analyze_translation_bottlenecks(
+        &self,
+        profile: &ExecutionProfile,
+    ) -> VmResult<Vec<TranslationBottleneck>> {
         let mut bottlenecks = Vec::new();
-        
+
         // Check for translation overhead
         if profile.translation_overhead > 0.3 {
             bottlenecks.push(TranslationBottleneck {
@@ -523,11 +536,14 @@ impl PerformanceOptimizationDomainService {
                 } else {
                     BottleneckSeverity::High
                 },
-                description: format!("Translation overhead is {:.1}%", profile.translation_overhead * 100.0),
+                description: format!(
+                    "Translation overhead is {:.1}%",
+                    profile.translation_overhead * 100.0
+                ),
                 impact_score: profile.translation_overhead,
             });
         }
-        
+
         // Check for cache miss rate
         if profile.translation_cache_miss_rate > 0.2 {
             bottlenecks.push(TranslationBottleneck {
@@ -537,14 +553,17 @@ impl PerformanceOptimizationDomainService {
                 } else {
                     BottleneckSeverity::Medium
                 },
-                description: format!("Translation cache miss rate is {:.1}%", profile.translation_cache_miss_rate * 100.0),
+                description: format!(
+                    "Translation cache miss rate is {:.1}%",
+                    profile.translation_cache_miss_rate * 100.0
+                ),
                 impact_score: profile.translation_cache_miss_rate,
             });
         }
-        
+
         Ok(bottlenecks)
     }
-    
+
     /// Prioritize bottlenecks
     fn prioritize_bottlenecks(
         &self,
@@ -554,7 +573,7 @@ impl PerformanceOptimizationDomainService {
         translation_bottlenecks: &[TranslationBottleneck],
     ) -> VmResult<Vec<PrioritizedBottleneck>> {
         let mut prioritized = Vec::new();
-        
+
         // Add CPU bottlenecks
         for bottleneck in cpu_bottlenecks {
             prioritized.push(PrioritizedBottleneck {
@@ -565,7 +584,7 @@ impl PerformanceOptimizationDomainService {
                 description: bottleneck.description.clone(),
             });
         }
-        
+
         // Add memory bottlenecks
         for bottleneck in memory_bottlenecks {
             prioritized.push(PrioritizedBottleneck {
@@ -576,7 +595,7 @@ impl PerformanceOptimizationDomainService {
                 description: bottleneck.description.clone(),
             });
         }
-        
+
         // Add I/O bottlenecks
         for bottleneck in io_bottlenecks {
             prioritized.push(PrioritizedBottleneck {
@@ -587,7 +606,7 @@ impl PerformanceOptimizationDomainService {
                 description: bottleneck.description.clone(),
             });
         }
-        
+
         // Add translation bottlenecks
         for bottleneck in translation_bottlenecks {
             prioritized.push(PrioritizedBottleneck {
@@ -598,28 +617,27 @@ impl PerformanceOptimizationDomainService {
                 description: bottleneck.description.clone(),
             });
         }
-        
+
         // Sort by impact score and severity
         prioritized.sort_by(|a, b| {
-            b.impact_score.partial_cmp(&a.impact_score)
+            b.impact_score
+                .partial_cmp(&a.impact_score)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.severity.priority().cmp(&b.severity.priority()))
         });
-        
+
         Ok(prioritized)
     }
-    
+
     /// Calculate overall impact score
     fn calculate_overall_impact_score(&self, bottlenecks: &[PrioritizedBottleneck]) -> f32 {
         if bottlenecks.is_empty() {
             return 0.0;
         }
-        
-        bottlenecks.iter()
-            .map(|b| b.impact_score)
-            .sum::<f32>() / bottlenecks.len() as f32
+
+        bottlenecks.iter().map(|b| b.impact_score).sum::<f32>() / bottlenecks.len() as f32
     }
-    
+
     /// Generate domain recommendations
     fn generate_domain_recommendations(
         &self,
@@ -628,7 +646,7 @@ impl PerformanceOptimizationDomainService {
         constraints: &OptimizationConstraints,
     ) -> VmResult<Vec<OptimizationRecommendation>> {
         let mut recommendations = Vec::new();
-        
+
         // Get available strategies for this domain
         if let Some(strategies) = self.optimization_strategies.get(&bottleneck.domain) {
             for strategy in strategies {
@@ -640,55 +658,76 @@ impl PerformanceOptimizationDomainService {
                             domain: bottleneck.domain.clone(),
                             strategy: strategy.clone(),
                             target_bottleneck: bottleneck.bottleneck_type.clone(),
-                            expected_improvement: self.estimate_strategy_improvement(strategy, bottleneck),
-                            implementation_effort: strategy.implementation_complexity.effort_estimate(),
+                            expected_improvement: self
+                                .estimate_strategy_improvement(strategy, bottleneck),
+                            implementation_effort: strategy
+                                .implementation_complexity
+                                .effort_estimate(),
                             priority: self.calculate_recommendation_priority(strategy, bottleneck),
                         });
                     }
                 }
             }
         }
-        
+
         Ok(recommendations)
     }
-    
+
     /// Check if strategy matches optimization goals
-    fn strategy_matches_goals(&self, strategy: &OptimizationStrategy, goals: &[OptimizationGoal]) -> bool {
-        goals.iter().any(|goal| {
-            match goal {
-                OptimizationGoal::Performance => strategy.impact_level == ImpactLevel::High,
-                OptimizationGoal::Efficiency => strategy.impact_level == ImpactLevel::Medium,
-                OptimizationGoal::ResourceUsage => strategy.impact_level == ImpactLevel::Low,
-                OptimizationGoal::Latency => strategy.name.contains("Latency") || strategy.name.contains("Cache"),
-                OptimizationGoal::Throughput => strategy.name.contains("Throughput") || strategy.name.contains("Bandwidth"),
+    fn strategy_matches_goals(
+        &self,
+        strategy: &OptimizationStrategy,
+        goals: &[OptimizationGoal],
+    ) -> bool {
+        goals.iter().any(|goal| match goal {
+            OptimizationGoal::Performance => strategy.impact_level == ImpactLevel::High,
+            OptimizationGoal::Efficiency => strategy.impact_level == ImpactLevel::Medium,
+            OptimizationGoal::ResourceUsage => strategy.impact_level == ImpactLevel::Low,
+            OptimizationGoal::Latency => {
+                strategy.name.contains("Latency") || strategy.name.contains("Cache")
+            }
+            OptimizationGoal::Throughput => {
+                strategy.name.contains("Throughput") || strategy.name.contains("Bandwidth")
             }
         })
     }
-    
+
     /// Check if strategy meets constraints
-    fn strategy_meets_constraints(&self, strategy: &OptimizationStrategy, constraints: &OptimizationConstraints) -> bool {
+    fn strategy_meets_constraints(
+        &self,
+        strategy: &OptimizationStrategy,
+        constraints: &OptimizationConstraints,
+    ) -> bool {
         // Check implementation complexity constraint
         if let Some(max_complexity) = &constraints.max_implementation_complexity
-            && strategy.implementation_complexity > *max_complexity {
-                return false;
-            }
-        
-        // Check resource constraints
-        if !strategy.resource_requirements.within_limits(&constraints.resource_limits) {
+            && strategy.implementation_complexity > *max_complexity
+        {
             return false;
         }
-        
+
+        // Check resource constraints
+        if !strategy
+            .resource_requirements
+            .within_limits(&constraints.resource_limits)
+        {
+            return false;
+        }
+
         true
     }
-    
+
     /// Estimate strategy improvement
-    fn estimate_strategy_improvement(&self, strategy: &OptimizationStrategy, bottleneck: &PrioritizedBottleneck) -> f32 {
+    fn estimate_strategy_improvement(
+        &self,
+        strategy: &OptimizationStrategy,
+        bottleneck: &PrioritizedBottleneck,
+    ) -> f32 {
         let base_improvement = match strategy.impact_level {
             ImpactLevel::Low => 0.1,
             ImpactLevel::Medium => 0.2,
             ImpactLevel::High => 0.4,
         };
-        
+
         // Adjust based on bottleneck severity
         let severity_multiplier = match bottleneck.severity {
             BottleneckSeverity::Low => 0.5,
@@ -696,24 +735,28 @@ impl PerformanceOptimizationDomainService {
             BottleneckSeverity::High => 1.5,
             BottleneckSeverity::Critical => 2.0,
         };
-        
+
         base_improvement * severity_multiplier
     }
-    
+
     /// Calculate recommendation priority
-    fn calculate_recommendation_priority(&self, strategy: &OptimizationStrategy, bottleneck: &PrioritizedBottleneck) -> u8 {
+    fn calculate_recommendation_priority(
+        &self,
+        strategy: &OptimizationStrategy,
+        bottleneck: &PrioritizedBottleneck,
+    ) -> u8 {
         let impact_priority = match strategy.impact_level {
             ImpactLevel::Low => 3,
             ImpactLevel::Medium => 2,
             ImpactLevel::High => 1,
         };
-        
+
         let severity_priority = bottleneck.severity.priority();
-        
+
         // Combine priorities (lower is higher priority)
         (impact_priority + severity_priority) / 2
     }
-    
+
     /// Prioritize recommendations
     fn prioritize_recommendations(
         &self,
@@ -721,29 +764,32 @@ impl PerformanceOptimizationDomainService {
         _optimization_goals: &[OptimizationGoal],
     ) -> VmResult<Vec<OptimizationRecommendation>> {
         let mut prioritized = recommendations;
-        
+
         // Sort by priority and expected improvement
         prioritized.sort_by(|a, b| {
-            a.priority.cmp(&b.priority)
-                .then_with(|| b.expected_improvement.partial_cmp(&a.expected_improvement)
-                    .unwrap_or(std::cmp::Ordering::Equal))
+            a.priority.cmp(&b.priority).then_with(|| {
+                b.expected_improvement
+                    .partial_cmp(&a.expected_improvement)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
-        
+
         Ok(prioritized)
     }
-    
+
     /// Estimate optimization impact
     fn estimate_optimization_impact(
         &self,
         recommendations: &[OptimizationRecommendation],
         bottleneck_analysis: &PerformanceBottleneckAnalysis,
     ) -> VmResult<OptimizationImpactEstimation> {
-        let total_improvement = recommendations.iter()
+        let total_improvement = recommendations
+            .iter()
             .map(|r| r.expected_improvement)
             .sum::<f32>();
-        
+
         let domain_impacts = self.calculate_domain_impacts(recommendations)?;
-        
+
         Ok(OptimizationImpactEstimation {
             overall_improvement: total_improvement,
             domain_impacts,
@@ -751,20 +797,24 @@ impl PerformanceOptimizationDomainService {
             risk_factors: self.identify_risk_factors(recommendations),
         })
     }
-    
+
     /// Calculate domain impacts
-    fn calculate_domain_impacts(&self, recommendations: &[OptimizationRecommendation]) -> VmResult<HashMap<OptimizationDomain, f32>> {
+    fn calculate_domain_impacts(
+        &self,
+        recommendations: &[OptimizationRecommendation],
+    ) -> VmResult<HashMap<OptimizationDomain, f32>> {
         let mut domain_impacts = HashMap::new();
-        
+
         for recommendation in recommendations {
-            let entry = domain_impacts.entry(recommendation.domain.clone())
+            let entry = domain_impacts
+                .entry(recommendation.domain.clone())
                 .or_insert(0.0);
             *entry += recommendation.expected_improvement;
         }
-        
+
         Ok(domain_impacts)
     }
-    
+
     /// Calculate confidence level
     fn calculate_confidence_level(
         &self,
@@ -774,18 +824,21 @@ impl PerformanceOptimizationDomainService {
         if recommendations.is_empty() {
             return 0.0;
         }
-        
+
         // Base confidence on number of recommendations and bottleneck analysis quality
         let base_confidence = (recommendations.len() as f32 / 10.0).min(1.0);
         let analysis_confidence = 1.0 - bottleneck_analysis.overall_impact_score;
-        
+
         (base_confidence + analysis_confidence) / 2.0
     }
-    
+
     /// Identify risk factors
-    fn identify_risk_factors(&self, recommendations: &[OptimizationRecommendation]) -> Vec<RiskFactor> {
+    fn identify_risk_factors(
+        &self,
+        recommendations: &[OptimizationRecommendation],
+    ) -> Vec<RiskFactor> {
         let mut risk_factors = Vec::new();
-        
+
         // Check for high complexity implementations
         for recommendation in recommendations {
             if recommendation.strategy.implementation_complexity == ImplementationComplexity::High {
@@ -796,16 +849,15 @@ impl PerformanceOptimizationDomainService {
                 });
             }
         }
-        
+
         // Check for conflicting recommendations
-        let domain_groups = recommendations.iter()
-            .fold(HashMap::new(), |mut acc, rec| {
-                acc.entry(rec.domain.clone())
-                    .or_insert_with(Vec::new)
-                    .push(rec);
-                acc
-            });
-        
+        let domain_groups = recommendations.iter().fold(HashMap::new(), |mut acc, rec| {
+            acc.entry(rec.domain.clone())
+                .or_insert_with(Vec::new)
+                .push(rec);
+            acc
+        });
+
         for (domain, recs) in domain_groups {
             if recs.len() > 3 {
                 risk_factors.push(RiskFactor {
@@ -815,40 +867,46 @@ impl PerformanceOptimizationDomainService {
                 });
             }
         }
-        
+
         risk_factors
     }
-    
+
     /// Calculate implementation complexity
-    fn calculate_implementation_complexity(&self, recommendations: &[OptimizationRecommendation]) -> ImplementationComplexity {
+    fn calculate_implementation_complexity(
+        &self,
+        recommendations: &[OptimizationRecommendation],
+    ) -> ImplementationComplexity {
         if recommendations.is_empty() {
             return ImplementationComplexity::Low;
         }
-        
-        let total_complexity: u32 = recommendations.iter()
+
+        let total_complexity: u32 = recommendations
+            .iter()
             .map(|r| r.strategy.implementation_complexity.complexity_score())
             .sum();
-        
+
         let average_complexity = total_complexity / recommendations.len() as u32;
-        
+
         match average_complexity {
             0..=3 => ImplementationComplexity::Low,
             4..=7 => ImplementationComplexity::Medium,
             _ => ImplementationComplexity::High,
         }
     }
-    
+
     /// Group recommendations by domain
-    fn group_recommendations_by_domain(&self, recommendations: &[OptimizationRecommendation]) -> HashMap<OptimizationDomain, Vec<OptimizationRecommendation>> {
-        recommendations.iter()
-            .fold(HashMap::new(), |mut acc, rec| {
-                acc.entry(rec.domain.clone())
-                    .or_insert_with(Vec::new)
-                    .push(rec.clone());
-                acc
-            })
+    fn group_recommendations_by_domain(
+        &self,
+        recommendations: &[OptimizationRecommendation],
+    ) -> HashMap<OptimizationDomain, Vec<OptimizationRecommendation>> {
+        recommendations.iter().fold(HashMap::new(), |mut acc, rec| {
+            acc.entry(rec.domain.clone())
+                .or_insert_with(Vec::new)
+                .push(rec.clone());
+            acc
+        })
     }
-    
+
     /// Create optimization phases
     fn create_optimization_phases(
         &self,
@@ -856,13 +914,13 @@ impl PerformanceOptimizationDomainService {
         _constraints: &OptimizationConstraints,
     ) -> VmResult<Vec<OptimizationPhase>> {
         let mut phases = Vec::new();
-        
+
         // Create phases for each domain
         for (domain, recommendations) in domain_groups {
             if recommendations.is_empty() {
                 continue;
             }
-            
+
             phases.push(OptimizationPhase {
                 phase_id: phases.len() as u32,
                 domain: domain.clone(),
@@ -872,66 +930,79 @@ impl PerformanceOptimizationDomainService {
                 resource_requirements: self.calculate_phase_resource_requirements(recommendations),
             });
         }
-        
+
         // Sort phases by priority
         phases.sort_by(|a, b| {
-            let a_priority = a.recommendations.iter()
+            let a_priority = a
+                .recommendations
+                .iter()
                 .map(|r| r.priority)
                 .min()
                 .unwrap_or(u8::MAX);
-            
-            let b_priority = b.recommendations.iter()
+
+            let b_priority = b
+                .recommendations
+                .iter()
                 .map(|r| r.priority)
                 .min()
                 .unwrap_or(u8::MAX);
-            
+
             a_priority.cmp(&b_priority)
         });
-        
+
         Ok(phases)
     }
-    
+
     /// Estimate phase duration
     fn estimate_phase_duration(&self, recommendations: &[OptimizationRecommendation]) -> u32 {
-        let total_effort: u32 = recommendations.iter()
+        let total_effort: u32 = recommendations
+            .iter()
             .map(|r| r.implementation_effort)
             .sum();
-        
+
         // Convert effort hours to days (assuming 8 hours per day)
         (total_effort / 8).max(1)
     }
-    
+
     /// Calculate phase resource requirements
-    fn calculate_phase_resource_requirements(&self, recommendations: &[OptimizationRecommendation]) -> ResourceRequirements {
+    fn calculate_phase_resource_requirements(
+        &self,
+        recommendations: &[OptimizationRecommendation],
+    ) -> ResourceRequirements {
         let mut total_requirements = ResourceRequirements::default();
-        
+
         for recommendation in recommendations {
             total_requirements.merge(&recommendation.strategy.resource_requirements);
         }
-        
+
         total_requirements
     }
-    
+
     /// Calculate plan resource requirements
-    fn calculate_plan_resource_requirements(&self, phases: &[OptimizationPhase]) -> VmResult<ResourceRequirements> {
+    fn calculate_plan_resource_requirements(
+        &self,
+        phases: &[OptimizationPhase],
+    ) -> VmResult<ResourceRequirements> {
         let mut total_requirements = ResourceRequirements::default();
-        
+
         for phase in phases {
             total_requirements.merge(&phase.resource_requirements);
         }
-        
+
         Ok(total_requirements)
     }
-    
+
     /// Estimate optimization timeline
-    fn estimate_optimization_timeline(&self, phases: &[OptimizationPhase]) -> VmResult<OptimizationTimeline> {
-        let total_duration: u32 = phases.iter()
-            .map(|p| p.estimated_duration)
-            .sum();
-        
+    fn estimate_optimization_timeline(
+        &self,
+        phases: &[OptimizationPhase],
+    ) -> VmResult<OptimizationTimeline> {
+        let total_duration: u32 = phases.iter().map(|p| p.estimated_duration).sum();
+
         Ok(OptimizationTimeline {
             total_duration_days: total_duration,
-            phases: phases.iter()
+            phases: phases
+                .iter()
                 .enumerate()
                 .map(|(i, phase)| PhaseTimeline {
                     phase_id: phase.phase_id,
@@ -941,53 +1012,61 @@ impl PerformanceOptimizationDomainService {
                 .collect(),
         })
     }
-    
+
     /// Validate plan feasibility
-    fn validate_plan_feasibility(&self, phases: &[OptimizationPhase], constraints: &OptimizationConstraints) -> VmResult<()> {
+    fn validate_plan_feasibility(
+        &self,
+        phases: &[OptimizationPhase],
+        constraints: &OptimizationConstraints,
+    ) -> VmResult<()> {
         // Check total duration against constraint
-        let total_duration: u32 = phases.iter()
-            .map(|p| p.estimated_duration)
-            .sum();
-        
+        let total_duration: u32 = phases.iter().map(|p| p.estimated_duration).sum();
+
         if let Some(max_duration) = constraints.max_duration_days
-            && total_duration > max_duration {
-                return Err(VmError::Core(crate::error::CoreError::InvalidConfig {
-                    field: "plan_duration".to_string(),
-                    message: format!(
-                        "Plan duration {} days exceeds maximum {} days",
-                        total_duration, max_duration
-                    ),
-                }));
-            }
-        
+            && total_duration > max_duration
+        {
+            return Err(VmError::Core(crate::error::CoreError::InvalidConfig {
+                field: "plan_duration".to_string(),
+                message: format!(
+                    "Plan duration {} days exceeds maximum {} days",
+                    total_duration, max_duration
+                ),
+            }));
+        }
+
         Ok(())
     }
-    
+
     /// Assess plan risks
     fn assess_plan_risks(&self, phases: &[OptimizationPhase]) -> Vec<PlanRisk> {
         let mut risks = Vec::new();
-        
+
         // Check for high complexity phases
         for phase in phases {
             let phase_complexity = self.calculate_phase_complexity(&phase.recommendations);
-            
+
             if phase_complexity == ImplementationComplexity::High {
                 risks.push(PlanRisk {
                     risk_type: PlanRiskType::HighComplexity,
-                    description: format!("Phase {} has high implementation complexity", phase.phase_id),
+                    description: format!(
+                        "Phase {} has high implementation complexity",
+                        phase.phase_id
+                    ),
                     impact: RiskImpact::High,
                     mitigation: "Consider breaking down into smaller sub-phases".to_string(),
                 });
             }
         }
-        
+
         // Check for resource constraints
-        let total_requirements = phases.iter()
-            .fold(ResourceRequirements::default(), |mut acc, phase| {
-                acc.merge(&phase.resource_requirements);
-                acc
-            });
-        
+        let total_requirements =
+            phases
+                .iter()
+                .fold(ResourceRequirements::default(), |mut acc, phase| {
+                    acc.merge(&phase.resource_requirements);
+                    acc
+                });
+
         if total_requirements.developers > 10 {
             risks.push(PlanRisk {
                 risk_type: PlanRiskType::ResourceConstraints,
@@ -996,29 +1075,33 @@ impl PerformanceOptimizationDomainService {
                 mitigation: "Consider prioritizing phases or extending timeline".to_string(),
             });
         }
-        
+
         risks
     }
-    
+
     /// Calculate phase complexity
-    fn calculate_phase_complexity(&self, recommendations: &[OptimizationRecommendation]) -> ImplementationComplexity {
+    fn calculate_phase_complexity(
+        &self,
+        recommendations: &[OptimizationRecommendation],
+    ) -> ImplementationComplexity {
         if recommendations.is_empty() {
             return ImplementationComplexity::Low;
         }
-        
-        let total_complexity: u32 = recommendations.iter()
+
+        let total_complexity: u32 = recommendations
+            .iter()
             .map(|r| r.strategy.implementation_complexity.complexity_score())
             .sum();
-        
+
         let average_complexity = total_complexity / recommendations.len() as u32;
-        
+
         match average_complexity {
             0..=3 => ImplementationComplexity::Low,
             4..=7 => ImplementationComplexity::Medium,
             _ => ImplementationComplexity::High,
         }
     }
-    
+
     /// Execute optimization phase
     fn execute_optimization_phase(
         &self,
@@ -1027,33 +1110,37 @@ impl PerformanceOptimizationDomainService {
     ) -> VmResult<PhaseExecutionResult> {
         // This is a simplified implementation
         // In reality, this would coordinate the actual execution
-        
+
         Ok(PhaseExecutionResult {
             phase_id: phase.phase_id,
             domain: phase.domain.clone(),
             success: true,
-            improvement_achieved: phase.recommendations.iter()
+            improvement_achieved: phase
+                .recommendations
+                .iter()
                 .map(|r| r.expected_improvement)
-                .sum::<f32>() * 0.8, // Assume 80% of expected improvement
+                .sum::<f32>()
+                * 0.8, // Assume 80% of expected improvement
             actual_duration_days: phase.estimated_duration,
             issues: Vec::new(),
         })
     }
-    
+
     /// Calculate actual resource usage
-    fn calculate_actual_resource_usage(&self, phase_results: &[PhaseExecutionResult]) -> ResourceUsage {
+    fn calculate_actual_resource_usage(
+        &self,
+        phase_results: &[PhaseExecutionResult],
+    ) -> ResourceUsage {
         let total_developers = phase_results.len() as u32;
-        let total_duration: u32 = phase_results.iter()
-            .map(|r| r.actual_duration_days)
-            .sum();
-        
+        let total_duration: u32 = phase_results.iter().map(|r| r.actual_duration_days).sum();
+
         ResourceUsage {
             developer_days: total_developers * total_duration,
             peak_developers: total_developers,
             total_duration_days: total_duration,
         }
     }
-    
+
     /// Compare performance profiles
     fn compare_performance_profiles(
         &self,
@@ -1065,21 +1152,23 @@ impl PerformanceOptimizationDomainService {
         } else {
             0.0
         };
-        
+
         let memory_improvement = if baseline.cache_miss_rate > 0.0 {
             (baseline.cache_miss_rate - optimized.cache_miss_rate) / baseline.cache_miss_rate
         } else {
             0.0
         };
-        
+
         let translation_improvement = if baseline.translation_overhead > 0.0 {
-            (baseline.translation_overhead - optimized.translation_overhead) / baseline.translation_overhead
+            (baseline.translation_overhead - optimized.translation_overhead)
+                / baseline.translation_overhead
         } else {
             0.0
         };
-        
-        let overall_improvement = (cpu_improvement + memory_improvement + translation_improvement) / 3.0;
-        
+
+        let overall_improvement =
+            (cpu_improvement + memory_improvement + translation_improvement) / 3.0;
+
         Ok(PerformanceComparison {
             cpu_improvement,
             memory_improvement,
@@ -1087,7 +1176,7 @@ impl PerformanceOptimizationDomainService {
             overall_improvement,
         })
     }
-    
+
     /// Analyze domain effectiveness
     fn analyze_domain_effectiveness(
         &self,
@@ -1095,62 +1184,78 @@ impl PerformanceOptimizationDomainService {
         performance_comparison: &PerformanceComparison,
     ) -> VmResult<HashMap<OptimizationDomain, DomainEffectiveness>> {
         let mut domain_effectiveness = HashMap::new();
-        
+
         // Analyze CPU domain effectiveness
-        domain_effectiveness.insert(OptimizationDomain::CPU, DomainEffectiveness {
-            improvement_achieved: performance_comparison.cpu_improvement,
-            expected_improvement: execution_result.expected_improvement * 0.4, // Assume 40% from CPU
-            effectiveness_percentage: if execution_result.expected_improvement > 0.0 {
-                (performance_comparison.cpu_improvement / (execution_result.expected_improvement * 0.4)) * 100.0
-            } else {
-                0.0
+        domain_effectiveness.insert(
+            OptimizationDomain::CPU,
+            DomainEffectiveness {
+                improvement_achieved: performance_comparison.cpu_improvement,
+                expected_improvement: execution_result.expected_improvement * 0.4, // Assume 40% from CPU
+                effectiveness_percentage: if execution_result.expected_improvement > 0.0 {
+                    (performance_comparison.cpu_improvement
+                        / (execution_result.expected_improvement * 0.4))
+                        * 100.0
+                } else {
+                    0.0
+                },
             },
-        });
-        
+        );
+
         // Analyze Memory domain effectiveness
-        domain_effectiveness.insert(OptimizationDomain::Memory, DomainEffectiveness {
-            improvement_achieved: performance_comparison.memory_improvement,
-            expected_improvement: execution_result.expected_improvement * 0.3, // Assume 30% from Memory
-            effectiveness_percentage: if execution_result.expected_improvement > 0.0 {
-                (performance_comparison.memory_improvement / (execution_result.expected_improvement * 0.3)) * 100.0
-            } else {
-                0.0
+        domain_effectiveness.insert(
+            OptimizationDomain::Memory,
+            DomainEffectiveness {
+                improvement_achieved: performance_comparison.memory_improvement,
+                expected_improvement: execution_result.expected_improvement * 0.3, // Assume 30% from Memory
+                effectiveness_percentage: if execution_result.expected_improvement > 0.0 {
+                    (performance_comparison.memory_improvement
+                        / (execution_result.expected_improvement * 0.3))
+                        * 100.0
+                } else {
+                    0.0
+                },
             },
-        });
-        
+        );
+
         // Analyze Translation domain effectiveness
-        domain_effectiveness.insert(OptimizationDomain::Translation, DomainEffectiveness {
-            improvement_achieved: performance_comparison.translation_improvement,
-            expected_improvement: execution_result.expected_improvement * 0.3, // Assume 30% from Translation
-            effectiveness_percentage: if execution_result.expected_improvement > 0.0 {
-                (performance_comparison.translation_improvement / (execution_result.expected_improvement * 0.3)) * 100.0
-            } else {
-                0.0
+        domain_effectiveness.insert(
+            OptimizationDomain::Translation,
+            DomainEffectiveness {
+                improvement_achieved: performance_comparison.translation_improvement,
+                expected_improvement: execution_result.expected_improvement * 0.3, // Assume 30% from Translation
+                effectiveness_percentage: if execution_result.expected_improvement > 0.0 {
+                    (performance_comparison.translation_improvement
+                        / (execution_result.expected_improvement * 0.3))
+                        * 100.0
+                } else {
+                    0.0
+                },
             },
-        });
-        
+        );
+
         Ok(domain_effectiveness)
     }
-    
+
     /// Calculate overall effectiveness
     fn calculate_overall_effectiveness(
         &self,
         domain_effectiveness: &HashMap<OptimizationDomain, DomainEffectiveness>,
         _performance_comparison: &PerformanceComparison,
     ) -> VmResult<f32> {
-        let total_effectiveness: f32 = domain_effectiveness.values()
+        let total_effectiveness: f32 = domain_effectiveness
+            .values()
             .map(|e| e.effectiveness_percentage)
             .sum();
-        
+
         let domain_count = domain_effectiveness.len() as f32;
-        
+
         if domain_count > 0.0 {
             Ok(total_effectiveness / domain_count)
         } else {
             Ok(0.0)
         }
     }
-    
+
     /// Generate improvement recommendations
     fn generate_improvement_recommendations(
         &self,
@@ -1158,7 +1263,7 @@ impl PerformanceOptimizationDomainService {
         performance_comparison: &PerformanceComparison,
     ) -> VmResult<Vec<ImprovementRecommendation>> {
         let mut recommendations = Vec::new();
-        
+
         // Check for domains with low effectiveness
         for (domain, effectiveness) in domain_effectiveness {
             if effectiveness.effectiveness_percentage < 50.0 {
@@ -1173,38 +1278,43 @@ impl PerformanceOptimizationDomainService {
                 });
             }
         }
-        
+
         // Check for areas with low improvement
         if performance_comparison.cpu_improvement < 0.1 {
             recommendations.push(ImprovementRecommendation {
                 domain: OptimizationDomain::CPU,
                 recommendation_type: ImprovementRecommendationType::AlternativeStrategies,
-                description: "CPU improvement is low, consider alternative optimization strategies".to_string(),
+                description: "CPU improvement is low, consider alternative optimization strategies"
+                    .to_string(),
                 expected_impact: 0.3,
             });
         }
-        
+
         if performance_comparison.memory_improvement < 0.1 {
             recommendations.push(ImprovementRecommendation {
                 domain: OptimizationDomain::Memory,
                 recommendation_type: ImprovementRecommendationType::AlternativeStrategies,
-                description: "Memory improvement is low, consider alternative optimization strategies".to_string(),
+                description:
+                    "Memory improvement is low, consider alternative optimization strategies"
+                        .to_string(),
                 expected_impact: 0.3,
             });
         }
-        
+
         if performance_comparison.translation_improvement < 0.1 {
             recommendations.push(ImprovementRecommendation {
                 domain: OptimizationDomain::Translation,
                 recommendation_type: ImprovementRecommendationType::AlternativeStrategies,
-                description: "Translation improvement is low, consider alternative optimization strategies".to_string(),
+                description:
+                    "Translation improvement is low, consider alternative optimization strategies"
+                        .to_string(),
                 expected_impact: 0.3,
             });
         }
-        
+
         Ok(recommendations)
     }
-    
+
     /// Calculate optimization ROI
     fn calculate_optimization_roi(
         &self,
@@ -1213,17 +1323,17 @@ impl PerformanceOptimizationDomainService {
     ) -> RoiCalculation {
         // Calculate investment (developer days)
         let investment = execution_result.resource_usage.developer_days as f32;
-        
+
         // Calculate return (performance improvement)
         let return_value = performance_comparison.overall_improvement * 1000.0; // Arbitrary value for improvement
-        
+
         // Calculate ROI percentage
         let roi_percentage = if investment > 0.0 {
             ((return_value - investment) / investment) * 100.0
         } else {
             0.0
         };
-        
+
         RoiCalculation {
             investment,
             return_value,
@@ -1235,7 +1345,7 @@ impl PerformanceOptimizationDomainService {
             },
         }
     }
-    
+
     /// Publish optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
         if let Some(event_bus) = &self.event_bus {
@@ -1257,13 +1367,13 @@ impl Default for PerformanceOptimizationDomainService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_performance_optimization_service_creation() {
         let service = PerformanceOptimizationDomainService::new();
         assert!(!service.optimization_strategies.is_empty());
     }
-    
+
     #[test]
     fn test_cpu_bottleneck_analysis() {
         let service = PerformanceOptimizationDomainService::new();
@@ -1278,13 +1388,14 @@ mod tests {
             translation_overhead: 0.4,
             translation_cache_miss_rate: 0.25,
         };
-        
-        let bottlenecks = service.analyze_cpu_bottlenecks(&profile)
+
+        let bottlenecks = service
+            .analyze_cpu_bottlenecks(&profile)
             .expect("analyze_cpu_bottlenecks should not fail in test");
         assert!(!bottlenecks.is_empty());
         assert_eq!(bottlenecks.len(), 3); // High utilization, pipeline stalls, branch mispredictions
     }
-    
+
     #[test]
     fn test_memory_bottleneck_analysis() {
         let service = PerformanceOptimizationDomainService::new();
@@ -1299,51 +1410,45 @@ mod tests {
             translation_overhead: 0.2,
             translation_cache_miss_rate: 0.15,
         };
-        
-        let bottlenecks = service.analyze_memory_bottlenecks(&profile)
+
+        let bottlenecks = service
+            .analyze_memory_bottlenecks(&profile)
             .expect("analyze_memory_bottlenecks should not fail in test");
         assert!(!bottlenecks.is_empty());
         assert_eq!(bottlenecks.len(), 3); // Cache misses, bandwidth saturation, high latency
     }
-    
+
     #[test]
     fn test_bottleneck_prioritization() {
         let service = PerformanceOptimizationDomainService::new();
-        
-        let cpu_bottlenecks = vec![
-            CpuBottleneck {
-                bottleneck_type: CpuBottleneckType::HighUtilization,
-                severity: BottleneckSeverity::Critical,
-                description: "High CPU utilization".to_string(),
-                impact_score: 0.95,
-            },
-        ];
-        
-        let memory_bottlenecks = vec![
-            MemoryBottleneck {
-                bottleneck_type: MemoryBottleneckType::CacheMisses,
-                severity: BottleneckSeverity::High,
-                description: "High cache miss rate".to_string(),
-                impact_score: 0.8,
-            },
-        ];
-        
-        let prioritized = service.prioritize_bottlenecks(
-            &cpu_bottlenecks,
-            &memory_bottlenecks,
-            &[],
-            &[],
-        ).expect("prioritize_bottlenecks should not fail in test");
-        
+
+        let cpu_bottlenecks = vec![CpuBottleneck {
+            bottleneck_type: CpuBottleneckType::HighUtilization,
+            severity: BottleneckSeverity::Critical,
+            description: "High CPU utilization".to_string(),
+            impact_score: 0.95,
+        }];
+
+        let memory_bottlenecks = vec![MemoryBottleneck {
+            bottleneck_type: MemoryBottleneckType::CacheMisses,
+            severity: BottleneckSeverity::High,
+            description: "High cache miss rate".to_string(),
+            impact_score: 0.8,
+        }];
+
+        let prioritized = service
+            .prioritize_bottlenecks(&cpu_bottlenecks, &memory_bottlenecks, &[], &[])
+            .expect("prioritize_bottlenecks should not fail in test");
+
         assert_eq!(prioritized.len(), 2);
         assert_eq!(prioritized[0].domain, OptimizationDomain::CPU); // Higher impact score
         assert_eq!(prioritized[1].domain, OptimizationDomain::Memory);
     }
-    
+
     #[test]
     fn test_optimization_recommendations() {
         let service = PerformanceOptimizationDomainService::new();
-        
+
         let bottleneck_analysis = PerformanceBottleneckAnalysis {
             target_arch: GuestArch::X86_64,
             cpu_bottlenecks: vec![],
@@ -1353,42 +1458,42 @@ mod tests {
             prioritized_bottlenecks: vec![],
             overall_impact_score: 0.5,
         };
-        
+
         let optimization_goals = vec![OptimizationGoal::Performance];
         let constraints = OptimizationConstraints::default();
-        
-        let recommendations = service.recommend_optimization_strategies(
-            &bottleneck_analysis,
-            &optimization_goals,
-            &constraints,
-        ).expect("recommend_optimization_strategies should not fail in test");
-        
+
+        let recommendations = service
+            .recommend_optimization_strategies(
+                &bottleneck_analysis,
+                &optimization_goals,
+                &constraints,
+            )
+            .expect("recommend_optimization_strategies should not fail in test");
+
         // Should have recommendations even with empty bottlenecks
         assert!(!recommendations.recommendations.is_empty());
     }
-    
+
     #[test]
     fn test_unified_optimization_plan() {
         let service = PerformanceOptimizationDomainService::new();
-        
+
         let recommendations = OptimizationRecommendations {
             target_arch: GuestArch::X86_64,
-            recommendations: vec![
-                OptimizationRecommendation {
-                    domain: OptimizationDomain::CPU,
-                    strategy: OptimizationStrategy {
-                        name: "Test Strategy".to_string(),
-                        description: "Test description".to_string(),
-                        impact_level: ImpactLevel::Medium,
-                        implementation_complexity: ImplementationComplexity::Low,
-                        resource_requirements: ResourceRequirements::default(),
-                    },
-                    target_bottleneck: BottleneckType::Cpu(CpuBottleneckType::HighUtilization),
-                    expected_improvement: 0.2,
-                    implementation_effort: 5,
-                    priority: 1,
+            recommendations: vec![OptimizationRecommendation {
+                domain: OptimizationDomain::CPU,
+                strategy: OptimizationStrategy {
+                    name: "Test Strategy".to_string(),
+                    description: "Test description".to_string(),
+                    impact_level: ImpactLevel::Medium,
+                    implementation_complexity: ImplementationComplexity::Low,
+                    resource_requirements: ResourceRequirements::default(),
                 },
-            ],
+                target_bottleneck: BottleneckType::Cpu(CpuBottleneckType::HighUtilization),
+                expected_improvement: 0.2,
+                implementation_effort: 5,
+                priority: 1,
+            }],
             impact_estimation: OptimizationImpactEstimation {
                 overall_improvement: 0.2,
                 domain_impacts: HashMap::new(),
@@ -1398,20 +1503,21 @@ mod tests {
             total_estimated_improvement: 0.2,
             implementation_complexity: ImplementationComplexity::Low,
         };
-        
+
         let constraints = OptimizationConstraints::default();
-        
-        let plan = service.create_unified_optimization_plan(&recommendations, &constraints)
+
+        let plan = service
+            .create_unified_optimization_plan(&recommendations, &constraints)
             .expect("create_unified_optimization_plan should not fail in test");
-        
+
         assert!(!plan.phases.is_empty());
         assert_eq!(plan.target_arch, GuestArch::X86_64);
     }
-    
+
     #[test]
     fn test_performance_profile_comparison() {
         let service = PerformanceOptimizationDomainService::new();
-        
+
         let baseline = ExecutionProfile {
             cpu_utilization: 0.8,
             pipeline_stall_rate: 0.2,
@@ -1423,7 +1529,7 @@ mod tests {
             translation_overhead: 0.4,
             translation_cache_miss_rate: 0.25,
         };
-        
+
         let optimized = ExecutionProfile {
             cpu_utilization: 0.6,
             pipeline_stall_rate: 0.1,
@@ -1435,10 +1541,11 @@ mod tests {
             translation_overhead: 0.2,
             translation_cache_miss_rate: 0.1,
         };
-        
-        let comparison = service.compare_performance_profiles(&baseline, &optimized)
+
+        let comparison = service
+            .compare_performance_profiles(&baseline, &optimized)
             .expect("compare_performance_profiles should not fail in test");
-        
+
         assert!(comparison.cpu_improvement > 0.0);
         assert!(comparison.memory_improvement > 0.0);
         assert!(comparison.translation_improvement > 0.0);
@@ -1468,14 +1575,12 @@ pub enum OptimizationGoal {
 }
 
 /// Optimization constraints
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct OptimizationConstraints {
     pub max_duration_days: Option<u32>,
     pub max_implementation_complexity: Option<ImplementationComplexity>,
     pub resource_limits: ResourceRequirements,
 }
-
 
 /// Execution profile
 #[derive(Debug, Clone, Default)]
@@ -1641,12 +1746,12 @@ impl ImplementationComplexity {
             ImplementationComplexity::High => 10,
         }
     }
-    
+
     pub fn effort_estimate(&self) -> u32 {
         match self {
-            ImplementationComplexity::Low => 8,   // 1 day
+            ImplementationComplexity::Low => 8,     // 1 day
             ImplementationComplexity::Medium => 40, // 5 days
-            ImplementationComplexity::High => 80,  // 10 days
+            ImplementationComplexity::High => 80,   // 10 days
         }
     }
 }
@@ -1665,11 +1770,11 @@ impl ResourceRequirements {
         self.cpu_hours += other.cpu_hours;
         self.memory_gb = self.memory_gb.max(other.memory_gb);
     }
-    
+
     pub fn within_limits(&self, limits: &ResourceRequirements) -> bool {
-        self.developers <= limits.developers &&
-        self.cpu_hours <= limits.cpu_hours &&
-        self.memory_gb <= limits.memory_gb
+        self.developers <= limits.developers
+            && self.cpu_hours <= limits.cpu_hours
+            && self.memory_gb <= limits.memory_gb
     }
 }
 

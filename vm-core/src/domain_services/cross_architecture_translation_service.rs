@@ -184,16 +184,17 @@
 //! - **`CodeBlockAggregate`**: Code block translation
 //! - **`TranslationCacheAggregate`**: Translation result caching
 
-use std::sync::Arc;
-use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
 use crate::domain_services::rules::translation_rules::{
-    TranslationBusinessRule, ArchitectureCompatibilityRule, PerformanceThresholdRule, ResourceAvailabilityRule
+    ArchitectureCompatibilityRule, PerformanceThresholdRule, ResourceAvailabilityRule,
+    TranslationBusinessRule,
 };
-use crate::{VmError, VmResult, GuestArch};
+use crate::{GuestArch, VmError, VmResult};
+use std::sync::Arc;
 
 /// Cross-architecture translation domain service
-/// 
+///
 /// This service encapsulates the business logic for coordinating cross-architecture
 /// translation between x86-64, ARM64, and RISC-V64 architectures.
 pub struct CrossArchitectureTranslationDomainService {
@@ -215,7 +216,7 @@ impl CrossArchitectureTranslationDomainService {
             event_bus: None,
         }
     }
-    
+
     /// Create a new cross-architecture translation domain service with custom rules
     pub fn with_rules(business_rules: Vec<Box<dyn TranslationBusinessRule>>) -> Self {
         Self {
@@ -223,13 +224,13 @@ impl CrossArchitectureTranslationDomainService {
             event_bus: None,
         }
     }
-    
+
     /// Set the event bus for publishing domain events
     pub fn with_event_bus(mut self, event_bus: Arc<DomainEventBus>) -> Self {
         self.event_bus = Some(event_bus);
         self
     }
-    
+
     /// Validate cross-architecture translation request
     pub fn validate_translation_request(
         &self,
@@ -239,7 +240,7 @@ impl CrossArchitectureTranslationDomainService {
         optimization_level: u8,
     ) -> VmResult<()> {
         use crate::domain_services::translation_strategy_service::{
-            TranslationContext, PerformanceRequirements, ResourceConstraints, TimingRequirements
+            PerformanceRequirements, ResourceConstraints, TimingRequirements, TranslationContext,
         };
 
         // Create translation context for business rules
@@ -251,7 +252,7 @@ impl CrossArchitectureTranslationDomainService {
             },
             resource_constraints: ResourceConstraints {
                 memory_limit: 256 * 1024 * 1024, // Default 256MB
-                cpu_limit: Some(4), // Default 4 cores
+                cpu_limit: Some(4),              // Default 4 cores
                 time_limit: None,
             },
             timing_requirements: TimingRequirements {
@@ -268,7 +269,7 @@ impl CrossArchitectureTranslationDomainService {
 
         Ok(())
     }
-    
+
     /// Plan cross-architecture translation strategy
     pub fn plan_translation_strategy(
         &self,
@@ -290,12 +291,14 @@ impl CrossArchitectureTranslationDomainService {
             target_arch,
             complexity.clone(),
             optimization_level,
-            performance_requirements
+            performance_requirements,
         )?;
 
         // Estimate stages and resources - clone before moving
-        let estimated_stages = self.estimate_translation_stages(complexity.clone(), strategy.clone());
-        let estimated_resources = self.estimate_resource_requirements(code_size, complexity.clone(), strategy.clone());
+        let estimated_stages =
+            self.estimate_translation_stages(complexity.clone(), strategy.clone());
+        let estimated_resources =
+            self.estimate_resource_requirements(code_size, complexity.clone(), strategy.clone());
 
         // Create translation plan
         let plan = TranslationPlan {
@@ -318,7 +321,7 @@ impl CrossArchitectureTranslationDomainService {
 
         Ok(plan)
     }
-    
+
     /// Validate instruction encoding compatibility
     pub fn validate_instruction_encoding(
         &self,
@@ -327,25 +330,26 @@ impl CrossArchitectureTranslationDomainService {
         instruction_bytes: &[u8],
     ) -> VmResult<InstructionEncodingResult> {
         // Check if instruction encoding is compatible between architectures
-        let compatibility = self.check_encoding_compatibility(source_arch, target_arch, instruction_bytes)?;
-        
+        let compatibility =
+            self.check_encoding_compatibility(source_arch, target_arch, instruction_bytes)?;
+
         let result = InstructionEncodingResult {
             is_compatible: compatibility.is_compatible,
             compatibility_issues: compatibility.issues,
             suggested_transformations: compatibility.transformations,
             estimated_overhead: compatibility.overhead,
         };
-        
+
         // Publish instruction encoding validation event
         self.publish_translation_event(TranslationEvent::InstructionEncodingValidated {
             instruction: "encoding_validation".to_string(), // TODO: Track actual instruction
             is_valid: result.is_compatible,
             occurred_at: std::time::SystemTime::now(),
         })?;
-        
+
         Ok(result)
     }
-    
+
     /// Map registers between architectures
     pub fn map_registers_between_architectures(
         &self,
@@ -368,7 +372,7 @@ impl CrossArchitectureTranslationDomainService {
 
         Ok(result)
     }
-    
+
     /// Orchestrate translation pipeline
     pub fn orchestrate_translation_pipeline(
         &self,
@@ -378,22 +382,22 @@ impl CrossArchitectureTranslationDomainService {
     ) -> VmResult<PipelineOrchestrationResult> {
         // Validate pipeline orchestration request
         self.validate_pipeline_orchestration_request(plan, code, context)?;
-        
+
         // Create pipeline stages
         let stages = self.create_pipeline_stages(plan, code, context)?;
-        
+
         // Execute pipeline orchestration
         let result = self.execute_pipeline_orchestration(stages, plan, context)?;
-        
+
         // Publish pipeline orchestration event
         self.publish_translation_event(TranslationEvent::PipelineOrchestrationCompleted {
             pipeline_stages: result.stages_executed as usize,
             occurred_at: std::time::SystemTime::now(),
         })?;
-        
+
         Ok(result)
     }
-    
+
     /// Assess translation complexity
     fn assess_translation_complexity(
         &self,
@@ -430,7 +434,7 @@ impl CrossArchitectureTranslationDomainService {
             TranslationComplexity::High
         }
     }
-    
+
     /// Select translation strategy based on requirements
     fn select_translation_strategy(
         &self,
@@ -440,7 +444,11 @@ impl CrossArchitectureTranslationDomainService {
         optimization_level: u8,
         performance_requirements: &PerformanceRequirements,
     ) -> VmResult<TranslationStrategy> {
-        let strategy = match (complexity, optimization_level, performance_requirements.priority.clone()) {
+        let strategy = match (
+            complexity,
+            optimization_level,
+            performance_requirements.priority.clone(),
+        ) {
             (TranslationComplexity::Low, 0..=2, PerformancePriority::MemoryUsage) => {
                 TranslationStrategy::MemoryOptimized
             }
@@ -450,26 +458,24 @@ impl CrossArchitectureTranslationDomainService {
             (TranslationComplexity::Medium, 0..=2, PerformancePriority::MemoryUsage) => {
                 TranslationStrategy::MemoryOptimized
             }
-            (TranslationComplexity::Medium, 3..=5, _) => {
-                TranslationStrategy::Optimized
-            }
+            (TranslationComplexity::Medium, 3..=5, _) => TranslationStrategy::Optimized,
             (TranslationComplexity::High, 0..=2, PerformancePriority::TranslationSpeed) => {
                 TranslationStrategy::FastTranslation
             }
-            (TranslationComplexity::High, 3..=5, _) => {
-                TranslationStrategy::Optimized
-            }
-            (TranslationComplexity::High, 6..=10, _) => {
-                TranslationStrategy::AggressiveOptimized
-            }
+            (TranslationComplexity::High, 3..=5, _) => TranslationStrategy::Optimized,
+            (TranslationComplexity::High, 6..=10, _) => TranslationStrategy::AggressiveOptimized,
             _ => TranslationStrategy::Standard,
         };
-        
+
         Ok(strategy)
     }
-    
+
     /// Estimate translation stages
-    fn estimate_translation_stages(&self, complexity: TranslationComplexity, strategy: TranslationStrategy) -> u32 {
+    fn estimate_translation_stages(
+        &self,
+        complexity: TranslationComplexity,
+        strategy: TranslationStrategy,
+    ) -> u32 {
         match (complexity, strategy) {
             (TranslationComplexity::Low, TranslationStrategy::FastTranslation) => 2,
             (TranslationComplexity::Low, TranslationStrategy::MemoryOptimized) => 3,
@@ -482,7 +488,7 @@ impl CrossArchitectureTranslationDomainService {
             (TranslationComplexity::High, _) => 6,
         }
     }
-    
+
     /// Estimate resource requirements
     fn estimate_resource_requirements(
         &self,
@@ -491,7 +497,7 @@ impl CrossArchitectureTranslationDomainService {
         strategy: TranslationStrategy,
     ) -> ResourceRequirements {
         let base_memory = code_size * 4; // Base memory requirement
-        
+
         let memory_multiplier = match (complexity.clone(), strategy.clone()) {
             (TranslationComplexity::Low, TranslationStrategy::FastTranslation) => 1.5,
             (TranslationComplexity::Low, TranslationStrategy::MemoryOptimized) => 1.2,
@@ -503,15 +509,15 @@ impl CrossArchitectureTranslationDomainService {
             (TranslationComplexity::High, TranslationStrategy::MemoryOptimized) => 2.0,
             (TranslationComplexity::High, _) => 4.0,
         };
-        
+
         let memory_mb = ((base_memory as f64 * memory_multiplier) / 1024.0 / 1024.0).ceil() as u32;
-        
+
         let cpu_cores = match complexity {
             TranslationComplexity::Low => 1,
             TranslationComplexity::Medium => 2,
             TranslationComplexity::High => 4,
         };
-        
+
         let time_seconds = match (complexity, strategy.clone()) {
             (TranslationComplexity::Low, TranslationStrategy::FastTranslation) => 1,
             (TranslationComplexity::Low, TranslationStrategy::MemoryOptimized) => 2,
@@ -523,14 +529,14 @@ impl CrossArchitectureTranslationDomainService {
             (TranslationComplexity::High, TranslationStrategy::MemoryOptimized) => 8,
             (TranslationComplexity::High, _) => 15,
         };
-        
+
         ResourceRequirements {
             memory_mb,
             cpu_cores,
             time_seconds,
         }
     }
-    
+
     /// Check encoding compatibility
     fn check_encoding_compatibility(
         &self,
@@ -550,14 +556,15 @@ impl CrossArchitectureTranslationDomainService {
 
         let mut issues = Vec::new();
         let mut transformations = Vec::new();
-        
+
         if !is_compatible {
-            issues.push("Architecture mismatch: instruction encoding is not compatible".to_string());
+            issues
+                .push("Architecture mismatch: instruction encoding is not compatible".to_string());
             transformations.push("Full instruction translation required".to_string());
         }
-        
+
         let overhead = if is_compatible { 0.0 } else { 1.5 };
-        
+
         Ok(EncodingCompatibility {
             is_compatible,
             issues,
@@ -565,7 +572,7 @@ impl CrossArchitectureTranslationDomainService {
             overhead,
         })
     }
-    
+
     /// Validate register mapping request
     fn validate_register_mapping_request(
         &self,
@@ -579,7 +586,7 @@ impl CrossArchitectureTranslationDomainService {
                 message: "Source registers cannot be empty".to_string(),
             }));
         }
-        
+
         // Validate architecture compatibility
         if source_arch == target_arch {
             return Err(VmError::Core(crate::error::CoreError::InvalidConfig {
@@ -587,10 +594,10 @@ impl CrossArchitectureTranslationDomainService {
                 message: "Register mapping requires different architectures".to_string(),
             }));
         }
-        
+
         Ok(())
     }
-    
+
     /// Perform register mapping
     fn perform_register_mapping(
         &self,
@@ -630,9 +637,13 @@ impl CrossArchitectureTranslationDomainService {
             spill_recommendations,
         })
     }
-    
+
     /// Calculate register pressure
-    fn calculate_register_pressure(&self, mappings: &[RegisterMapping], target_arch: GuestArch) -> RegisterPressure {
+    fn calculate_register_pressure(
+        &self,
+        mappings: &[RegisterMapping],
+        target_arch: GuestArch,
+    ) -> RegisterPressure {
         let total_registers = mappings.len() as u32;
         let available_registers = match target_arch {
             GuestArch::X86_64 => 16, // Simplified
@@ -642,7 +653,7 @@ impl CrossArchitectureTranslationDomainService {
         };
 
         let pressure_ratio = total_registers as f64 / available_registers as f64;
-        
+
         let pressure_level = if pressure_ratio < 0.5 {
             RegisterPressureLevel::Low
         } else if pressure_ratio < 0.8 {
@@ -650,7 +661,7 @@ impl CrossArchitectureTranslationDomainService {
         } else {
             RegisterPressureLevel::High
         };
-        
+
         RegisterPressure {
             total_registers,
             available_registers,
@@ -658,11 +669,14 @@ impl CrossArchitectureTranslationDomainService {
             pressure_level,
         }
     }
-    
+
     /// Generate spill recommendations
-    fn generate_spill_recommendations(&self, pressure: RegisterPressure) -> Vec<SpillRecommendation> {
+    fn generate_spill_recommendations(
+        &self,
+        pressure: RegisterPressure,
+    ) -> Vec<SpillRecommendation> {
         let mut recommendations = Vec::new();
-        
+
         match pressure.pressure_level {
             RegisterPressureLevel::Low => {
                 // No spills needed
@@ -687,10 +701,10 @@ impl CrossArchitectureTranslationDomainService {
                 });
             }
         }
-        
+
         recommendations
     }
-    
+
     /// Validate pipeline orchestration request
     fn validate_pipeline_orchestration_request(
         &self,
@@ -704,7 +718,7 @@ impl CrossArchitectureTranslationDomainService {
                 message: "Code cannot be empty for pipeline orchestration".to_string(),
             }));
         }
-        
+
         // Validate context
         if context.available_memory_mb < plan.estimated_resources.memory_mb {
             return Err(VmError::Core(crate::error::CoreError::InvalidConfig {
@@ -715,10 +729,10 @@ impl CrossArchitectureTranslationDomainService {
                 ),
             }));
         }
-        
+
         Ok(())
     }
-    
+
     /// Create pipeline stages
     fn create_pipeline_stages(
         &self,
@@ -727,7 +741,7 @@ impl CrossArchitectureTranslationDomainService {
         _context: &TranslationContext,
     ) -> VmResult<Vec<PipelineStage>> {
         let mut stages = Vec::new();
-        
+
         // Stage 1: Initial analysis
         stages.push(PipelineStage {
             name: "Initial Analysis".to_string(),
@@ -735,7 +749,7 @@ impl CrossArchitectureTranslationDomainService {
             estimated_time_ms: 100,
             dependencies: Vec::new(),
         });
-        
+
         // Stage 2: Translation
         stages.push(PipelineStage {
             name: "Translation".to_string(),
@@ -743,7 +757,7 @@ impl CrossArchitectureTranslationDomainService {
             estimated_time_ms: 500,
             dependencies: vec![0], // Depends on stage 0
         });
-        
+
         // Stage 3: Optimization (if required)
         if plan.optimization_level > 0 {
             stages.push(PipelineStage {
@@ -753,7 +767,7 @@ impl CrossArchitectureTranslationDomainService {
                 dependencies: vec![1], // Depends on stage 1
             });
         }
-        
+
         // Stage 4: Code generation
         stages.push(PipelineStage {
             name: "Code Generation".to_string(),
@@ -761,10 +775,10 @@ impl CrossArchitectureTranslationDomainService {
             estimated_time_ms: 200,
             dependencies: vec![stages.len() - 2], // Depends on previous stage
         });
-        
+
         Ok(stages)
     }
-    
+
     /// Execute pipeline orchestration
     fn execute_pipeline_orchestration(
         &self,
@@ -774,9 +788,9 @@ impl CrossArchitectureTranslationDomainService {
     ) -> VmResult<PipelineOrchestrationResult> {
         // This is a simplified implementation
         // In a real system, this would coordinate the actual execution
-        
+
         let total_time_ms = stages.iter().map(|s| s.estimated_time_ms).sum();
-        
+
         Ok(PipelineOrchestrationResult {
             stages_executed: stages.len() as u32,
             success: true,
@@ -785,7 +799,7 @@ impl CrossArchitectureTranslationDomainService {
             optimization_applied: plan.optimization_level > 0,
         })
     }
-    
+
     /// Publish translation event
     fn publish_translation_event(&self, event: TranslationEvent) -> VmResult<()> {
         if let Some(event_bus) = &self.event_bus {
@@ -903,8 +917,6 @@ pub struct RegisterMapping {
     pub cost: f32,
 }
 
-
-
 /// Register pressure
 #[derive(Debug, Clone)]
 pub struct RegisterPressure {
@@ -978,30 +990,32 @@ pub struct PipelineOrchestrationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_cross_architecture_translation_service_creation() {
         let service = CrossArchitectureTranslationDomainService::new();
         assert_eq!(service.business_rules.len(), 3); // Default rules
     }
-    
+
     #[test]
     fn test_assess_translation_complexity() {
         let service = CrossArchitectureTranslationDomainService::new();
-        
+
         // Same architecture - low complexity
-        let complexity = service.assess_translation_complexity(GuestArch::X86_64, GuestArch::X86_64, 1000);
+        let complexity =
+            service.assess_translation_complexity(GuestArch::X86_64, GuestArch::X86_64, 1000);
         assert_eq!(complexity, TranslationComplexity::Low);
-        
+
         // Different architectures - higher complexity
-        let complexity = service.assess_translation_complexity(GuestArch::X86_64, GuestArch::Arm64, 1000);
+        let complexity =
+            service.assess_translation_complexity(GuestArch::X86_64, GuestArch::Arm64, 1000);
         assert_eq!(complexity, TranslationComplexity::Medium);
     }
-    
+
     #[test]
     fn test_plan_translation_strategy() {
         let service = CrossArchitectureTranslationDomainService::new();
-        
+
         let performance_requirements = PerformanceRequirements {
             priority: PerformancePriority::Balanced,
             max_translation_time_ms: None,
@@ -1009,51 +1023,51 @@ mod tests {
             min_execution_speedup: None,
         };
 
-        let plan = service.plan_translation_strategy(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            1000,
-            3,
-            &performance_requirements,
-        ).expect("plan_translation_strategy should not fail in test");
+        let plan = service
+            .plan_translation_strategy(
+                GuestArch::X86_64,
+                GuestArch::Arm64,
+                1000,
+                3,
+                &performance_requirements,
+            )
+            .expect("plan_translation_strategy should not fail in test");
 
         assert_eq!(plan.source_arch, GuestArch::X86_64);
         assert_eq!(plan.target_arch, GuestArch::Arm64);
         assert_eq!(plan.optimization_level, 3);
     }
-    
+
     #[test]
     fn test_validate_instruction_encoding() {
         let service = CrossArchitectureTranslationDomainService::new();
-        
+
         let instruction_bytes = vec![0x48, 0x89, 0xc0]; // mov rax, rax
 
-        let result = service.validate_instruction_encoding(
-            GuestArch::X86_64,
-            GuestArch::X86_64,
-            &instruction_bytes,
-        ).expect("validate_instruction_encoding should not fail in test");
+        let result = service
+            .validate_instruction_encoding(GuestArch::X86_64, GuestArch::X86_64, &instruction_bytes)
+            .expect("validate_instruction_encoding should not fail in test");
 
         assert!(result.is_compatible);
     }
-    
+
     #[test]
     fn test_map_registers_between_architectures() {
         let service = CrossArchitectureTranslationDomainService::new();
-        
-        let source_registers = vec![
-            RegisterInfo {
-                name: "rax".to_string(),
-                size: 64,
-                class: "general".to_string(),
-            },
-        ];
 
-        let result = service.map_registers_between_architectures(
-            GuestArch::X86_64,
-            GuestArch::Arm64,
-            &source_registers,
-        ).expect("map_registers_between_architectures should not fail in test");
+        let source_registers = vec![RegisterInfo {
+            name: "rax".to_string(),
+            size: 64,
+            class: "general".to_string(),
+        }];
+
+        let result = service
+            .map_registers_between_architectures(
+                GuestArch::X86_64,
+                GuestArch::Arm64,
+                &source_registers,
+            )
+            .expect("map_registers_between_architectures should not fail in test");
 
         assert_eq!(result.register_mappings.len(), 1);
         assert_eq!(result.source_arch, GuestArch::X86_64);

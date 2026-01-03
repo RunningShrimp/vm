@@ -14,11 +14,11 @@
 
 use std::sync::Arc;
 
-use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
-use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain::RegisterAllocator;
 use crate::VmResult;
+use crate::domain::RegisterAllocator;
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 
 /// Register allocation configuration
 #[derive(Debug, Clone)]
@@ -138,7 +138,7 @@ impl RegisterAllocationDomainService {
     /// Publish optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
         if let Some(event_bus) = &self.event_bus {
-                let _ = event_bus.publish(&DomainEventEnum::Optimization(event));
+            let _ = event_bus.publish(&DomainEventEnum::Optimization(event));
         }
         Ok(())
     }
