@@ -59,6 +59,9 @@ members = [
     "parallel-jit",
 #     "benches",  # TODO: depends on removed vm-cross-arch, needs refactor
 #     "vm-perf-regression-detector",  # Disabled: depends on removed vm-cross-arch
+
+    # Build optimization (managed by cargo-hakari)
+    "vm-build-deps",
 ]
 resolver = "2"
 
@@ -193,7 +196,7 @@ missing_panics_doc = "allow"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.92"
 authors = ["VM Development Team"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/example/vm"
@@ -240,3 +243,21 @@ lto = "thin"
 incremental = false
 codegen-units = 1
 panic = "unwind"
+
+# ============================================================================
+# Development dependencies for the workspace
+# ============================================================================
+[workspace.dev-dependencies]
+# Optimization tools
+cargo-hakari = "0.9"
+
+# Code quality tools
+cargo-machete = "0.1"
+
+# Benchmarking and profiling
+criterion = "0.5"
+
+# Testing
+proptest = "1.0"
+quickcheck = "1.0"
+

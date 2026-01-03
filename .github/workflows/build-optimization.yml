@@ -1,0 +1,166 @@
+name: Build Optimization
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # 优化编译性能
+  CARGO_BUILD_JOBS: 4
+  CARGO_PROFILE_DEV_SPLIT_DEBUGINFO: "packed"
+
+jobs:
+  # ============================================================================
+  # 优化构建任务
+  # ============================================================================
+  optimized-build:
+    name: Optimized Build (with cache)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy, rust-docs
+          override: true
+
+      - name: Verify Rust version
+        run: |
+          echo "Rust toolchain: ${{ matrix.rust }}"
+          cargo --version
+          rustc --version
+
+      # ============================================================================
+      # 优化的缓存策略
+      # ============================================================================
+      - name: Cache registry index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry/index
+          key: ${{ runner.os }}-cargo-registry-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-index-
+
+      - name: Cache registry cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry/cache
+          key: ${{ runner.os }}-cargo-registry-cache-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-cache-
+
+      - name: Cache git dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache build artifacts (tiered cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            target
+            !target/*/build
+            !target/build
+          key: ${{ runner.os }}-cargo-build-target-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock', '.cargo/config.toml', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-target-${{ matrix.rust }}-
+            ${{ runner.os }}-cargo-build-target-
+
+      - name: Cache hakari dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            vm-build-deps
+            target
+          key: ${{ runner.os }}-cargo-hakari-${{ hashFiles('hakari.toml', '**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-hakari-
+
+      # ============================================================================
+      # 构建优化
+      # ============================================================================
+      - name: Generate hakari dependencies
+        run: |
+          if command -v cargo-hakari &> /dev/null; then
+            cargo hakari verify || cargo hakari generate
+          fi
+
+      - name: Build workspace (optimized)
+        run: |
+          # 使用并行编译和增量编译
+          cargo build --workspace --all-features --timings
+
+      - name: Run tests
+        run: cargo test --workspace --all-features --timings
+
+      # ============================================================================
+      # 构建统计
+      # ============================================================================
+      - name: Collect build metrics
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          echo "## Build Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target size**: $(du -sh target | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry cache**: $(du -sh ~/.cargo/registry 2>/dev/null || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+          echo "- **Git cache**: $(du -sh ~/.cargo/git 2>/dev/null || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 缓存效果对比
+  # ============================================================================
+  cache-comparison:
+    name: Cache Comparison
+    runs-on: ubuntu-latest
+    needs: optimized-build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build without cache (baseline)
+        run: |
+          # 清除缓存以确保公平对比
+          rm -rf ~/.cargo/registry/index ~/.cargo/registry/cache ~/.cargo/git target
+
+          # 计时构建
+          time cargo build --workspace --all-features 2>&1 | tee build-without-cache.log
+
+          NO_CACHE_TIME=$(grep "Finished" build-without-cache.log | tail -1 || echo "N/A")
+          echo "Without cache: $NO_CACHE_TIME"
+
+      - name: Build with cache
+        run: |
+          # 使用优化的缓存策略
+          time cargo build --workspace --all-features 2>&1 | tee build-with-cache.log
+
+          WITH_CACHE_TIME=$(grep "Finished" build-with-cache.log | tail -1 || echo "N/A")
+          echo "With cache: $WITH_CACHE_TIME"
+
+      - name: Compare results
+        run: |
+          echo "## Cache Performance Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scenario | Time |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Without cache | $NO_CACHE_TIME |" >> $GITHUB_STEP_SUMMARY
+          echo "| With cache | $WITH_CACHE_TIME |" >> $GITHUB_STEP_SUMMARY

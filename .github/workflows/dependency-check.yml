@@ -1,0 +1,237 @@
+name: Dependency Check
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  schedule:
+    # 每周日凌晨2点运行
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+jobs:
+  # ============================================================================
+  # 未使用依赖检查
+  # ============================================================================
+  unused-deps:
+    name: Unused Dependencies Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete
+
+      - name: Check for unused dependencies
+        run: |
+          echo "## Unused Dependencies Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在检查未使用的依赖..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 运行cargo-machete并保存输出
+          if cargo machete 2>&1 | tee /tmp/machete-output.txt; then
+            echo "✅ 未发现未使用的依赖" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "所有依赖都在使用中。" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 发现可能的未使用依赖：" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/machete-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # 这不是错误，只是警告
+            echo "**注意**: 这只是一个警告，不是错误。" >> $GITHUB_STEP_SUMMARY
+            echo "请人工检查这些依赖是否真的未使用。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate detailed report
+        if: always()
+        run: |
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>详细输出</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/machete-output.txt 2>/dev/null || echo "No output"
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 重复依赖检查
+  # ============================================================================
+  duplicate-deps:
+    name: Duplicate Dependencies Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check for duplicate dependencies
+        run: |
+          echo "## Duplicate Dependencies Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if cargo tree --duplicates 2>&1 | tee /tmp/duplicates.txt; then
+            echo "✅ 未发现重复依赖" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 发现重复依赖：" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/duplicates.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 依赖大小分析
+  # ============================================================================
+  dependency-size:
+    name: Dependency Size Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-bloat
+        run: cargo install cargo-bloat
+
+      - name: Analyze dependency size
+        run: |
+          echo "## Dependency Size Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 分析vm-core的依赖大小
+          echo "### vm-core dependencies" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cargo bloat --package vm-core 2>&1 | head -50 || echo "分析失败"
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate dependency tree
+        run: |
+          echo "### Dependency Tree" >> $GITHUB_STEP_SUMMARY
+          echo "总依赖数量：" >> $GITHUB_STEP_SUMMARY
+          cargo tree | wc -l | awk '{print "**Total dependencies**: " $1}' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 显示直接依赖
+          echo "#### Direct dependencies" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cargo tree --depth 1 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 依赖更新检查
+  # ============================================================================
+  outdated-deps:
+    name: Outdated Dependencies Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated
+
+      - name: Check for outdated dependencies
+        run: |
+          echo "## Outdated Dependencies Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在检查过时的依赖..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if cargo outdated --workspace 2>&1 | tee /tmp/outdated.txt; then
+            echo "✅ 所有依赖都是最新的" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 发现过时的依赖：" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/outdated.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**建议**: 运行 \`cargo update\` 更新依赖。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 安全审计
+  # ============================================================================
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: |
+          echo "## Security Audit Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if cargo audit 2>&1 | tee /tmp/audit.txt; then
+            echo "✅ 未发现已知的安全漏洞" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 发现潜在的安全问题：" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/audit.txt | head -100 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**注意**: 某些警告可能是误报，请人工审查。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 依赖健康度总结
+  # ============================================================================
+  summary:
+    name: Dependency Health Summary
+    runs-on: ubuntu-latest
+    needs: [unused-deps, duplicate-deps, dependency-size, outdated-deps, security-audit]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Dependency Health Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Unused Dependencies | ${{ needs.unused-deps.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Duplicate Dependencies | ${{ needs.duplicate-deps.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Size | ${{ needs.dependency-size.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Outdated Dependencies | ${{ needs.outdated-deps.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Audit | ${{ needs.security-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 计算总体状态
+          if [ "${{ needs.unused-deps.result }}" == "success" ] && \
+             [ "${{ needs.duplicate-deps.result }}" == "success" ] && \
+             [ "${{ needs.security-audit.result }}" == "success" ]; then
+            echo "✅ **总体状态**: 健康" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **总体状态**: 需要关注" >> $GITHUB_STEP_SUMMARY
+          fi

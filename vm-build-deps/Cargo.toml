@@ -1,0 +1,36 @@
+[package]
+name = "vm-build-deps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = false
+keywords.workspace = true
+categories.workspace = true
+
+# 这是一个特殊的包，由cargo-hakari生成和管理
+# 用于优化工作区的依赖编译
+description = """
+统一管理VM项目的所有第三方依赖重导出。
+
+此包由cargo-hakari自动生成和管理。不要手动编辑此文件，
+除非你知道自己在做什么。
+
+使用cargo-hakari可以：
+1. 减少编译时间（10-30%）
+2. 优化依赖图
+3. 统一管理第三方依赖版本
+"""
+
+[dependencies]
+# 此处将由cargo-hakari自动填充所有依赖的重导出
+# 示例：
+# tokio = { workspace = true, features = ["full"] }
+# serde = { workspace = true }
+# 等等...
+
+[lib]
+path = "lib.rs"

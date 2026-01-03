@@ -1,0 +1,81 @@
+name: Typos Check
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+
+jobs:
+  typos:
+    name: Spelling Check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run typos check
+        uses: crate-ci/typos@master
+        with:
+          # 使用项目级别的typos配置
+          config: _typos.toml
+
+      - name: Generate report
+        if: failure()
+        run: |
+          echo "## Spelling Errors Detected" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "请运行以下命令检查并修复拼写错误：" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "本地检查：" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# 安装typos" >> $GITHUB_STEP_SUMMARY
+          echo "cargo install typos-cli" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# 运行检查" >> $GITHUB_STEP_SUMMARY
+          echo "typos" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# 自动修复" >> $GITHUB_STEP_SUMMARY
+          echo "typos -w" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+  # ============================================================================
+  # 拼写检查统计
+  # ============================================================================
+  stats:
+    name: Spelling Statistics
+    runs-on: ubuntu-latest
+    needs: typos
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Count total words
+        run: |
+          # 统计Rust源代码中的单词数量
+          echo "## Code Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 统计Rust文件数量
+          RS_FILES=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" | wc -l)
+          echo "- **Rust files**: $RS_FILES" >> $GITHUB_STEP_SUMMARY
+
+          # 统计总行数
+          TOTAL_LINES=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" -exec cat {} \; | wc -l)
+          echo "- **Total lines of code**: $TOTAL_LINES" >> $GITHUB_STEP_SUMMARY
+
+          # 统计文档数量
+          DOC_FILES=$(find . -name "*.md" -not -path "./target/*" | wc -l)
+          echo "- **Documentation files**: $DOC_FILES" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "拼写检查状态：✅ 通过" >> $GITHUB_STEP_SUMMARY

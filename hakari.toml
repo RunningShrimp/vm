@@ -1,0 +1,64 @@
+# cargo-hakari配置文件
+# 用于优化工作区的依赖图，减少编译时间
+
+# Hakari包的名称和路径
+hakari-package = "vm-build-deps"
+hakari-package-dir = "vm-build-deps"
+
+# 要管理的依赖类型
+# 只关注第三方依赖，不包括workspace成员
+triple-expose = ["dep"]
+# 只包含特定类型的依赖
+platforms = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
+# 要包含的依赖
+# 只包含直接和间接依赖
+include = [
+    { dep = "tokio", feature = "*" },
+    { dep = "serde", feature = "*" },
+    { dep = "serde_json", feature = "*" },
+    { dep = "bincode", feature = "*" },
+    { dep = "thiserror", feature = "*" },
+    { dep = "anyhow", feature = "*" },
+    { dep = "parking_lot", feature = "*" },
+    { dep = "futures", feature = "*" },
+    { dep = "log", feature = "*" },
+    { dep = "env_logger", feature = "*" },
+    { dep = "criterion", feature = "*" },
+    { dep = "proptest", feature = "*" },
+    { dep = "quickcheck", feature = "*" },
+    { dep = "paste", feature = "*" },
+    { dep = "bitflags", feature = "*" },
+    { dep = "num-traits", feature = "*" },
+    { dep = "num-derive", feature = "*" },
+    { dep = "bytes", feature = "*" },
+    { dep = "libc", feature = "*" },
+    { dep = "once_cell", feature = "*" },
+    { dep = "crossbeam-channel", feature = "*" },
+    { dep = "crossbeam-queue", feature = "*" },
+]
+
+# 要排除的依赖
+exclude = [
+    # 排除特定的可选依赖
+    { dep = "tokio", feature = "test-util" },
+
+    # 排除开发工具
+    { dep = "cargo-hakari" },
+    { dep = "cargo-machete" },
+
+    # 排除文档相关的依赖
+    { dep = "serde", feature = "std" },
+]
+
+# 输出格式
+output-format = "human-readable"
+
+# 严格的模式
+# 如果hakari检测到问题，生成将失败
+strict = true

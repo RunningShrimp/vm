@@ -3,3 +3,47 @@ git-fetch-with-cli = true
 
 [http]
 check-revoke = false
+
+# ============================================================================
+# 构建优化配置
+# ============================================================================
+[build]
+# 使用更多并行任务来加速构建
+jobs = 4
+
+# 增量编译
+# 使用packed调试信息减少磁盘占用和编译时间
+[profile.dev]
+split-debuginfo = "packed"
+# 启用增量编译
+incremental = true
+
+[profile.test]
+split-debuginfo = "packed"
+incremental = true
+
+[profile.bench]
+split-debuginfo = "packed"
+# 基准测试通常不需要增量编译
+incremental = false
+
+# ============================================================================
+# 其他优化配置
+# ============================================================================
+[term]
+verbose = false
+color = "auto"
+
+[alias]
+# 便捷的构建别名
+b = "build --workspace"
+t = "test --workspace"
+c = "check --workspace"
+# 清理所有构建产物
+clean-all = ["clean", "-p", "vm-*", "perf-bench"]
+# 运行所有检查
+check-all = ["check", "--workspace", "--all-targets", "--all-features"]
+# 生成hakari依赖
+hakari-gen = "hakari generate"
+# 验证hakari配置
+hakari-verify = "hakari verify"
