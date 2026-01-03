@@ -37,16 +37,20 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 // 模块定义
+pub mod aggregate_root;
 pub mod config;
+pub mod constants;
 pub mod device_emulation;
 pub mod domain;
 pub mod domain_event_bus;
+pub mod domain_services;
 pub mod domain_type_safety;
 pub mod error;
 pub mod gdb;
 pub mod macros;
 pub mod migration;
 pub mod mmu_traits;
+pub mod runtime;
 pub mod snapshot;
 pub mod syscall;
 pub mod template;
@@ -73,6 +77,9 @@ pub use error::{
 
 // Re-export config types
 pub use config::{Config, ConfigBuilder, ConfigDiff, ConfigError, ConfigVecExt};
+
+// Re-export constants
+pub use constants::{DEFAULT_MEMORY_SIZE, PAGE_SIZE, MAX_GUEST_MEMORY};
 
 // Re-export domain types
 pub use domain::{ExecutionManager, PageTableWalker, TlbEntry, TlbManager, TlbStats};
@@ -485,6 +492,12 @@ impl GuestArch {
             GuestArch::X86_64 => "x86_64",
             GuestArch::PowerPC64 => "powerpc64",
         }
+    }
+}
+
+impl std::fmt::Display for GuestArch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
     }
 }
 

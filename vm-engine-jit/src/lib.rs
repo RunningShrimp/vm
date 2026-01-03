@@ -3545,7 +3545,7 @@ impl ExecutionEngine<IRBlock> for Jit {
     }
 
     fn get_vcpu_state(&self) -> vm_core::VcpuStateContainer {
-        use vm_core::{VmRuntimeState, GuestRegs, VmState};
+        use vm_core::{GuestRegs, VmState};
 
         // 构建GuestRegs - 映射self.regs到gpr字段
         let guest_regs = GuestRegs {
@@ -3555,27 +3555,20 @@ impl ExecutionEngine<IRBlock> for Jit {
             gpr: self.regs,
         };
 
-        // 构建VmRuntimeState
-        let runtime_state = VmRuntimeState {
-            regs: guest_regs,
-            memory: Vec::new(),  // JIT引擎通过MMU访问内存，不维护副本
-            pc: self.pc,
-        };
-
         // 构建VcpuStateContainer
         vm_core::VcpuStateContainer {
             vcpu_id: 0,  // 单VCPU实现
-            lifecycle_state: VmState::Running,
-            runtime_state,
+            state: VmState::Running,
             running: true,
+            regs: guest_regs,
         }
     }
 
     fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
-        // 从runtime_state.regs.gpr提取寄存器数据
-        self.regs = state.runtime_state.regs.gpr;
-        // 从runtime_state.regs.pc提取PC（也使用runtime_state.pc作为备选）
-        self.pc = GuestAddr(state.runtime_state.regs.pc);
+        // 从regs.gpr提取寄存器数据
+        self.regs = state.regs.gpr;
+        // 从regs.pc提取PC
+        self.pc = vm_core::GuestAddr(state.regs.pc);
     }
 }
 

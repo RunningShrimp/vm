@@ -10,7 +10,7 @@ use crate::domain_services::events::{DomainEventEnum};
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{VmLifecycleEvent, DomainEventEnum as BaseDomainEventEnum};
 use crate::domain_services::rules::{LifecycleBusinessRule, VmStateTransitionRule, VmResourceAvailabilityRule};
-use crate::{VmResult, VmState};
+use crate::{VmResult, VmState, VmLifecycleState};
 use crate::aggregate_root::VirtualMachineAggregate;
 
 /// VM Lifecycle Domain Service
@@ -62,17 +62,23 @@ impl VmLifecycleDomainService {
         for rule in &self.business_rules {
             rule.validate_start_transition(aggregate)?
         }
-        
+
         // Record state transition
         let old_state = aggregate.state();
+        let old_state_vm = match old_state {
+            VmLifecycleState::Created => VmState::Created,
+            VmLifecycleState::Running => VmState::Running,
+            VmLifecycleState::Paused => VmState::Paused,
+            VmLifecycleState::Stopped => VmState::Stopped,
+        };
         self.set_vm_state(aggregate, VmState::Running);
-        
+
         // Publish lifecycle events
-        self.publish_state_change_event(aggregate, old_state, VmState::Running)?;
+        self.publish_state_change_event(aggregate, old_state_vm, VmState::Running)?;
         self.publish_lifecycle_event(aggregate, VmLifecycleEvent::VmStarted {
             vm_id: aggregate.vm_id().to_string(),
         })?;
-        
+
         Ok(())
     }
     
@@ -85,17 +91,23 @@ impl VmLifecycleDomainService {
         for rule in &self.business_rules {
             rule.validate_pause_transition(aggregate)?
         }
-        
+
         // Record state transition
         let old_state = aggregate.state();
+        let old_state_vm = match old_state {
+            VmLifecycleState::Created => VmState::Created,
+            VmLifecycleState::Running => VmState::Running,
+            VmLifecycleState::Paused => VmState::Paused,
+            VmLifecycleState::Stopped => VmState::Stopped,
+        };
         self.set_vm_state(aggregate, VmState::Paused);
-        
+
         // Publish lifecycle events
-        self.publish_state_change_event(aggregate, old_state, VmState::Paused)?;
+        self.publish_state_change_event(aggregate, old_state_vm, VmState::Paused)?;
         self.publish_lifecycle_event(aggregate, VmLifecycleEvent::VmPaused {
             vm_id: aggregate.vm_id().to_string(),
         })?;
-        
+
         Ok(())
     }
     
@@ -108,17 +120,23 @@ impl VmLifecycleDomainService {
         for rule in &self.business_rules {
             rule.validate_resume_transition(aggregate)?
         }
-        
+
         // Record state transition
         let old_state = aggregate.state();
+        let old_state_vm = match old_state {
+            VmLifecycleState::Created => VmState::Created,
+            VmLifecycleState::Running => VmState::Running,
+            VmLifecycleState::Paused => VmState::Paused,
+            VmLifecycleState::Stopped => VmState::Stopped,
+        };
         self.set_vm_state(aggregate, VmState::Running);
-        
+
         // Publish lifecycle events
-        self.publish_state_change_event(aggregate, old_state, VmState::Running)?;
+        self.publish_state_change_event(aggregate, old_state_vm, VmState::Running)?;
         self.publish_lifecycle_event(aggregate, VmLifecycleEvent::VmResumed {
             vm_id: aggregate.vm_id().to_string(),
         })?;
-        
+
         Ok(())
     }
     
@@ -131,18 +149,24 @@ impl VmLifecycleDomainService {
         for rule in &self.business_rules {
             rule.validate_stop_transition(aggregate)?
         }
-        
+
         // Record state transition
         let old_state = aggregate.state();
+        let old_state_vm = match old_state {
+            VmLifecycleState::Created => VmState::Created,
+            VmLifecycleState::Running => VmState::Running,
+            VmLifecycleState::Paused => VmState::Paused,
+            VmLifecycleState::Stopped => VmState::Stopped,
+        };
         self.set_vm_state(aggregate, VmState::Stopped);
-        
+
         // Publish lifecycle events
-        self.publish_state_change_event(aggregate, old_state, VmState::Stopped)?;
+        self.publish_state_change_event(aggregate, old_state_vm, VmState::Stopped)?;
         self.publish_lifecycle_event(aggregate, VmLifecycleEvent::VmStopped {
             vm_id: aggregate.vm_id().to_string(),
             reason,
         })?;
-        
+
         Ok(())
     }
     
@@ -212,7 +236,13 @@ impl VmLifecycleDomainService {
     /// This method directly sets the VM state without validation.
     /// It's used internally after validation has been performed.
     fn set_vm_state(&self, aggregate: &mut VirtualMachineAggregate, state: VmState) {
-        aggregate.set_state(state);
+        let lifecycle_state = match state {
+            VmState::Created => VmLifecycleState::Created,
+            VmState::Running => VmLifecycleState::Running,
+            VmState::Paused => VmLifecycleState::Paused,
+            VmState::Stopped => VmLifecycleState::Stopped,
+        };
+        aggregate.set_state(lifecycle_state);
     }
     
     /// Publish a state change event

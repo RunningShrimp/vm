@@ -179,20 +179,6 @@ windows = { version = "0.62", features = ["Win32_System_Hypervisor"] }
 tokio-test = "0.4"
 criterion = "0.5"
 
-[workspace.lints.rust]
-warnings = "deny"
-future_incompatible = "warn"
-nonstandard_style = "warn"
-
-[workspace.lints.clippy]
-all = "warn"
-pedantic = "warn"
-cargo = "warn"
-# 允许的例外
-must_use_candidate = "allow"  # 太严格
-missing_errors_doc = "allow"  # 可逐步完善
-missing_panics_doc = "allow"
-
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
@@ -205,9 +191,41 @@ readme = "README.md"
 keywords = ["virtual-machine", "emulator", "risc-v", "arm64", "jit"]
 categories = ["emulators", "virtualization"]
 
+# ============================================================================
+# Workspace Lints - Code Quality Standards
+# ============================================================================
+
+[workspace.lints.rust]
+# 拒绝所有警告，强制代码高质量
+warnings = "deny"
+# 拒绝不兼容的代码
+future_incompatible = "deny"
+# 拒绝非标准风格
+nonstandard_style = "deny"
+# 拒绝Rust 2018 idioms不匹配
+rust_2018_idioms = "deny"
+# 拒绝Rust 2021 prelude冲突
+rust_2021_prelude_collisions = "deny"
+
+[workspace.lints.clippy]
+# 启用所有clippy lints
+all = "deny"
+# 启用pedantic lints（更严格的检查）
+pedantic = "deny"
+# Cargo相关的检查
+cargo = "deny"
+# 允许的例外（避免过于严格）
+# must_use_candidate = "allow"  # 太严格，会产生大量警告
+# missing_errors_doc = "allow"  # 可以逐步完善
+# missing_panics_doc = "allow"
+# too_many_lines = "allow"
+# type_repetition_in_bounds = "allow"
+
+# ============================================================================
+# Profiles
+# ============================================================================
+
 [profile.dev]
-opt-level = 0
-debug = true
 debug-assertions = true
 overflow-checks = true
 lto = false

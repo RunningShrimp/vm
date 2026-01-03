@@ -2,7 +2,7 @@
 //!
 //! This module contains business rules related to VM lifecycle management.
 
-use crate::{VmError, VmResult, VmState};
+use crate::{VmError, VmResult, VmLifecycleState};
 use crate::aggregate_root::VirtualMachineAggregate;
 
 /// Trait for lifecycle business rules
@@ -32,7 +32,7 @@ pub struct VmStateTransitionRule;
 impl LifecycleBusinessRule for VmStateTransitionRule {
     fn validate_start_transition(&self, aggregate: &VirtualMachineAggregate) -> VmResult<()> {
         match aggregate.state() {
-            VmState::Created | VmState::Paused => Ok(()),
+            VmLifecycleState::Created | VmLifecycleState::Paused => Ok(()),
             _ => Err(VmError::Core(crate::CoreError::InvalidState {
                 message: "Cannot start VM in current state".to_string(),
                 current: format!("{:?}", aggregate.state()),
@@ -43,7 +43,7 @@ impl LifecycleBusinessRule for VmStateTransitionRule {
     
     fn validate_pause_transition(&self, aggregate: &VirtualMachineAggregate) -> VmResult<()> {
         match aggregate.state() {
-            VmState::Running => Ok(()),
+            VmLifecycleState::Running => Ok(()),
             _ => Err(VmError::Core(crate::CoreError::InvalidState {
                 message: "Cannot pause VM in current state".to_string(),
                 current: format!("{:?}", aggregate.state()),
@@ -54,7 +54,7 @@ impl LifecycleBusinessRule for VmStateTransitionRule {
     
     fn validate_resume_transition(&self, aggregate: &VirtualMachineAggregate) -> VmResult<()> {
         match aggregate.state() {
-            VmState::Paused => Ok(()),
+            VmLifecycleState::Paused => Ok(()),
             _ => Err(VmError::Core(crate::CoreError::InvalidState {
                 message: "Cannot resume VM in current state".to_string(),
                 current: format!("{:?}", aggregate.state()),
@@ -66,7 +66,7 @@ impl LifecycleBusinessRule for VmStateTransitionRule {
     fn validate_stop_transition(&self, aggregate: &VirtualMachineAggregate) -> VmResult<()> {
         // VM can be stopped from any state except already stopped
         match aggregate.state() {
-            VmState::Stopped => Err(VmError::Core(crate::CoreError::InvalidState {
+            VmLifecycleState::Stopped => Err(VmError::Core(crate::CoreError::InvalidState {
                 message: "VM is already stopped".to_string(),
                 current: format!("{:?}", aggregate.state()),
                 expected: "Any state except Stopped".to_string(),
@@ -145,11 +145,11 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test valid start from Created state
-        let aggregate = create_test_aggregate(VmState::Created);
+        let aggregate = create_test_aggregate(VmLifecycleState::Created);
         assert!(rule.validate_start_transition(&aggregate).is_ok());
         
         // Test valid start from Paused state
-        let aggregate = create_test_aggregate(VmState::Paused);
+        let aggregate = create_test_aggregate(VmLifecycleState::Paused);
         assert!(rule.validate_start_transition(&aggregate).is_ok());
     }
     
@@ -158,11 +158,11 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test invalid start from Running state
-        let aggregate = create_test_aggregate(VmState::Running);
+        let aggregate = create_test_aggregate(VmLifecycleState::Running);
         assert!(rule.validate_start_transition(&aggregate).is_err());
         
         // Test invalid start from Stopped state
-        let aggregate = create_test_aggregate(VmState::Stopped);
+        let aggregate = create_test_aggregate(VmLifecycleState::Stopped);
         assert!(rule.validate_start_transition(&aggregate).is_err());
     }
     
@@ -171,7 +171,7 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test valid pause from Running state
-        let aggregate = create_test_aggregate(VmState::Running);
+        let aggregate = create_test_aggregate(VmLifecycleState::Running);
         assert!(rule.validate_pause_transition(&aggregate).is_ok());
     }
     
@@ -180,15 +180,15 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test invalid pause from Created state
-        let aggregate = create_test_aggregate(VmState::Created);
+        let aggregate = create_test_aggregate(VmLifecycleState::Created);
         assert!(rule.validate_pause_transition(&aggregate).is_err());
         
         // Test invalid pause from Paused state
-        let aggregate = create_test_aggregate(VmState::Paused);
+        let aggregate = create_test_aggregate(VmLifecycleState::Paused);
         assert!(rule.validate_pause_transition(&aggregate).is_err());
         
         // Test invalid pause from Stopped state
-        let aggregate = create_test_aggregate(VmState::Stopped);
+        let aggregate = create_test_aggregate(VmLifecycleState::Stopped);
         assert!(rule.validate_pause_transition(&aggregate).is_err());
     }
     
@@ -197,7 +197,7 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test valid resume from Paused state
-        let aggregate = create_test_aggregate(VmState::Paused);
+        let aggregate = create_test_aggregate(VmLifecycleState::Paused);
         assert!(rule.validate_resume_transition(&aggregate).is_ok());
     }
     
@@ -206,15 +206,15 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test invalid resume from Created state
-        let aggregate = create_test_aggregate(VmState::Created);
+        let aggregate = create_test_aggregate(VmLifecycleState::Created);
         assert!(rule.validate_resume_transition(&aggregate).is_err());
         
         // Test invalid resume from Running state
-        let aggregate = create_test_aggregate(VmState::Running);
+        let aggregate = create_test_aggregate(VmLifecycleState::Running);
         assert!(rule.validate_resume_transition(&aggregate).is_err());
         
         // Test invalid resume from Stopped state
-        let aggregate = create_test_aggregate(VmState::Stopped);
+        let aggregate = create_test_aggregate(VmLifecycleState::Stopped);
         assert!(rule.validate_resume_transition(&aggregate).is_err());
     }
     
@@ -223,15 +223,15 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test valid stop from Created state
-        let aggregate = create_test_aggregate(VmState::Created);
+        let aggregate = create_test_aggregate(VmLifecycleState::Created);
         assert!(rule.validate_stop_transition(&aggregate).is_ok());
         
         // Test valid stop from Running state
-        let aggregate = create_test_aggregate(VmState::Running);
+        let aggregate = create_test_aggregate(VmLifecycleState::Running);
         assert!(rule.validate_stop_transition(&aggregate).is_ok());
         
         // Test valid stop from Paused state
-        let aggregate = create_test_aggregate(VmState::Paused);
+        let aggregate = create_test_aggregate(VmLifecycleState::Paused);
         assert!(rule.validate_stop_transition(&aggregate).is_ok());
     }
     
@@ -240,7 +240,7 @@ mod tests {
         let rule = VmStateTransitionRule;
         
         // Test invalid stop from Stopped state
-        let aggregate = create_test_aggregate(VmState::Stopped);
+        let aggregate = create_test_aggregate(VmLifecycleState::Stopped);
         assert!(rule.validate_stop_transition(&aggregate).is_err());
     }
     
@@ -249,7 +249,7 @@ mod tests {
         let rule = VmResourceAvailabilityRule;
         
         // Test with valid configuration
-        let aggregate = create_test_aggregate(VmState::Created);
+        let aggregate = create_test_aggregate(VmLifecycleState::Created);
         assert!(rule.validate_start_transition(&aggregate).is_ok());
     }
     

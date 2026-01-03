@@ -113,8 +113,8 @@ impl VirtualMachineAggregate {
     }
 
     /// 获取当前状态
-    pub fn state(&self) -> VmState {
-        self.state
+    pub fn state(&self) -> VmLifecycleState {
+        self.state.clone()
     }
 
     /// 获取配置
