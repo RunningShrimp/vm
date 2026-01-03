@@ -1,5 +1,4 @@
 //! Memory read performance benchmark - identifying 8-byte read anomaly
-use vm_core::AddressTranslator;
 //!
 //! This benchmark compares the performance of different-sized reads to identify
 //! why 8-byte reads may be slower than expected.

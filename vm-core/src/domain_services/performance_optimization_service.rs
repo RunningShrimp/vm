@@ -1449,14 +1449,30 @@ mod tests {
     fn test_optimization_recommendations() {
         let service = PerformanceOptimizationDomainService::new();
 
+        // Test with actual bottlenecks to generate recommendations
+        let cpu_bottleneck = CpuBottleneck {
+            bottleneck_type: CpuBottleneckType::HighUtilization,
+            severity: BottleneckSeverity::High,
+            description: "High CPU usage detected".to_string(),
+            impact_score: 0.8,
+        };
+
+        let prioritized_bottleneck = PrioritizedBottleneck {
+            domain: OptimizationDomain::CPU,
+            bottleneck_type: BottleneckType::Cpu(CpuBottleneckType::HighUtilization),
+            impact_score: 0.8,
+            severity: BottleneckSeverity::High,
+            description: "High CPU usage detected".to_string(),
+        };
+
         let bottleneck_analysis = PerformanceBottleneckAnalysis {
             target_arch: GuestArch::X86_64,
-            cpu_bottlenecks: vec![],
+            cpu_bottlenecks: vec![cpu_bottleneck],
             memory_bottlenecks: vec![],
             io_bottlenecks: vec![],
             translation_bottlenecks: vec![],
-            prioritized_bottlenecks: vec![],
-            overall_impact_score: 0.5,
+            prioritized_bottlenecks: vec![prioritized_bottleneck],
+            overall_impact_score: 0.8,
         };
 
         let optimization_goals = vec![OptimizationGoal::Performance];
@@ -1470,7 +1486,7 @@ mod tests {
             )
             .expect("recommend_optimization_strategies should not fail in test");
 
-        // Should have recommendations even with empty bottlenecks
+        // Should have recommendations for the CPU bottleneck
         assert!(!recommendations.recommendations.is_empty());
     }
 

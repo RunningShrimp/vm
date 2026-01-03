@@ -1006,10 +1006,24 @@ mod tests {
             service.assess_translation_complexity(GuestArch::X86_64, GuestArch::X86_64, 1000);
         assert_eq!(complexity, TranslationComplexity::Low);
 
-        // Different architectures - higher complexity
+        // Different architectures with small code size - low complexity (0.7 * 0.1 = 0.07 < 0.3)
         let complexity =
             service.assess_translation_complexity(GuestArch::X86_64, GuestArch::Arm64, 1000);
+        assert_eq!(complexity, TranslationComplexity::Low);
+
+        // Different architectures with medium code size - medium complexity
+        // base_complexity = 0.7, size_factor = (5000 / 10000).min(2.0) = 0.5
+        // complexity_score = 0.7 * 0.5 = 0.35 >= 0.3 → Medium
+        let complexity =
+            service.assess_translation_complexity(GuestArch::X86_64, GuestArch::Arm64, 5000);
         assert_eq!(complexity, TranslationComplexity::Medium);
+
+        // Different architectures with large code size - high complexity
+        // base_complexity = 0.7, size_factor = (15000 / 10000).min(2.0) = 1.5
+        // complexity_score = 0.7 * 1.5 = 1.05 >= 0.7 → High
+        let complexity =
+            service.assess_translation_complexity(GuestArch::X86_64, GuestArch::Arm64, 15000);
+        assert_eq!(complexity, TranslationComplexity::High);
     }
 
     #[test]

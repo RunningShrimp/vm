@@ -5,10 +5,12 @@
 //! - 并发TLB：无锁设计，适用于高并发场景
 //! - Per-CPU TLB：每CPU独立TLB，避免锁竞争
 //! - 统一TLB：统一接口，支持动态选择最佳实现
+//! - 优化哈希TLB：针对大规模配置优化的哈希TLB
 
 pub mod basic;
 pub mod concurrent;
 pub mod lockfree;
+pub mod optimized_hash;
 pub mod per_cpu;
 pub mod unified;
 
@@ -16,6 +18,7 @@ pub mod unified;
 pub use basic::*;
 pub use concurrent::{ConcurrentTlbConfig, ShardedTlb};
 pub use lockfree::{LockFreeTlb, TlbEntry as LockFreeTlbEntry};
+pub use optimized_hash::{ConcurrentOptimizedHashTlb, HashTlbStats, OptimizedHashTlb, PackedTlbEntry};
 pub use per_cpu::*;
 // 从unified模块导入，但重命名TlbStats以避免冲突
 pub use unified::TlbStats as UnifiedTlbStats;

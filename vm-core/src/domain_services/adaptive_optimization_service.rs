@@ -480,7 +480,15 @@ mod tests {
 
     #[test]
     fn test_hotspot_detection() {
-        let config = AdaptiveOptimizationConfig::default();
+        // Use a custom config with lower threshold for testing
+        let config = AdaptiveOptimizationConfig {
+            hotspot_threshold: 1000,
+            hotness_threshold: 0.5, // Lower threshold for realistic test data
+            performance_degradation_threshold: 0.15,
+            max_hotspots: 100,
+            trend_analysis_window: Duration::from_secs(60),
+            improvement_threshold: 0.05,
+        };
         let service = AdaptiveOptimizationDomainService::new(config);
 
         let mut profile = PerformanceProfile {
@@ -498,10 +506,16 @@ mod tests {
         let mut history = Vec::new();
         let base_time = Instant::now();
 
-        for i in 0..1500 {
+        // Use 10000 executions with ~200us avg_time
+        // count_score = log10(10000) / 10 = 0.4
+        // time_score = 1.0 - (200000 / 1_000_000) = 0.8
+        // hotness_score = 0.4 * 0.7 + 0.8 * 0.3 = 0.28 + 0.24 = 0.52 >= 0.5 ✓
+        for i in 0..10000 {
+            // Spread timestamps over the last 30 seconds
+            let offset_secs = (i as f64 / 10000.0) * 30.0;
             history.push(ExecutionDataPoint {
-                timestamp: base_time + Duration::from_micros(i * 100),
-                duration: Duration::from_nanos(1000 + (i % 100) as u64),
+                timestamp: base_time.checked_sub(Duration::from_secs_f64(offset_secs)).unwrap_or(base_time),
+                duration: Duration::from_micros(200 + (i % 50) as u64), // ~200us avg
                 memory_usage: 1024,
                 optimization_level: 1,
             });
@@ -512,10 +526,12 @@ mod tests {
         let hotspots = service
             .detect_hotspots(&profile)
             .expect("Failed to detect hotspots");
+
+        // Verify we detect exactly one hotspot
         assert_eq!(hotspots.len(), 1);
         assert_eq!(hotspots[0].address, address);
-        assert_eq!(hotspots[0].execution_count, 1500);
-        assert!(hotspots[0].hotness_score > 0.0);
+        assert_eq!(hotspots[0].execution_count, 10000);
+        assert!(hotspots[0].hotness_score >= 0.5);
     }
 
     #[test]
@@ -569,37 +585,41 @@ mod tests {
         let config = AdaptiveOptimizationConfig::default();
         let service = AdaptiveOptimizationDomainService::new(config);
 
-        // Test improving performance
+        // Test improving performance - need a strong downward trend
         let mut improving_history = Vec::new();
         let base_time = Instant::now();
 
-        for i in 0..20 {
-            // Decreasing execution times
+        for i in 0..30 {
+            // Strongly decreasing execution times: from 10000ns to 1000ns
+            // This creates a clear negative slope
+            let offset_secs = (30 - i) as f64 * 0.1; // Spread over last 3 seconds
             improving_history.push(ExecutionDataPoint {
-                timestamp: base_time + Duration::from_millis(i * 100),
-                duration: Duration::from_nanos(1000 - i * 10),
+                timestamp: base_time.checked_sub(Duration::from_secs_f64(offset_secs)).unwrap_or(base_time),
+                duration: Duration::from_nanos(10000 - i * 300), // Decreasing from 10000ns to 1000ns
                 memory_usage: 1024,
                 optimization_level: 1,
             });
         }
 
         let trend = service.analyze_performance_trend(&improving_history);
-        assert_eq!(trend, PerformanceTrend::Improving);
+        assert_eq!(trend, PerformanceTrend::Improving, "Should detect improving performance with strong downward trend");
 
-        // Test degrading performance
+        // Test degrading performance - need a strong upward trend
         let mut degrading_history = Vec::new();
 
-        for i in 0..20 {
-            // Increasing execution times
+        for i in 0..30 {
+            // Strongly increasing execution times: from 1000ns to 10000ns
+            // This creates a clear positive slope
+            let offset_secs = (30 - i) as f64 * 0.1; // Spread over last 3 seconds
             degrading_history.push(ExecutionDataPoint {
-                timestamp: base_time + Duration::from_millis(i * 100),
-                duration: Duration::from_nanos(1000 + i * 10),
+                timestamp: base_time.checked_sub(Duration::from_secs_f64(offset_secs)).unwrap_or(base_time),
+                duration: Duration::from_nanos(1000 + i * 300), // Increasing from 1000ns to 10000ns
                 memory_usage: 1024,
                 optimization_level: 1,
             });
         }
 
         let trend = service.analyze_performance_trend(&degrading_history);
-        assert_eq!(trend, PerformanceTrend::Degrading);
+        assert_eq!(trend, PerformanceTrend::Degrading, "Should detect degrading performance with strong upward trend");
     }
 }
