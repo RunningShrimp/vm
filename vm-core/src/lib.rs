@@ -46,6 +46,7 @@ pub mod domain_event_bus;
 pub mod domain_services;
 pub mod domain_type_safety;
 pub mod error;
+pub mod gc;
 pub mod gdb;
 pub mod macros;
 pub mod migration;

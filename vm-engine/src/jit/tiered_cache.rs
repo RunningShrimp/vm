@@ -1,7 +1,24 @@
 //! 分层代码缓存实现
-#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
 //! 实现了多级缓存策略，根据代码访问频率和热度自动调整缓存层级。
+//!
+//! ## 模块说明
+//!
+//! 本模块实现活跃使用的分层缓存系统，被 `vm-engine::jit::core` 和 `tiered_compiler` 使用。
+//!
+//! ## 缓存层级
+//!
+//! - **L1缓存**: 存储热点代码（高频访问）
+//! - **L2缓存**: 存储常用代码（中频访问）
+//! - **L3缓存**: 存储所有编译过的代码
+//!
+//! ## 当前状态
+//!
+//! 本模块为生产代码，活跃用于：
+//! - JIT编译的代码缓存管理
+//! - 热点代码识别和提升
+//! - 智能缓存驱逐策略
+//! - 分层性能统计
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};

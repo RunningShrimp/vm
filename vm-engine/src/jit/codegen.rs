@@ -1,7 +1,19 @@
 //! 代码生成模块（简化版）
-#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
-//! 提供基础的代码生成功能
+//! 提供基础的代码生成功能，将编译后的IR块转换为目标代码。
+//!
+//! ## 模块说明
+//!
+//! 本模块实现代码生成器，负责将优化后的IR操作序列转换为本机机器码。
+//! 主要组件：
+//! - `CodeGenerator`: 主代码生成器
+//! - `CompiledIROp`: 编译后的IR操作
+//! - `CompiledIRBlock`: 编译后的IR块
+//! - `CodegenStats`: 代码生成统计信息
+//!
+//! ## 当前状态
+//!
+//! 本模块为活跃使用的生产代码，被 `vm-engine::jit::core` 和其他模块广泛使用。
 
 use std::collections::HashMap;
 

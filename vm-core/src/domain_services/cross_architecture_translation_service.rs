@@ -340,9 +340,24 @@ impl CrossArchitectureTranslationDomainService {
             estimated_overhead: compatibility.overhead,
         };
 
+        // Extract instruction name from bytes for tracking
+        // Format: "INSN_{first4_bytes}" for identification (e.g., "INSN_4889c0" for mov rax, rax)
+        let instruction_name = if instruction_bytes.len() >= 4 {
+            format!("INSN_{:02x}{:02x}{:02x}{:02x}",
+                instruction_bytes[0],
+                instruction_bytes[1],
+                instruction_bytes[2],
+                instruction_bytes[3])
+        } else if !instruction_bytes.is_empty() {
+            let bytes: Vec<String> = instruction_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("INSN_{}", bytes.join(""))
+        } else {
+            "EMPTY_INSN".to_string()
+        };
+
         // Publish instruction encoding validation event
         self.publish_translation_event(TranslationEvent::InstructionEncodingValidated {
-            instruction: "encoding_validation".to_string(), // TODO: Track actual instruction
+            instruction: instruction_name,
             is_valid: result.is_compatible,
             occurred_at: std::time::SystemTime::now(),
         })?;
@@ -363,9 +378,17 @@ impl CrossArchitectureTranslationDomainService {
         // Perform register mapping
         let result = self.perform_register_mapping(source_arch, target_arch, source_registers)?;
 
+        // Generate descriptive function name for tracking
+        // Format: "{source_arch}_to_{target_arch}_register_mapping"
+        let function_name = format!(
+            "{}_to_{}_register_mapping",
+            source_arch.to_string().to_lowercase().replace("_", ""),
+            target_arch.to_string().to_lowercase().replace("_", "")
+        );
+
         // Publish register mapping event
         self.publish_translation_event(TranslationEvent::RegisterMappingCompleted {
-            function_name: "cross_arch_mapping".to_string(), // TODO: Track actual function name
+            function_name,
             mappings_count: result.register_mappings.len(),
             occurred_at: std::time::SystemTime::now(),
         })?;

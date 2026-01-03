@@ -1,5 +1,4 @@
 //! 分支目标缓存 (Branch Target Cache - BTC)
-#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
 //! BTC缓存间接分支指令的目标地址，用于优化虚拟机中的分支预测和执行。
 //!

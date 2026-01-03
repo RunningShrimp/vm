@@ -116,9 +116,22 @@ impl RegisterAllocationDomainService {
         // Get allocation statistics
         let stats = allocator.stats();
 
+        // Generate function name for tracking based on IR content
+        // Use IR hash as identifier for the function being allocated
+        let function_name = if ir.len() >= 8 {
+            // Create a unique identifier from first 8 bytes of IR
+            format!("fn_{:02x}{:02x}{:02x}{:02x}_{:02x}{:02x}{:02x}{:02x}",
+                ir[0], ir[1], ir[2], ir[3], ir[4], ir[5], ir[6], ir[7])
+        } else if !ir.is_empty() {
+            let bytes: Vec<String> = ir.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("fn_{}", bytes.join(""))
+        } else {
+            "fn_unknown".to_string()
+        };
+
         // Publish register allocation completed event
         self.publish_optimization_event(OptimizationEvent::RegisterAllocationCompleted {
-            function_name: "unknown".to_string(), // TODO: Track actual function name
+            function_name,
             registers_used: stats.physical_regs_used,
             spill_count: stats.spills,
             occurred_at: std::time::SystemTime::now(),

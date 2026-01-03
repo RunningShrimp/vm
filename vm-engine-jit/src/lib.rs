@@ -1,5 +1,4 @@
 //! # vm-engine-jit - JIT 编译执行引擎
-#![allow(dead_code)] // TODO: Many JIT structures are reserved for future optimization features
 //!
 //! 基于 Cranelift 的即时编译执行引擎，将 IR 编译为本机代码执行。
 //!

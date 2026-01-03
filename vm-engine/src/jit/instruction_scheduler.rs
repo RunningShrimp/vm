@@ -1,12 +1,24 @@
 //! 指令调度器接口和实现
-#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
 //! 定义了指令调度器的抽象接口和多种实现策略，负责优化指令执行顺序以提高性能。
+//!
+//! ## 模块说明
+//!
+//! 本模块包含活跃使用的指令调度器实现，被 `vm-engine::jit::core` 广泛使用。
+//!
+//! ## 调度策略
+//!
 //! 支持多种调度策略：
-//! - ListScheduling：列表调度（基础）
-//! - CriticalPathScheduling：关键路径调度
-//! - GreedyScheduling：贪婪调度
-//! - DynamicScheduling：动态调度（高级）
+//! - `ListScheduling`: 列表调度（基础实现，当前生产使用）
+//! - `CriticalPathScheduling`: 关键路径调度（预留接口）
+//! - `GreedyScheduling`: 贪婪调度（预留接口）
+//! - `DynamicScheduling`: 动态调度（预留接口）
+//!
+//! ## 当前状态
+//!
+//! - `InstructionScheduler`: 活跃trait，被core.rs使用
+//! - `ListScheduler`: 活跃实现，生产环境使用
+//! - `OptimizedInstructionScheduler`: 高级调度器，为未来优化预留
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};

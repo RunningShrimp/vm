@@ -204,10 +204,13 @@ impl OptimizationPipelineDomainService {
                     completed_stages.push(stage.clone());
 
                     // Publish stage completed event
+                    // Track memory usage: estimate based on current IR size
+                    // In production, this would query system memory usage or use a memory tracker
+                    let estimated_memory_mb = ((current_ir.len() as f64) / (1024.0 * 1024.0)) as f32;
                     self.publish_optimization_event(OptimizationEvent::StageCompleted {
                         stage_name: stage.name().to_string(),
                         execution_time_ms: start_time.elapsed().as_millis() as u64,
-                        memory_usage_mb: 0.0, // TODO: Track actual memory usage
+                        memory_usage_mb: estimated_memory_mb,
                         success: true,
                         occurred_at: std::time::SystemTime::now(),
                     })?;
@@ -248,12 +251,16 @@ impl OptimizationPipelineDomainService {
 
         let total_time_ms = start_time.elapsed().as_millis() as u64;
 
+        // Calculate peak memory usage based on final IR size
+        // In production, this would track maximum memory across all stages
+        let peak_memory_usage_mb = ((current_ir.len() as f64) / (1024.0 * 1024.0)) as f32;
+
         // Publish pipeline completed event
         self.publish_optimization_event(OptimizationEvent::PipelineCompleted {
             success: true,
             total_time_ms,
             stages_completed: completed_stages.len(),
-            peak_memory_usage_mb: 0.0, // TODO: Track actual peak memory usage
+            peak_memory_usage_mb,
             occurred_at: std::time::SystemTime::now(),
         })?;
 

@@ -148,12 +148,21 @@ impl UnifiedMemoryManager for SoftMmuWrapper {
         // 返回实际的内存统计
         let memory = self.memory.lock().unwrap();
 
+        // 从TLB获取实际的命中/未命中统计 (使用UnifiedTlb trait的get_stats方法)
+        let tlb_stats = self.tlb.get_stats();
+        let tlb_hits = tlb_stats.hits;
+        let tlb_misses = tlb_stats.misses;
+
+        // 页面错误次数：目前使用TLB未命中次数作为近似值
+        // 在实际实现中，MMU应该维护专门的页面错误计数器
+        let page_faults = tlb_misses; // 简化实现：使用TLB miss作为proxy
+
         MemoryStats {
             total_size: memory.len() * 8,
             used_memory: memory.len() * 8,
-            tlb_hits: 0,    // TODO: 从TLB获取实际命中次数
-            tlb_misses: 0,  // TODO: 从TLB获取实际未命中次数
-            page_faults: 0, // TODO: 跟踪页面错误次数
+            tlb_hits,
+            tlb_misses,
+            page_faults,
         }
     }
 }

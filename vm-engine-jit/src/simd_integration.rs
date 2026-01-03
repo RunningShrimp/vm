@@ -1,7 +1,15 @@
 //! SIMD指令扩展集成
-#![allow(dead_code)] // TODO: Many JIT structures are reserved for future optimization features
 //!
 //! 将vm-simd库的功能集成到JIT编译器中，提供高性能的向量运算支持。
+//!
+//! ## 模块说明
+//!
+//! 本模块包含为未来SIMD优化预留的结构和接口实现。当前支持：
+//! - `SimdIntegrationManager`: SIMD函数缓存管理
+//! - `SimdCompiler`: SIMD操作编译器
+//! - `compile_simd_op`/`compile_simd_operation`: SIMD操作编译入口
+//!
+//! 这些结构体和函数是为高级SIMD功能预留的接口，当前保留以避免后续API breaking changes。
 
 use vm_core::{VmError, CoreError};
 use vm_ir::IROp;
