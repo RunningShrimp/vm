@@ -1,0 +1,74 @@
+version: 2
+updates:
+  # Cargo依赖更新
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"  # 每周检查一次
+      day: "monday"       # 每周一执行
+      time: "00:00"      # 午夜0点
+    open-pull-requests-limit: 10  # 最多同时开启10个PR
+    reviewers:
+      - "maintainer"
+    assignees:
+      - "maintainer"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+      prefix-development: "build(deps):"
+      include-scope: "dependencies"
+    labels:
+      - "dependencies"
+      - "rust"
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    ignore:
+      # 忽略大版本变更，需要手动审查
+      - dependency-name: "cranelift*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "llvm-sys*"
+        update-types: ["version-update:semver-major"]
+      # 忽略特定包的小版本更新以减少PR噪音
+      - dependency-name: "proc-macro2"
+        update-types: ["version-update:semver-patch"]
+
+  # GitHub Actions更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "00:00"
+    commit-message:
+      prefix: "ci"
+      prefix-development: "build(ci):"
+    labels:
+      - "github-actions"
+      - "ci"
+
+  # Docker更新（如果项目使用Docker）
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "00:00"
+    commit-message:
+      prefix: "docker"
+      prefix-development: "build(docker):"
+    labels:
+      - "docker"
+      - "dependencies"
+
+  # 如果在future使用npm（如WebAssembly组件）
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "npm"
+      prefix-development: "build(npm):"
+    labels:
+      - "javascript"
+      - "dependencies"

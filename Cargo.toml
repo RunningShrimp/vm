@@ -65,6 +65,14 @@ resolver = "2"
 [workspace.metadata.docs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "riscv64gc-unknown-linux-gnu"]
+
+[workspace.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "riscv64gc-unknown-linux-gnu"]
 
 [workspace.dependencies]
 # Error handling
@@ -177,6 +185,10 @@ nonstandard_style = "warn"
 all = "warn"
 pedantic = "warn"
 cargo = "warn"
+# 允许的例外
+must_use_candidate = "allow"  # 太严格
+missing_errors_doc = "allow"  # 可逐步完善
+missing_panics_doc = "allow"
 
 [workspace.package]
 version = "0.1.0"

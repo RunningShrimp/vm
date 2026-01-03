@@ -7,7 +7,8 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::time::Instant;
 
-use vm_core::{CacheManager, CacheStats, VmResult};
+use vm_core::VmResult;
+use vm_core::domain::{CacheManager, CacheStats};
 
 /// 缓存替换策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

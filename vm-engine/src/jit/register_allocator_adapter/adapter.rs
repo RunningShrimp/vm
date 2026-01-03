@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use vm_core::{RegisterAllocationStats, RegisterAllocator, VmError, VmResult};
+use vm_core::domain::{RegisterAllocationStats, RegisterAllocator};
+use vm_core::{VmError, VmResult};
 use vm_ir::IRBlock;
 
 use crate::jit::register_allocator::{

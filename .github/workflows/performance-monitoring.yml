@@ -1,0 +1,215 @@
+name: Performance Monitoring
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # 每天UTC时间0点运行 (北京时间早上8点)
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+    # 如果是在PR上，只运行快速benchmark
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'performance-check'))
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      # Cache cargo registry and build artifacts
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-index-
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-target-
+
+      # 安装critcmp用于性能对比
+      - name: Install critcmp
+        run: cargo install critcmp
+
+      # 运行MMU benchmark
+      - name: Run MMU Benchmarks
+        run: |
+          echo "=== 运行MMU性能基准测试 ==="
+          cargo bench -p vm-mem --bench mmu_translate -- --save-baseline main --output-format bencher | tee mmu_results.txt
+
+      # 运行JIT benchmark (如果有)
+      - name: Run JIT Benchmarks
+        run: |
+          echo "=== 运行JIT性能基准测试 ==="
+          if [ -d "vm-engine/benches" ]; then
+            cargo bench -p vm-engine --bench jit_compilation -- --save-baseline main --output-format bencher | tee jit_results.txt
+          else
+            echo "JIT benchmark不存在，跳过"
+          fi
+
+      # 运行跨架构benchmark (如果有)
+      - name: Run Cross-Arch Benchmarks
+        run: |
+          echo "=== 运行跨架构翻译基准测试 ==="
+          if [ -d "vm-engine/benches" ]; then
+            cargo bench -p vm-engine --bench cross_arch_translation -- --save-baseline main --output-format bencher | tee cross_arch_results.txt
+          else
+            echo "跨架构benchmark不存在，跳过"
+          fi
+
+      # 对比baseline并检查回归
+      - name: Compare with Baseline
+        run: |
+          echo "=== 性能对比分析 ==="
+
+          # 使用critcmp对比结果
+          critcmp --baseline main > perf_comparison.txt 2>&1 || true
+
+          echo ""
+          echo "性能对比结果:"
+          cat perf_comparison.txt || echo "无历史数据可对比"
+
+          echo ""
+          cat mmu_results.txt | grep -E "(GnM|M|GiB/s)" || true
+
+      # 检查性能回归 (超过5%阈值)
+      - name: Check Performance Regression
+        id: regression_check
+        run: |
+          echo "=== 性能回归检查 ==="
+
+          # 检查是否有性能回归的迹象
+          if grep -q "Performance has regressed" mmu_results.txt; then
+            echo "⚠️  检测到性能回归!"
+            grep "Performance has regressed" mmu_results.txt | tee regression_summary.txt
+            exit 1  # 失败以提醒
+          else
+            echo "✓ 未检测到显著性能回归"
+          fi
+
+      # 上传benchmark结果
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: |
+            mmu_results.txt
+            jit_results.txt
+            cross_arch_results.txt
+            perf_comparison.txt
+            regression_summary.txt
+          retention-days: 30
+
+      # 如果是schedule运行，生成性能报告
+      - name: Generate Performance Report (Scheduled only)
+        if: github.event_name == 'schedule'
+        run: |
+          echo "=== 生成每日性能报告 ==="
+
+          REPORT_FILE="performance_report_$(date +%Y%m%d).md"
+
+          cat > "$REPORT_FILE" <<EOF
+          # 性能监控报告
+
+          **日期**: $(date +%Y-%m-%d)
+          **提交**: ${{ github.sha }}
+          **分支**: ${{ github.ref_name }}
+
+          ---
+
+          ## MMU性能
+
+          \`\`\`
+          $(cat mmu_results.txt | grep -E "(time:|thrpt:|change:)" || echo "数据不可用")
+          \`\`\`
+
+          ## 性能对比
+
+          \`\`\`
+          $(cat perf_comparison.txt || echo "无对比数据")
+          \`\`\`
+
+          ---
+
+          *此报告由GitHub Actions自动生成*
+          EOF
+
+          cat "$REPORT_FILE"
+
+      - name: Upload Performance Report
+        if: github.event_name == 'schedule'
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-report
+          path: performance_report_*.md
+          retention-days: 90
+
+  # 可选: 如果性能回归，创建issue通知
+  notify-regression:
+    name: Notify Performance Regression
+    needs: benchmark
+    if: failure() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create Regression Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠️ 性能回归检测 - ${new Date().toISOString()}`,
+              body: `## 性能回归检测报告
+
+              **时间**: ${new Date().toISOString()}
+              **提交**: ${{ github.sha }}
+              **工作流**: ${{ github.workflow }}
+
+              ### 回归详情
+
+              自动性能监控检测到潜在的性能回归。请查看详细结果：
+
+              - [Benchmark结果](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+              ### 建议操作
+
+              1. 查看详细benchmark结果
+              2. 分析回归原因
+              3. 如果是误报，更新baseline
+              4. 如果是真实回归，修复性能问题
+
+              /cc @${{ github.repository_owner }}`,
+              labels: ['performance', 'regression', 'automated']
+            })
