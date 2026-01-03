@@ -6,10 +6,11 @@
 //! - I/O 带宽管理
 //! - 完成回调机制
 
-use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 

@@ -12,11 +12,12 @@ use vm_mem::tlb::core::lockfree::{LockFreeTlb, TlbEntry};
 
 #[cfg(test)]
 mod basic_concurrent_tests {
-    use super::*;
     use std::sync::Arc;
     use std::sync::Barrier;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
+
+    use super::*;
 
     /// 测试1: 多线程并发TLB查找
     #[test]
@@ -700,12 +701,13 @@ mod basic_concurrent_tests {
 
 #[cfg(test)]
 mod advanced_concurrent_tests {
-    use super::*;
     use std::sync::Arc;
     use std::sync::Barrier;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
     use std::time::Duration;
+
+    use super::*;
 
     /// 测试21-30: 性能和可扩展性测试
     #[test]

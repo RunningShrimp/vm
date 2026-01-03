@@ -1,10 +1,10 @@
-use crate::{Fault, GuestAddr};
-
 // Re-export commonly used error types
 use std::backtrace::Backtrace;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+
+use crate::{Fault, GuestAddr};
 
 /// 统一的虚拟机错误类型
 ///
@@ -892,7 +892,8 @@ impl ErrorRecovery for VmError {
             VmError::Memory(MemoryError::MmuLockFailed { .. }) => true,
             VmError::Device(DeviceError::Busy { .. }) => true,
             VmError::Platform(PlatformError::AcceleratorUnavailable { .. }) => true,
-            VmError::Io(_) => false, // IO errors stored as strings can't be checked for retryability
+            VmError::Io(_) => false, // IO errors stored as strings can't be checked for
+            // retryability
             VmError::WithContext { error, .. } => error.is_retryable(),
             _ => false,
         }

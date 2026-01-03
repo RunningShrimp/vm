@@ -21,13 +21,14 @@
 //! kvm.create_vcpu(0)?;
 //! ```
 
+use std::sync::{Arc, Mutex};
+
 use super::{Accel, AccelError};
 use super::{
     kvm::{AccelKvm, KvmVcpu},
     numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer},
     vcpu_affinity::{CPUTopology, VCPUAffinityManager, VCPUConfig},
 };
-use std::sync::{Arc, Mutex};
 
 /// NUMA 感知的 KVM 加速器
 ///

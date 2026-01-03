@@ -106,8 +106,7 @@ impl OptimizingJIT {
         let start_time = std::time::Instant::now();
 
         // 1. 运行优化Pass
-        let mut optimized_block = block.clone();
-        self.pass_manager.run_optimizations(&mut optimized_block);
+        let optimized_ops = self.pass_manager.run_optimizations(&block.ops);
 
         let optimization_time = start_time.elapsed().as_nanos() as u64;
 
@@ -115,27 +114,27 @@ impl OptimizingJIT {
         let _allocations = match self.allocation_strategy {
             RegisterAllocationStrategy::GraphColoring => {
                 if let Some(ref mut gc_allocator) = self.graph_coloring_allocator {
-                    gc_allocator.analyze_lifetimes(&optimized_block.ops);
-                    gc_allocator.allocate_registers(&optimized_block.ops)
+                    gc_allocator.analyze_lifetimes(&optimized_ops);
+                    gc_allocator.allocate_registers(&optimized_ops)
                 } else {
-                    self.reg_allocator.analyze_lifetimes(&optimized_block.ops);
-                    self.reg_allocator.allocate_registers(&optimized_block.ops)
+                    self.reg_allocator.analyze_lifetimes(&optimized_ops);
+                    self.reg_allocator.allocate_registers(&optimized_ops)
                 }
             }
             RegisterAllocationStrategy::LinearScan => {
                 // 使用线性扫描策略
-                self.reg_allocator.analyze_lifetimes(&optimized_block.ops);
-                self.reg_allocator.allocate_registers(&optimized_block.ops)
+                self.reg_allocator.analyze_lifetimes(&optimized_ops);
+                self.reg_allocator.allocate_registers(&optimized_ops)
             }
             RegisterAllocationStrategy::Adaptive => {
-                self.reg_allocator.analyze_lifetimes(&optimized_block.ops);
-                self.reg_allocator.allocate_registers(&optimized_block.ops)
+                self.reg_allocator.analyze_lifetimes(&optimized_ops);
+                self.reg_allocator.allocate_registers(&optimized_ops)
             }
         };
 
         // 3. 指令调度
-        self.instruction_scheduler.build_dependency_graph(&optimized_block.ops);
-        let _schedule = self.instruction_scheduler.schedule(&optimized_block.ops);
+        self.instruction_scheduler.build_dependency_graph(&optimized_ops);
+        let _schedule = self.instruction_scheduler.schedule(&optimized_ops);
 
         // 4. 更新统计信息
         let mut stats = self.stats.lock();

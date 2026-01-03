@@ -3,12 +3,14 @@
 //! This module provides reusable self.resource management components to reduce
 //! code duplication and improve self.resource safety across the VM project.
 
-use crate::foundation::error::ConfigError;
-use crate::foundation::error::{VmError, VmResult};
-use parking_lot::{Mutex, RwLock};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
+
+use crate::foundation::error::ConfigError;
+use crate::foundation::error::{VmError, VmResult};
 
 /// Resource state tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -441,9 +443,10 @@ where
             let _ = manager.remove_resource(&id);
         }
         // Now we can safely take the resource since we've already taken manager and id
-        self.resource
-            .take()
-            .expect("ResourceGuard::into_inner: resource should always be present after taking manager and id")
+        self.resource.take().expect(
+            "ResourceGuard::into_inner: resource should always be present after taking manager \
+             and id",
+        )
     }
 }
 

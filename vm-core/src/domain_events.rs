@@ -154,13 +154,13 @@ impl EventVersionMigrator {
     }
 
     /// 升级执行事件
-    fn upgrade_execution_event(event: ExecutionEvent, target_version: u64) -> Result<DomainEventEnum, String> {
+    fn upgrade_execution_event(event: ExecutionEvent, _target_version: u64) -> Result<DomainEventEnum, String> {
         // 执行事件目前只有一个版本
         Ok(DomainEventEnum::Execution(event))
     }
 
     /// 升级设备事件
-    fn upgrade_device_event(event: DeviceEvent, target_version: u64) -> Result<DomainEventEnum, String> {
+    fn upgrade_device_event(event: DeviceEvent, _target_version: u64) -> Result<DomainEventEnum, String> {
         // 设备事件目前只有一个版本
         Ok(DomainEventEnum::Device(event))
     }
@@ -190,6 +190,7 @@ impl EventVersionMigrator {
 ///
 /// 提供命令行工具和API用于事件版本迁移
 pub struct EventMigrationTool {
+    #[allow(dead_code)] // Used internally for event version migration
     migrator: EventVersionMigrator,
 }
 
@@ -686,7 +687,7 @@ impl From<&crate::VmConfig> for VmConfigSnapshot {
         Self {
             guest_arch: config.guest_arch.name().to_string(),
             memory_size: config.memory_size as u64,
-            vcpu_count: config.vcpu_count,
+            vcpu_count: config.vcpu_count as u32,
             exec_mode: format!("{:?}", config.exec_mode),
         }
     }
@@ -705,7 +706,7 @@ mod tests {
             vm_id: "test-vm".to_string(),
             config: VmConfigSnapshot {
                 guest_arch: "riscv64".to_string(),
-                memory_size: 64 * 1024 * 1024,
+                memory_size: crate::DEFAULT_MEMORY_SIZE as u64,
                 vcpu_count: 1,
                 exec_mode: "Interpreter".to_string(),
             },
@@ -754,7 +755,7 @@ mod tests {
         
         let allocated = MemoryEvent::MemoryAllocated {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: crate::GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         };
@@ -763,7 +764,7 @@ mod tests {
 
         let freed = MemoryEvent::MemoryFreed {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: crate::GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         };
@@ -773,27 +774,29 @@ mod tests {
     #[test]
     fn test_execution_event_types() {
         let now = SystemTime::now();
-        
-        let started = ExecutionEvent::ExecutionStarted {
+
+        let executed = ExecutionEvent::InstructionExecuted {
             vm_id: "test-vm".to_string(),
-            pc: 0x1000,
+            vcpu_id: 0,
+            pc: crate::GuestAddr(0x1000),
+            instruction: 0x13,
             occurred_at: now,
         };
-        assert_eq!(started.event_type(), "execution.started");
+        assert_eq!(executed.event_type(), "execution.instruction_executed");
 
-        let stopped = ExecutionEvent::ExecutionStopped {
+        let exited = ExecutionEvent::VcpuExited {
             vm_id: "test-vm".to_string(),
-            pc: 0x2000,
+            vcpu_id: 0,
             reason: "Breakpoint".to_string(),
             occurred_at: now,
         };
-        assert_eq!(stopped.event_type(), "execution.stopped");
+        assert_eq!(exited.event_type(), "execution.vcpu_exited");
     }
 
     #[test]
     fn test_domain_event_enum() {
         let now = SystemTime::now();
-        
+
         let lifecycle = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm".to_string(),
             occurred_at: now,
@@ -802,18 +805,20 @@ mod tests {
 
         let memory = DomainEventEnum::Memory(MemoryEvent::MemoryAllocated {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: crate::GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         });
         assert_eq!(memory.event_type(), "memory.allocated");
 
-        let execution = DomainEventEnum::Execution(ExecutionEvent::ExecutionStarted {
+        let execution = DomainEventEnum::Execution(ExecutionEvent::InstructionExecuted {
             vm_id: "test-vm".to_string(),
-            pc: 0x1000,
+            vcpu_id: 0,
+            pc: crate::GuestAddr(0x1000),
+            instruction: 0x13,
             occurred_at: now,
         });
-        assert_eq!(execution.event_type(), "execution.started");
+        assert_eq!(execution.event_type(), "execution.instruction_executed");
     }
 
     #[test]
@@ -855,7 +860,7 @@ mod tests {
             vm_id: "test-vm".to_string(),
             config: VmConfigSnapshot {
                 guest_arch: "riscv64".to_string(),
-                memory_size: 64 * 1024 * 1024,
+                memory_size: crate::DEFAULT_MEMORY_SIZE as u64,
                 vcpu_count: 1,
                 exec_mode: "Interpreter".to_string(),
             },
@@ -886,7 +891,7 @@ mod tests {
         // 创建v1内存事件
         let v1_event = MemoryEvent::MemoryAllocated {
             vm_id: "test-vm".to_string(),
-            addr: 0x1000,
+            addr: crate::GuestAddr(0x1000),
             size: 4096,
             occurred_at: now,
         };
@@ -919,7 +924,7 @@ mod tests {
                 vm_id: "vm1".to_string(),
                 config: VmConfigSnapshot {
                     guest_arch: "riscv64".to_string(),
-                    memory_size: 64 * 1024 * 1024,
+                    memory_size: crate::DEFAULT_MEMORY_SIZE as u64,
                     vcpu_count: 1,
                     exec_mode: "Interpreter".to_string(),
                 },

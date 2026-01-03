@@ -619,9 +619,10 @@ impl<T> Default for InstrumentedLockFreeQueue<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Arc;
     use std::thread;
+
+    use super::*;
 
     #[test]
     fn test_basic_queue() {

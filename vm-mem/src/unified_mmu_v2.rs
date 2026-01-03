@@ -14,13 +14,15 @@
 //! 3. **性能优化**: 支持多种TLB优化策略
 //! 4. **可扩展性**: 易于添加新的架构支持
 
-use crate::tlb::management::manager::TlbManager;
-use crate::{PagingMode, PhysicalMemory};
-use parking_lot::RwLock;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
+use vm_core::AddressTranslator;
 use vm_core::error::VmError;
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
-use vm_core::AddressTranslator;
+
+use crate::tlb::management::manager::{StandardTlbManager, TlbManager};
+use crate::{PagingMode, PhysicalMemory};
 
 // ============================================================================
 // 统一MMU Trait - 核心接口
@@ -40,15 +42,17 @@ use vm_core::AddressTranslator;
 /// # 使用示例
 ///
 /// ```rust
+/// use vm_core::{AccessType, GuestAddr};
 /// use vm_mem::unified_mmu_v2::UnifiedMMU;
-/// use vm_core::{GuestAddr, AccessType};
 ///
 /// // 同步操作
 /// let pa = mmu.translate(GuestAddr(0x1000), AccessType::Read)?;
 ///
 /// // 异步操作（需要"async" feature）
 /// #[cfg(feature = "async")]
-/// let pa = mmu.translate_async(GuestAddr(0x1000), AccessType::Read).await?;
+/// let pa = mmu
+///     .translate_async(GuestAddr(0x1000), AccessType::Read)
+///     .await?;
 /// ```
 pub trait UnifiedMMU: Send + Sync {
     // ========================================================================
@@ -68,8 +72,7 @@ pub trait UnifiedMMU: Send + Sync {
     /// - 首先检查TLB缓存
     /// - TLB未命中时进行页表遍历
     /// - 自动将翻译结果插入TLB
-    fn translate(&mut self, va: GuestAddr, access: AccessType)
-        -> Result<GuestPhysAddr, VmError>;
+    fn translate(&mut self, va: GuestAddr, access: AccessType) -> Result<GuestPhysAddr, VmError>;
 
     /// 读取内存（同步）
     ///
@@ -207,6 +210,7 @@ pub trait UnifiedMMU: Send + Sync {
     /// - 支持并发地址翻译
     /// - 优化I/O等待时间
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn translate_async(
         &mut self,
         va: GuestAddr,
@@ -215,22 +219,27 @@ pub trait UnifiedMMU: Send + Sync {
 
     /// 异步取指令
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn fetch_insn_async(&self, pc: GuestAddr) -> Result<u64, VmError>;
 
     /// 异步内存读取
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn read_async(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError>;
 
     /// 异步内存写入
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn write_async(&self, pa: GuestAddr, val: u64, size: u8) -> Result<(), VmError>;
 
     /// 异步批量读取
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn read_bulk_async(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError>;
 
     /// 异步批量写入
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn write_bulk_async(&self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError>;
 
     /// 异步批量地址翻译
@@ -246,6 +255,7 @@ pub trait UnifiedMMU: Send + Sync {
     /// - 减少锁竞争
     /// - 提高吞吐量
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn translate_bulk_async(
         &mut self,
         vas: &[(GuestAddr, AccessType)],
@@ -253,6 +263,7 @@ pub trait UnifiedMMU: Send + Sync {
 
     /// 异步刷新TLB
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn flush_tlb_async(&mut self) -> Result<(), VmError>;
 }
 
@@ -442,6 +453,7 @@ impl UnifiedMmuStats {
 /// 整合同步MMU（SoftMmu/UnifiedMmu）和异步MMU（AsyncMMU）
 pub struct HybridMMU {
     /// MMU唯一ID
+    #[allow(dead_code)] // Reserved for future use
     id: u64,
 
     /// 物理内存后端
@@ -449,6 +461,10 @@ pub struct HybridMMU {
 
     /// 同步MMU实现（使用Mutex包装以支持异步）
     sync_mmu: Arc<parking_lot::Mutex<Box<dyn AddressTranslator + Send>>>,
+
+    /// TLB管理器（用于UnifiedMMU trait的tlb()和tlb_mut()方法）
+    /// 注意：为了满足trait的签名要求，这里直接存储而不使用Arc<Mutex<>>
+    tlb_manager: StandardTlbManager,
 
     /// 配置
     config: UnifiedMmuConfigV2,
@@ -486,6 +502,10 @@ impl HybridMMU {
         let sync_mmu: Box<dyn AddressTranslator + Send> = Box::new(soft_mmu);
         let sync_mmu = Arc::new(parking_lot::Mutex::new(sync_mmu));
 
+        // 创建TLB管理器（直接存储，不使用Arc<Mutex<>>）
+        let tlb_manager =
+            StandardTlbManager::new(config.l1_dtlb_capacity + config.l1_itlb_capacity);
+
         // 在config移动之前保存strict_align值
         let strict_align_value = config.strict_align;
 
@@ -513,6 +533,7 @@ impl HybridMMU {
             id: 1,
             phys_mem: Arc::new(PhysicalMemory::new(size, config.use_hugepages)),
             sync_mmu,
+            tlb_manager,
             config,
             stats,
             paging_mode: RwLock::new(PagingMode::Bare),
@@ -607,39 +628,33 @@ impl UnifiedMMU for HybridMMU {
     }
 
     fn read_bulk(&mut self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
-        self.phys_mem
-            .read_buf(pa.0 as usize, buf)
-            .map_err(|_| VmError::from(vm_core::Fault::PageFault {
+        self.phys_mem.read_buf(pa.0 as usize, buf).map_err(|_| {
+            VmError::from(vm_core::Fault::PageFault {
                 addr: pa,
                 access_type: AccessType::Read,
                 is_write: false,
                 is_user: false,
-            }))
+            })
+        })
     }
 
     fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
-        self.phys_mem
-            .write_buf(pa.0 as usize, buf)
-            .map_err(|_| VmError::from(vm_core::Fault::PageFault {
+        self.phys_mem.write_buf(pa.0 as usize, buf).map_err(|_| {
+            VmError::from(vm_core::Fault::PageFault {
                 addr: pa,
                 access_type: AccessType::Write,
                 is_write: true,
                 is_user: false,
-            }))
+            })
+        })
     }
 
     fn tlb(&self) -> &dyn TlbManager {
-        // TODO: 需要正确实现TLB访问
-        // 这是一个stub实现，暂时注释掉以允许编译
-        // 需要重新设计MMU的TLB访问接口
-        unimplemented!("TLB access needs redesign")
+        &self.tlb_manager
     }
 
     fn tlb_mut(&mut self) -> &mut dyn TlbManager {
-        // TODO: 需要正确实现TLB访问
-        // 这是一个stub实现，暂时注释掉以允许编译
-        // 需要重新设计MMU的TLB访问接口
-        unimplemented!("TLB access needs redesign")
+        &mut self.tlb_manager
     }
 
     fn flush_tlb(&mut self) {
@@ -693,9 +708,7 @@ impl UnifiedMMU for HybridMMU {
     }
 
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
-        self.phys_mem
-            .restore(data)
-            .map_err(|e| e.to_string())
+        self.phys_mem.restore(data).map_err(|e| e.to_string())
     }
 
     // 异步接口实现（需要tokio）
@@ -707,27 +720,23 @@ impl UnifiedMMU for HybridMMU {
     ) -> Result<GuestPhysAddr, VmError> {
         // 克隆Arc<Mmu>以在异步闭包中使用
         let sync_mmu = self.sync_mmu.clone();
-        tokio::task::spawn_blocking(move || {
-            sync_mmu.lock().translate(va, access)
-        })
-        .await
-        .unwrap_or(Err(VmError::Core(vm_core::error::CoreError::Internal {
-            message: "Async operation failed".to_string(),
-            module: "unified_mmu_v2".to_string(),
-        })))
+        tokio::task::spawn_blocking(move || sync_mmu.lock().translate(va, access))
+            .await
+            .unwrap_or(Err(VmError::Core(vm_core::error::CoreError::Internal {
+                message: "Async operation failed".to_string(),
+                module: "unified_mmu_v2".to_string(),
+            })))
     }
 
     #[cfg(feature = "async")]
     async fn fetch_insn_async(&self, pc: GuestAddr) -> Result<u64, VmError> {
         let phys_mem = self.phys_mem.clone();
-        tokio::task::spawn_blocking(move || {
-            phys_mem.read_u32(pc.0 as usize).map(|v| v as u64)
-        })
-        .await
-        .unwrap_or(Err(VmError::Core(vm_core::error::CoreError::Internal {
-            message: "Async operation failed".to_string(),
-            module: "unified_mmu_v2".to_string(),
-        })))
+        tokio::task::spawn_blocking(move || phys_mem.read_u32(pc.0 as usize).map(|v| v as u64))
+            .await
+            .unwrap_or(Err(VmError::Core(vm_core::error::CoreError::Internal {
+                message: "Async operation failed".to_string(),
+                module: "unified_mmu_v2".to_string(),
+            })))
     }
 
     #[cfg(feature = "async")]
@@ -772,14 +781,17 @@ impl UnifiedMMU for HybridMMU {
         let len = buf.len();
         let data = tokio::task::spawn_blocking(move || {
             let mut temp_buf = vec![0u8; len];
-            phys_mem.read_buf(addr, &mut temp_buf).map(|_| temp_buf).map_err(|_| {
-                VmError::from(vm_core::Fault::PageFault {
-                    addr: pa,
-                    access_type: AccessType::Read,
-                    is_write: false,
-                    is_user: false,
+            phys_mem
+                .read_buf(addr, &mut temp_buf)
+                .map(|_| temp_buf)
+                .map_err(|_| {
+                    VmError::from(vm_core::Fault::PageFault {
+                        addr: pa,
+                        access_type: AccessType::Read,
+                        is_write: false,
+                        is_user: false,
+                    })
                 })
-            })
         })
         .await
         .unwrap_or(Err(VmError::Core(vm_core::error::CoreError::Internal {
@@ -1192,7 +1204,9 @@ mod tests {
         let mut mmu = HybridMMU::new(1024 * 1024, config);
 
         // 异步翻译
-        let result = mmu.translate_async(GuestAddr(0x1000), AccessType::Read).await;
+        let result = mmu
+            .translate_async(GuestAddr(0x1000), AccessType::Read)
+            .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), GuestPhysAddr(0x1000));
     }
@@ -1228,7 +1242,9 @@ mod tests {
 
         // 异步批量读取
         let mut read_buffer = vec![0u8; 256];
-        let read_result = mmu.read_bulk_async(GuestAddr(0x1000), &mut read_buffer).await;
+        let read_result = mmu
+            .read_bulk_async(GuestAddr(0x1000), &mut read_buffer)
+            .await;
         assert!(read_result.is_ok());
 
         // 验证数据

@@ -1,29 +1,30 @@
 //! GC Runtime for VM Boot
 //!
-//! Re-exports GC functionality from vm-runtime and vm-optimizers.
+//! Re-exports GC functionality from vm-runtime and vm-gc.
 //! This module provides boot-time GC configuration and initialization.
 
 use std::sync::Arc;
-use vm_optimizers::gc_concurrent::ConcurrentGC;
 
-/// Re-export GC types from vm-optimizers
-pub use vm_optimizers::{
-    gc_concurrent::{ConcurrentGC as OptimizedGc, GCColor as GcPhase, GCStats},
-    gc_generational::GcResult,
-    gc_write_barrier::{BarrierType as WriteBarrierType, WriteBarrier as LockFreeWriteBarrier},
+/// Re-export GC types from vm-core::runtime
+pub use vm_core::runtime::{
+    WriteBarrierType,
+    gc::{GcRuntime, GcRuntimeStats},
 };
 
-/// Re-export incremental GC (placeholder)
-pub use vm_runtime::gc::{IncrementalGc, IncrementalPhase, IncrementalProgress};
-
-/// Re-export GcRuntime from vm-runtime
-pub use vm_runtime::gc::{GcRuntime, GcRuntimeStats};
+/// Re-export additional GC types from vm-gc
+pub use vm_gc::{
+    BaseIncrementalGc as IncrementalGc, IncrementalPhase, IncrementalProgress, OptimizedGc,
+};
 
 /// Type aliases for backwards compatibility
-pub type AdaptiveQuota = ();
-pub type AllocStats = ();
+pub type ConcurrentGC = vm_gc::ConcurrentGC;
+pub type GCColor = vm_gc::GCColor;
+pub type GCStats = vm_gc::GcStats;
+pub type GcResult = std::result::Result<(), vm_core::VmError>;
 pub type GcError = vm_core::VmError;
-pub type ParallelMarker = ConcurrentGC;
+pub type ParallelMarker = vm_gc::ParallelMarker;
+pub type AdaptiveQuota = vm_gc::AdaptiveQuota;
+pub type AllocStats = vm_gc::AllocStats;
 
 /// Type alias for backwards compatibility
 pub type GcConfig = BootGcConfig;
@@ -46,7 +47,7 @@ impl Default for BootGcConfig {
         Self {
             num_workers: num_cpus::get(),
             target_pause_us: 10_000, // 10ms target
-            barrier_type: WriteBarrierType::SATB,
+            barrier_type: WriteBarrierType::Atomic,
             enable_incremental: true,
         }
     }
@@ -58,7 +59,7 @@ impl BootGcConfig {
         Self {
             num_workers: num_cpus::get(),
             target_pause_us: 10_000,
-            barrier_type: WriteBarrierType::SATB,
+            barrier_type: WriteBarrierType::Atomic,
             enable_incremental: true,
         }
     }
@@ -68,7 +69,7 @@ impl BootGcConfig {
         Self {
             num_workers: 2,
             target_pause_us: 50_000, // More lenient for development
-            barrier_type: WriteBarrierType::SATB,
+            barrier_type: WriteBarrierType::Atomic,
             enable_incremental: true,
         }
     }
@@ -78,7 +79,7 @@ impl BootGcConfig {
         Self {
             num_workers: 1,
             target_pause_us: 100_000, // Very lenient for testing
-            barrier_type: WriteBarrierType::SATB,
+            barrier_type: WriteBarrierType::Atomic,
             enable_incremental: false, // Disable for simpler testing
         }
     }

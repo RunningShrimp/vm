@@ -53,18 +53,10 @@ pub use async_executor::{
     AsyncExecutionContext, ExecutionResult, ExecutionStats, ExecutorType, HybridExecutor,
     InterpreterExecutor, JitExecutor,
 };
-
 // Coroutine re-exports
 pub use coroutine::{
     Coroutine, CoroutineId, CoroutineState, Scheduler, SchedulerStats, VCPU, VCPUState, VCPUStats,
 };
-
-// Distributed re-exports (only available with async feature)
-#[cfg(feature = "async")]
-pub use distributed::{
-    DistributedArchitectureConfig, VmCoordinator, VmMessage, initialize_distributed_environment,
-};
-
 #[cfg(feature = "async")]
 pub use distributed::architecture::{FaultToleranceConfig, LoadBalancingStrategy};
 #[cfg(feature = "async")]
@@ -75,3 +67,8 @@ pub use distributed::fault_tolerance::FaultToleranceManager;
 pub use distributed::protocol::{TaskId, TaskInfo, TaskStatus, TaskType, VmCapabilities};
 #[cfg(feature = "async")]
 pub use distributed::scheduler::TaskScheduler;
+// Distributed re-exports (only available with async feature)
+#[cfg(feature = "async")]
+pub use distributed::{
+    DistributedArchitectureConfig, VmCoordinator, VmMessage, initialize_distributed_environment,
+};

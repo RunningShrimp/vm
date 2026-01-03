@@ -463,10 +463,14 @@ mod tests {
         };
 
         // Update the TLB with the entry.
-        tlb.update(va, entry).await.expect("Failed to update TLB");
+        tlb.update(va, entry).await.unwrap_or_else(|e| {
+            panic!("Failed to update TLB: {}", e);
+        });
 
         // Translate the virtual address.
-        let pa = tlb.translate(va, AccessType::Read).await.expect("Failed to translate address");
+        let pa = tlb.translate(va, AccessType::Read).await.unwrap_or_else(|e| {
+            panic!("Failed to translate address: {}", e);
+        });
 
         // Verify the translation result.
         assert_eq!(pa, 0x56789000);
@@ -487,10 +491,14 @@ mod tests {
         };
 
         // Update the TLB with the entry.
-        tlb.update(va, entry).await.expect("Failed to update TLB");
+        tlb.update(va, entry).await.unwrap_or_else(|e| {
+            panic!("Failed to update TLB: {}", e);
+        });
 
         // Flush the entry.
-        tlb.flush(va).await.expect("Failed to flush TLB entry");
+        tlb.flush(va).await.unwrap_or_else(|e| {
+            panic!("Failed to flush TLB entry: {}", e);
+        });
 
         // Attempt to translate the virtual address.
         let result = tlb.translate(va, AccessType::Read).await;
@@ -519,11 +527,15 @@ mod tests {
                 flags: 0x00000003, // Read/Write permissions.
                 asid,
             };
-            tlb.update(va, entry).await.expect("Failed to update TLB");
+            tlb.update(va, entry).await.unwrap_or_else(|e| {
+                panic!("Failed to update TLB: {}", e);
+            });
         }
 
         // Flush all entries.
-        tlb.flush_all().await.expect("Failed to flush all TLB entries");
+        tlb.flush_all().await.unwrap_or_else(|e| {
+            panic!("Failed to flush all TLB entries: {}", e);
+        });
 
         // Attempt to translate the virtual addresses.
         for (va, _, _) in entries {

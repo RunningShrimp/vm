@@ -2,8 +2,9 @@
 //!
 //! This module provides fault tolerance capabilities for distributed VMs.
 
-use crate::executor::distributed::protocol::{TaskId, VmId};
 use std::sync::Arc;
+
+use crate::executor::distributed::protocol::{TaskId, VmId};
 
 /// Fault tolerance manager
 #[derive(Debug, Clone)]

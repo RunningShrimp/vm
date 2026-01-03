@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+
 use thiserror::Error;
 use wgpu;
 

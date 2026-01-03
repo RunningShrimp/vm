@@ -2,9 +2,11 @@
 //!
 //! 利用 Capstone 库进行多 ISA 指令解码，输出规范化的指令表示。
 
-use crate::lift::LiftResult;
 use std::fmt;
+
 use vm_core::{CoreError, VmError};
+
+use crate::lift::LiftResult;
 
 /// 支持的 ISA 类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

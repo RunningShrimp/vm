@@ -2,7 +2,7 @@
 //!
 //! 测试各种错误情况和边界条件
 
-use vm_core::{VmConfig, GuestArch};
+use vm_core::{GuestArch, VmConfig};
 use vm_service::VmService;
 
 /// 创建测试配置
@@ -125,9 +125,9 @@ async fn test_vm_run_at_invalid_address() {
 
     // 测试在无效地址运行
     let invalid_addresses = vec![
-        0,           // 地址0
-        u64::MAX,    // 最大地址
-        0xFFFFFFFF,  // 接近边界
+        0,          // 地址0
+        u64::MAX,   // 最大地址
+        0xFFFFFFFF, // 接近边界
     ];
 
     for addr in invalid_addresses {
@@ -255,10 +255,7 @@ async fn test_vm_multiple_snapshot_calls() {
 
     // 多次创建快照（应该都失败，因为功能禁用）
     for i in 0..5 {
-        let result = vm.create_snapshot(
-            format!("snapshot_{}", i),
-            format!("Test snapshot {}", i),
-        );
+        let result = vm.create_snapshot(format!("snapshot_{}", i), format!("Test snapshot {}", i));
         assert!(result.is_err());
     }
 

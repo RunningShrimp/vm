@@ -42,9 +42,10 @@ impl Default for VirtioNetConfig {
 // ============================================================================
 #[cfg(feature = "smoltcp")]
 mod smoltcp_backend {
+    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
+
     use super::*;
     use crate::virtio::Queue;
-    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
 
     pub struct SmoltcpBackend {
         mac: [u8; 6],
@@ -219,11 +220,13 @@ mod smoltcp_backend {
 // ============================================================================
 #[cfg(all(target_os = "linux", not(feature = "smoltcp")))]
 mod tap_backend {
+    use std::ffi::CString;
+
+    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
+
     use super::*;
     use crate::mmu_util::MmuUtil;
     use crate::virtio::Queue;
-    use std::ffi::CString;
-    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
 
     pub struct TapBackend {
         name: String,
@@ -458,11 +461,13 @@ mod tap_backend {
 // ============================================================================
 #[cfg(all(feature = "smoltcp", target_os = "linux"))]
 mod combined_backend {
+    use std::ffi::CString;
+
+    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
+
     use super::*;
     use crate::mmu_util::MmuUtil;
     use crate::virtio::Queue;
-    use std::ffi::CString;
-    use vm_core::{MMU, MmioDevice, PlatformError, VmError, VmResult};
 
     pub struct SmoltcpBackend {
         mac: [u8; 6],
@@ -733,16 +738,14 @@ mod combined_backend {
 // ============================================================================
 
 // smoltcp-only exports
-#[cfg(all(feature = "smoltcp", not(target_os = "linux")))]
-pub use smoltcp_backend::{SmoltcpBackend, VirtioNet};
-
-// TAP-only exports
-#[cfg(all(target_os = "linux", not(feature = "smoltcp")))]
-pub use tap_backend::{TapBackend, VirtioNet};
-
 // combined exports
 #[cfg(all(feature = "smoltcp", target_os = "linux"))]
 pub use combined_backend::{SmoltcpBackend, TapBackend, VirtioNet};
+#[cfg(all(feature = "smoltcp", not(target_os = "linux")))]
+pub use smoltcp_backend::{SmoltcpBackend, VirtioNet};
+// TAP-only exports
+#[cfg(all(target_os = "linux", not(feature = "smoltcp")))]
+pub use tap_backend::{TapBackend, VirtioNet};
 
 // ============================================================================
 // Error types

@@ -19,7 +19,6 @@
 //! - 支持所有5种IEEE舍入模式
 //! - 支持浮点异常标志
 
-
 use vm_core::{VmError, VmResult};
 
 /// 浮点寄存器（32个，f0-f31）
@@ -30,9 +29,7 @@ pub struct FPRegisters {
 
 impl Default for FPRegisters {
     fn default() -> Self {
-        Self {
-            regs: [0.0; 32],
-        }
+        Self { regs: [0.0; 32] }
     }
 }
 
@@ -95,11 +92,21 @@ impl FFlags {
     /// 转换为u32表示
     pub fn to_bits(&self) -> u32 {
         let mut bits = 0u32;
-        if self.nv { bits |= 0x10; }
-        if self.dz { bits |= 0x08; }
-        if self.of { bits |= 0x04; }
-        if self.uf { bits |= 0x02; }
-        if self.nx { bits |= 0x01; }
+        if self.nv {
+            bits |= 0x10;
+        }
+        if self.dz {
+            bits |= 0x08;
+        }
+        if self.of {
+            bits |= 0x04;
+        }
+        if self.uf {
+            bits |= 0x02;
+        }
+        if self.nx {
+            bits |= 0x01;
+        }
         bits
     }
 
@@ -132,7 +139,6 @@ pub enum RoundingMode {
     /// 四舍五入到最接近（Round to Nearest, ties away from zero）
     RMM = 4,
 }
-
 
 impl RoundingMode {
     /// 从u32值创建舍入模式
@@ -399,7 +405,13 @@ impl FExtensionExecutor {
     /// FEQ.S - 浮点相等比较（Floating-Point Equal)
     ///
     /// 比较两个浮点数是否相等
-    pub fn exec_feq_s(&mut self, rd: usize, rs1: usize, rs2: usize, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_feq_s(
+        &mut self,
+        rd: usize,
+        rs1: usize,
+        rs2: usize,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         let a = self.fp_regs.get(rs1);
         let b = self.fp_regs.get(rs2);
 
@@ -419,7 +431,13 @@ impl FExtensionExecutor {
     /// FLT.S - 浮点小于比较（Floating-Point Less Than）
     ///
     /// 比较第一个浮点数是否小于第二个
-    pub fn exec_flt_s(&mut self, rd: usize, rs1: usize, rs2: usize, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_flt_s(
+        &mut self,
+        rd: usize,
+        rs1: usize,
+        rs2: usize,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         let a = self.fp_regs.get(rs1);
         let b = self.fp_regs.get(rs2);
 
@@ -438,7 +456,13 @@ impl FExtensionExecutor {
     /// FLE.S - 浮点小于等于比较（Floating-Point Less Than or Equal）
     ///
     /// 比较第一个浮点数是否小于或等于第二个
-    pub fn exec_fle_s(&mut self, rd: usize, rs1: usize, rs2: usize, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_fle_s(
+        &mut self,
+        rd: usize,
+        rs1: usize,
+        rs2: usize,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         let a = self.fp_regs.get(rs1);
         let b = self.fp_regs.get(rs2);
 
@@ -457,7 +481,12 @@ impl FExtensionExecutor {
     /// FCVT.W.S - 浮点转有符号整数（Float to Signed Integer）
     ///
     /// 将单精度浮点数转换为32位有符号整数
-    pub fn exec_fcvt_w_s(&mut self, rd: usize, rs1: usize, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_fcvt_w_s(
+        &mut self,
+        rd: usize,
+        rs1: usize,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         let a = self.fp_regs.get(rs1);
 
         if a.is_nan() || a.is_infinite() {
@@ -500,7 +529,12 @@ impl FExtensionExecutor {
     /// FCVT.WU.S - 浮点转无符号整数（Float to Unsigned Integer）
     ///
     /// 将单精度浮点数转换为32位无符号整数
-    pub fn exec_fcvt_wu_s(&mut self, rd: usize, rs1: usize, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_fcvt_wu_s(
+        &mut self,
+        rd: usize,
+        rs1: usize,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         let a = self.fp_regs.get(rs1);
 
         if a.is_nan() || a.is_infinite() {
@@ -542,7 +576,12 @@ impl FExtensionExecutor {
     /// FMV.X.W - 浮点寄存器到整数寄存器（Floating-Point Move to Integer）
     ///
     /// 将浮点寄存器的位表示移动到整数寄存器
-    pub fn exec_fmv_x_w(&mut self, rd: usize, rs1: usize, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_fmv_x_w(
+        &mut self,
+        rd: usize,
+        rs1: usize,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         let bits = self.fp_regs.get_bits(rs1);
         set_reg(rd, bits as u64);
         Ok(())
@@ -560,7 +599,12 @@ impl FExtensionExecutor {
     /// FCLASS.S - 浮点分类（Floating-Point Classify）
     ///
     /// 对浮点数进行分类，返回10位分类码
-    pub fn exec_fclass_s(&mut self, rd: usize, rs1: usize, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_fclass_s(
+        &mut self,
+        rd: usize,
+        rs1: usize,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         let a = self.fp_regs.get(rs1);
 
         let mut result = 0u64;
@@ -593,12 +637,10 @@ impl FExtensionExecutor {
                 } else {
                     result |= 0x010; // 负正常数
                 }
+            } else if a.abs() < f32::MIN_POSITIVE {
+                result |= 0x040; // 正次 normal
             } else {
-                if a.abs() < f32::MIN_POSITIVE {
-                    result |= 0x040; // 正次 normal
-                } else {
-                    result |= 0x020; // 正正常数
-                }
+                result |= 0x020; // 正正常数
             }
         }
 
@@ -618,7 +660,12 @@ impl FExtensionExecutor {
     /// FSCSR - 写入FCSR（Swap Float-Point Control and Status Register）
     ///
     /// 将整数寄存器的值写入FCSR，并返回旧值
-    pub fn exec_fscsr(&mut self, rd: usize, rs1: u64, set_reg: &mut dyn Fn(usize, u64)) -> VmResult<()> {
+    pub fn exec_fscsr(
+        &mut self,
+        rd: usize,
+        rs1: u64,
+        set_reg: &mut dyn FnMut(usize, u64),
+    ) -> VmResult<()> {
         // 读取旧值
         let old_bits = (self.fcsr.rm.to_bits() << 5) | self.fcsr.flags.to_bits();
 
@@ -863,7 +910,9 @@ mod tests {
         let reg = Cell::new(0u64);
 
         executor.fp_regs.set(1, f32::INFINITY);
-        executor.exec_fclass_s(2, 1, &mut |_, v| reg.set(v)).unwrap();
+        executor
+            .exec_fclass_s(2, 1, &mut |_, v| reg.set(v))
+            .unwrap();
         assert_eq!(reg.get(), 0x100); // 正无穷
     }
 
@@ -874,7 +923,9 @@ mod tests {
         let reg = Cell::new(0u64);
 
         executor.fp_regs.set(1, f32::NAN);
-        executor.exec_fclass_s(2, 1, &mut |_, v| reg.set(v)).unwrap();
+        executor
+            .exec_fclass_s(2, 1, &mut |_, v| reg.set(v))
+            .unwrap();
         assert_eq!(reg.get(), 0x200); // 正NaN
     }
 
@@ -885,7 +936,9 @@ mod tests {
         let reg = Cell::new(0u64);
 
         executor.fp_regs.set(1, 0.0);
-        executor.exec_fclass_s(2, 1, &mut |_, v| reg.set(v)).unwrap();
+        executor
+            .exec_fclass_s(2, 1, &mut |_, v| reg.set(v))
+            .unwrap();
         assert_eq!(reg.get(), 0x080); // 正零
     }
 
@@ -905,7 +958,9 @@ mod tests {
         use std::cell::Cell;
         let reg = Cell::new(0u64);
 
-        executor.exec_fscsr(1, 0x15, &mut |_, v| reg.set(v)).unwrap();
+        executor
+            .exec_fscsr(1, 0x15, &mut |_, v| reg.set(v))
+            .unwrap();
         assert_eq!(executor.fcsr.rm, RoundingMode::RDN); // (0x15 >> 5) & 0x7 = 2
         assert_eq!(executor.fcsr.flags.nx, true); // 0x15 & 0x01 = 1
     }

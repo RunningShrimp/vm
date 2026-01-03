@@ -2,9 +2,11 @@
 //!
 //! 提供插件依赖关系解析和版本兼容性检查
 
-use crate::{PluginId, PluginMetadata, PluginVersion};
 use std::collections::HashMap;
+
 use vm_core::VmError;
+
+use crate::{PluginId, PluginMetadata, PluginVersion};
 
 /// 依赖解析器
 pub struct DependencyResolver {

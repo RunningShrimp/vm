@@ -5,15 +5,15 @@
 //! 此模块需要 `async` feature 支持。
 
 #[cfg(feature = "async")]
-use parking_lot::Mutex;
-#[cfg(feature = "async")]
 use std::sync::Arc;
-#[cfg(feature = "async")]
-use vm_core::{GuestAddr, MMU, VmError};
 
+#[cfg(feature = "async")]
+use parking_lot::Mutex;
 // Tokio async primitives (only available with async feature)
 #[cfg(feature = "async")]
 use tokio::sync::mpsc;
+#[cfg(feature = "async")]
+use vm_core::{GuestAddr, MMU, VmError};
 
 /// 异步设备I/O管理器
 ///

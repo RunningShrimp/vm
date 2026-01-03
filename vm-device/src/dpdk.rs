@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::ptr;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{
     DeviceError, GuestAddr, GuestPhysAddr, MMU, MemoryError, MmioDevice, VmError, VmResult,
 };

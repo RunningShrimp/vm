@@ -2,7 +2,7 @@
 //!
 //! 缓存编译后的代码，避免重复编译相同的IR块。
 
-use crate::compiler_backend::{CompilerBackend, CompilerError};
+use crate::compiler_backend::CompilerError;
 use vm_ir::IRBlock;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -55,30 +55,31 @@ impl CompileCache {
     /// 插入缓存
     pub fn insert(&mut self, hash: u64, code: Vec<u8>) {
         // 检查缓存是否已满
-        if self.current_size + code.len() > self.max_size {
+        let code_len = code.len();
+        if self.current_size + code_len > self.max_size {
             self.evict_lru();
         }
-        
+
         self.cache.insert(hash, code);
-        self.current_size += code.len();
+        self.current_size += code_len;
     }
     
     /// 计算IR块的哈希值
     fn calculate_hash(&self, block: &IRBlock) -> u64 {
         let mut hasher = DefaultHasher::new();
-        
-        // 哈希块名称
-        block.name.hash(&mut hasher);
-        
+
+        // 哈希块地址
+        block.start_pc.hash(&mut hasher);
+
         // 哈希操作
         for op in &block.ops {
             // 简化实现：使用操作类型的哈希
             std::mem::discriminant(op).hash(&mut hasher);
         }
-        
+
         // 哈希终止符
-        std::mem::discriminant(&block.terminator).hash(&mut hasher);
-        
+        std::mem::discriminant(&block.term).hash(&mut hasher);
+
         hasher.finish()
     }
     
@@ -120,6 +121,26 @@ impl CompileCache {
             current_size: self.current_size,
             max_size: self.max_size,
         }
+    }
+
+    /// 检查缓存中是否存在指定的哈希值
+    pub fn contains_key(&self, hash: &u64) -> bool {
+        self.cache.contains_key(hash)
+    }
+
+    /// 获取指定哈希值的编译代码
+    pub fn get(&self, hash: &u64) -> Option<&Vec<u8>> {
+        self.cache.get(hash)
+    }
+
+    /// 获取缓存中的条目数量
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// 检查缓存是否为空
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
     }
 }
 
@@ -169,24 +190,24 @@ mod tests {
     #[test]
     fn test_compile_cache() {
         let mut cache = CompileCache::new(1024);
-        
+
         // 创建测试块
         let block = IRBlock {
-            name: "test_block".to_string(),
+            start_pc: vm_ir::GuestAddr(0x1000),
             ops: vec![],
-            terminator: vm_ir::Terminator::Ret { value: None },
+            term: vm_ir::Terminator::Ret,
         };
-        
+
         // 第一次编译（缓存未命中）
         let result1 = cache.get_or_compile(&block, |_| Ok(vec![1, 2, 3]));
         assert!(result1.is_ok());
         assert_eq!(result1.unwrap(), vec![1, 2, 3]);
-        
+
         // 第二次获取相同块（缓存命中）
         let result2 = cache.get_or_compile(&block, |_| panic!("Should not compile"));
         assert!(result2.is_ok());
         assert_eq!(result2.unwrap(), vec![1, 2, 3]);
-        
+
         // 验证统计信息
         let stats = cache.get_stats();
         assert_eq!(stats.hits, 1);

@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{
     GuestAddr, GuestVAddr, HostPtr, VmError, VmResult,
     event_sourcing::{Event, EventId, EventMetadata, EventStore, InMemoryEventStore},

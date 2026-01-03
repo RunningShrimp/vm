@@ -3,8 +3,9 @@
 //! This module provides comprehensive snapshot management for VM system,
 //! including metadata management, data persistence, and snapshot-based replay optimization.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 pub mod base;
 

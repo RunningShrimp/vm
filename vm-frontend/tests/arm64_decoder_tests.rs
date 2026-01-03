@@ -9,7 +9,6 @@
 
 mod test_mmu;
 use test_mmu::TestMMU;
-
 use vm_core::{Decoder, GuestAddr};
 use vm_frontend::arm64::Arm64Decoder;
 

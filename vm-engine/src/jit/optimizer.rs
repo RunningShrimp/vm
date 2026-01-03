@@ -3,6 +3,7 @@
 //! 提供真实的IR优化实现，包括常量折叠、死代码消除、公共子表达式消除等
 
 use std::collections::{HashMap, HashSet};
+
 use vm_core::VmError;
 use vm_ir::{IRBlock, IROp, RegId};
 
@@ -48,6 +49,7 @@ pub enum OptimizationLevel {
 
 /// 优化统计
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // Public API for optimization statistics
 pub struct OptimizationStats {
     /// 原始指令数量
     pub original_insn_count: usize,
@@ -233,6 +235,7 @@ impl DefaultIROptimizer {
     ///
     /// 将常量运算在编译时求值
     /// 简化实现：标记常量操作为已优化
+    #[allow(dead_code)]
     fn constant_folding(&self, ops: &[IROp]) -> (Vec<IROp>, bool) {
         let mut new_ops = Vec::new();
         let changed = false;
@@ -255,6 +258,7 @@ impl DefaultIROptimizer {
     /// 死代码消除
     ///
     /// 移除不会被执行的代码
+    #[allow(dead_code)]
     fn dead_code_elimination(&self, ops: &[IROp]) -> (Vec<IROp>, bool) {
         let mut live_vars = HashSet::new();
         let mut new_ops = Vec::new();
@@ -294,6 +298,7 @@ impl DefaultIROptimizer {
     /// 公共子表达式消除
     ///
     /// 将重复计算的表达式缓存起来
+    #[allow(dead_code)]
     fn common_subexpression_elimination(&mut self, ops: &[IROp]) -> (Vec<IROp>, bool) {
         // 简化实现：查找完全相同的连续操作
         let mut new_ops = Vec::new();
@@ -321,6 +326,7 @@ impl DefaultIROptimizer {
     /// 强度削弱
     ///
     /// 将昂贵的运算替换为等价的廉价运算
+    #[allow(dead_code)]
     fn strength_reduction(&self, ops: &[IROp]) -> (Vec<IROp>, bool) {
         let mut new_ops = Vec::new();
         let changed = false;
@@ -345,6 +351,7 @@ impl DefaultIROptimizer {
     }
 
     /// 收集操作中使用的变量
+    #[allow(dead_code)]
     fn collect_used_vars(&self, op: &IROp, live_vars: &mut HashSet<RegId>) {
         match op {
             IROp::Add { dst, src1, src2 }

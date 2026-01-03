@@ -2,17 +2,19 @@
 //!
 //! 整合多级TLB、并发TLB和页表缓存，实现高性能内存管理
 
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use parking_lot::RwLock;
+use vm_core::error::VmError;
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MmioDevice};
+use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, TlbManager};
+
 use crate::memory::page_table_walker::{Sv39PageTableWalker, Sv48PageTableWalker};
 use crate::tlb::core::concurrent::{ConcurrentTlbConfig, ConcurrentTlbManagerAdapter};
 use crate::tlb::core::unified::{MultiLevelTlbAdapter, MultiLevelTlbConfig};
 use crate::{PAGE_SHIFT, PAGE_SIZE, PagingMode, PhysicalMemory, pte_flags};
-use parking_lot::RwLock;
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use vm_core::error::VmError;
-use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MmioDevice};
-use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, TlbManager};
 
 /// 页表缓存条目
 #[derive(Debug, Clone)]
@@ -795,7 +797,8 @@ impl UnifiedMmu {
                 AccessType::Read => pte_flags::R,
                 AccessType::Write => pte_flags::W,
                 AccessType::Execute => pte_flags::X,
-                AccessType::Atomic => pte_flags::R | pte_flags::W, // Atomic operations need both R and W bits
+                AccessType::Atomic => pte_flags::R | pte_flags::W, /* Atomic operations need both
+                                                                    * R and W bits */
             };
 
             if flags & required == 0 {
@@ -863,7 +866,8 @@ impl UnifiedMmu {
             AccessType::Read => pte_flags::R,
             AccessType::Write => pte_flags::W,
             AccessType::Execute => pte_flags::X,
-            AccessType::Atomic => pte_flags::R | pte_flags::W, // Atomic operations need both R and W bits
+            AccessType::Atomic => pte_flags::R | pte_flags::W, /* Atomic operations need both R
+                                                                * and W bits */
         };
 
         if flags & required == 0 {

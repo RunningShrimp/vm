@@ -2,24 +2,28 @@
 //!
 //! 提供跨平台的内存映射、内存保护和管理功能
 //! 从 vm-osal 模块迁移而来
+//!
+//! This module now uses the unified error handling framework from vm-core.
 
 use std::sync::atomic::{Ordering, fence};
+
+use vm_core::{MemoryError as VmMemoryError, VmError};
 
 // ============================================================================
 // 内存屏障
 // ============================================================================
 
-/// 内存屏障：获取语义
+/// 内存屏障:获取语义
 pub fn barrier_acquire() {
     fence(Ordering::Acquire);
 }
 
-/// 内存屏障：释放语义
+/// 内存屏障:释放语义
 pub fn barrier_release() {
     fence(Ordering::Release);
 }
 
-/// 内存屏障：完全屏障
+/// 内存屏障:完全屏障
 pub fn barrier_full() {
     fence(Ordering::SeqCst);
 }
@@ -68,32 +72,8 @@ impl MemoryProtection {
 // 内存映射抽象
 // ============================================================================
 
-/// 内存映射结果
-pub type MemoryResult<T> = Result<T, MemoryError>;
-
-/// 内存错误类型
-#[derive(Debug)]
-pub enum MemoryError {
-    AllocationFailed,
-    ProtectionFailed,
-    InvalidAddress,
-    InvalidSize,
-    OsError(i32),
-}
-
-impl std::fmt::Display for MemoryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MemoryError::AllocationFailed => write!(f, "Memory allocation failed"),
-            MemoryError::ProtectionFailed => write!(f, "Memory protection change failed"),
-            MemoryError::InvalidAddress => write!(f, "Invalid memory address"),
-            MemoryError::InvalidSize => write!(f, "Invalid memory size"),
-            MemoryError::OsError(code) => write!(f, "OS error: {}", code),
-        }
-    }
-}
-
-impl std::error::Error for MemoryError {}
+/// 内存映射结果 - using unified VmError
+pub type MemoryResult<T> = Result<T, VmError>;
 
 /// 跨平台内存映射结构
 pub struct MappedMemory {
@@ -144,7 +124,11 @@ impl MappedMemory {
         };
 
         if ptr == libc::MAP_FAILED {
-            return Err(MemoryError::AllocationFailed);
+            return Err(VmMemoryError::AllocationFailed {
+                message: "mmap failed".to_string(),
+                size: Some(size),
+            }
+            .into());
         }
 
         Ok(Self {
@@ -185,7 +169,11 @@ impl MappedMemory {
         };
 
         if ptr.is_null() {
-            return Err(MemoryError::AllocationFailed);
+            return Err(VmMemoryError::AllocationFailed {
+                message: "VirtualAlloc failed".to_string(),
+                size: Some(size),
+            }
+            .into());
         }
 
         Ok(Self {
@@ -221,7 +209,11 @@ impl MappedMemory {
 
         let ret = unsafe { libc::mprotect(self.ptr as *mut _, self.size, flags) };
         if ret != 0 {
-            return Err(MemoryError::ProtectionFailed);
+            return Err(VmMemoryError::ProtectionFailed {
+                message: "mprotect failed".to_string(),
+                addr: None,
+            }
+            .into());
         }
         Ok(())
     }
@@ -251,7 +243,11 @@ impl MappedMemory {
             unsafe { VirtualProtect(self.ptr as *mut _, self.size, protect, &mut old_protect) };
 
         if ret == 0 {
-            return Err(MemoryError::ProtectionFailed);
+            return Err(VmMemoryError::ProtectionFailed {
+                message: "VirtualProtect failed".to_string(),
+                addr: None,
+            }
+            .into());
         }
         Ok(())
     }
@@ -275,11 +271,11 @@ impl MappedMemory {
     ///
     /// # Safety
     ///
-    /// 调用者必须确保：
+    /// 调用者必须确保:
     /// 1. `self.ptr` 指针在整个生命周期内保持有效
     /// 2. `self.size` 的大小是正确的
     /// 3. 指针指向的内存范围是可读的
-    /// 4. 在此切片存在期间，不会调用任何可能改变 `self.ptr` 的方法（如 `protect`）
+    /// 4. 在此切片存在期间,不会调用任何可能改变 `self.ptr` 的方法(如 `protect`)
     pub unsafe fn as_slice(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.ptr, self.size) }
     }
@@ -288,12 +284,12 @@ impl MappedMemory {
     ///
     /// # Safety
     ///
-    /// 调用者必须确保：
+    /// 调用者必须确保:
     /// 1. `self.ptr` 指针在整个生命周期内保持有效
     /// 2. `self.size` 的大小是正确的
     /// 3. 指针指向的内存范围是可读写的
-    /// 4. 内存当前处于可写状态（通过 `protect` 方法已设置适当的权限）
-    /// 5. 在此切片存在期间，不会调用任何可能改变 `self.ptr` 的方法
+    /// 4. 内存当前处于可写状态(通过 `protect` 方法已设置适当的权限)
+    /// 5. 在此切片存在期间,不会调用任何可能改变 `self.ptr` 的方法
     /// 6. 没有其他可变引用指向此内存
     pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size) }
@@ -325,7 +321,7 @@ impl Drop for MappedMemory {
 // JIT 代码内存
 // ============================================================================
 
-/// JIT 代码内存（支持 W^X）
+/// JIT 代码内存(支持 W^X)
 pub struct JitMemory {
     mem: MappedMemory,
     is_executable: bool,
@@ -365,7 +361,17 @@ impl JitMemory {
         self.make_writable()?;
 
         if offset + data.len() > self.mem.size() {
-            return Err(MemoryError::InvalidSize);
+            return Err(VmMemoryError::AccessViolation {
+                addr: vm_core::GuestAddr(offset as u64),
+                msg: format!(
+                    "Write exceeds memory size: offset={}, len={}, size={}",
+                    offset,
+                    data.len(),
+                    self.mem.size()
+                ),
+                access_type: None,
+            }
+            .into());
         }
 
         unsafe {
@@ -380,12 +386,12 @@ impl JitMemory {
     ///
     /// # Safety
     ///
-    /// 调用者必须确保：
+    /// 调用者必须确保:
     /// 1. `offset` 指向的位置已写入有效的机器代码
     /// 2. 代码大小至少为 `std::mem::size_of::<T>()` 字节
     /// 3. 目标代码与类型 `T` 兼容
-    /// 4. 调用返回的函数指针前，必须先调用 `make_executable()` 确保代码区域可执行
-    /// 5. 在函数指针使用期间，JitMemory 必须保持有效，不会被释放或修改
+    /// 4. 调用返回的函数指针前,必须先调用 `make_executable()` 确保代码区域可执行
+    /// 5. 在函数指针使用期间,JitMemory 必须保持有效,不会被释放或修改
     pub unsafe fn get_fn<T>(&self, offset: usize) -> T {
         unsafe {
             let ptr = self.mem.as_ptr().add(offset);

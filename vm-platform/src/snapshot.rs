@@ -7,13 +7,12 @@
 
 use std::path::PathBuf;
 
+use vm_core::VmError;
 // Re-export vm-core snapshot types
 pub use vm_core::snapshot::base::{
     MemorySnapshot, SnapshotError, SnapshotFileManager, SnapshotMetadata as CoreSnapshotMetadata,
     VcpuSnapshot, VmSnapshot as CoreVmSnapshot,
 };
-
-use vm_core::VmError;
 
 /// vm-platform 快照元数据（包装 vm-core 的 SnapshotMetadata）
 #[derive(Debug, Clone)]

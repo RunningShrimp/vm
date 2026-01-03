@@ -2,13 +2,14 @@
 //!
 //! 支持 Intel 和 Apple Silicon (M系列)
 
-use super::{Accel, AccelError};
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
+use std::ptr;
+
 use vm_core::error::CoreError;
 use vm_core::{GuestRegs, MMU, VmError};
 
-#[cfg(target_os = "macos")]
-use std::ptr;
+use super::{Accel, AccelError};
 
 // Hypervisor.framework FFI 绑定
 #[cfg(target_os = "macos")]
@@ -188,6 +189,26 @@ pub enum HvfError {
     ExitReadError(String),
 }
 
+impl From<HvfError> for VmError {
+    fn from(err: HvfError) -> Self {
+        match err {
+            HvfError::InvalidVcpu(id) => VmError::Core(CoreError::InvalidParameter {
+                name: "vcpu_id".to_string(),
+                value: format!("{}", id),
+                message: "Invalid vCPU ID in HVF".to_string(),
+            }),
+            HvfError::VcpuError(msg) => VmError::Core(CoreError::Internal {
+                message: format!("HVF vCPU operation failed: {}", msg),
+                module: "vm-accel::hvf".to_string(),
+            }),
+            HvfError::ExitReadError(msg) => VmError::Core(CoreError::Internal {
+                message: format!("HVF exit read failed: {}", msg),
+                module: "vm-accel::hvf".to_string(),
+            }),
+        }
+    }
+}
+
 // 内存权限标志
 #[cfg(target_os = "macos")]
 const HV_MEMORY_READ: u64 = 1 << 0;
@@ -247,8 +268,8 @@ impl HvfVcpu {
     pub fn new(_id: u32) -> Result<Self, AccelError> {
         let mut vcpu_id: u32 = 0;
         // SAFETY: hv_vcpu_create is an extern C function from Hypervisor.framework
-        // Preconditions: &mut vcpu_id must be valid for writing, exit and config pointers may be null
-        // Returns: HV_SUCCESS on success, error code otherwise
+        // Preconditions: &mut vcpu_id must be valid for writing, exit and config pointers may be
+        // null Returns: HV_SUCCESS on success, error code otherwise
         let ret = unsafe { hv_vcpu_create(&mut vcpu_id, ptr::null_mut(), ptr::null_mut()) };
 
         if ret != HV_SUCCESS {
@@ -263,7 +284,7 @@ impl HvfVcpu {
 
     #[cfg(not(target_os = "macos"))]
     pub fn new(_id: u32) -> Result<Self, AccelError> {
-        Ok(Self { _id: _id })
+        Ok(Self { _id })
     }
 
     /// 获取寄存器
@@ -274,8 +295,8 @@ impl HvfVcpu {
         let mut regs = GuestRegs::default();
 
         // SAFETY: hv_vcpu_read_register is an extern C function from Hypervisor.framework
-        // Preconditions: self.id is a valid vCPU ID, register IDs are valid, pointers point to valid u64 memory
-        // Invariants: Reads register values into provided pointers
+        // Preconditions: self.id is a valid vCPU ID, register IDs are valid, pointers point to
+        // valid u64 memory Invariants: Reads register values into provided pointers
         unsafe {
             hv_vcpu_read_register(self.id, HV_X86_RIP, &mut regs.pc);
             hv_vcpu_read_register(self.id, HV_X86_RSP, &mut regs.sp);
@@ -307,8 +328,8 @@ impl HvfVcpu {
         let mut regs = GuestRegs::default();
 
         // SAFETY: hv_vcpu_get_reg is an extern C function from Hypervisor.framework
-        // Preconditions: self.id is a valid vCPU ID, register IDs are valid (HV_REG_X0 + i stays within range)
-        // Invariants: Reads register values into provided pointers
+        // Preconditions: self.id is a valid vCPU ID, register IDs are valid (HV_REG_X0 + i stays
+        // within range) Invariants: Reads register values into provided pointers
         unsafe {
             hv_vcpu_get_reg(self.id, HV_REG_PC, &mut regs.pc);
             hv_vcpu_get_reg(self.id, HV_REG_SP, &mut regs.sp);
@@ -368,8 +389,8 @@ impl HvfVcpu {
         use arm_regs::*;
 
         // SAFETY: hv_vcpu_set_reg is an extern C function from Hypervisor.framework
-        // Preconditions: self.id is a valid vCPU ID, register IDs are valid (HV_REG_X0 + i stays within range)
-        // Invariants: Writes register values to vCPU state
+        // Preconditions: self.id is a valid vCPU ID, register IDs are valid (HV_REG_X0 + i stays
+        // within range) Invariants: Writes register values to vCPU state
         unsafe {
             hv_vcpu_set_reg(self.id, HV_REG_PC, regs.pc);
             hv_vcpu_set_reg(self.id, HV_REG_SP, regs.sp);
@@ -765,7 +786,8 @@ impl Accel for AccelHvf {
 
             // SAFETY: hv_vm_map is an extern C function from Hypervisor.framework
             // Preconditions: hva is a valid host virtual address, gpa and size are properly aligned
-            // Invariants: Maps host memory into guest physical address space with specified permissions
+            // Invariants: Maps host memory into guest physical address space with specified
+            // permissions
             let ret =
                 unsafe { hv_vm_map(hva as *const std::ffi::c_void, gpa, size as usize, hv_flags) };
 
@@ -863,8 +885,8 @@ impl Drop for AccelHvf {
         #[cfg(target_os = "macos")]
         if self.initialized {
             // SAFETY: hv_vm_destroy is an extern C function from Hypervisor.framework
-            // Preconditions: VM was successfully created with hv_vm_create and initialized flag is true
-            // Invariants: Destroys VM and releases all resources
+            // Preconditions: VM was successfully created with hv_vm_create and initialized flag is
+            // true Invariants: Destroys VM and releases all resources
             unsafe {
                 hv_vm_destroy();
             }

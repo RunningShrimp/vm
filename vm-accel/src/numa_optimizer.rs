@@ -2,10 +2,11 @@
 //!
 //! 提供全面的 NUMA 感知内存分配、vCPU 调度和数据局部性优化
 
-use crate::vcpu_affinity::{CPUTopology, NUMAAwareAllocator, VCPUAffinityManager};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+
+use crate::vcpu_affinity::{CPUTopology, NUMAAwareAllocator, VCPUAffinityManager};
 
 /// NUMA 节点统计信息
 #[derive(Debug, Clone)]
@@ -445,11 +446,21 @@ impl NUMAOptimizer {
             let local_access_rate = node_stat.local_access_rate();
 
             if memory_usage > 0.9 {
-                suggestions.push(format!("Node {} memory usage is high ({:.1}%), consider adding more memory or rebalancing workloads", node_id, memory_usage * 100.0));
+                suggestions.push(format!(
+                    "Node {} memory usage is high ({:.1}%), consider adding more memory or \
+                     rebalancing workloads",
+                    node_id,
+                    memory_usage * 100.0
+                ));
             }
 
             if local_access_rate < 0.5 {
-                suggestions.push(format!("Node {} has low local access rate ({:.1}%), consider optimizing data placement", node_id, local_access_rate * 100.0));
+                suggestions.push(format!(
+                    "Node {} has low local access rate ({:.1}%), consider optimizing data \
+                     placement",
+                    node_id,
+                    local_access_rate * 100.0
+                ));
             }
 
             if node_stat.cache_miss_rate > 0.1 {

@@ -3,8 +3,9 @@
 //! 实现指令预解码缓存，用于缓存已解码的指令，以提高解码性能。
 //! 采用 LRU 替换策略管理缓存容量。
 
-use crate::IROp;
 use std::collections::HashMap;
+
+use crate::IROp;
 
 /// 预解码缓存条目
 #[derive(Clone, Debug)]

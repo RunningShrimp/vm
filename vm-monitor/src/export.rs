@@ -2,15 +2,16 @@
 //!
 //! 提供Prometheus、JSON文件等格式的指标导出功能
 
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-use crate::{MetricsCollector, PrometheusConfig, SystemMetrics};
-
 use async_trait::async_trait;
+
+use crate::{MetricsCollector, PrometheusConfig, SystemMetrics};
 
 /// 指标导出器trait
 #[async_trait]
@@ -70,12 +71,9 @@ impl PrometheusExporter {
     pub async fn gather_metrics(&self) -> Result<String> {
         // 简化版本，返回基本的指标格式
         let metrics = format!(
-            "# HELP fvp_jit_execution_rate JIT execution rate per second\n\
-             # TYPE fvp_jit_execution_rate gauge\n\
-             fvp_jit_execution_rate {}\n\
-             # HELP fvp_tlb_hit_rate TLB hit rate percentage\n\
-             # TYPE fvp_tlb_hit_rate gauge\n\
-             fvp_tlb_hit_rate {}\n",
+            "# HELP fvp_jit_execution_rate JIT execution rate per second\n# TYPE \
+             fvp_jit_execution_rate gauge\nfvp_jit_execution_rate {}\n# HELP fvp_tlb_hit_rate TLB \
+             hit rate percentage\n# TYPE fvp_tlb_hit_rate gauge\nfvp_tlb_hit_rate {}\n",
             0.0, // 实际应该从当前指标获取
             0.0
         );

@@ -10,8 +10,8 @@
 //! ## 使用示例
 //!
 //! ```rust,no_run
-//! use vm_cross_arch_support::encoding_cache::InstructionEncodingCache;
 //! use vm_cross_arch_support::Arch;
+//! use vm_cross_arch_support::encoding_cache::InstructionEncodingCache;
 //!
 //! let cache = InstructionEncodingCache::new();
 //!
@@ -20,8 +20,12 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, atomic::{AtomicU64, Ordering}};
 use std::num::NonZeroUsize;
+use std::sync::{
+    Arc, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
+
 use lru::LruCache;
 
 /// CPU架构
@@ -57,6 +61,8 @@ pub enum EncodingError {
 }
 
 /// 指令编码缓存
+#[allow(dead_code)]
+#[allow(clippy::type_complexity)]
 pub struct InstructionEncodingCache {
     /// 缓存：(arch, opcode, operands_hash) -> encoded_bytes
     cache: Arc<RwLock<HashMap<(Arch, u32, u64), Vec<u8>>>>,
@@ -146,12 +152,22 @@ impl InstructionEncodingCache {
 
     /// 编码ARM64指令（简化实现）
     fn encode_arm64(&self, insn: &Instruction) -> Result<Vec<u8>, EncodingError> {
-        Ok(vec![insn.opcode as u8, (insn.opcode >> 8) as u8, 0x00, 0xD4]) // 简化编码
+        Ok(vec![
+            insn.opcode as u8,
+            (insn.opcode >> 8) as u8,
+            0x00,
+            0xD4,
+        ]) // 简化编码
     }
 
     /// 编码RISC-V指令（简化实现）
     fn encode_riscv64(&self, insn: &Instruction) -> Result<Vec<u8>, EncodingError> {
-        Ok(vec![insn.opcode as u8, (insn.opcode >> 8) as u8, (insn.opcode >> 16) as u8, (insn.opcode >> 24) as u8])
+        Ok(vec![
+            insn.opcode as u8,
+            (insn.opcode >> 8) as u8,
+            (insn.opcode >> 16) as u8,
+            (insn.opcode >> 24) as u8,
+        ])
     }
 
     /// 使指定架构的缓存失效
@@ -240,7 +256,11 @@ mod tests {
 
         let hit_rate = cache.hit_rate();
         println!("Hit rate: {} (expected ~0.9)", hit_rate);
-        println!("Stats: hits={}, misses={}", cache.stats().hits.load(Ordering::Relaxed), cache.stats().misses.load(Ordering::Relaxed));
+        println!(
+            "Stats: hits={}, misses={}",
+            cache.stats().hits.load(Ordering::Relaxed),
+            cache.stats().misses.load(Ordering::Relaxed)
+        );
         // LRU cache: first call is miss, subsequent 9 calls are hits
         // So we have 9 hits / 10 total = 0.9 hit rate
         assert!((hit_rate - 0.9).abs() < 0.01);

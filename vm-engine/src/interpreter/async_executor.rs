@@ -6,21 +6,21 @@
 //! 此模块需要 `async` feature 支持。
 
 #[cfg(feature = "async")]
-use crate::interpreter::Interpreter;
+use std::sync::Arc;
+
 #[cfg(feature = "async")]
 use parking_lot::Mutex;
-#[cfg(feature = "async")]
-use std::sync::Arc;
 #[cfg(feature = "async")]
 use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, MMU, VmError};
 #[cfg(feature = "async")]
 use vm_ir::IRBlock;
-
 #[cfg(feature = "async")]
 use vm_ir::Terminator;
-
 #[cfg(test)]
 use vm_ir::Terminator;
+
+#[cfg(feature = "async")]
+use crate::interpreter::Interpreter;
 
 /// 异步执行统计信息
 #[derive(Clone, Debug, Default)]

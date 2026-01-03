@@ -2,11 +2,12 @@
 //!
 //! 覆盖边界条件、错误处理、并发访问等场景
 
-use vm_core::{GuestAddr, VmError, VmConfig, VmLifecycleState};
-use vm_service::snapshot_manager::SnapshotManager;
-use vm_service::execution_service::ExecutionService;
-use vm_service::device_service::DeviceService;
 use std::sync::Arc;
+
+use vm_core::{GuestAddr, VmConfig, VmError, VmLifecycleState};
+use vm_service::device_service::DeviceService;
+use vm_service::execution_service::ExecutionService;
+use vm_service::snapshot_manager::SnapshotManager;
 
 // ============================================================================
 // 错误处理测试（30个测试）
@@ -65,7 +66,9 @@ mod error_handling_tests {
     #[tokio::test]
     async fn test_device_service_attach_invalid_device() {
         let service = DeviceService::new();
-        let result = service.attach_device("invalid_device_type", "test_device").await;
+        let result = service
+            .attach_device("invalid_device_type", "test_device")
+            .await;
         assert!(result.is_err());
     }
 
@@ -387,7 +390,9 @@ mod error_handling_tests {
 
         // 测试带元数据的快照创建
         let metadata = serde_json::json!({"version": "1.0", "description": "test"});
-        let result = manager.create_snapshot_with_metadata("test_meta", metadata).await;
+        let result = manager
+            .create_snapshot_with_metadata("test_meta", metadata)
+            .await;
 
         // 可能成功或失败，取决于实现
         let _ = result;

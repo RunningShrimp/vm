@@ -2,9 +2,9 @@
 //!
 //! 使用proptest进行模糊测试和属性验证。
 
+use proptest::prelude::*;
 use vm_core::{GuestAddr, VmConfig};
 use vm_service::config_manager::ConfigManager;
-use proptest::prelude::*;
 
 // ============================================================================
 // 配置管理属性测试（20个属性测试）

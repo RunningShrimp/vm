@@ -2,11 +2,10 @@
 //!
 //! 测试分代垃圾回收的功能和性能
 
-use vm_optimizers::gc_generational_enhanced::{
-    Card, CardTable, GenerationalGCConfig, GenerationalGCStats,
-};
-use vm_optimizers::gc_incremental_enhanced::ObjectPtr;
 use std::sync::atomic::Ordering;
+
+use vm_gc::common::ObjectPtr;
+use vm_gc::generational::enhanced::{Card, CardTable, GenerationalGCConfig, GenerationalGCStats};
 
 // ============================================================================
 // CardTable测试
@@ -41,9 +40,9 @@ fn test_card_table_mark_dirty_multiple() {
     let mut card_table = CardTable::new(2048, 512);
 
     // 标记多个地址为脏
-    card_table.mark_dirty(0);      // 卡片0
-    card_table.mark_dirty(512);    // 卡片1
-    card_table.mark_dirty(1024);   // 卡片2
+    card_table.mark_dirty(0); // 卡片0
+    card_table.mark_dirty(512); // 卡片1
+    card_table.mark_dirty(1024); // 卡片2
 
     // 通过dirty_cards()迭代器验证脏卡片
     let dirty_cards: Vec<_> = card_table.dirty_cards().collect();
@@ -211,7 +210,9 @@ fn test_generational_gc_stats_minor_gc() {
 
     // 执行3次Minor GC，每次2ms
     stats.minor_gc_count.fetch_add(3, Ordering::Relaxed);
-    stats.minor_gc_time_ns.fetch_add(6_000_000, Ordering::Relaxed); // 6ms total
+    stats
+        .minor_gc_time_ns
+        .fetch_add(6_000_000, Ordering::Relaxed); // 6ms total
 
     // 平均Minor GC时间 = 6ms / 3 = 2ms
     assert_eq!(stats.avg_minor_gc_time_ms(), 2.0);
@@ -223,7 +224,9 @@ fn test_generational_gc_stats_major_gc() {
 
     // 执行2次Major GC，每次10ms
     stats.major_gc_count.fetch_add(2, Ordering::Relaxed);
-    stats.major_gc_time_ns.fetch_add(20_000_000, Ordering::Relaxed); // 20ms total
+    stats
+        .major_gc_time_ns
+        .fetch_add(20_000_000, Ordering::Relaxed); // 20ms total
 
     // 平均Major GC时间 = 20ms / 2 = 10ms
     assert_eq!(stats.avg_major_gc_time_ms(), 10.0);
@@ -401,9 +404,7 @@ fn test_gc_stats_concurrent_updates() {
                 stats_clone
                     .minor_gc_time_ns
                     .fetch_add(1_000_000, Ordering::Relaxed); // 1ms
-                stats_clone
-                    .promoted_objects
-                    .fetch_add(i, Ordering::Relaxed);
+                stats_clone.promoted_objects.fetch_add(i, Ordering::Relaxed);
                 stats_clone
                     .collected_objects
                     .fetch_add(i * 2, Ordering::Relaxed);
@@ -495,7 +496,9 @@ fn test_generational_gc_stats_large_values() {
     let stats = GenerationalGCStats::default();
 
     // 添加非常大的值
-    stats.minor_gc_count.fetch_add(u64::MAX / 2, Ordering::Relaxed);
+    stats
+        .minor_gc_count
+        .fetch_add(u64::MAX / 2, Ordering::Relaxed);
     stats
         .minor_gc_time_ns
         .fetch_add(u64::MAX / 2, Ordering::Relaxed);

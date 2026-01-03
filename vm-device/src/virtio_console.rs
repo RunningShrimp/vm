@@ -2,10 +2,12 @@
 //!
 //! 提供串口控制台功能，支持多端口和流控制
 
-use crate::virtio::{Queue, VirtioDevice};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{MMU, VmError};
+
+use crate::virtio::{Queue, VirtioDevice};
 
 /// VirtIO Console 设备
 pub struct VirtioConsole {
@@ -188,8 +190,9 @@ impl VirtioConsoleMmio {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::{AddressTranslator, GuestAddr, MMU, MemoryAccess, MmioManager, MmuAsAny};
+
+    use super::*;
 
     struct MockMmu {
         memory: std::collections::HashMap<u64, u8>,

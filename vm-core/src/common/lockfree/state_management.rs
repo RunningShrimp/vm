@@ -2,9 +2,10 @@
 //!
 //! 实现高性能的无锁共享状态管理，用于多线程环境下的状态同步
 
-use super::LockFreeQueue;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+
+use super::LockFreeQueue;
 
 /// 状态订阅者类型别名
 type SubscriberMap<T> = std::collections::HashMap<usize, Box<dyn StateSubscriber<T> + Send + Sync>>;
@@ -511,7 +512,8 @@ impl<T: Clone + Send + Sync + 'static> StateManager<T> {
         let new_snapshot = self.shared_state.update(|old_data| {
             // old_data用于内部版本控制和CAS操作的原子性保证
             let updated = updater(&current_data);
-            // 在这里我们保留old_data的引用，虽然不直接使用，但编译器需要知道它的存在以确保正确的内存管理
+            // 在这里我们保留old_data的引用，虽然不直接使用，
+            // 但编译器需要知道它的存在以确保正确的内存管理
             let _old_ref = &old_data;
             updated
         });
@@ -665,9 +667,10 @@ pub struct StateManagerStats {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Arc;
     use std::thread;
+
+    use super::*;
 
     #[test]
     fn test_lockfree_shared_state() {

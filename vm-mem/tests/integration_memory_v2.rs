@@ -3,7 +3,7 @@
 //! Updated to use unified_mmu_v2::HybridMMU
 
 use vm_core::{AccessType, GuestAddr, VmError};
-use vm_mem::unified_mmu_v2::{HybridMMU, UnifiedMmuConfigV2, UnifiedMMU};
+use vm_mem::unified_mmu_v2::{HybridMMU, UnifiedMMU, UnifiedMmuConfigV2};
 
 /// Create a test MMU with v2 API
 fn create_test_mmu() -> HybridMMU {

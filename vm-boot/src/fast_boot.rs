@@ -284,9 +284,10 @@ impl BootProfiler {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
     use std::io::Write;
+
+    use super::*;
 
     #[test]
     fn test_boot_cache() {

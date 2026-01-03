@@ -14,6 +14,7 @@ pub type CompiledIRBlock = crate::jit::codegen::CompiledIRBlock;
 pub use crate::jit::codegen::{CompiledIROp, StackSlot, StackSlotPurpose};
 
 /// 默认JIT编译器
+#[allow(dead_code)] // Type alias for default JIT compiler
 pub type DefaultJITCompiler = JITCompiler;
 
 /// JIT编译器

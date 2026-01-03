@@ -2,11 +2,13 @@
 //!
 //! 提供9P文件系统协议支持，允许客户机访问主机文件系统
 
-use crate::virtio::{Queue, VirtioDevice};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
 use vm_core::{GuestAddr, MMU, MemoryError, VmError, VmResult};
+
+use crate::virtio::{Queue, VirtioDevice};
 
 /// 9P文件系统标签
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -236,8 +238,9 @@ impl Virtio9PMmio {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, VmError};
+
+    use super::*;
 
     #[test]
     fn test_virtio_9p_creation() {

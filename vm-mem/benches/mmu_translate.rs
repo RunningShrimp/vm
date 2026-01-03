@@ -1,6 +1,5 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use vm_core::AddressTranslator;
-use vm_core::AccessType;
+use vm_core::{AccessType, GuestAddr, MemoryAccess};
 use vm_mem::SoftMmu;
 
 /// 基准测试: Bare 模式地址翻译 (无 TLB 查找)
@@ -9,7 +8,7 @@ fn bench_translate_bare(c: &mut Criterion) {
 
     c.bench_function("translate_bare", |b| {
         b.iter(|| {
-            let va = std::hint::black_box(0x1000_0000);
+            let va = std::hint::black_box(GuestAddr(0x1000_0000));
             let _ = mmu
                 .translate(va, AccessType::Read)
                 .expect("Translate failed");
@@ -24,7 +23,7 @@ fn bench_memory_read(c: &mut Criterion) {
 
     // 初始化测试数据
     for i in 0..1000 {
-        let _ = mmu.write(i * 8, 0xDEADBEEF_u64, 8);
+        let _ = mmu.write(GuestAddr(i * 8), 0xDEADBEEF_u64, 8);
     }
 
     for size in [1u8, 2, 4, 8].iter() {
@@ -32,7 +31,7 @@ fn bench_memory_read(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             b.iter(|| {
                 let addr = std::hint::black_box(0x1000);
-                mmu.read(addr, size).expect("Memory read failed")
+                mmu.read(GuestAddr(addr), size).expect("Memory read failed")
             })
         });
     }
@@ -50,7 +49,8 @@ fn bench_memory_write(c: &mut Criterion) {
             b.iter(|| {
                 let addr = std::hint::black_box(0x1000);
                 let val = std::hint::black_box(0xDEADBEEF_u64);
-                mmu.write(addr, val, size).expect("Memory write failed")
+                mmu.write(GuestAddr(addr), val, size)
+                    .expect("Memory write failed")
             })
         });
     }
@@ -65,7 +65,7 @@ fn bench_sequential_access(c: &mut Criterion) {
         b.iter(|| {
             for i in 0..1000 {
                 let addr = std::hint::black_box(i * 8);
-                let _ = mmu.read(addr, 8);
+                let _ = mmu.read(GuestAddr(addr), 8);
             }
         })
     });
@@ -86,7 +86,7 @@ fn bench_random_access(c: &mut Criterion) {
     c.bench_function("random_read_1k", |b| {
         b.iter(|| {
             for &addr in &addresses {
-                let _ = mmu.read(addr, 8);
+                let _ = mmu.read(GuestAddr(addr), 8);
             }
         })
     });
@@ -106,8 +106,8 @@ fn bench_tlb_performance(c: &mut Criterion) {
             num_pages,
             |b, &num_pages| {
                 b.iter(|| {
-                    for i in 0..*num_pages {
-                        let addr = std::hint::black_box(i as u64 * page_size);
+                    for i in 0..num_pages {
+                        let addr = std::hint::black_box(GuestAddr(i as u64 * page_size));
                         let _ = mmu.translate(addr, AccessType::Read);
                     }
                 })

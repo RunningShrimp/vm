@@ -2,8 +2,9 @@
 //!
 //! 提供硬件随机数生成器功能
 
-use crate::virtio::{Queue, VirtioDevice};
 use vm_core::MMU;
+
+use crate::virtio::{Queue, VirtioDevice};
 
 /// VirtIO RNG 设备
 pub struct VirtioRng {
@@ -129,8 +130,9 @@ impl VirtioRngMmio {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
+
+    use super::*;
 
     struct MockMmu {
         memory: std::collections::HashMap<u64, u8>,

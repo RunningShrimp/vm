@@ -2,10 +2,12 @@
 //!
 //! 提供音频输入输出功能
 
-use crate::virtio::{Queue, VirtioDevice};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{MMU, VmError};
+
+use crate::virtio::{Queue, VirtioDevice};
 
 /// 音频流方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,9 +299,11 @@ impl VirtioSoundMmio {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
     use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
+
+    use super::*;
 
     struct MockMmu {
         memory: HashMap<u64, u8>,

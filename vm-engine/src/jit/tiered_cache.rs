@@ -1,11 +1,14 @@
 //! 分层代码缓存实现
+#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
 //! 实现了多级缓存策略，根据代码访问频率和热度自动调整缓存层级。
 
-use crate::jit::code_cache::{CacheStats, TieredCacheStats};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
+
 use vm_core::GuestAddr;
+
+use crate::jit::code_cache::{CacheStats, TieredCacheStats};
 
 /// 分层缓存配置
 #[derive(Debug, Clone)]

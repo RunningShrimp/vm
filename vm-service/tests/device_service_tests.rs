@@ -2,10 +2,11 @@
 //!
 //! 测试设备附加、分离、I/O等设备管理功能。
 
-use vm_core::VmError;
-use vm_service::device_service::{DeviceService, DeviceInfo, DeviceType};
 use std::sync::Arc;
+
 use tokio::sync::Mutex;
+use vm_core::VmError;
+use vm_service::device_service::{DeviceInfo, DeviceService, DeviceType};
 
 // ============================================================================
 // 设备服务测试（30个测试）
@@ -272,7 +273,10 @@ mod device_tests {
         };
 
         service.attach_device(0, device.clone()).await.unwrap();
-        let stats = service.get_device_statistics(0, &device.name).await.unwrap();
+        let stats = service
+            .get_device_statistics(0, &device.name)
+            .await
+            .unwrap();
 
         assert!(stats.contains_key("reads") || stats.contains_key("writes"));
     }
@@ -337,7 +341,9 @@ mod device_tests {
 
         service.attach_device(0, device.clone()).await.unwrap();
         let data = vec![0u8; 512];
-        let result = service.dma_write(0, &device.name, 0x1000, 0x2000, &data).await;
+        let result = service
+            .dma_write(0, &device.name, 0x1000, 0x2000, &data)
+            .await;
 
         assert!(result.is_ok());
     }
@@ -369,7 +375,9 @@ mod device_tests {
         };
 
         service.attach_device(0, device.clone()).await.unwrap();
-        let result = service.map_device_memory(0, &device.name, 0xF000, 0x1000).await;
+        let result = service
+            .map_device_memory(0, &device.name, 0xF000, 0x1000)
+            .await;
 
         assert!(result.is_ok());
     }
@@ -385,7 +393,10 @@ mod device_tests {
         };
 
         service.attach_device(0, device.clone()).await.unwrap();
-        service.map_device_memory(0, &device.name, 0xE000, 0x1000).await.unwrap();
+        service
+            .map_device_memory(0, &device.name, 0xE000, 0x1000)
+            .await
+            .unwrap();
 
         let result = service.unmap_device_memory(0, &device.name, 0xE000).await;
         assert!(result.is_ok());
@@ -448,7 +459,9 @@ mod device_tests {
         };
 
         service.attach_device(0, device.clone()).await.unwrap();
-        let result = service.console_write(0, &device.name, b"Hello, World!\n").await;
+        let result = service
+            .console_write(0, &device.name, b"Hello, World!\n")
+            .await;
 
         assert!(result.is_ok());
     }
@@ -464,7 +477,9 @@ mod device_tests {
         };
 
         service.attach_device(0, device.clone()).await.unwrap();
-        let result = service.serial_configure(0, &device.name, 115200, 8, 1, 0).await;
+        let result = service
+            .serial_configure(0, &device.name, 115200, 8, 1, 0)
+            .await;
 
         assert!(result.is_ok());
     }
@@ -726,7 +741,9 @@ mod config_tests {
         let manager = ConfigManager::new().await;
 
         let config = VmConfig::default();
-        let result = manager.export_config(&config, "/tmp/test_config.json").await;
+        let result = manager
+            .export_config(&config, "/tmp/test_config.json")
+            .await;
 
         assert!(result.is_ok());
     }

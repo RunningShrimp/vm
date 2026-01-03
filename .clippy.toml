@@ -1,1 +1,33 @@
+# Clippy configuration for VM project
+# This configuration enforces strict code quality standards
+
+# Warn on all wildcard imports
 warn-on-all-wildcard-imports = true
+
+# Lint configuration
+# These lints are enabled by default:
+# - clippy::all: All lints that are on by default
+# - clippy::pedantic: Pedantic lints that are stricter
+# - clippy::cargo: Cargo-specific lints
+
+# Specific lint overrides can be added here:
+# Example: allowed-names = ["n", "i", "j", "x", "y", "z"]
+
+# Disallowed methods (e.g., unwrap, expect)
+# These should be handled via Result/Option properly
+# Configure in workflow with: -W clippy::unwrap_used -W clippy::expect_used
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Literal representation threshold
+too-many-lines-threshold = 100
+
+# Single char binding names threshold
+single-char-binding-names-threshold = 4
+
+# Documentation quality settings
+# missing-docs-in-private-items = false  # Don't require docs for private items

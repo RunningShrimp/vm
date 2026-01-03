@@ -8,7 +8,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
-vm-interface = { path = "../vm-interface" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # vm-plugin uses: sync (types in API), macros (tokio::test), rt-multi-thread (for tests)

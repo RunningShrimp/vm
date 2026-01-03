@@ -2,10 +2,11 @@
 //!
 //! 将基础类型封装为值对象，提供类型安全性和验证逻辑。
 
-use crate::VmError;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
-use std::fmt;
+
+use crate::VmError;
 
 /// 虚拟机ID值对象
 ///
@@ -277,7 +278,9 @@ mod tests {
 
     #[test]
     fn test_vm_id_display() {
-        let id = VmId::new("test-vm".to_string()).expect("Failed to create VmId");
+        let id = VmId::new("test-vm".to_string()).unwrap_or_else(|e| {
+            panic!("Failed to create VmId: {}", e);
+        });
         assert_eq!(format!("{}", id), "test-vm");
         assert_eq!(id.as_str(), "test-vm");
         assert_eq!(id.as_ref(), "test-vm");
@@ -304,12 +307,16 @@ mod tests {
 
     #[test]
     fn test_memory_size_conversions() {
-        let size = MemorySize::from_mb(128).expect("Failed to create MemorySize");
+        let size = MemorySize::from_mb(128).unwrap_or_else(|e| {
+            panic!("Failed to create MemorySize: {}", e);
+        });
         assert_eq!(size.as_mb(), 128);
         assert_eq!(size.as_gb(), 0);
         assert_eq!(size.bytes(), 128 * 1024 * 1024);
 
-        let size_gb = MemorySize::from_gb(4).expect("Failed to create MemorySize");
+        let size_gb = MemorySize::from_gb(4).unwrap_or_else(|e| {
+            panic!("Failed to create MemorySize: {}", e);
+        });
         assert_eq!(size_gb.as_gb(), 4);
         assert_eq!(size_gb.as_mb(), 4096);
         assert_eq!(size_gb.bytes(), 4 * 1024 * 1024 * 1024);
@@ -318,21 +325,28 @@ mod tests {
     #[test]
     fn test_memory_size_page_alignment() {
         // 使用符合最小要求的大小（1MB以上）
-        let aligned = MemorySize::from_bytes(1024 * 1024).expect("Failed to create MemorySize"); // 1MB，页对齐
+        let aligned = MemorySize::from_bytes(1024 * 1024).unwrap_or_else(|e| {
+            panic!("Failed to create MemorySize: {}", e);
+        }); // 1MB，页对齐
         assert!(aligned.is_page_aligned());
 
-        let not_aligned =
-            MemorySize::from_bytes(1024 * 1024 + 1).expect("Failed to create MemorySize"); // 1MB + 1字节，不对齐
+        let not_aligned = MemorySize::from_bytes(1024 * 1024 + 1).unwrap_or_else(|e| {
+            panic!("Failed to create MemorySize: {}", e);
+        }); // 1MB + 1字节，不对齐
         assert!(!not_aligned.is_page_aligned());
     }
 
     #[test]
     fn test_memory_size_from_traits() {
-        let size = MemorySize::from_mb(100).expect("Failed to create MemorySize");
+        let size = MemorySize::from_mb(100).unwrap_or_else(|e| {
+            panic!("Failed to create MemorySize: {}", e);
+        });
         let bytes: u64 = size.into();
         assert_eq!(bytes, 100 * 1024 * 1024);
 
-        let size = MemorySize::from_mb(100).expect("Failed to create MemorySize");
+        let size = MemorySize::from_mb(100).unwrap_or_else(|e| {
+            panic!("Failed to create MemorySize: {}", e);
+        });
         let bytes: usize = size.into();
         assert_eq!(bytes, 100 * 1024 * 1024);
     }
@@ -351,7 +365,9 @@ mod tests {
 
     #[test]
     fn test_vcpu_count_from_trait() {
-        let count = VcpuCount::new(4).expect("Failed to create VcpuCount");
+        let count = VcpuCount::new(4).unwrap_or_else(|e| {
+            panic!("Failed to create VcpuCount: {}", e);
+        });
         let num: u32 = count.into();
         assert_eq!(num, 4);
         assert_eq!(count.count(), 4);
@@ -388,7 +404,9 @@ mod tests {
 
     #[test]
     fn test_device_id_display() {
-        let id = DeviceId::new("test-device".to_string()).expect("Failed to create DeviceId");
+        let id = DeviceId::new("test-device".to_string()).unwrap_or_else(|e| {
+            panic!("Failed to create DeviceId: {}", e);
+        });
         assert_eq!(format!("{}", id), "test-device");
         assert_eq!(id.as_str(), "test-device");
         assert_eq!(id.as_ref(), "test-device");

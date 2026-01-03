@@ -5,14 +5,14 @@
 //! 此模块需要 `async` feature 支持。
 
 #[cfg(feature = "async")]
-use parking_lot::RwLock;
-#[cfg(feature = "async")]
 use std::cmp::Ordering;
 #[cfg(feature = "async")]
 use std::collections::BinaryHeap;
 #[cfg(feature = "async")]
 use std::sync::Arc;
 
+#[cfg(feature = "async")]
+use parking_lot::RwLock;
 // Tokio async primitives (only available with async feature)
 #[cfg(feature = "async")]
 use tokio::sync::mpsc;

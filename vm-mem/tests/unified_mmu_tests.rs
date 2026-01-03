@@ -1,7 +1,7 @@
 //! 统一MMU测试套件（迁移到v2）
 
 use vm_core::{AccessType, GuestAddr};
-use vm_mem::unified_mmu_v2::{HybridMMU, UnifiedMmuConfigV2, UnifiedMMU};
+use vm_mem::unified_mmu_v2::{HybridMMU, UnifiedMMU, UnifiedMmuConfigV2};
 
 #[test]
 fn test_unified_mmu_v2_creation() {
@@ -172,7 +172,9 @@ async fn test_unified_mmu_v2_async_translate() {
     let mut mmu = HybridMMU::new(0x10000000, config);
 
     // 异步翻译
-    let result = mmu.translate_async(GuestAddr(0x1000), AccessType::Read).await;
+    let result = mmu
+        .translate_async(GuestAddr(0x1000), AccessType::Read)
+        .await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), vm_core::GuestPhysAddr(0x1000));
 }

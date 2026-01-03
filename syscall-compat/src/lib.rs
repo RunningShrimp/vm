@@ -6,12 +6,12 @@
 //! - 内存管理 (mmap, munmap, brk, etc.)
 //! - 信号处理 (signal, sigaction, etc.)
 //! - 定时器 (timer, clock, etc.)
-//!
-use parking_lot::RwLock;
 /// 支持100+ 系统调用
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use parking_lot::RwLock;
 
 /// Syscall号定义 (x86_64)
 pub mod syscall_numbers {

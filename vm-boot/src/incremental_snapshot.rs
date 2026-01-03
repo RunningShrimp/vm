@@ -7,11 +7,12 @@
 //! - 快照索引（加快恢复速度）
 //! - 并行处理（大内存优化）
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 /// 快照元数据（优化版）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -576,8 +577,9 @@ pub struct SnapshotStats {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
+
+    use super::*;
 
     #[test]
     fn test_incremental_snapshot() {

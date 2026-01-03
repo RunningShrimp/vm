@@ -55,7 +55,7 @@
 //! ### Basic Translation
 //!
 //! ```rust
-//! use crate::jit::domain_services::cross_architecture_translation_service::{
+//! use crate::domain_services::cross_architecture_translation_service::{
 //!     CrossArchitectureTranslationDomainService, TranslationConfig,
 //!     TranslationStrategy
 //! };
@@ -65,7 +65,7 @@
 //!
 //! let config = TranslationConfig {
 //!     source_arch: GuestArch::X86_64,
-//!     target_arch: GuestArch::ARM64,
+//!     target_arch: GuestArch::Arm64,
 //!     strategy: TranslationStrategy::Optimized,
 //!     optimization_level: 2,
 //! };
@@ -80,7 +80,7 @@
 //!
 //! let compatibility = service.validate_compatibility(
 //!     GuestArch::X86_64,
-//!     GuestArch::ARM64,
+//!     GuestArch::Arm64,
 //! )?;
 //!
 //! if compatibility.is_supported {
@@ -94,7 +94,7 @@
 //! ### Custom Business Rules
 //!
 //! ```rust
-//! use crate::jit::domain_services::rules::translation_rules::{
+//! use crate::domain_services::rules::translation_rules::{
 //!     TranslationBusinessRule, CustomTranslationRule
 //! };
 //!
@@ -185,13 +185,12 @@
 //! - **`TranslationCacheAggregate`**: Translation result caching
 
 use std::sync::Arc;
-use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, TranslationEvent};
-use crate::jit::domain_services::rules::translation_rules::{
+use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::rules::translation_rules::{
     TranslationBusinessRule, ArchitectureCompatibilityRule, PerformanceThresholdRule, ResourceAvailabilityRule
 };
-use crate::jit::error::VmError;
-use crate::VmResult;
-use crate::GuestArch;
+use crate::{VmError, VmResult, GuestArch};
 
 /// Cross-architecture translation domain service
 /// 
@@ -199,19 +198,18 @@ use crate::GuestArch;
 /// translation between x86-64, ARM64, and RISC-V64 architectures.
 pub struct CrossArchitectureTranslationDomainService {
     business_rules: Vec<Box<dyn TranslationBusinessRule>>,
-    event_bus: Option<Arc<dyn DomainEventBus>>,
+    event_bus: Option<Arc<DomainEventBus>>,
 }
 
 impl CrossArchitectureTranslationDomainService {
     /// Create a new cross-architecture translation domain service
     pub fn new() -> Self {
-        let mut business_rules: Vec<Box<dyn TranslationBusinessRule>> = Vec::new();
-        
-        // Add default business rules
-        business_rules.push(Box::new(ArchitectureCompatibilityRule::new()));
-        business_rules.push(Box::new(PerformanceThresholdRule::new()));
-        business_rules.push(Box::new(ResourceAvailabilityRule::new()));
-        
+        let business_rules: Vec<Box<dyn TranslationBusinessRule>> = vec![
+            Box::new(ArchitectureCompatibilityRule::new()),
+            Box::new(PerformanceThresholdRule::new()),
+            Box::new(ResourceAvailabilityRule::new()),
+        ];
+
         Self {
             business_rules,
             event_bus: None,
@@ -237,14 +235,37 @@ impl CrossArchitectureTranslationDomainService {
         &self,
         source_arch: GuestArch,
         target_arch: GuestArch,
-        code_size: usize,
+        _code_size: usize,
         optimization_level: u8,
     ) -> VmResult<()> {
+        use crate::domain_services::translation_strategy_service::{
+            TranslationContext, PerformanceRequirements, ResourceConstraints, TimingRequirements
+        };
+
+        // Create translation context for business rules
+        let context = TranslationContext {
+            performance_requirements: PerformanceRequirements {
+                high_performance: optimization_level >= 2,
+                min_throughput: None,
+                max_latency: None,
+            },
+            resource_constraints: ResourceConstraints {
+                memory_limit: 256 * 1024 * 1024, // Default 256MB
+                cpu_limit: Some(4), // Default 4 cores
+                time_limit: None,
+            },
+            timing_requirements: TimingRequirements {
+                real_time: false,
+                deadline: None,
+                max_execution_time: None,
+            },
+        };
+
         // Validate business rules
         for rule in &self.business_rules {
-            rule.validate_translation_request(source_arch, target_arch, code_size, optimization_level)?;
+            rule.validate_translation_request(source_arch, target_arch, &context)?;
         }
-        
+
         Ok(())
     }
     
@@ -259,39 +280,42 @@ impl CrossArchitectureTranslationDomainService {
     ) -> VmResult<TranslationPlan> {
         // Validate the translation request
         self.validate_translation_request(source_arch, target_arch, code_size, optimization_level)?;
-        
+
         // Determine translation complexity
         let complexity = self.assess_translation_complexity(source_arch, target_arch, code_size);
-        
-        // Select appropriate translation strategy
+
+        // Select appropriate translation strategy - clone complexity since it's moved
         let strategy = self.select_translation_strategy(
-            source_arch, 
-            target_arch, 
-            complexity, 
+            source_arch,
+            target_arch,
+            complexity.clone(),
             optimization_level,
             performance_requirements
         )?;
-        
+
+        // Estimate stages and resources - clone before moving
+        let estimated_stages = self.estimate_translation_stages(complexity.clone(), strategy.clone());
+        let estimated_resources = self.estimate_resource_requirements(code_size, complexity.clone(), strategy.clone());
+
         // Create translation plan
         let plan = TranslationPlan {
             source_arch,
             target_arch,
             strategy,
             complexity,
-            estimated_stages: self.estimate_translation_stages(complexity, strategy),
-            estimated_resources: self.estimate_resource_requirements(code_size, complexity, strategy),
+            estimated_stages,
+            estimated_resources,
             optimization_level,
         };
-        
+
         // Publish translation planned event
         self.publish_translation_event(TranslationEvent::TranslationPlanned {
-            source_arch,
-            target_arch,
-            strategy: plan.strategy.clone(),
-            complexity: plan.complexity,
-            estimated_stages: plan.estimated_stages,
+            source_arch: source_arch.to_string(),
+            target_arch: target_arch.to_string(),
+            block_count: plan.estimated_stages as usize, // Using estimated_stages as block_count
+            occurred_at: std::time::SystemTime::now(),
         })?;
-        
+
         Ok(plan)
     }
     
@@ -314,10 +338,9 @@ impl CrossArchitectureTranslationDomainService {
         
         // Publish instruction encoding validation event
         self.publish_translation_event(TranslationEvent::InstructionEncodingValidated {
-            source_arch,
-            target_arch,
-            is_compatible: result.is_compatible,
-            issues_count: result.compatibility_issues.len(),
+            instruction: "encoding_validation".to_string(), // TODO: Track actual instruction
+            is_valid: result.is_compatible,
+            occurred_at: std::time::SystemTime::now(),
         })?;
         
         Ok(result)
@@ -332,27 +355,17 @@ impl CrossArchitectureTranslationDomainService {
     ) -> VmResult<RegisterMappingResult> {
         // Validate register mapping request
         self.validate_register_mapping_request(source_arch, target_arch, source_registers)?;
-        
+
         // Perform register mapping
-        let mapping = self.perform_register_mapping(source_arch, target_arch, source_registers)?;
-        
-        let result = RegisterMappingResult {
-            source_arch,
-            target_arch,
-            register_mappings: mapping.mappings,
-            unmapped_registers: mapping.unmapped,
-            register_pressure: mapping.pressure,
-            spill_recommendations: mapping.spill_recommendations,
-        };
-        
+        let result = self.perform_register_mapping(source_arch, target_arch, source_registers)?;
+
         // Publish register mapping event
         self.publish_translation_event(TranslationEvent::RegisterMappingCompleted {
-            source_arch,
-            target_arch,
-            mapped_count: result.register_mappings.len(),
-            unmapped_count: result.unmapped_registers.len(),
+            function_name: "cross_arch_mapping".to_string(), // TODO: Track actual function name
+            mappings_count: result.register_mappings.len(),
+            occurred_at: std::time::SystemTime::now(),
         })?;
-        
+
         Ok(result)
     }
     
@@ -374,11 +387,8 @@ impl CrossArchitectureTranslationDomainService {
         
         // Publish pipeline orchestration event
         self.publish_translation_event(TranslationEvent::PipelineOrchestrationCompleted {
-            source_arch: plan.source_arch,
-            target_arch: plan.target_arch,
-            stages_executed: result.stages_executed,
-            success: result.success,
-            total_time_ms: result.total_time_ms,
+            pipeline_stages: result.stages_executed as usize,
+            occurred_at: std::time::SystemTime::now(),
         })?;
         
         Ok(result)
@@ -394,21 +404,23 @@ impl CrossArchitectureTranslationDomainService {
         // Base complexity from architecture difference
         let base_complexity = match (source_arch, target_arch) {
             (GuestArch::X86_64, GuestArch::X86_64) => 0.1,
-            (GuestArch::ARM64, GuestArch::ARM64) => 0.1,
-            (GuestArch::RISCV64, GuestArch::RISCV64) => 0.1,
-            (GuestArch::X86_64, GuestArch::ARM64) => 0.7,
-            (GuestArch::ARM64, GuestArch::X86_64) => 0.7,
-            (GuestArch::X86_64, GuestArch::RISCV64) => 0.8,
-            (GuestArch::RISCV64, GuestArch::X86_64) => 0.8,
-            (GuestArch::ARM64, GuestArch::RISCV64) => 0.6,
-            (GuestArch::RISCV64, GuestArch::ARM64) => 0.6,
+            (GuestArch::Arm64, GuestArch::Arm64) => 0.1,
+            (GuestArch::Riscv64, GuestArch::Riscv64) => 0.1,
+            (GuestArch::X86_64, GuestArch::Arm64) => 0.7,
+            (GuestArch::Arm64, GuestArch::X86_64) => 0.7,
+            (GuestArch::X86_64, GuestArch::Riscv64) => 0.8,
+            (GuestArch::Riscv64, GuestArch::X86_64) => 0.8,
+            (GuestArch::Arm64, GuestArch::Riscv64) => 0.6,
+            (GuestArch::Riscv64, GuestArch::Arm64) => 0.6,
+            // PowerPC64 and any other combinations
+            _ => 0.9, // High complexity for unsupported or experimental architectures
         };
-        
+
         // Adjust for code size
         let size_factor = (code_size as f64 / 10000.0).min(2.0);
-        
+
         let complexity_score = base_complexity * size_factor;
-        
+
         // Determine complexity level
         if complexity_score < 0.3 {
             TranslationComplexity::Low
@@ -422,8 +434,8 @@ impl CrossArchitectureTranslationDomainService {
     /// Select translation strategy based on requirements
     fn select_translation_strategy(
         &self,
-        source_arch: GuestArch,
-        target_arch: GuestArch,
+        _source_arch: GuestArch,
+        _target_arch: GuestArch,
         complexity: TranslationComplexity,
         optimization_level: u8,
         performance_requirements: &PerformanceRequirements,
@@ -524,18 +536,18 @@ impl CrossArchitectureTranslationDomainService {
         &self,
         source_arch: GuestArch,
         target_arch: GuestArch,
-        instruction_bytes: &[u8],
+        _instruction_bytes: &[u8],
     ) -> VmResult<EncodingCompatibility> {
         // This is a simplified implementation
         // In a real system, this would involve detailed instruction analysis
-        
-        let is_compatible = match (source_arch, target_arch) {
-            (GuestArch::X86_64, GuestArch::X86_64) => true,
-            (GuestArch::ARM64, GuestArch::ARM64) => true,
-            (GuestArch::RISCV64, GuestArch::RISCV64) => true,
-            _ => false,
-        };
-        
+
+        let is_compatible = matches!(
+            (source_arch, target_arch),
+            (GuestArch::X86_64, GuestArch::X86_64)
+                | (GuestArch::Arm64, GuestArch::Arm64)
+                | (GuestArch::Riscv64, GuestArch::Riscv64)
+        );
+
         let mut issues = Vec::new();
         let mut transformations = Vec::new();
         
@@ -585,17 +597,17 @@ impl CrossArchitectureTranslationDomainService {
         source_arch: GuestArch,
         target_arch: GuestArch,
         source_registers: &[RegisterInfo],
-    ) -> VmResult<RegisterMapping> {
+    ) -> VmResult<RegisterMappingResult> {
         // This is a simplified implementation
         // In a real system, this would involve detailed register analysis
-        
-        let mut mappings = Vec::new();
-        let mut unmapped = Vec::new();
-        
+
+        let mut register_mappings = Vec::new();
+        let unmapped_registers = Vec::new();
+
         for reg in source_registers {
             // Simple mapping logic - in reality this would be much more complex
             let target_reg = format!("{}_{}", reg.name, target_arch.to_string().to_lowercase());
-            mappings.push(RegisterMapping {
+            register_mappings.push(RegisterMapping {
                 source: reg.clone(),
                 target: RegisterInfo {
                     name: target_reg,
@@ -605,14 +617,16 @@ impl CrossArchitectureTranslationDomainService {
                 cost: 1.0,
             });
         }
-        
-        let pressure = self.calculate_register_pressure(&mappings, target_arch);
-        let spill_recommendations = self.generate_spill_recommendations(pressure);
-        
+
+        let register_pressure = self.calculate_register_pressure(&register_mappings, target_arch);
+        let spill_recommendations = self.generate_spill_recommendations(register_pressure.clone());
+
         Ok(RegisterMappingResult {
-            mappings,
-            unmapped,
-            pressure,
+            source_arch,
+            target_arch,
+            register_mappings,
+            unmapped_registers,
+            register_pressure,
             spill_recommendations,
         })
     }
@@ -622,10 +636,11 @@ impl CrossArchitectureTranslationDomainService {
         let total_registers = mappings.len() as u32;
         let available_registers = match target_arch {
             GuestArch::X86_64 => 16, // Simplified
-            GuestArch::ARM64 => 31,
-            GuestArch::RISCV64 => 32,
+            GuestArch::Arm64 => 31,
+            GuestArch::Riscv64 => 32,
+            _ => 32, // Default for other architectures
         };
-        
+
         let pressure_ratio = total_registers as f64 / available_registers as f64;
         
         let pressure_level = if pressure_ratio < 0.5 {
@@ -708,8 +723,8 @@ impl CrossArchitectureTranslationDomainService {
     fn create_pipeline_stages(
         &self,
         plan: &TranslationPlan,
-        code: &[u8],
-        context: &TranslationContext,
+        _code: &[u8],
+        _context: &TranslationContext,
     ) -> VmResult<Vec<PipelineStage>> {
         let mut stages = Vec::new();
         
@@ -775,7 +790,7 @@ impl CrossArchitectureTranslationDomainService {
     fn publish_translation_event(&self, event: TranslationEvent) -> VmResult<()> {
         if let Some(event_bus) = &self.event_bus {
             let domain_event = DomainEventEnum::Translation(event);
-            event_bus.publish(domain_event)?;
+            event_bus.publish(&domain_event)?;
         }
         Ok(())
     }
@@ -979,7 +994,7 @@ mod tests {
         assert_eq!(complexity, TranslationComplexity::Low);
         
         // Different architectures - higher complexity
-        let complexity = service.assess_translation_complexity(GuestArch::X86_64, GuestArch::ARM64, 1000);
+        let complexity = service.assess_translation_complexity(GuestArch::X86_64, GuestArch::Arm64, 1000);
         assert_eq!(complexity, TranslationComplexity::Medium);
     }
     
@@ -996,14 +1011,14 @@ mod tests {
 
         let plan = service.plan_translation_strategy(
             GuestArch::X86_64,
-            GuestArch::ARM64,
+            GuestArch::Arm64,
             1000,
             3,
             &performance_requirements,
         ).expect("plan_translation_strategy should not fail in test");
 
         assert_eq!(plan.source_arch, GuestArch::X86_64);
-        assert_eq!(plan.target_arch, GuestArch::ARM64);
+        assert_eq!(plan.target_arch, GuestArch::Arm64);
         assert_eq!(plan.optimization_level, 3);
     }
     
@@ -1036,12 +1051,12 @@ mod tests {
 
         let result = service.map_registers_between_architectures(
             GuestArch::X86_64,
-            GuestArch::ARM64,
+            GuestArch::Arm64,
             &source_registers,
         ).expect("map_registers_between_architectures should not fail in test");
 
         assert_eq!(result.register_mappings.len(), 1);
         assert_eq!(result.source_arch, GuestArch::X86_64);
-        assert_eq!(result.target_arch, GuestArch::ARM64);
+        assert_eq!(result.target_arch, GuestArch::Arm64);
     }
 }

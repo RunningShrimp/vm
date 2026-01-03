@@ -2,14 +2,14 @@
 //!
 //! This service encapsulates business logic for target-specific optimizations
 //! including architecture-specific optimization strategies, loop optimization,
-/// instruction scheduling, and pipeline optimization.
-
+//! instruction scheduling, and pipeline optimization.
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::{GuestArch, VmError, VmResult};
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::VmResult;
 
 /// Target architecture for optimization
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -247,19 +247,19 @@ pub struct OptimizationResult {
 }
 
 /// Target Optimization Domain Service
-/// 
+///
 /// This service encapsulates business logic for target-specific optimizations
 /// including architecture-specific optimization strategies, loop optimization,
 /// instruction scheduling, and pipeline optimization.
-#[derive(Debug)]
 pub struct TargetOptimizationDomainService {
     /// Business rules for target optimization
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
     /// Event bus for publishing domain events
-    event_bus: Option<Arc<dyn DomainEventBus>>,
+    event_bus: Option<Arc<DomainEventBus>>,
     /// Configuration for target optimization
     config: TargetOptimizationConfig,
-    /// Target-specific pipeline information
+    /// Target-specific pipeline information (used for architecture-specific optimizations)
+    #[allow(dead_code)] // Reserved for future use in pipeline optimization
     pipeline_info: HashMap<TargetArch, Vec<PipelineStage>>,
 }
 
@@ -401,48 +401,46 @@ impl TargetOptimizationDomainService {
     ) -> VmResult<OptimizationResult> {
         // Validate business rules
         for rule in &self.business_rules {
-            if let Err(e) = rule.validate_pipeline_config(&self.create_pipeline_config()) {
-                return Err(e);
-            }
+            rule.validate_pipeline_config(&self.create_pipeline_config())?
         }
 
-        let optimized_code = code.to_vec();
+        let mut optimized_code = code.to_vec();
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
 
         // Apply target-specific instruction selection
         if self.config.enable_target_specific_selection {
             let result = self.apply_target_specific_instruction_selection(&optimized_code)?;
-            optimized_code = result.code;
-            optimization_details.extend(result.details);
-            optimizations_applied += result.count;
+            optimized_code = result.optimized_code;
+            optimization_details.extend(result.optimization_details);
+            optimizations_applied += result.optimizations_applied;
         }
 
         // Apply loop optimizations
         if !loops.is_empty() {
             let result = self.optimize_loops(&optimized_code, loops)?;
-            optimized_code = result.code;
-            optimization_details.extend(result.details);
-            optimizations_applied += result.count;
+            optimized_code = result.optimized_code;
+            optimization_details.extend(result.optimization_details);
+            optimizations_applied += result.optimizations_applied;
         }
 
         // Apply instruction scheduling
         if !instructions.is_empty() {
             let result = self.schedule_instructions(&optimized_code, instructions)?;
-            optimized_code = result.code;
-            optimization_details.extend(result.details);
-            optimizations_applied += result.count;
+            optimized_code = result.optimized_code;
+            optimization_details.extend(result.optimization_details);
+            optimizations_applied += result.optimizations_applied;
         }
 
         // Apply pipeline optimizations
         let result = self.optimize_pipeline(&optimized_code, instructions)?;
-        optimized_code = result.code;
-        optimization_details.extend(result.details);
-        optimizations_applied += result.count;
+        optimized_code = result.optimized_code;
+        optimization_details.extend(result.optimization_details);
+        optimizations_applied += result.optimizations_applied;
 
         // Calculate performance and size improvements
         let performance_improvement = self.estimate_performance_improvement(code, &optimized_code, instructions)?;
-        let size_change = if code.len() > 0 {
+        let size_change = if !code.is_empty() {
             ((optimized_code.len() as f64 - code.len() as f64) / code.len() as f64) * 100.0
         } else {
             0.0
@@ -464,6 +462,7 @@ impl TargetOptimizationDomainService {
             performance_improvement,
             size_change,
             optimizations_applied,
+            occurred_at: std::time::SystemTime::now(),
         })?;
 
         Ok(optimization_result)
@@ -471,7 +470,7 @@ impl TargetOptimizationDomainService {
 
     /// Optimize loops based on the configured strategy
     pub fn optimize_loops(&self, code: &[u8], loops: &[LoopInfo]) -> VmResult<OptimizationResult> {
-        let optimized_code = code.to_vec();
+        let mut optimized_code = code.to_vec();
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
 
@@ -482,7 +481,7 @@ impl TargetOptimizationDomainService {
                     if loop_info.estimated_iterations < 10 && loop_info.body_size < 50 {
                         let unroll_factor = std::cmp::min(self.config.max_unroll_factor, 4);
                         let result = self.unroll_loop(&optimized_code, loop_info, unroll_factor)?;
-                        optimized_code = result.code;
+                        optimized_code = result.optimized_code;
                         optimization_details.push(format!("Unrolled loop at 0x{:x} by factor {}", loop_info.start_address, unroll_factor));
                         optimizations_applied += 1;
                     }
@@ -491,7 +490,7 @@ impl TargetOptimizationDomainService {
                     let unroll_factor = self.calculate_adaptive_unroll_factor(loop_info);
                     if unroll_factor > 1 {
                         let result = self.unroll_loop(&optimized_code, loop_info, unroll_factor)?;
-                        optimized_code = result.code;
+                        optimized_code = result.optimized_code;
                         optimization_details.push(format!("Adaptively unrolled loop at 0x{:x} by factor {}", loop_info.start_address, unroll_factor));
                         optimizations_applied += 1;
                     }
@@ -499,7 +498,7 @@ impl TargetOptimizationDomainService {
                 LoopOptimizationStrategy::Vectorization => {
                     if loop_info.vectorizable && self.config.vectorization_width > 1 {
                         let result = self.vectorize_loop(&optimized_code, loop_info, self.config.vectorization_width)?;
-                        optimized_code = result.code;
+                        optimized_code = result.optimized_code;
                         optimization_details.push(format!("Vectorized loop at 0x{:x} with width {}", loop_info.start_address, self.config.vectorization_width));
                         optimizations_applied += 1;
                     }
@@ -509,7 +508,7 @@ impl TargetOptimizationDomainService {
                     for other_loop in loops {
                         if loop_info.end_address == other_loop.start_address {
                             let result = self.fuse_loops(&optimized_code, loop_info, other_loop)?;
-                            optimized_code = result.code;
+                            optimized_code = result.optimized_code;
                             optimization_details.push(format!("Fused loops at 0x{:x} and 0x{:x}", loop_info.start_address, other_loop.start_address));
                             optimizations_applied += 1;
                             break;
@@ -519,7 +518,7 @@ impl TargetOptimizationDomainService {
                 LoopOptimizationStrategy::Fission => {
                     if loop_info.body_size > 100 {
                         let result = self.split_loop(&optimized_code, loop_info)?;
-                        optimized_code = result.code;
+                        optimized_code = result.optimized_code;
                         optimization_details.push(format!("Split loop at 0x{:x} due to large body size", loop_info.start_address));
                         optimizations_applied += 1;
                     }
@@ -527,7 +526,7 @@ impl TargetOptimizationDomainService {
                 LoopOptimizationStrategy::Interchange => {
                     if loop_info.loop_carried_dependencies.len() > 1 {
                         let result = self.interchange_loop(&optimized_code, loop_info)?;
-                        optimized_code = result.code;
+                        optimized_code = result.optimized_code;
                         optimization_details.push(format!("Interchanged loop at 0x{:x} to reduce dependencies", loop_info.start_address));
                         optimizations_applied += 1;
                     }
@@ -537,14 +536,14 @@ impl TargetOptimizationDomainService {
                     let unroll_factor = self.calculate_adaptive_unroll_factor(loop_info);
                     if unroll_factor > 1 {
                         let result = self.unroll_loop(&optimized_code, loop_info, unroll_factor)?;
-                        optimized_code = result.code;
+                        optimized_code = result.optimized_code;
                         optimization_details.push(format!("Unrolled loop at 0x{:x} by factor {}", loop_info.start_address, unroll_factor));
                         optimizations_applied += 1;
                     }
-                    
+
                     if loop_info.vectorizable && self.config.vectorization_width > 1 {
                         let result = self.vectorize_loop(&optimized_code, loop_info, self.config.vectorization_width)?;
-                        optimized_code = result.code;
+                        optimized_code = result.optimized_code;
                         optimization_details.push(format!("Vectorized loop at 0x{:x} with width {}", loop_info.start_address, self.config.vectorization_width));
                         optimizations_applied += 1;
                     }
@@ -564,7 +563,7 @@ impl TargetOptimizationDomainService {
 
     /// Schedule instructions based on the configured strategy
     pub fn schedule_instructions(&self, code: &[u8], instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
-        let optimized_code = code.to_vec();
+        let mut optimized_code = code.to_vec();
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
 
@@ -574,31 +573,31 @@ impl TargetOptimizationDomainService {
             },
             InstructionSchedulingStrategy::ListScheduling => {
                 let result = self.apply_list_scheduling(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied list scheduling".to_string());
                 optimizations_applied += 1;
             },
             InstructionSchedulingStrategy::TraceScheduling => {
                 let result = self.apply_trace_scheduling(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied trace scheduling".to_string());
                 optimizations_applied += 1;
             },
             InstructionSchedulingStrategy::SuperblockScheduling => {
                 let result = self.apply_superblock_scheduling(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied superblock scheduling".to_string());
                 optimizations_applied += 1;
             },
             InstructionSchedulingStrategy::SoftwarePipelining => {
                 let result = self.apply_software_pipelining(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied software pipelining".to_string());
                 optimizations_applied += 1;
             },
             InstructionSchedulingStrategy::ResourceAware => {
                 let result = self.apply_resource_aware_scheduling(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied resource-aware scheduling".to_string());
                 optimizations_applied += 1;
             },
@@ -616,7 +615,7 @@ impl TargetOptimizationDomainService {
 
     /// Optimize pipeline based on the configured strategy
     pub fn optimize_pipeline(&self, code: &[u8], instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
-        let optimized_code = code.to_vec();
+        let mut optimized_code = code.to_vec();
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
 
@@ -626,31 +625,31 @@ impl TargetOptimizationDomainService {
             },
             PipelineOptimizationStrategy::BasicHazardDetection => {
                 let result = self.apply_basic_hazard_detection(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied basic hazard detection".to_string());
                 optimizations_applied += 1;
             },
             PipelineOptimizationStrategy::AdvancedHazardDetection => {
                 let result = self.apply_advanced_hazard_detection(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied advanced hazard detection with forwarding".to_string());
                 optimizations_applied += 1;
             },
             PipelineOptimizationStrategy::PipelineBalancing => {
                 let result = self.apply_pipeline_balancing(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied pipeline balancing".to_string());
                 optimizations_applied += 1;
             },
             PipelineOptimizationStrategy::DynamicScheduling => {
                 let result = self.apply_dynamic_scheduling(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied dynamic scheduling".to_string());
                 optimizations_applied += 1;
             },
             PipelineOptimizationStrategy::OutOfOrderOptimization => {
                 let result = self.apply_out_of_order_optimization(&optimized_code, instructions)?;
-                optimized_code = result.code;
+                optimized_code = result.optimized_code;
                 optimization_details.push("Applied out-of-order execution optimization".to_string());
                 optimizations_applied += 1;
             },
@@ -738,7 +737,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Unroll a loop by the specified factor
-    fn unroll_loop(&self, code: &[u8], loop_info: &LoopInfo, unroll_factor: usize) -> VmResult<OptimizationResult> {
+    fn unroll_loop(&self, code: &[u8], _loop_info: &LoopInfo, unroll_factor: usize) -> VmResult<OptimizationResult> {
         // In a real implementation, this would duplicate the loop body
         // and adjust the loop counter and branch instructions
         
@@ -758,7 +757,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Vectorize a loop with the specified width
-    fn vectorize_loop(&self, code: &[u8], loop_info: &LoopInfo, vectorization_width: usize) -> VmResult<OptimizationResult> {
+    fn vectorize_loop(&self, code: &[u8], _loop_info: &LoopInfo, vectorization_width: usize) -> VmResult<OptimizationResult> {
         // In a real implementation, this would replace scalar operations
         // with vector operations
         
@@ -778,7 +777,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Fuse two adjacent loops
-    fn fuse_loops(&self, code: &[u8], loop1: &LoopInfo, loop2: &LoopInfo) -> VmResult<OptimizationResult> {
+    fn fuse_loops(&self, code: &[u8], _loop1: &LoopInfo, _loop2: &LoopInfo) -> VmResult<OptimizationResult> {
         // In a real implementation, this would combine two loops into one
         
         let optimized_code = code.to_vec();
@@ -797,7 +796,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Split a loop into multiple smaller loops
-    fn split_loop(&self, code: &[u8], loop_info: &LoopInfo) -> VmResult<OptimizationResult> {
+    fn split_loop(&self, code: &[u8], _loop_info: &LoopInfo) -> VmResult<OptimizationResult> {
         // In a real implementation, this would split a loop into multiple smaller loops
         
         let optimized_code = code.to_vec();
@@ -816,7 +815,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Interchange loop to reduce dependencies
-    fn interchange_loop(&self, code: &[u8], loop_info: &LoopInfo) -> VmResult<OptimizationResult> {
+    fn interchange_loop(&self, code: &[u8], _loop_info: &LoopInfo) -> VmResult<OptimizationResult> {
         // In a real implementation, this would interchange loop iterations
         
         let optimized_code = code.to_vec();
@@ -835,9 +834,9 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply list scheduling
-    fn apply_list_scheduling(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_list_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions using list scheduling
-        
+
         let optimized_code = code.to_vec();
         
         // Simulate list scheduling by reordering instructions
@@ -854,9 +853,9 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply trace scheduling
-    fn apply_trace_scheduling(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_trace_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions using trace scheduling
-        
+
         let optimized_code = code.to_vec();
         
         // Simulate trace scheduling by reordering instructions
@@ -873,7 +872,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply superblock scheduling
-    fn apply_superblock_scheduling(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_superblock_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions using superblock scheduling
         
         let optimized_code = code.to_vec();
@@ -892,7 +891,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply software pipelining
-    fn apply_software_pipelining(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_software_pipelining(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would apply software pipelining
         
         let optimized_code = code.to_vec();
@@ -911,7 +910,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply resource-aware scheduling
-    fn apply_resource_aware_scheduling(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_resource_aware_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would schedule instructions based on resource availability
         
         let optimized_code = code.to_vec();
@@ -930,7 +929,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply basic hazard detection
-    fn apply_basic_hazard_detection(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_basic_hazard_detection(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would detect and resolve basic pipeline hazards
         
         let optimized_code = code.to_vec();
@@ -949,7 +948,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply advanced hazard detection with forwarding
-    fn apply_advanced_hazard_detection(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_advanced_hazard_detection(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would detect and resolve pipeline hazards with forwarding
         
         let optimized_code = code.to_vec();
@@ -968,7 +967,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply pipeline balancing
-    fn apply_pipeline_balancing(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_pipeline_balancing(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would balance pipeline stages
         
         let optimized_code = code.to_vec();
@@ -987,7 +986,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply dynamic scheduling
-    fn apply_dynamic_scheduling(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_dynamic_scheduling(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would apply dynamic scheduling
         
         let optimized_code = code.to_vec();
@@ -1006,7 +1005,7 @@ impl TargetOptimizationDomainService {
     }
 
     /// Apply out-of-order execution optimization
-    fn apply_out_of_order_optimization(&self, _code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
+    fn apply_out_of_order_optimization(&self, code: &[u8], _instructions: &[InstructionInfo]) -> VmResult<OptimizationResult> {
         // In a real implementation, this would optimize for out-of-order execution
         
         let optimized_code = code.to_vec();
@@ -1029,7 +1028,7 @@ impl TargetOptimizationDomainService {
         // In a real implementation, this would use a performance model or simulation
         // For now, we'll use a simple heuristic based on code size and instruction count
         
-        let size_factor = if original_code.len() > 0 {
+        let size_factor = if !original_code.is_empty() {
             (original_code.len() as f64 - optimized_code.len() as f64) / original_code.len() as f64
         } else {
             0.0
@@ -1048,25 +1047,46 @@ impl TargetOptimizationDomainService {
 
     /// Create a pipeline configuration from the target optimization config
     fn create_pipeline_config(&self) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
-        crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
-            enable_instruction_scheduling: !matches!(self.config.scheduling_strategy, InstructionSchedulingStrategy::None),
-            enable_loop_optimization: !matches!(self.config.loop_strategy, LoopOptimizationStrategy::None),
-            enable_constant_folding: self.config.enable_constant_propagation,
-            enable_dead_code_elimination: self.config.enable_dead_code_elimination,
-            enable_common_subexpression_elimination: true,
-            enable_register_allocation: self.config.enable_register_optimization,
-            optimization_level: match self.config.optimization_level {
-                OptimizationLevel::O0 => 0,
-                OptimizationLevel::O1 => 1,
-                OptimizationLevel::O2 => 2,
-                OptimizationLevel::O3 => 3,
-                OptimizationLevel::Os => 2,
-                OptimizationLevel::Oz => 1,
-            },
-            max_inline_size: 50,
-            loop_unroll_factor: self.config.max_unroll_factor as u32,
-            enable_vectorization: matches!(self.config.loop_strategy, LoopOptimizationStrategy::Vectorization) || 
-                               matches!(self.config.loop_strategy, LoopOptimizationStrategy::Combined),
+        use crate::domain_services::optimization_pipeline_service::{OptimizationPipelineConfig, OptimizationStage};
+
+        let optimization_level = match self.config.optimization_level {
+            OptimizationLevel::O0 => 0,
+            OptimizationLevel::O1 => 1,
+            OptimizationLevel::O2 => 2,
+            OptimizationLevel::O3 => 3,
+            OptimizationLevel::Os => 2,
+            OptimizationLevel::Oz => 1,
+        };
+
+        // Build enabled stages based on config
+        let mut enabled_stages = vec![
+            OptimizationStage::IrGeneration,
+            OptimizationStage::BasicBlockOptimization,
+        ];
+
+        // Add instruction scheduling if enabled
+        if !matches!(self.config.scheduling_strategy, InstructionSchedulingStrategy::None) {
+            enabled_stages.push(OptimizationStage::InstructionScheduling);
+        }
+
+        // Add register allocation if enabled
+        if self.config.enable_register_optimization {
+            enabled_stages.push(OptimizationStage::RegisterAllocation);
+        }
+
+        // Add target optimization if target-specific selection is enabled
+        if self.config.enable_target_specific_selection {
+            enabled_stages.push(OptimizationStage::TargetOptimization);
+        }
+
+        // Always add code generation
+        enabled_stages.push(OptimizationStage::CodeGeneration);
+
+        OptimizationPipelineConfig {
+            source_arch: crate::GuestArch::X86_64, // Default, should be parameterized
+            target_arch: crate::GuestArch::X86_64,  // Default, should be parameterized
+            optimization_level,
+            enabled_stages,
         }
     }
 
@@ -1074,7 +1094,7 @@ impl TargetOptimizationDomainService {
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
         if let Some(ref event_bus) = self.event_bus {
             let domain_event = DomainEventEnum::Optimization(event);
-            event_bus.publish(domain_event)?;
+            event_bus.publish(&domain_event)?;
         }
         Ok(())
     }

@@ -2,6 +2,8 @@
 //!
 //! 提供基于Web的实时性能监控界面
 
+use std::sync::Arc;
+
 use axum::extract::Query;
 use axum::{
     extract::{Path, State},
@@ -10,8 +12,6 @@ use axum::{
     routing::{Router, get, post},
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
@@ -303,7 +303,11 @@ async fn ack_alert_handler(
 
 /// 健康检查
 async fn health_handler(
-    State((metrics_collector, _, _)): State<(Arc<MetricsCollector>, Arc<AlertManager>, Arc<PerformanceAnalyzer>)>,
+    State((metrics_collector, _, _)): State<(
+        Arc<MetricsCollector>,
+        Arc<AlertManager>,
+        Arc<PerformanceAnalyzer>,
+    )>,
 ) -> impl IntoResponse {
     let uptime = metrics_collector.get_uptime().await;
     let health = HealthStatus {

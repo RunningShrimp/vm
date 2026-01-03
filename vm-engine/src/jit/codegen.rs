@@ -1,8 +1,10 @@
 //! 代码生成模块（简化版）
+#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
 //! 提供基础的代码生成功能
 
 use std::collections::HashMap;
+
 use vm_core::{GuestAddr, VmResult};
 use vm_ir::IROp;
 
@@ -394,9 +396,10 @@ impl Default for CodeGenerator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::GuestAddr;
     use vm_ir::IRBlock;
+
+    use super::*;
 
     #[test]
     fn test_codegen_creation() {

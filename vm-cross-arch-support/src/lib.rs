@@ -22,8 +22,8 @@ pub mod encoding;
 pub mod encoding_cache;
 pub mod instruction_patterns;
 pub mod memory_access;
-pub mod register;
 pub mod pattern_cache;
+pub mod register;
 pub mod translation_pipeline;
 
 // Re-exports for convenience
@@ -32,41 +32,34 @@ pub use encoding::{
     InstructionEncoding, InstructionFlag, MemoryFlags as EncodingMemoryFlags,
     MemoryOperand as EncodingMemoryOperand, RegId, RegisterField,
 };
-
+pub use encoding_cache::{
+    Arch as CacheArch, EncodingCacheStats, EncodingError as CacheEncodingError,
+    Instruction as CachedInstruction, InstructionEncodingCache, Operand as CacheOperand,
+};
+pub use instruction_patterns::{
+    ArithmeticType, BranchType, CompareType, ConvertType, DefaultPatternMatcher, IROp,
+    InstructionCategory, InstructionFlags, InstructionPattern, LogicalType, MemoryType,
+    OperandType, PatternError, PatternMatcher, SemanticDescription, SystemType, VectorType,
+};
 pub use memory_access::{
     AccessType, AccessWidth, Alignment, AlignmentIssue, AnalysisResult, ConversionStrategy,
     DefaultMemoryAccessOptimizer, Endianness as MemoryEndianness, EndiannessConverter, Fix,
     FixCost, FixType, IssueSeverity, MemoryAccessAnalyzer, MemoryAccessOptimizer,
     MemoryAccessPattern, MemoryError, MemoryFlags, OptimizationType, OptimizedPattern,
 };
-
-pub use instruction_patterns::{
-    ArithmeticType, BranchType, CompareType, ConvertType, DefaultPatternMatcher, IROp,
-    InstructionCategory, InstructionFlags, InstructionPattern, LogicalType, MemoryType,
-    OperandType, PatternError, PatternMatcher, SemanticDescription, SystemType, VectorType,
-};
-
-pub use register::{
-    MappingStats, MappingStrategy, RegisterAllocator, RegisterClass, RegisterError, RegisterInfo,
-    RegisterMapper, RegisterSet, RegisterType,
-};
-
-pub use encoding_cache::{
-    Arch as CacheArch, EncodingCacheStats, EncodingError as CacheEncodingError,
-    Instruction as CachedInstruction, InstructionEncodingCache, Operand as CacheOperand,
-};
-
 pub use pattern_cache::{
     Arch as PatternArch, CacheStats, InstructionPattern as PatternInstructionPattern,
     OperandType as PatternOperandType, PatternFeatures, PatternMatchCache,
 };
-
+pub use register::{
+    MappingStats, MappingStrategy, RegisterAllocator, RegisterClass, RegisterError, RegisterInfo,
+    RegisterMapper, RegisterSet, RegisterType,
+};
+// Re-export RegisterId from translation_pipeline module
+pub use translation_pipeline::RegId as TranslationRegId;
 pub use translation_pipeline::{
     CrossArchTranslationPipeline, RegisterMappingCache, TranslationError, TranslationStats,
 };
-
-// Re-export RegisterId from translation_pipeline module
-pub use translation_pipeline::RegId as TranslationRegId;
 
 #[cfg(test)]
 mod tests {

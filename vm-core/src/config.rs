@@ -2,8 +2,9 @@
 //!
 //! 提供虚拟机各组件的统一配置 Trait 和实现。
 
-use serde::Serialize;
 use std::collections::HashMap;
+
+use serde::Serialize;
 
 /// 统一配置 Trait
 ///
@@ -344,8 +345,9 @@ impl<C: Config> ConfigBuilder<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde::Deserialize;
+
+    use super::*;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct TestConfig {

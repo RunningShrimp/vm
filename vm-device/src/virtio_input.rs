@@ -2,10 +2,12 @@
 //!
 //! 提供键盘和鼠标输入功能
 
-use crate::virtio::{Queue, VirtioDevice};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{MMU, VmError};
+
+use crate::virtio::{Queue, VirtioDevice};
 
 /// 输入事件类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,9 +231,11 @@ impl VirtioInputMmio {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
     use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
+
+    use super::*;
 
     struct MockMmu {
         memory: HashMap<u64, u8>,

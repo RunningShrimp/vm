@@ -2,7 +2,7 @@
 //!
 //! 测试虚拟机的执行相关功能
 
-use vm_core::{VmConfig, GuestArch, GuestAddr};
+use vm_core::{GuestAddr, GuestArch, VmConfig};
 use vm_service::VmService;
 
 /// 创建测试配置
@@ -51,7 +51,11 @@ async fn test_vm_load_test_program() {
     // 加载测试程序到不同地址
     for addr in [0x1000, 0x2000, 0x10000] {
         let result = vm.load_test_program(addr);
-        assert!(result.is_ok(), "load_test_program should succeed for address {:#x}", addr);
+        assert!(
+            result.is_ok(),
+            "load_test_program should succeed for address {:#x}",
+            addr
+        );
     }
 }
 
@@ -237,7 +241,11 @@ async fn test_vm_multiple_registers() {
     for i in 0..32 {
         let reg_val = vm.get_reg(i);
         // 寄存器应该有值（可能是0）
-        assert!(reg_val == 0 || reg_val > 0, "Register x{} should have a value", i);
+        assert!(
+            reg_val == 0 || reg_val > 0,
+            "Register x{} should have a value",
+            i
+        );
     }
 }
 

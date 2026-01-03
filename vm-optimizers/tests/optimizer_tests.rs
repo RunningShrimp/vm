@@ -98,7 +98,7 @@ mod memory_optimizer_tests {
 
         let stats = optimizer.get_tlb_stats();
         let hit_rate = stats.hit_rate();
-        assert!(hit_rate >= 0.0 && hit_rate <= 100.0);
+        assert!((0.0..=100.0).contains(&hit_rate));
     }
 
     /// 测试7: 并发配置
@@ -750,8 +750,8 @@ mod validation_tests {
         let addr2 = optimizer.allocate(size);
 
         // 两次分配应该返回不同的地址
-        if addr1.is_ok() && addr2.is_ok() {
-            assert_ne!(addr1.unwrap(), addr2.unwrap());
+        if let (Ok(a1), Ok(a2)) = (addr1, addr2) {
+            assert_ne!(a1, a2);
         }
     }
 

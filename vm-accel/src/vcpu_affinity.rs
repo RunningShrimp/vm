@@ -250,7 +250,9 @@ impl VCPUAffinityManager {
         let configs = match self.vcpu_configs.read() {
             Ok(lock) => lock,
             Err(_) => {
-                return "=== vCPU Affinity Configuration ===\nUnable to acquire configs lock (poisoned)\n".to_string();
+                return "=== vCPU Affinity Configuration ===\nUnable to acquire configs lock \
+                        (poisoned)\n"
+                    .to_string();
             }
         };
 

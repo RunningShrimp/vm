@@ -15,16 +15,16 @@ mod dependency;
 mod plugin_manager;
 mod security;
 
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::{Arc, RwLock};
+
 pub use dependency::DependencyResolver;
 pub use plugin_manager::{
     PluginChannel, PluginChannelHandle, PluginHealth, PluginManager, PluginMessage,
 };
 pub use security::{PermissionPolicy, PluginResourceMonitor, SandboxConfig, SecurityManager};
-
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use std::sync::{Arc, RwLock};
 use vm_core::VmError;
 
 /// 插件事件监听器类型

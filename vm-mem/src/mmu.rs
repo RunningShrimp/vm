@@ -3,9 +3,10 @@
 //! 实现 GVA -> GPA -> HVA 的两级地址转换
 //! 地址转换逻辑已委托给 AddressTranslationDomainService
 
+use vm_core::VmError;
+
 use crate::GuestAddr;
 use crate::domain_services::AddressTranslationDomainService;
-use vm_core::VmError;
 
 /// 大页支持
 pub mod hugepage {
@@ -71,6 +72,21 @@ pub mod hugepage {
             use std::ptr;
             let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_HUGETLB;
             let prot = libc::PROT_READ | libc::PROT_WRITE;
+
+            /// # Safety
+            ///
+            /// 调用者必须确保：
+            /// - `size`不为零且在合理的内存分配范围内
+            /// - 返回的指针在失败时为 `libc::MAP_FAILED`，成功时为有效映射地址
+            /// - 成功返回的指针必须在使用后通过 `libc::munmap` 释放
+            /// - 映射的内存区域仅用于读写操作（由 `prot` 参数指定）
+            ///
+            /// # 维护者必须确保：
+            /// - `libc::mmap` 的参数符合 Linux 规范
+            /// - `flags` 包含 `MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB` 确保私有匿名大页映射
+            /// - `prot` 仅包含 `PROT_READ | PROT_WRITE`，不包含执行权限
+            /// - 检查返回值是否为 `libc::MAP_FAILED` 以检测失败情况
+            /// - 修改时需验证大页分配在不同内核配置下的兼容性
             let addr = unsafe { libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
             if addr == libc::MAP_FAILED {
                 Err("Failed to allocate huge pages".to_string())

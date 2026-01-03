@@ -2,8 +2,9 @@
 //!
 //! 支持华为达芬奇、高通 Hexagon、联发科 APU、Apple Neural Engine 等
 
-use super::PassthroughError;
 use std::collections::HashMap;
+
+use super::PassthroughError;
 
 /// NPU 厂商
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

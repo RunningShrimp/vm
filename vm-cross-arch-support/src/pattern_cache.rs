@@ -3,8 +3,8 @@
 //! 缓存指令模式以加速跨架构翻译中的模式识别和分析。
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 // ============================================================================
 // 架构类型
@@ -141,7 +141,8 @@ impl PatternMatchCache {
         }
 
         // 缓存未命中，分析模式
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // 先提取特征（可能从feature_cache缓存）
         let features = if let Some(cached_features) = self.feature_cache.get(&hash) {
@@ -214,7 +215,7 @@ impl PatternMatchCache {
         }
 
         // RISC-V: opcode[6:0] = 0x03 (LOAD)
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             let opcode = bytes[0] & 0x7F;
             if opcode == 0x03 {
                 return true;
@@ -222,10 +223,10 @@ impl PatternMatchCache {
         }
 
         // x86-64: 检查常见加载操作码
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             match bytes[0] {
                 0x8B | 0x8D | 0xA1 | 0xA3 => return true, // MOV
-                0xB8..=0xBF => return true,              // MOV r32, imm32
+                0xB8..=0xBF => return true,               // MOV r32, imm32
                 _ => {}
             }
         }
@@ -240,7 +241,7 @@ impl PatternMatchCache {
         }
 
         // RISC-V: opcode[6:0] = 0x23 (STORE)
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             let opcode = bytes[0] & 0x7F;
             if opcode == 0x23 {
                 return true;
@@ -248,7 +249,7 @@ impl PatternMatchCache {
         }
 
         // x86-64: 检查常见存储操作码
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             match bytes[0] {
                 0x89 | 0x8C | 0xA2 | 0xA3 => return true, // MOV
                 _ => {}
@@ -265,7 +266,7 @@ impl PatternMatchCache {
         }
 
         // RISC-V: 检查分支opcode
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             let opcode = bytes[0] & 0x7F;
             // BRANCH (0x63), JAL (0x6F), JALR (0x67)
             if opcode == 0x63 || opcode == 0x6F || opcode == 0x67 {
@@ -274,7 +275,7 @@ impl PatternMatchCache {
         }
 
         // x86-64: 检查分支操作码
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             match bytes[0] {
                 0x70..=0x7F | 0xE8 | 0xE9 | 0xEB | 0xFF => return true, // Jcc, CALL, JMP
                 _ => {}
@@ -291,7 +292,7 @@ impl PatternMatchCache {
         }
 
         // RISC-V: 检查算术opcode (OP = 0x33, OP-IMM = 0x13)
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             let opcode = bytes[0] & 0x7F;
             if opcode == 0x33 || opcode == 0x13 {
                 return true;
@@ -299,7 +300,7 @@ impl PatternMatchCache {
         }
 
         // x86-64: 检查算术操作码
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             match bytes[0] {
                 0x00..=0x05 | 0x08..=0x0D | 0x28..=0x2D | 0x38..=0x3D | 0x50..=0x5D => {
                     return true;
@@ -318,7 +319,7 @@ impl PatternMatchCache {
         }
 
         // RISC-V: 检查逻辑opcode (OP = 0x33, AND/OR/XOR funct3)
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             let opcode = bytes[0] & 0x7F;
             if opcode == 0x33 || opcode == 0x13 {
                 // 进一步检查funct3
@@ -333,7 +334,7 @@ impl PatternMatchCache {
         }
 
         // x86-64: 检查逻辑操作码
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             match bytes[0] {
                 0x20..=0x25 | 0x30..=0x35 | 0x80..=0x83 | 0x84..=0x86 | 0xA8..=0xAF => {
                     return true;
@@ -352,7 +353,7 @@ impl PatternMatchCache {
         }
 
         // RISC-V: 向量扩展 opcode = 0x57 (0b1010111)
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             let opcode = bytes[0] & 0x7F;
             if opcode == 0x57 {
                 return true;
@@ -360,7 +361,7 @@ impl PatternMatchCache {
         }
 
         // ARM/AArch64: NEON指令
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             // 简化检测：检查NEON操作码范围
             if (bytes[0] & 0xE0) == 0x40 || (bytes[0] & 0xF0) == 0x00 {
                 return true;
@@ -377,7 +378,7 @@ impl PatternMatchCache {
         }
 
         // RISC-V: 浮点扩展 opcode = 0x07 (LOAD-FP) 或 0x27 (STORE-FP)
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             let opcode = bytes[0] & 0x7F;
             if opcode == 0x07 || opcode == 0x27 || opcode == 0x53 {
                 return true;
@@ -385,7 +386,7 @@ impl PatternMatchCache {
         }
 
         // x86-64: x87/SSE/AVX指令
-        if bytes.len() >= 1 {
+        if !bytes.is_empty() {
             match bytes[0] {
                 0xD8..=0xDF | 0xF0..=0xFF | 0x0F => return true,
                 _ => {}

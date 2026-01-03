@@ -3,16 +3,15 @@ use vm_core::AddressTranslator;
 //!
 //! 测试异步MMU操作的延迟和吞吐量
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+// Use std::hint::black_box instead of criterion's deprecated version
+use std::hint::black_box;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use tokio::runtime::Runtime;
 use vm_core::{AccessType, GuestAddr};
 use vm_mem::SoftMmu;
 use vm_mem::async_mmu::async_impl::{AsyncMMU, AsyncMmuWrapper};
-
-// Use std::hint::black_box instead of criterion's deprecated version
-use std::hint::black_box;
 
 fn create_runtime() -> Runtime {
     Runtime::new().unwrap()

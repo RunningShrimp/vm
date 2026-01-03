@@ -2,6 +2,7 @@
 
 mod address_translation_tests {
     use std::sync::{Arc, Mutex};
+
     use vm_core::{AccessType, Fault, VmError};
     use vm_mem::GuestAddr;
     use vm_mem::domain_services::AddressTranslationDomainService;

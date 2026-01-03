@@ -2,10 +2,12 @@
 //!
 //! Handles reading, writing, and validating VM configurations.
 
-use crate::ipc::VmConfig;
-use serde_json;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use serde_json;
+
+use crate::ipc::VmConfig;
 
 const CONFIG_DIR: &str = ".vm/configs";
 
@@ -113,8 +115,9 @@ impl ConfigManager {
 
     /// Create a default configuration template
     pub fn create_template(name: &str, os_type: crate::ipc::OsType) -> VmConfig {
-        use crate::ipc::{DisplayMode, OsType};
         use uuid::Uuid;
+
+        use crate::ipc::{DisplayMode, OsType};
 
         let (cpu, memory, disk, display_mode) = match os_type {
             OsType::Ubuntu | OsType::Debian => {

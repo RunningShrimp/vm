@@ -2,10 +2,10 @@
 //!
 //! Implements simulation for Linux, Windows, and macOS system calls
 
-use crate::{GuestAddr, GuestRegs, MMU};
-
 use std::fs::File;
 use std::sync::{Arc, Mutex};
+
+use crate::{GuestAddr, GuestRegs, MMU};
 
 /// System call result
 #[derive(Debug, Clone)]

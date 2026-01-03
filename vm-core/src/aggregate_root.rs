@@ -4,11 +4,10 @@
 
 #![cfg(feature = "std")]
 
-use crate::jit::domain_event_bus::DomainEventBus;
-use crate::jit::domain_events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
-use crate::{VmLifecycleState, VmConfig, VmError, VmResult, VmState};
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
+use crate::{VmLifecycleState, VmConfig, VmResult, VmState};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 /// 聚合根trait
 ///
@@ -61,8 +60,7 @@ impl VirtualMachineAggregate {
         // 发布创建事件
         aggregate.record_event(DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreated {
             vm_id: vm_id.clone(),
-            config: VmConfigSnapshot::from(&config),
-            occurred_at: SystemTime::now(),
+            config_snapshot: VmConfigSnapshot::from(&config),
         }));
         aggregate
     }
@@ -79,8 +77,7 @@ impl VirtualMachineAggregate {
         };
         aggregate.record_event(DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreated {
             vm_id: vm_id.clone(),
-            config: VmConfigSnapshot::from(&config),
-            occurred_at: SystemTime::now(),
+            config_snapshot: VmConfigSnapshot::from(&config),
         }));
         aggregate
     }
@@ -104,7 +101,7 @@ impl VirtualMachineAggregate {
             .map(Arc::clone)
             .unwrap_or_else(|| Arc::new(DomainEventBus::new()));
         for event in &self.uncommitted_events {
-            bus.publish(event.clone())?;
+            bus.publish(&event.clone())?;
         }
         self.mark_events_as_committed();
         Ok(())
@@ -131,10 +128,13 @@ impl VirtualMachineAggregate {
     }
 
     /// 从事件回放重建聚合状态
+    ///
+    /// Note: This method is temporarily disabled as event_store module is not available
+    #[cfg(feature = "enhanced-event-sourcing")]
     pub fn from_events(
         vm_id: String,
         config: VmConfig,
-        events: Vec<crate::event_store::StoredEvent>,
+        events: Vec<DomainEventEnum>,  // Simplified - use DomainEventEnum directly
     ) -> Self {
         let mut aggregate = Self {
             vm_id: vm_id.clone(),
@@ -145,14 +145,15 @@ impl VirtualMachineAggregate {
             version: 0,
         };
         // 回放所有事件
-        for stored_event in events {
-            aggregate.apply_event(&stored_event.event);
-            aggregate.version = stored_event.sequence_number;
+        for event in events {
+            aggregate.apply_event(&event);
+            aggregate.version += 1;
         }
         aggregate
     }
 
     /// 应用事件到聚合状态(内部方法)
+    #[allow(dead_code)] // Part of DDD pattern, used internally for event sourcing
     fn apply_event(&mut self, event: &DomainEventEnum) {
         match event {
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmCreated { .. }) => {
@@ -177,7 +178,14 @@ impl VirtualMachineAggregate {
                 self.state = VmLifecycleState::Stopped;
             }
             DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStateChanged { to, .. }) => {
-                self.state = *to;
+                // Parse the state string back to VmLifecycleState
+                match to.as_str() {
+                    "Created" => self.state = VmLifecycleState::Created,
+                    "Running" => self.state = VmLifecycleState::Running,
+                    "Paused" => self.state = VmLifecycleState::Paused,
+                    "Stopped" => self.state = VmLifecycleState::Stopped,
+                    _ => {} // Keep current state if unknown
+                }
             }
             _ => {}
         }
@@ -201,14 +209,13 @@ impl AggregateRoot for VirtualMachineAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jit::domain_events::{DomainEventEnum, VmLifecycleEvent};
     use crate::{GuestArch, VmConfig};
 
     #[test]
     fn test_virtual_machine_aggregate_creation() {
         let config = VmConfig {
             guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
+            memory_size: crate::DEFAULT_MEMORY_SIZE,
             vcpu_count: 1,
             ..Default::default()
         };

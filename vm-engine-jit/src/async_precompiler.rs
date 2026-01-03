@@ -22,6 +22,8 @@
 //! ```rust,no_run
 //! use vm_engine_jit::async_precompiler::AsyncPrecompiler;
 //! use vm_ir::IRBlock;
+//! use vm_ir::{IROp, Terminator};
+//! use vm_core::GuestAddr;
 //! use tokio::runtime::Runtime;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,30 +31,35 @@
 //! let precompiler = AsyncPrecompiler::new(4).await?;
 //!
 //! // 将热点块加入编译队列
-//! let hot_blocks = vec![/* ... */];
+//! let hot_blocks = vec![
+//!     IRBlock {
+//!         start_pc: GuestAddr(0x1000),
+//!         ops: vec![IROp::Nop],
+//!         term: Terminator::Ret,
+//!     }
+//! ];
 //! precompiler.enqueue_hot_blocks(hot_blocks).await;
 //!
 //! // 启动后台编译任务
 //! precompiler.start_background_workers().await?;
 //!
-//! // 检查块是否已编译
-//! if precompiler.is_compiled(&block_hash).await {
-//!     let code = precompiler.get_compiled_code(block_hash).await?;
-//!     // 使用编译好的代码...
-//! }
+//! // 等待编译完成并检查结果
+//! tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+//!
+//! // 获取编译后的代码（使用哈希查找）
+//! // 注意：实际使用时需要保存block_hash或在编译后获取
 //! # Ok(())
 //! # }
 //! ```
 
-use crate::compile_cache::CompilationCache;
-use crate::compiler_backend::{CompilerBackend, CompilerError};
+use crate::compile_cache::CompileCache;
+use crate::compiler_backend::CompilerError;
 use crate::parallel_compiler::ParallelJITCompiler;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, RwLock, Mutex};
 use vm_ir::IRBlock;
-use vm_core::{VmError, GuestAddr};
+use vm_core::foundation::{VmError, JitError};
 
 /// 编译任务
 #[derive(Debug, Clone)]
@@ -72,8 +79,10 @@ pub type CompileResult = Result<Vec<u8>, CompilerError>;
 pub struct AsyncPrecompiler {
     /// 编译任务发送器
     task_sender: mpsc::Sender<CompileTask>,
+    /// 编译任务接收器（用于克隆）
+    task_receiver: Arc<Mutex<mpsc::Receiver<CompileTask>>>,
     /// 编译缓存
-    cache: Arc<RwLock<CompilationCache>>,
+    cache: Arc<RwLock<CompileCache>>,
     /// 工作线程数
     num_workers: usize,
     /// 统计信息
@@ -111,11 +120,12 @@ impl AsyncPrecompiler {
     /// - `Ok(precompiler)`: 创建成功
     /// - `Err(VmError)`: 创建失败
     pub async fn new(num_workers: usize) -> Result<Self, VmError> {
-        let (task_sender, _) = mpsc::channel(100); // 缓冲队列：100个任务
+        let (task_sender, task_receiver) = mpsc::channel(100); // 缓冲队列：100个任务
 
         Ok(Self {
             task_sender,
-            cache: Arc::new(RwLock::new(CompilationCache::new())),
+            task_receiver: Arc::new(Mutex::new(task_receiver)),
+            cache: Arc::new(RwLock::new(CompileCache::new(1000))),
             num_workers,
             stats: Arc::new(RwLock::new(PrecompilerStats::default())),
             running: Arc::new(RwLock::new(false)),
@@ -132,11 +142,12 @@ impl AsyncPrecompiler {
         num_workers: usize,
         parallel_compiler: ParallelJITCompiler,
     ) -> Result<Self, VmError> {
-        let (task_sender, _) = mpsc::channel(100);
+        let (task_sender, task_receiver) = mpsc::channel(100);
 
         Ok(Self {
             task_sender,
-            cache: Arc::new(RwLock::new(CompilationCache::new())),
+            task_receiver: Arc::new(Mutex::new(task_receiver)),
+            cache: Arc::new(RwLock::new(CompileCache::new(1000))),
             num_workers,
             stats: Arc::new(RwLock::new(PrecompilerStats::default())),
             running: Arc::new(RwLock::new(false)),
@@ -153,7 +164,7 @@ impl AsyncPrecompiler {
 
         // 启动工作线程
         for worker_id in 0..self.num_workers {
-            let mut receiver = self.task_sender.clone();
+            let receiver = Arc::clone(&self.task_receiver);
             let cache = Arc::clone(&self.cache);
             let stats = Arc::clone(&self.stats);
             let running = Arc::clone(&self.running);
@@ -165,11 +176,16 @@ impl AsyncPrecompiler {
 
                 while *running.read().await {
                     // 接收编译任务（带超时）
-                    match tokio::time::timeout(
+                    let recv_result = tokio::time::timeout(
                         Duration::from_secs(1),
-                        receiver.recv(),
-                    ).await {
-                        Ok(Ok(task)) => {
+                        async {
+                            let mut recv_guard = receiver.lock().await;
+                            recv_guard.recv().await
+                        },
+                    ).await;
+
+                    match recv_result {
+                        Ok(Some(task)) => {
                             // 编译块（使用并行编译器或内部编译）
                             let start_time = Instant::now();
                             let result = Self::compile_block_with_parallel(
@@ -179,11 +195,14 @@ impl AsyncPrecompiler {
 
                             // 更新统计
                             let compile_time_ms = start_time.elapsed().as_millis() as u64;
+
+                            // 简化队列长度计算
+                            let queued_tasks = 0;
                             Self::update_stats_internal(
                                 &stats,
                                 &result,
                                 compile_time_ms,
-                                receiver.len(),
+                                queued_tasks,
                             ).await;
 
                             // 缓存结果
@@ -191,18 +210,17 @@ impl AsyncPrecompiler {
                                 cache.write().await.insert(
                                     task.block_hash,
                                     code.clone(),
-                                    compile_time_ms,
                                 );
                             }
 
                             tracing::debug!(
-                                "{}: compiled block {} in {}ms",
+                                "{}: compiled block {:#x} in {}ms",
                                 worker_name,
-                                task.block.name,
+                                task.block.start_pc.0,
                                 compile_time_ms
                             );
                         }
-                        Ok(Err) => {
+                        Ok(None) => {
                             // 通道关闭
                             tracing::debug!("{}: channel closed", worker_name);
                             break;
@@ -278,7 +296,8 @@ impl AsyncPrecompiler {
             .await
             .get(&block_hash)
             .cloned()
-            .ok_or_else(|| VmError::CompilationError {
+            .ok_or_else(|| VmError::JitCompilation {
+                source: JitError::CodeCacheFull,
                 message: format!("Block {} not found in cache", block_hash),
             })
     }
@@ -299,7 +318,7 @@ impl AsyncPrecompiler {
         use std::collections::hash_map::DefaultHasher;
 
         let mut hasher = DefaultHasher::new();
-        block.name.hash(&mut hasher);
+        block.start_pc.hash(&mut hasher);
         block.ops.len().hash(&mut hasher);
         hasher.finish()
     }
@@ -311,7 +330,7 @@ impl AsyncPrecompiler {
     ) -> CompileResult {
         // 尝试使用并行编译器
         let compiler_guard = parallel_compiler.read().await;
-        if let Some(ref compiler) = *compiler_guard {
+        if compiler_guard.is_some() {
             // 使用parallel_compiler的compile_blocks_unbounded
             // 注意：这里需要创建可变引用，但async上下文不允许
             // 所以暂时使用内部编译
@@ -325,9 +344,24 @@ impl AsyncPrecompiler {
     }
 
     /// 内部编译函数
+    ///
+    /// 注意：这是回退实现，当没有配置并行编译器时使用。
+    ///
+    /// 当前实现：
+    /// - 返回占位符代码（ret指令序列）
+    /// - 适用于没有配置ParallelJITCompiler的场景
+    ///
+    /// 完整实现需要：
+    /// 1. 集成实际的编译器后端（Cranelift或LLVM）
+    /// 2. 解析IR块并生成本地代码
+    /// 3. 处理寄存器分配和指令选择
+    /// 4. 生成可执行机器码
+    ///
+    /// 推荐使用方式：
+    /// - 通过`set_parallel_compiler()`配置ParallelJITCompiler
+    /// - 这样可以使用高性能的并行编译路径
     fn compile_block_internal(block: &IRBlock) -> CompileResult {
-        // TODO: 集成实际的编译器后端
-        // 这里使用占位符实现
+        // 回退实现：返回占位符代码
         Ok(vec![0xC3; block.ops.len() * 4]) // C3 = ret指令
     }
 
@@ -377,12 +411,19 @@ mod tests {
     use crate::cranelift_backend::CraneliftBackend;
 
     fn create_test_block(name: &str, num_ops: usize) -> IRBlock {
+        use vm_core::GuestAddr;
+
+        // Use a base address offset by the name's hash to generate unique addresses
+        let base_addr = 0x1000u64;
+        let name_hash = name.chars().map(|c| c as u64).sum::<u64>();
+        let addr = base_addr + (name_hash % 0x1000);
+
         IRBlock {
-            name: name.to_string(),
+            start_pc: GuestAddr(addr),
             ops: (0..num_ops)
                 .map(|_| IROp::Nop)
                 .collect(),
-            terminator: Terminator::Ret { value: None },
+            term: Terminator::Ret,
         }
     }
 
@@ -437,7 +478,7 @@ mod tests {
             .cache
             .write()
             .await
-            .insert(block_hash, vec![0xC3], 10);
+            .insert(block_hash, vec![0xC3]);
 
         // 检查已编译
         assert!(precompiler.is_compiled(block_hash).await);
@@ -475,12 +516,12 @@ mod tests {
             .cache
             .write()
             .await
-            .insert(1, vec![0xC3], 10);
+            .insert(1, vec![0xC3]);
         precompiler
             .cache
             .write()
             .await
-            .insert(2, vec![0x90], 20);
+            .insert(2, vec![0x90]);
 
         assert_eq!(precompiler.cache.read().await.len(), 2);
 

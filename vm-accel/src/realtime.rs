@@ -7,10 +7,11 @@
 //! - 内存预分配与页面锁定
 //! - 预测性预取与缓存管理
 
-use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use parking_lot::RwLock;
 
 /// 实时优先级等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

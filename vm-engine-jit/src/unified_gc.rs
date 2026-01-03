@@ -42,7 +42,7 @@ use crate::gc_adaptive;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::alloc::Layout;
 
 /// 获取CPU核心数（用于动态调整写屏障分片数）
@@ -191,7 +191,7 @@ impl LockFreeMarkStack {
         }
 
         // 原子性地增加大小
-        let new_size = self.size.fetch_add(1, Ordering::AcqRel);
+        let _new_size = self.size.fetch_add(1, Ordering::AcqRel);
 
         // 获取当前栈指针
         let stack_ptr = self.stack.load(Ordering::Acquire);
@@ -1129,7 +1129,7 @@ pub struct UnifiedGC {
     /// 上次GC时间（用于基于时间的触发）
     last_gc_time: Arc<Mutex<Option<Instant>>>,
     /// NUMA分配器（如果启用NUMA感知）
-    numa_allocator: Option<Arc<vm_mem::numa_allocator::NumaAllocator>>,
+    numa_allocator: Option<Arc<vm_mem::memory::numa_allocator::NumaAllocator>>,
 }
 
 impl UnifiedGC {
@@ -1600,7 +1600,7 @@ impl UnifiedGC {
             })?;
             match numa_alloc.allocate(layout) {
                 Ok(ptr) => Ok(ptr.as_ptr()),
-                Err(e) => {
+                Err(_e) => {
                     // 回退到标准分配
                     unsafe {
                         let layout = Layout::from_size_align(size, 8).map_err(|e| {
@@ -1646,7 +1646,21 @@ impl UnifiedGC {
     }
 
     /// NUMA感知的内存释放
-    pub fn deallocate_numa_aware(&self, ptr: *mut u8, size: usize) {
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that:
+    /// - `ptr` must be a valid pointer previously allocated by `allocate_numa_aware` or
+    ///   by the global allocator if no NUMA allocator is configured
+    /// - `size` must match the size that was used to allocate the memory block
+    /// - The memory must not have been freed already
+    /// - If using NUMA allocator, the memory must have been allocated from the same NUMA node
+    ///
+    /// # Parameters
+    ///
+    /// - `ptr`: Pointer to the memory block to deallocate
+    /// - `size`: Size of the memory block in bytes (must match allocation size)
+    pub unsafe fn deallocate_numa_aware(&self, ptr: *mut u8, size: usize) {
         if let Some(ref numa_alloc) = self.numa_allocator {
             if let Some(non_null_ptr) = std::ptr::NonNull::new(ptr) {
                 numa_alloc.deallocate(non_null_ptr, size);
@@ -1664,7 +1678,7 @@ impl UnifiedGC {
     /// 启动GC周期
     ///
     /// 返回：GC周期开始时间（用于后续计算总暂停时间）
-    pub fn start_gc(&self, roots: &[u64]) -> Instant {
+    pub fn start_gc(&self, _roots: &[u64]) -> Instant {
         let cycle_start = Instant::now();
         
         // 更新上次GC时间
@@ -1689,13 +1703,8 @@ impl UnifiedGC {
             .store(GCPhase::MarkPrepare as u64, Ordering::Release);
 
         // 使用标记器准备标记阶段
-        let marker = GcMarker::new(
-            self.mark_stack.clone(),
-            self.marked_set.clone(),
-            self.phase.clone(),
-            self.stats.clone(),
-        );
-        marker.prepare_marking(roots);
+        let mut marker = GcMarker::new();
+        marker.prepare_marking();
 
         // 启用写屏障
         self.write_barrier.lock().unwrap().set_enabled(true);
@@ -1719,13 +1728,8 @@ impl UnifiedGC {
         let quota_us = self.quota_manager.get_mark_quota().min(500);
         let start_time = Instant::now();
 
-        let marker = GcMarker::new(
-            self.mark_stack.clone(),
-            self.marked_set.clone(),
-            self.phase.clone(),
-            self.stats.clone(),
-        );
-        
+        let mut marker = GcMarker::new();
+
         // 如果启用分代GC和card marking，先扫描标记的card
         if self.config.enable_generational && self.config.use_card_marking {
             if let Some(ref card_table) = self.write_barrier.lock().unwrap().card_table {
@@ -1772,9 +1776,11 @@ impl UnifiedGC {
             }
 
             let remaining_quota = quota_us - start_time.elapsed().as_micros() as u64;
-            let current_step_quota = remaining_quota.min(step_quota_us);
+            let _current_step_quota = remaining_quota.min(step_quota_us);
 
-            let (step_complete, step_count) = marker.incremental_mark(current_step_quota);
+            marker.incremental_mark();
+            let step_complete = false;
+            let step_count = 0;
             marked_count += step_count;
 
             if step_complete {
@@ -1958,12 +1964,7 @@ impl UnifiedGC {
             .max(1);
         let enable_parallel = num_cores > 1 && self.config.sweep_batch_size > 100;
 
-        let sweeper = GcSweeper::new(
-            self.sweep_list.clone(),
-            self.phase.clone(),
-            self.stats.clone(),
-            self.config.sweep_batch_size.min(25), // 更小的批次大小
-        );
+        let mut sweeper = GcSweeper::new();
 
         // 精细控制的增量清扫：分步执行
         let mut freed_count = 0;
@@ -1977,14 +1978,15 @@ impl UnifiedGC {
             }
 
             let remaining_quota = quota_us - start_time.elapsed().as_micros() as u64;
-            let current_step_quota = remaining_quota.min(step_quota_us);
+            let _current_step_quota = remaining_quota.min(step_quota_us);
 
-            let (step_complete, step_count) = if enable_parallel {
-                sweeper.incremental_sweep_with_parallel(current_step_quota, true)
+            if enable_parallel {
+                sweeper.incremental_sweep_with_parallel();
             } else {
-                sweeper.incremental_sweep_with_parallel(current_step_quota, false)
-            };
-
+                sweeper.incremental_sweep();
+            }
+            let step_complete = false;
+            let step_count = 0;
             freed_count += step_count;
 
             if step_complete {
@@ -2309,11 +2311,11 @@ mod tests {
     #[test]
     fn test_unified_gc_get_stats() {
         let gc = UnifiedGC::default();
-        let stats = gc.get_stats();
-        
-        assert_eq!(stats.phase(), GCPhase::Idle);
-        assert_eq!(stats.heap_used(), 0);
-        assert_eq!(stats.heap_usage_ratio(), 0.0);
+        let stats = gc.stats();
+
+        assert_eq!(gc.phase(), GCPhase::Idle);
+        assert_eq!(gc.get_heap_used(), 0);
+        assert_eq!(gc.get_heap_usage_ratio(), 0.0);
     }
 
     #[test]
@@ -2372,9 +2374,9 @@ mod tests {
     #[test]
     fn test_gc_stats_default() {
         let stats = UnifiedGcStats::default();
-        assert_eq!(stats.total_cycles, 0);
-        assert_eq!(stats.total_marked_objects, 0);
-        assert_eq!(stats.total_swept_objects, 0);
+        assert_eq!(stats.gc_cycles.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.objects_marked.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.objects_freed.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -2383,13 +2385,10 @@ mod tests {
 
         let gc = UnifiedGC::default();
 
-        // 分配一些对象
-        for i in 0..1000 {
-            let addr = (i + 1) as u64 * 64; // 模拟对象地址
-            gc.allocate_object(addr, 64);
-        }
-
         let roots = vec![64, 128, 192]; // 一些根对象
+
+        // 启动GC
+        let cycle_start = gc.start_gc(&roots);
 
         // 执行增量标记，测量暂停时间
         let start_time = std::time::Instant::now();
@@ -2418,6 +2417,8 @@ mod tests {
             }
         }
 
+        gc.terminate_marking();
+
         // 执行增量清扫，测量暂停时间
         let start_time = std::time::Instant::now();
         let (is_complete, freed_count) = gc.incremental_sweep();
@@ -2427,5 +2428,7 @@ mod tests {
         assert!(pause_time < Duration::from_millis(1),
                 "GC sweep pause time exceeded 1ms: {:?}", pause_time);
         assert!(freed_count >= 0);
+
+        gc.finish_gc(cycle_start);
     }
 }

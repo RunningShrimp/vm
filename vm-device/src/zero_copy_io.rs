@@ -2,12 +2,13 @@
 //!
 //! 实现无锁缓冲区池、分片映射缓存和原子操作优化
 
-use crate::virtio_zerocopy::{MappingEntry, ScatterGatherList, SgSegment};
 use std::mem;
 use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
+
+use crate::virtio_zerocopy::{MappingEntry, ScatterGatherList, SgSegment};
 
 /// 无锁缓冲区池
 ///
@@ -559,11 +560,8 @@ impl OptimizedZeroCopyManager {
         let (active, completed, (allocs, reuses), available) = self.stats();
 
         format!(
-            "OptimizedZeroCopyManager:\n\
-             Active Chains: {}\n\
-             Completed Chains: {}\n\
-             Buffer Pool: {} allocations, {} reuses, {} available\n\
-             Cache Shards: {}",
+            "OptimizedZeroCopyManager:\nActive Chains: {}\nCompleted Chains: {}\nBuffer Pool: {} \
+             allocations, {} reuses, {} available\nCache Shards: {}",
             active,
             completed,
             allocs,

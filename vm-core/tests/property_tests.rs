@@ -3,7 +3,7 @@
 //! 使用proptest进行基于属性的测试，验证核心不变量
 
 use proptest::prelude::*;
-use vm_core::{GuestAddr, VmError, CoreError};
+use vm_core::{CoreError, GuestAddr, VmError};
 
 // ============================================================================
 // 页表地址转换属性测试

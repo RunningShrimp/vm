@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Async runtime - must be first to ensure availability
+tokio = { workspace = true, features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }
+
 log = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
@@ -14,28 +17,30 @@ chrono = { workspace = true, optional = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# JIT编译后端 - Cranelift
-cranelift-codegen = "0.110"
-cranelift-frontend = "0.110"
-cranelift-module = "0.110"
-cranelift-native = "0.110"
-target-lexicon = "0.12"
+# JIT编译后端 - Cranelift (使用 workspace 统一版本)
+cranelift-codegen = { workspace = true }
+cranelift-frontend = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-native = { workspace = true }
+cranelift-control = { workspace = true }
+target-lexicon = { workspace = true }
 
-# 缓存和并发数据结构
-lru = "0.12"
-crossbeam-queue = "0.3"
+# 缓存和并发数据结构 (使用 workspace 统一版本)
+lru = { workspace = true }
+crossbeam-queue = { workspace = true }
 
 # VM Core dependencies
-vm-core = { path = "../vm-core", features = ["foundation"] }
+vm-core = { path = "../vm-core" }
 vm-mem = { path = "../vm-mem" }
 vm-ir = { path = "../vm-ir" }
-vm-optimizers = { path = "../vm-optimizers" }
+# vm-optimizers = { path = "../vm-optimizers" }  # Temporarily disabled due to merge conflicts
 
 # Optional external dependencies
 vm-accel = { path = "../vm-accel", optional = true }
-vm-simd = { path = "../vm-simd", optional = true }
+vm-engine-jit = { path = "../vm-engine-jit", optional = true }
 
 # Build dependencies
+# cfg-if 保留直接版本，因为它是构建时依赖且版本稳定
 cfg-if = "1.0"
 
 # System dependencies
@@ -48,7 +53,6 @@ num_cpus = { version = "1.16", optional = true }
 tokio-uring = { workspace = true, optional = true }
 
 # Async dependencies
-tokio = { workspace = true, features = ["sync", "rt-multi-thread", "time", "macros"] }
 futures = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 
@@ -56,18 +60,34 @@ async-trait = { workspace = true, optional = true }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Memory"] }
 
 [features]
-default = ["std"]
+default = ["std", "interpreter"]
+
+# Standard library support
 std = ["serde_json", "vm-core/std"]
-async = ["futures", "async-trait", "vm-core/async"]
+
+# Execution engines
+# Note: Both interpreter and JIT are always compiled, but features control optimizations
+interpreter = []
+jit = []  # JIT is compiled-in, see src/jit/mod.rs for JIT-specific code
+
+# Full JIT engine with vm-engine-jit integration (方案C: Feature统一)
+jit-full = ["jit", "vm-engine-jit"]
+
+# Executor (async execution)
+executor = ["async"]
+
+# Debugging support
 debug = ["std"]
 
-# JIT-specific features
-jit = []
-interpreter = []
-executor = []
+# Async support
+async = ["futures", "async-trait", "vm-core/async"]
 
 # Combined features
-all-engines = ["jit", "interpreter", "executor"]
+all-engines = ["interpreter", "jit"]
+all-engines-full = ["interpreter", "jit-full"]
+
+# Experimental features
+experimental = ["executor"]
 
 [dev-dependencies]
 criterion = { workspace = true }

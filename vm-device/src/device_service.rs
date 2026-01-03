@@ -1,5 +1,6 @@
-use crate::block::VirtioBlockMmio;
 use vm_core::{GuestAddr, MMU};
+
+use crate::block::VirtioBlockMmio;
 
 pub struct DeviceService {
     pub block_mmio: Option<VirtioBlockMmio>,

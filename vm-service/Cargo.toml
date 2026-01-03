@@ -10,14 +10,12 @@ vm-engine = { path = "../vm-engine", features = ["interpreter", "jit"], optional
 vm-mem = { path = "../vm-mem" }
 vm-device = { path = "../vm-device", optional = true }
 vm-frontend = { path = "../vm-frontend", optional = true }
-vm-runtime = { path = "../vm-runtime" }
 log = { workspace = true }
-# vm-service uses: sync (types in API), rt-multi-thread (tokio::spawn), time (sleep, Duration)
 tokio = { workspace = true, features = ["sync", "rt-multi-thread", "time"] }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-tracing = "0.1"
+tracing = { workspace = true }
 parking_lot = { workspace = true }
 bincode = { workspace = true }
 
@@ -30,14 +28,26 @@ default = ["std", "devices", "performance"]
 std = []
 
 # Performance features (merged: jit, async, frontend)
+# Note: Uses all architectures by default
 performance = ["std", "vm-core/async", "vm-mem/async", "vm-engine/jit", "vm-frontend/all"]
 
 # Device support (CLINT, PLIC, virtio devices)
 devices = ["vm-device"]
 
-# Frontend decoder support (all architectures)
+# Engine support (JIT and interpreter)
+vm-engine = ["vm-engine/interpreter", "vm-engine/jit"]
+
+# Frontend decoder support (single architecture)
 frontend = ["vm-frontend"]
+frontend-x86_64 = ["frontend", "vm-frontend/x86_64"]
+frontend-arm64 = ["frontend", "vm-frontend/arm64"]
+frontend-riscv64 = ["frontend", "vm-frontend/riscv64"]
+
+# All architectures
 all-arch = ["frontend", "vm-frontend/all"]
+
+# RISC-V extensions
+riscv-extensions = ["all-arch", "vm-frontend/all-extensions"]
 
 # Legacy feature aliases (deprecated, use "performance" instead)
 async = ["performance"]

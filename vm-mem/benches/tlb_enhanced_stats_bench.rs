@@ -18,9 +18,12 @@ use vm_core::AddressTranslator;
 //! cargo bench --bench enhanced_tlb_stats
 //! ```
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::sync::Arc;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
+use vm_mem::tlb::tlb::TlbReplacePolicy;
+use vm_mem::tlb::tlb::{MissReason as TlbMissReason, SwitchReason as TlbSwitchReason};
 use vm_mem::tlb::{
     // 新增的增强统计
     EnhancedTlbStats,
@@ -31,9 +34,6 @@ use vm_mem::tlb::{
     TlbFactory,
     UnifiedTlb,
 };
-
-use vm_mem::tlb::tlb::TlbReplacePolicy;
-use vm_mem::tlb::tlb::{MissReason as TlbMissReason, SwitchReason as TlbSwitchReason};
 
 // ============================================================================
 // 辅助函数：生成测试数据

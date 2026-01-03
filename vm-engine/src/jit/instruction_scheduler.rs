@@ -1,4 +1,5 @@
 //! 指令调度器接口和实现
+#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
 //! 定义了指令调度器的抽象接口和多种实现策略，负责优化指令执行顺序以提高性能。
 //! 支持多种调度策略：
@@ -7,11 +8,13 @@
 //! - GreedyScheduling：贪婪调度
 //! - DynamicScheduling：动态调度（高级）
 
-use crate::jit::compiler::CompiledIRBlock;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
+
 use vm_core::VmError;
 use vm_ir::IROp;
+
+use crate::jit::compiler::CompiledIRBlock;
 
 /// 指令调度器接口
 pub trait InstructionScheduler: Send + Sync {
@@ -932,13 +935,13 @@ impl InstructionScheduler for ListScheduler {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SchedulingStrategy {
     /// 列表调度
-    ListScheduling,
+    List,
     /// 关键路径调度
-    CriticalPathScheduling,
+    CriticalPath,
     /// 贪婪调度
-    GreedyScheduling,
+    Greedy,
     /// 动态调度
-    DynamicScheduling,
+    Dynamic,
 }
 
 /// 延迟模型
@@ -974,7 +977,7 @@ pub struct OptimizedSchedulerConfig {
 impl Default for OptimizedSchedulerConfig {
     fn default() -> Self {
         Self {
-            strategy: SchedulingStrategy::CriticalPathScheduling,
+            strategy: SchedulingStrategy::CriticalPath,
             max_parallelism: 4,
             enable_reordering: true,
             enable_pipeline_optimization: true,
@@ -1479,10 +1482,10 @@ impl InstructionScheduler for OptimizedInstructionScheduler {
         self.build_dependency_graph(&result_block);
 
         let scheduled_order = match self.config.strategy {
-            SchedulingStrategy::ListScheduling => self.list_scheduling(),
-            SchedulingStrategy::CriticalPathScheduling => self.critical_path_scheduling(),
-            SchedulingStrategy::GreedyScheduling => self.greedy_scheduling(),
-            SchedulingStrategy::DynamicScheduling => {
+            SchedulingStrategy::List => self.list_scheduling(),
+            SchedulingStrategy::CriticalPath => self.critical_path_scheduling(),
+            SchedulingStrategy::Greedy => self.greedy_scheduling(),
+            SchedulingStrategy::Dynamic => {
                 if self.dependency_graph.len() > 100 {
                     self.critical_path_scheduling()
                 } else {
@@ -1521,10 +1524,10 @@ impl InstructionScheduler for OptimizedInstructionScheduler {
         match option {
             "strategy" => {
                 self.config.strategy = match value {
-                    "list" => SchedulingStrategy::ListScheduling,
-                    "critical_path" => SchedulingStrategy::CriticalPathScheduling,
-                    "greedy" => SchedulingStrategy::GreedyScheduling,
-                    "dynamic" => SchedulingStrategy::DynamicScheduling,
+                    "list" => SchedulingStrategy::List,
+                    "critical_path" => SchedulingStrategy::CriticalPath,
+                    "greedy" => SchedulingStrategy::Greedy,
+                    "dynamic" => SchedulingStrategy::Dynamic,
                     _ => {
                         return Err(VmError::Core(vm_core::CoreError::InvalidParameter {
                             name: "strategy".to_string(),

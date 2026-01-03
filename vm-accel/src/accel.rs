@@ -4,12 +4,13 @@
 
 #![cfg(feature = "smmu")]
 
-use crate::smmu::SmmuManager;
-use crate::vcpu_affinity::{CPUTopology, VCPUAffinityManager};
 use std::sync::Arc;
 
 use vm_core::VmError;
 use vm_core::error::CoreError;
+
+use crate::smmu::SmmuManager;
+use crate::vcpu_affinity::{CPUTopology, VCPUAffinityManager};
 
 /// 加速管理器错误类型
 pub type AccelManagerError = VmError;

@@ -2,6 +2,7 @@
 //!
 //! 提供统一的解码管道，将前缀、操作码、操作数解码串联起来
 
+use vm_core::MMU;
 use vm_core::{Fault, GuestAddr, VmError};
 
 use super::{
@@ -9,8 +10,6 @@ use super::{
     opcode_decode::{OpcodeInfo, decode_opcode},
     prefix_decode::{PrefixInfo, decode_prefixes},
 };
-
-use vm_core::MMU;
 
 /// 简化的指令流结构
 pub struct InsnStream<'a, M: MMU + ?Sized> {
@@ -335,8 +334,10 @@ impl Default for DecoderPipeline {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use vm_core::MemoryAccess;
     use vm_mem::SoftMmu;
+
+    use super::*;
 
     #[test]
     fn test_decoder_pipeline_basic() {
@@ -347,15 +348,15 @@ mod tests {
 
         // 将代码写入内存
         for (i, &byte) in code.iter().enumerate() {
-            mmu.write(0x1000 + i as u64, byte as u64, 1)
+            mmu.write(vm_core::GuestAddr(0x1000 + i as u64), byte as u64, 1)
                 .expect("Failed to write test code to memory");
         }
 
-        let mut stream = InsnStream::new(&mmu, 0x1000);
+        let mut stream = InsnStream::new(&mmu, vm_core::GuestAddr(0x1000));
         let mut pipeline = DecoderPipeline::new();
 
         let instruction = pipeline
-            .decode_instruction(&mut stream, 0x1000)
+            .decode_instruction(&mut stream, vm_core::GuestAddr(0x1000))
             .expect("Failed to decode NOP instruction");
 
         assert_eq!(instruction.mnemonic, X86Mnemonic::Nop);
@@ -367,14 +368,14 @@ mod tests {
         let mut mmu = SoftMmu::new(1024, false);
 
         // 写入测试数据
-        mmu.write(0x1000, 0x12345678, 4)
+        mmu.write(vm_core::GuestAddr(0x1000), 0x12345678, 4)
             .expect("Failed to write test data at 0x1000");
-        mmu.write(0x1004, 0x9ABCDEF0, 4)
+        mmu.write(vm_core::GuestAddr(0x1004), 0x9ABCDEF0, 4)
             .expect("Failed to write test data at 0x1004");
-        mmu.write(0x1008, 0x90ABCDEF12345678, 8)
+        mmu.write(vm_core::GuestAddr(0x1008), 0x90ABCDEF12345678, 8)
             .expect("Failed to write test data at 0x1008");
 
-        let mut stream = InsnStream::new(&mmu, 0x1000);
+        let mut stream = InsnStream::new(&mmu, vm_core::GuestAddr(0x1000));
 
         // 测试读取不同大小的数据
         assert_eq!(

@@ -2,7 +2,7 @@
 //!
 //! 测试VmService的核心功能
 
-use vm_core::{VmConfig, GuestArch};
+use vm_core::{GuestArch, VmConfig};
 use vm_service::VmService;
 
 /// 创建测试配置

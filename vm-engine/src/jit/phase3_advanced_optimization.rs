@@ -280,9 +280,9 @@ impl MLOptimizationModel for LinearRegressionModel {
                 RegisterAllocationStrategy::LinearScan
             },
             instruction_scheduling_strategy: match optimization_level {
-                3 => InstructionSchedulingStrategy::SuperblockScheduling,
-                2 => InstructionSchedulingStrategy::TraceScheduling,
-                _ => InstructionSchedulingStrategy::ListScheduling,
+                3 => InstructionSchedulingStrategy::Superblock,
+                2 => InstructionSchedulingStrategy::Trace,
+                _ => InstructionSchedulingStrategy::List,
             },
             confidence: self.get_confidence(features),
         })
@@ -564,7 +564,7 @@ impl MLOptimizer {
                 enable_inlining: true,
                 inline_depth_limit: 3,
                 register_allocation_strategy: RegisterAllocationStrategy::LinearScan,
-                instruction_scheduling_strategy: InstructionSchedulingStrategy::ListScheduling,
+                instruction_scheduling_strategy: InstructionSchedulingStrategy::List,
                 confidence: 0.5,
             });
         }

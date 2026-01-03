@@ -5,8 +5,9 @@
 // - 多种替换策略（LRU/LFU/Clock/2Q）
 // - TLB命中率和延迟统计
 
-use super::{AccessPermission, TLB_ENTRY_MAX};
 use std::collections::{HashMap, VecDeque};
+
+use super::{AccessPermission, TLB_ENTRY_MAX};
 
 /// TLB策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

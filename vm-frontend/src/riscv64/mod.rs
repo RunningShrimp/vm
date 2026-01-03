@@ -1,7 +1,13 @@
-use vm_core::{Decoder, GuestAddr, MMU, VmError};
+use vm_core::{AccessType, Decoder, GuestAddr, MMU, VmError};
 use vm_ir::{AtomicOp, IRBlock, IROp, MemFlags, Terminator};
 
+mod optimizer;
 mod vector;
+
+pub use optimizer::{
+    CompressedInsnType, CompressionStats, CsrRegister, RiscVFormat, RiscvOptimizer, VectorInsnType,
+    VectorStats,
+};
 use vector::VectorDecoder;
 
 // Type alias for convenience
@@ -50,9 +56,7 @@ impl<'a> RiscvCPU<'a> {
 
 // RISC-V扩展模块
 pub mod f_extension;
-pub use f_extension::{
-    FCSR, FExtensionExecutor, FFlags, FPRegisters, RoundingMode,
-};
+pub use f_extension::{FCSR, FExtensionExecutor, FFlags, FPRegisters, RoundingMode};
 
 pub mod d_extension;
 pub use d_extension::DExtensionExecutor;
@@ -106,12 +110,30 @@ fn sext21(x: u32) -> i64 {
     }
 }
 
+/// 辅助函数：从 MMU 读取指令
+fn fetch_insn(mmu: &mut dyn MMU, pc: GuestAddr) -> Result<u64, VmError> {
+    // 首先翻译地址
+    let pa = mmu.translate(pc, AccessType::Execute).map_err(|e| {
+        VmError::Memory(vm_core::MemoryError::PageTableError {
+            message: format!("Translation failed: {:?}", e),
+            level: None,
+        })
+    })?;
+    // 然后读取4字节
+    let insn_lo = mmu.read(vm_core::GuestAddr(pa.0), 4)?;
+    Ok(insn_lo)
+}
+
 impl Decoder for RiscvDecoder {
     type Instruction = RiscvInstruction;
     type Block = IRBlock;
 
-    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, VmError> {
-        let insn = mmu.fetch_insn(pc)? as u32;
+    fn decode_insn(
+        &mut self,
+        mmu: &mut dyn MMU,
+        pc: GuestAddr,
+    ) -> Result<Self::Instruction, VmError> {
+        let insn = fetch_insn(mmu, pc)? as u32;
         let opcode = insn & 0x7f;
 
         // Determine mnemonic based on opcode
@@ -142,8 +164,12 @@ impl Decoder for RiscvDecoder {
         })
     }
 
-    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, VmError> {
-        let insn = mmu.fetch_insn(pc)? as u32;
+    fn decode(
+        &mut self,
+        mmu: &mut (dyn MMU + 'static),
+        pc: GuestAddr,
+    ) -> Result<Self::Block, VmError> {
+        let insn = fetch_insn(mmu, pc)? as u32;
         let mut reg_file = vm_ir::RegisterFile::new(32, vm_ir::RegisterMode::SSA);
         let mut b = vm_ir::IRBuilder::new(pc);
 
@@ -764,7 +790,8 @@ impl Decoder for RiscvDecoder {
                             sh: 32,
                         });
 
-                        // Compute high bits: (rs1_hi * rs2_val) + (rs1_val * rs2_hi) + (rs1_hi * rs2_hi) << 32
+                        // Compute high bits: (rs1_hi * rs2_val) + (rs1_val * rs2_hi) + (rs1_hi *
+                        // rs2_hi) << 32
                         let term1 = reg_file.write(35);
                         let term2 = reg_file.write(36);
                         let term3 = reg_file.write(37);

@@ -2,8 +2,9 @@
 //!
 //! 测试基于profiling的优化对JIT编译性能的影响
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_core::GuestAddr;
 use vm_engine::jit::pgo_integration::{CompileResult, JitWithPgo, OptimizationLevel};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};

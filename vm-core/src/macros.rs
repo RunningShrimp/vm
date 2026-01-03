@@ -284,6 +284,7 @@ macro_rules! select_arch {
 mod tests {
 
     #[test]
+    #[allow(dead_code)] // Test infrastructure for macro validation
     fn test_impl_arithmetic_ops_macro() {
         // 这个测试主要是验证宏能够正确展开
         // 实际的算术操作测试在各个架构的测试中
@@ -316,9 +317,9 @@ mod tests {
         }
 
         // 验证实现
-        let mut regs = MockRegisterFile { registers: [0; 16] };
-        regs.registers[1] = 10;
-        regs.registers[2] = 20;
+        let _regs = MockRegisterFile { registers: [0; 16] };
+        // regs.registers[1] = 10; // Reserved for future testing
+        // regs.registers[2] = 20; // Reserved for future testing
 
         // MockArch::add 需要在实际使用场景中测试
     }
@@ -327,7 +328,7 @@ mod tests {
     fn test_for_each_arch_macro() {
         // 测试宏展开
         for_each_arch! {
-            fn arch_name() -> &'static str {
+            fn get_arch_name() -> &'static str {
                 stringify!(arch)
             }
         }

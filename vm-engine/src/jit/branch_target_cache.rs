@@ -1,4 +1,5 @@
 //! 分支目标缓存 (Branch Target Cache - BTC)
+#![allow(dead_code)] // TODO: JIT structures reserved for future optimization
 //!
 //! BTC缓存间接分支指令的目标地址，用于优化虚拟机中的分支预测和执行。
 //!
@@ -35,10 +36,11 @@
 //! println!("Hit rate: {:.2}%", stats.hit_rate() * 100.0);
 //! ```
 
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use parking_lot::Mutex;
 use vm_core::GuestAddr;
 
 /// 分支目标缓存条目
@@ -86,11 +88,11 @@ pub struct BranchTargetCacheConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReplacementPolicy {
     /// 最近最少使用（LRU）
-    LRU,
+    Lru,
     /// 最不经常使用（LFU）
-    LFU,
+    Lfu,
     /// 先进先出（FIFO）
-    FIFO,
+    Fifo,
     /// 随机替换
     Random,
 }
@@ -101,7 +103,7 @@ impl Default for BranchTargetCacheConfig {
             capacity: 1024,
             enable_prediction: true,
             history_size: 16,
-            replacement_policy: ReplacementPolicy::LRU,
+            replacement_policy: ReplacementPolicy::Lru,
         }
     }
 }
@@ -255,7 +257,7 @@ impl BranchTargetCache {
         let entry = entries.get(&branch_addr)?;
 
         // 更新访问顺序（LRU）
-        if self.config.replacement_policy == ReplacementPolicy::LRU {
+        if self.config.replacement_policy == ReplacementPolicy::Lru {
             let mut order = self.access_order.lock();
             order.retain(|&addr| addr != branch_addr);
             order.push(branch_addr);
@@ -295,7 +297,7 @@ impl BranchTargetCache {
         entry.access_count += 1;
 
         // 更新访问顺序
-        if self.config.replacement_policy == ReplacementPolicy::LRU {
+        if self.config.replacement_policy == ReplacementPolicy::Lru {
             let mut order = self.access_order.lock();
             order.retain(|&addr| addr != branch_addr);
             order.push(branch_addr);
@@ -349,7 +351,7 @@ impl BranchTargetCache {
     /// 驱逐一个缓存条目
     fn evict_one(&self, entries: &mut HashMap<GuestAddr, BranchTargetEntry>) {
         match self.config.replacement_policy {
-            ReplacementPolicy::LRU => {
+            ReplacementPolicy::Lru => {
                 let mut order = self.access_order.lock();
                 if let Some(&addr) = order.first() {
                     order.remove(0);
@@ -357,7 +359,7 @@ impl BranchTargetCache {
                     self.stats.evictions.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            ReplacementPolicy::LFU => {
+            ReplacementPolicy::Lfu => {
                 // 找到访问次数最少的条目
                 if let Some((&addr, _)) = entries.iter().min_by_key(|(_, entry)| entry.access_count)
                 {
@@ -369,7 +371,7 @@ impl BranchTargetCache {
                     order.retain(|&a| a != addr);
                 }
             }
-            ReplacementPolicy::FIFO => {
+            ReplacementPolicy::Fifo => {
                 let mut order = self.access_order.lock();
                 if let Some(&addr) = order.first() {
                     order.remove(0);
@@ -521,7 +523,7 @@ mod tests {
             capacity: 16,
             enable_prediction: true,
             history_size: 4,
-            replacement_policy: ReplacementPolicy::LRU,
+            replacement_policy: ReplacementPolicy::Lru,
         };
         let cache = BranchTargetCache::with_config(config);
 

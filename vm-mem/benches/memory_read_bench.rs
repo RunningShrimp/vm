@@ -4,8 +4,9 @@ use vm_core::AddressTranslator;
 //! This benchmark compares the performance of different-sized reads to identify
 //! why 8-byte reads may be slower than expected.
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use vm_mem::PhysicalMemory;
 
 fn bench_reads(c: &mut Criterion) {

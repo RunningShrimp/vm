@@ -2,9 +2,10 @@
 //!
 //! GMP风格的协程调度器实现,支持work stealing和负载均衡
 
-use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 /// 协程ID
 pub type CoroutineId = u64;

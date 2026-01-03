@@ -27,6 +27,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
 use vm_accel::SmmuManager;
 use vm_core::GuestAddr;
 
@@ -90,8 +91,8 @@ impl SmmuDeviceManager {
     /// # 示例
     ///
     /// ```
-    /// use vm_device::smmu_device::SmmuDeviceManager;
     /// use vm_accel::SmmuManager;
+    /// use vm_device::smmu_device::SmmuDeviceManager;
     ///
     /// let smmu = SmmuManager::new();
     /// let manager = SmmuDeviceManager::new(smmu);

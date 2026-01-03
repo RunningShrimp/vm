@@ -3,9 +3,11 @@
 //! 支持 Apple Silicon (M系列) 芯片
 //! 注意: Virtualization.framework 在 iOS/iPadOS 上需要特殊权限
 
-use super::{Accel, AccelError};
 use std::collections::HashMap;
+
 use vm_core::{GuestRegs, MMU};
+
+use super::{Accel, AccelError};
 
 // Virtualization.framework FFI 绑定 (iOS/iPadOS)
 // 注意: 这些 API 在 iOS 15+ 和 iPadOS 15+ 上可用，但需要特殊的 entitlements

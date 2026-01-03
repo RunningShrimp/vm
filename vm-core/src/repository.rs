@@ -819,15 +819,22 @@ mod tests {
         assert!(repo.save("test-vm", &snapshot).is_ok());
 
         // 加载
-        let loaded = repo.load("test-vm").expect("Failed to load VM state");
+        let loaded = repo.load("test-vm").unwrap_or_else(|e| {
+            panic!("Failed to load VM state: {}", e);
+        });
         assert!(loaded.is_some());
-        assert_eq!(loaded.expect("No VM state found").vm_id, "test-vm");
+        assert_eq!(
+            loaded.unwrap_or_else(|| panic!("No VM state found")).vm_id,
+            "test-vm"
+        );
 
         // 检查存在
         assert!(repo.exists("test-vm"));
 
         // 列出
-        let ids = repo.list_vm_ids().expect("Failed to list VM IDs");
+        let ids = repo.list_vm_ids().unwrap_or_else(|e| {
+            panic!("Failed to list VM IDs: {}", e);
+        });
         assert!(ids.contains(&"test-vm".to_string()));
 
         // 删除
@@ -839,7 +846,9 @@ mod tests {
     fn test_aggregate_repository() {
         let event_repo = Arc::new(InMemoryEventRepository::new());
         let repo = InMemoryAggregateRepository::new(event_repo);
-        let vm_id = VmId::new("test-vm").expect("Failed to create VmId");
+        let vm_id = VmId::new("test-vm").unwrap_or_else(|e| {
+            panic!("Failed to create VmId: {}", e);
+        });
 
         // 聚合根不存在
         assert!(!repo.aggregate_exists(&vm_id));
@@ -859,27 +868,40 @@ mod tests {
         );
 
         // 保存聚合根
-        repo.save_aggregate(&aggregate).expect("Failed to save aggregate");
+        repo.save_aggregate(&aggregate).unwrap_or_else(|e| {
+            panic!("Failed to save aggregate: {}", e);
+        });
 
         // 检查存在性
         assert!(repo.aggregate_exists(&vm_id));
 
         // 加载聚合根
-        let loaded = repo.load_aggregate(&vm_id).expect("Failed to load aggregate").expect("No aggregate found");
+        let loaded = repo.load_aggregate(&vm_id)
+            .unwrap_or_else(|e| panic!("Failed to load aggregate: {}", e))
+            .unwrap_or_else(|| panic!("No aggregate found"));
         assert_eq!(loaded.vm_id(), vm_id.as_str());
 
         // 获取版本
-        let version = repo.get_aggregate_version(&vm_id).expect("Failed to get aggregate version");
+        let version = repo.get_aggregate_version(&vm_id).unwrap_or_else(|e| {
+            panic!("Failed to get aggregate version: {}", e);
+        });
         assert_eq!(version, Some(0)); // 新创建的聚合根版本为0
     }
 
     #[test]
     fn test_event_repository() {
         let repo = InMemoryEventRepository::new();
-        let vm_id = VmId::new("test-vm").expect("Failed to create VmId");
+        let vm_id = VmId::new("test-vm").unwrap_or_else(|e| {
+            panic!("Failed to create VmId: {}", e);
+        });
 
         // 初始状态
-        assert_eq!(repo.get_latest_version(&vm_id).expect("Failed to get latest version"), None);
+        assert_eq!(
+            repo.get_latest_version(&vm_id).unwrap_or_else(|e| {
+                panic!("Failed to get latest version: {}", e);
+            }),
+            None
+        );
 
         // 保存事件
         use crate::jit::domain_events::{DomainEventEnum, VmLifecycleEvent};
@@ -889,13 +911,22 @@ mod tests {
             occurred_at: SystemTime::now(),
         });
 
-        repo.save_event(&vm_id, event).expect("Failed to save event");
+        repo.save_event(&vm_id, event).unwrap_or_else(|e| {
+            panic!("Failed to save event: {}", e);
+        });
 
         // 检查版本
-        assert_eq!(repo.get_latest_version(&vm_id).expect("Failed to get latest version"), Some(1));
+        assert_eq!(
+            repo.get_latest_version(&vm_id).unwrap_or_else(|e| {
+                panic!("Failed to get latest version: {}", e);
+            }),
+            Some(1)
+        );
 
         // 加载事件
-        let events = repo.load_events(&vm_id, None, None).expect("Failed to load events");
+        let events = repo.load_events(&vm_id, None, None).unwrap_or_else(|e| {
+            panic!("Failed to load events: {}", e);
+        });
         assert_eq!(events.len(), 1);
         // 验证返回的是StoredEvent
         assert_eq!(events[0].sequence_number, 1);
@@ -923,11 +954,18 @@ mod tests {
         assert!(suite.state_repo.save(vm_id, &snapshot).is_ok());
 
         // Test aggregate repo
-        let vm_id_obj = VmId::new(vm_id.to_string()).expect("Failed to create VmId");
+        let vm_id_obj = VmId::new(vm_id.to_string()).unwrap_or_else(|e| {
+            panic!("Failed to create VmId: {}", e);
+        });
         assert!(!suite.aggregate_repo.aggregate_exists(&vm_id_obj));
 
         // Test event repo
-        assert_eq!(suite.event_repo.get_latest_version(&vm_id_obj).expect("Failed to get version"), None);
+        assert_eq!(
+            suite.event_repo.get_latest_version(&vm_id_obj).unwrap_or_else(|e| {
+                panic!("Failed to get version: {}", e);
+            }),
+            None
+        );
 
         // Test snapshot repo
         assert!(suite.snapshot_repo.list_snapshots(vm_id).is_ok());

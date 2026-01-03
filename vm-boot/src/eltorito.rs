@@ -3,6 +3,7 @@
 //! 支持从 ISO 镜像引导 BIOS 和 UEFI 系统
 
 use std::io::{Read, Seek, SeekFrom};
+
 use thiserror::Error;
 
 /// El Torito 引导目录

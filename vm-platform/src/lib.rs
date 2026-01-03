@@ -52,46 +52,33 @@ pub mod runtime;
 pub mod snapshot;
 
 // ========== 公共接口：内存相关 ==========
-pub use memory::{
-    JitMemory, MappedMemory, MemoryError, MemoryProtection, barrier_acquire, barrier_full,
-    barrier_release,
-};
-
-// ========== 公共接口：线程相关 ==========
-pub use threading::{set_thread_affinity_big, set_thread_affinity_little, set_thread_cpu};
-
-// ========== 公共接口：信号相关 ==========
-pub use signals::{SignalHandler, register_sigsegv_handler};
-
-// ========== 公共接口：计时器相关 ==========
-pub use timer::{measure, timestamp_ns};
-
-// ========== 公共接口：平台检测相关 ==========
-pub use platform::{PlatformFeatures, PlatformInfo, PlatformPaths, host_arch, host_os};
-
-// ========== 公共接口：硬件直通 ==========
-pub use passthrough::{
-    DeviceType, PassthroughDevice, PassthroughError, PassthroughManager, PciAddress, PciDeviceInfo,
-};
-
-pub use pci::{IommuGroup, IommuManager, VfioDevice};
-
-pub use gpu::{AmdGpuPassthrough, GpuConfig, NvidiaGpuPassthrough};
-
 // ========== 公共接口：虚拟机启动和运行时 ==========
 pub use boot::{BootConfig, BootManager, BootMethod, BootStatus, SimpleBootManager};
-
-pub use runtime::{
-    Runtime, RuntimeCommand, RuntimeEvent, RuntimeState, RuntimeStats, SimpleRuntimeController,
-};
-
-pub use snapshot::{
-    SimpleSnapshotManager, SnapshotManager, SnapshotMetadata, SnapshotOptions, VmSnapshot,
-};
-
+pub use gpu::{AmdGpuPassthrough, GpuConfig, NvidiaGpuPassthrough};
 pub use hotplug::{
     DeviceInfo, DeviceState as HotplugDeviceState, DeviceType as HotplugDeviceType, HotplugEvent,
     HotplugManager, SimpleHotplugManager,
 };
-
 pub use iso::{Iso9660, IsoDirectory, IsoEntry, IsoVolumeInfo, SimpleIso9660};
+pub use memory::{
+    JitMemory, MappedMemory, MemoryProtection, barrier_acquire, barrier_full, barrier_release,
+};
+// ========== 公共接口：硬件直通 ==========
+pub use passthrough::{
+    DeviceType, PassthroughDevice, PassthroughError, PassthroughManager, PciAddress, PciDeviceInfo,
+};
+pub use pci::{IommuGroup, IommuManager, VfioDevice};
+// ========== 公共接口：平台检测相关 ==========
+pub use platform::{PlatformFeatures, PlatformInfo, PlatformPaths, host_arch, host_os};
+pub use runtime::{
+    Runtime, RuntimeCommand, RuntimeEvent, RuntimeState, RuntimeStats, SimpleRuntimeController,
+};
+// ========== 公共接口：信号相关 ==========
+pub use signals::{SignalHandler, register_sigsegv_handler};
+pub use snapshot::{
+    SimpleSnapshotManager, SnapshotManager, SnapshotMetadata, SnapshotOptions, VmSnapshot,
+};
+// ========== 公共接口：线程相关 ==========
+pub use threading::{set_thread_affinity_big, set_thread_affinity_little, set_thread_cpu};
+// ========== 公共接口：计时器相关 ==========
+pub use timer::{measure, timestamp_ns};

@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{GuestAddr, MmioDevice};
 
 /// 热插拔错误

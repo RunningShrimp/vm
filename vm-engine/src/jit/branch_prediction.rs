@@ -3,6 +3,7 @@
 //! 实现Profile-guided分支预测和静态分支预测
 
 use std::collections::HashMap;
+
 use vm_core::VmResult;
 use vm_ir::IRBlock;
 
@@ -173,6 +174,7 @@ impl BTFNPredictor {
     }
 
     /// 判断是否是后向跳转
+    #[allow(dead_code)] // JIT基础设施 - 预留用于分支预测优化
     fn is_backward_branch(&self, pc: u64, target: u64) -> bool {
         target < pc
     }
@@ -220,6 +222,7 @@ pub struct TwoBitCounterPredictor {
     total: u64,
     correct: u64,
     /// 表大小
+    #[allow(dead_code)] // JIT基础设施 - 预留用于性能统计
     table_size: usize,
 }
 
@@ -246,10 +249,8 @@ impl TwoBitCounterPredictor {
             if *counter < 3 {
                 *counter += 1;
             }
-        } else {
-            if *counter > 0 {
-                *counter -= 1;
-            }
+        } else if *counter > 0 {
+            *counter -= 1;
         }
     }
 }

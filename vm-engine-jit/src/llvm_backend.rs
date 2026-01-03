@@ -2,6 +2,8 @@
 //!
 //! 使用LLVM/Inkwell作为JIT编译后端，提供高级优化功能。
 
+#![allow(unexpected_cfgs)]
+
 #[cfg(feature = "llvm-backend")]
 use crate::compiler_backend::{CompilerBackend, CompilerBackendType, CompilerError, CompilerFeature, OptimizationLevel, CompilerStats};
 #[cfg(feature = "llvm-backend")]
@@ -90,7 +92,7 @@ impl CompilerBackend for LLVMBackend {
         let start_time = Instant::now();
         
         // 创建函数
-        self.codegen.create_function(&block.name, "i64")?;
+        self.codegen.create_function(&format!("{:#x}", block.start_pc.0), "i64")?;
         
         // 翻译IR操作
         for op in &block.ops {
@@ -98,7 +100,7 @@ impl CompilerBackend for LLVMBackend {
         }
         
         // 翻译终止符
-        self.translate_terminator(&block.terminator)?;
+        self.translate_terminator(&block.term)?;
         
         // 生成LLVM IR
         let llvm_ir = self.codegen.generate_ir()?;

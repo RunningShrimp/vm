@@ -7,12 +7,13 @@
 //! - Memory pool efficiency
 //! - Allocation/deallocation patterns
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use rayon::prelude::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use rayon::prelude::*;
 
 // Test allocation sizes
 const SMALL_SIZES: &[usize] = &[8, 16, 32, 64, 128, 256];

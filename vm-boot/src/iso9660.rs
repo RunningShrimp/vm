@@ -1,9 +1,13 @@
 //! ISO 9660 文件系统解析
 //!
 //! 支持读取 ISO 镜像文件的目录结构和文件内容
+//!
+//! This module uses standardized error handling with conversions to VmError.
 
 use std::io::{Read, Seek, SeekFrom};
+
 use thiserror::Error;
+use vm_core::{CoreError, VmError};
 
 /// ISO 9660 主卷描述符
 #[derive(Debug, Clone)]
@@ -38,24 +42,74 @@ pub struct Iso9660<R: Read + Seek> {
     pvd: Option<PrimaryVolumeDescriptor>,
 }
 
+/// ISO 9660 specific errors
 #[derive(Debug, Error)]
 pub enum IsoError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
     #[error("Invalid ISO 9660 identifier")]
     InvalidIdentifier,
+
     #[error("Primary volume descriptor not found")]
     PvdNotFound,
+
     #[error("Directory record too short")]
     DirRecordShort,
+
     #[error("Not a directory")]
     NotDirectory,
+
     #[error("PVD not loaded")]
     PvdNotLoaded,
+
     #[error("{0} is not a directory")]
     NotDirectoryName(String),
+
     #[error("File not found: {0}")]
     FileNotFound(String),
+}
+
+/// Conversion from IsoError to unified VmError
+impl From<IsoError> for VmError {
+    fn from(err: IsoError) -> Self {
+        match err {
+            IsoError::Io(io_err) => VmError::Io(io_err.to_string()),
+            IsoError::InvalidIdentifier => VmError::Core(CoreError::InvalidParameter {
+                name: "iso_identifier".to_string(),
+                value: "".to_string(),
+                message: "Invalid ISO 9660 identifier".to_string(),
+            }),
+            IsoError::PvdNotFound => VmError::Core(CoreError::Internal {
+                message: "Primary volume descriptor not found".to_string(),
+                module: "iso9660".to_string(),
+            }),
+            IsoError::DirRecordShort => VmError::Core(CoreError::InvalidParameter {
+                name: "directory_record".to_string(),
+                value: "".to_string(),
+                message: "Directory record too short".to_string(),
+            }),
+            IsoError::NotDirectory => VmError::Core(CoreError::InvalidParameter {
+                name: "path".to_string(),
+                value: "".to_string(),
+                message: "Not a directory".to_string(),
+            }),
+            IsoError::PvdNotLoaded => VmError::Core(CoreError::InvalidState {
+                message: "PVD not loaded".to_string(),
+                current: "no_pvd".to_string(),
+                expected: "pvd_loaded".to_string(),
+            }),
+            IsoError::NotDirectoryName(name) => VmError::Core(CoreError::InvalidParameter {
+                name: "path".to_string(),
+                value: name.clone(),
+                message: format!("{} is not a directory", name),
+            }),
+            IsoError::FileNotFound(path) => VmError::Core(CoreError::Internal {
+                message: format!("file not found: {}", path),
+                module: "vm-boot::iso9660".to_string(),
+            }),
+        }
+    }
 }
 
 impl<R: Read + Seek> Iso9660<R> {

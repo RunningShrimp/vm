@@ -3,10 +3,10 @@
 //! 实现统一的设备控制服务，处理所有设备的业务逻辑。
 //! 符合DDD贫血模型原则，将设备控制逻辑从设备结构移至服务层。
 
-use parking_lot::Mutex;
 use std::sync::{Arc, Mutex as StdMutex};
-use vm_core::{GuestAddr, MMU, VmConfig, VmError, VmResult};
 
+use parking_lot::Mutex;
+use vm_core::{GuestAddr, MMU, VmConfig, VmError, VmResult};
 use vm_device::block_service::BlockDeviceService;
 use vm_device::clint::{Clint, ClintMmio};
 use vm_device::gpu_virt::GpuManager;
@@ -347,7 +347,9 @@ impl DeviceService {
 
         Err(VmError::Device(vm_core::DeviceError::InitFailed {
             device_type: "BlockDevice".to_string(),
-            message: "configure_block_device is deprecated. Please use BlockDeviceService::open() directly during initialization.".to_string(),
+            message: "configure_block_device is deprecated. Please use BlockDeviceService::open() \
+                      directly during initialization."
+                .to_string(),
         }))
     }
 }

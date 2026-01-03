@@ -3,6 +3,7 @@
 //! 提供通用的指令解码、IR生成和代码生成工具，减少不同架构前端的重复代码。
 
 use std::collections::HashMap;
+
 use vm_core::{Decoder, GuestAddr, MMU, VmError};
 use vm_ir::{IRBlock, IRBuilder, Terminator};
 
@@ -101,7 +102,11 @@ impl<F: FieldExtractor + 'static + Send, I> Decoder for GenericDecoder<F, I> {
     type Instruction = I;
     type Block = IRBlock;
 
-    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, VmError> {
+    fn decode_insn(
+        &mut self,
+        mmu: &mut (dyn MMU + 'static),
+        pc: GuestAddr,
+    ) -> Result<Self::Instruction, VmError> {
         let _insn = mmu.fetch_insn(pc)?;
 
         // 这里需要实现指令识别逻辑
@@ -114,7 +119,11 @@ impl<F: FieldExtractor + 'static + Send, I> Decoder for GenericDecoder<F, I> {
         ))
     }
 
-    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, VmError> {
+    fn decode(
+        &mut self,
+        mmu: &mut (dyn MMU + 'static),
+        pc: GuestAddr,
+    ) -> Result<Self::Block, VmError> {
         let mut builder = IRBuilder::new(pc);
         let mut current_pc = pc;
 
@@ -180,7 +189,10 @@ impl CodeGenerator {
         code.push_str("    type Instruction = Arm64Instruction;\n");
         code.push_str("    type Block = IRBlock;\n\n");
 
-        code.push_str("    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, VmError> {\n");
+        code.push_str(
+            "    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, \
+             VmError> {\n",
+        );
         code.push_str("        let mut builder = IRBuilder::new(pc);\n");
         code.push_str("        let mut current_pc = pc;\n\n");
         code.push_str("        loop {\n");
@@ -362,7 +374,9 @@ mod tests {
             "Add immediate",
             0x1F000000,
             0x11000000,
-            "                let rd = (insn >> 0) & 0x1F;\n                let rn = (insn >> 5) & 0x1F;\n                let imm = (insn >> 10) & 0xFFF;\n                builder.push(IROp::AddImm { dst: rd, src: rn, imm: imm as i64 });"
+            "                let rd = (insn >> 0) & 0x1F;\n                let rn = (insn >> 5) & \
+             0x1F;\n                let imm = (insn >> 10) & 0xFFF;\n                \
+             builder.push(IROp::AddImm { dst: rd, src: rn, imm: imm as i64 });"
         );
 
         set.add_instruction(add_spec);
@@ -387,7 +401,9 @@ mod tests {
             "Add registers",
             0x1F000000,
             0x0B000000,
-            "                let rd = (insn >> 0) & 0x1F;\n                let rn = (insn >> 5) & 0x1F;\n                let rm = (insn >> 16) & 0x1F;\n                builder.push(IROp::Add { dst: rd, src1: rn, src2: rm });"
+            "                let rd = (insn >> 0) & 0x1F;\n                let rn = (insn >> 5) & \
+             0x1F;\n                let rm = (insn >> 16) & 0x1F;\n                \
+             builder.push(IROp::Add { dst: rd, src1: rn, src2: rm });"
         );
         set.add_instruction(add_spec);
 

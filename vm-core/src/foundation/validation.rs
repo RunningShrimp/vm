@@ -3,12 +3,14 @@
 //! This module provides reusable validation components to reduce code duplication
 //! and improve consistency across the VM project.
 
+use std::fmt;
+
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+
 use crate::foundation::error::ConfigError;
 use crate::foundation::error::{Architecture, GuestAddr, RegId};
 use crate::foundation::error::{ErrorContext, VmError, VmResult};
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::fmt;
 
 /// Validation result with detailed information
 #[derive(Debug, Clone, Serialize, Deserialize)]

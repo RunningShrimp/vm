@@ -9,9 +9,10 @@
 //! - Parallel marking performance
 //! - Adaptive quota management
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::sync::Arc;
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_optimizers::gc::{
     AdaptiveQuota, LockFreeWriteBarrier, OptimizedGc, ParallelMarker, WriteBarrierType,
 };

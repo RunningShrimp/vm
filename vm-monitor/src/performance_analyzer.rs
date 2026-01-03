@@ -2,13 +2,15 @@
 //!
 //! 提供性能分析API，支持性能报告生成和性能问题识别
 
-use crate::metrics_collector::{MetricsCollector, SystemMetrics};
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::RwLock;
+
+use crate::metrics_collector::{MetricsCollector, SystemMetrics};
 
 /// 性能分析结果
 #[derive(Debug, Clone, Serialize, Deserialize)]

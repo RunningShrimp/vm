@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
 use vm_core::VmError;
 
 /// 设备性能统计
@@ -193,8 +194,9 @@ impl Default for PerformanceMonitor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_performance_stats() {

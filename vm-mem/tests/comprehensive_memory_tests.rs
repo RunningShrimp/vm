@@ -3,6 +3,7 @@
 //! This test suite covers memory management, TLB, MMU, and related functionality.
 
 use std::sync::{Arc, RwLock};
+
 use vm_core::{
     AccessType, AddressTranslator, Fault, GuestAddr, GuestPhysAddr, MMU, MemoryAccess, MmioDevice,
     VmError,

@@ -11,10 +11,11 @@
 //! vm-device = { path = "../vm-device", features = ["simple-devices"] }
 //! ```
 
-use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use parking_lot::RwLock;
 
 /// 网络数据包
 #[derive(Clone, Debug)]

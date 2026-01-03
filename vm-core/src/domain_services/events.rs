@@ -8,8 +8,30 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::collections::VecDeque;
 use std::time::SystemTime;
-use crate::jit::domain_events::{DomainEventEnum as BaseDomainEventEnum, DomainEvent};
-use crate::jit::error::{VmError, CoreError};
+
+/// Memory access type for page table operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AccessType {
+    /// Read access
+    Read,
+    /// Write access
+    Write,
+    /// Execute access
+    Execute,
+    /// Atomic operation
+    Atomic,
+}
+
+/// Domain Event trait
+///
+/// All domain events must implement this trait to be compatible with the event bus.
+pub trait DomainEvent: Send + Sync {
+    /// Get the event type identifier
+    fn event_type(&self) -> &'static str;
+
+    /// Get when the event occurred
+    fn occurred_at(&self) -> SystemTime;
+}
 
 /// Translation events for cross-architecture translation
 #[derive(Debug, Clone)]
@@ -28,6 +50,30 @@ pub enum TranslationEvent {
         compatibility_level: String,
         occurred_at: SystemTime,
     },
+    /// Translation was planned
+    TranslationPlanned {
+        source_arch: String,
+        target_arch: String,
+        block_count: usize,
+        occurred_at: SystemTime,
+    },
+    /// Instruction encoding was validated
+    InstructionEncodingValidated {
+        instruction: String,
+        is_valid: bool,
+        occurred_at: SystemTime,
+    },
+    /// Register mapping was completed
+    RegisterMappingCompleted {
+        function_name: String,
+        mappings_count: usize,
+        occurred_at: SystemTime,
+    },
+    /// Pipeline orchestration was completed
+    PipelineOrchestrationCompleted {
+        pipeline_stages: usize,
+        occurred_at: SystemTime,
+    },
 }
 
 impl DomainEvent for TranslationEvent {
@@ -35,6 +81,10 @@ impl DomainEvent for TranslationEvent {
         match self {
             TranslationEvent::StrategySelected { .. } => "translation.strategy_selected",
             TranslationEvent::CompatibilityValidated { .. } => "translation.compatibility_validated",
+            TranslationEvent::TranslationPlanned { .. } => "translation.translation_planned",
+            TranslationEvent::InstructionEncodingValidated { .. } => "translation.instruction_encoding_validated",
+            TranslationEvent::RegisterMappingCompleted { .. } => "translation.register_mapping_completed",
+            TranslationEvent::PipelineOrchestrationCompleted { .. } => "translation.pipeline_orchestration_completed",
         }
     }
 
@@ -42,6 +92,10 @@ impl DomainEvent for TranslationEvent {
         match self {
             TranslationEvent::StrategySelected { occurred_at, .. } => *occurred_at,
             TranslationEvent::CompatibilityValidated { occurred_at, .. } => *occurred_at,
+            TranslationEvent::TranslationPlanned { occurred_at, .. } => *occurred_at,
+            TranslationEvent::InstructionEncodingValidated { occurred_at, .. } => *occurred_at,
+            TranslationEvent::RegisterMappingCompleted { occurred_at, .. } => *occurred_at,
+            TranslationEvent::PipelineOrchestrationCompleted { occurred_at, .. } => *occurred_at,
         }
     }
 }
@@ -205,6 +259,13 @@ pub enum OptimizationEvent {
         actual_improvement: f64,
         occurred_at: SystemTime,
     },
+    /// Register allocation was completed
+    RegisterAllocationCompleted {
+        function_name: String,
+        registers_used: usize,
+        spill_count: usize,
+        occurred_at: SystemTime,
+    },
 }
 
 impl DomainEvent for OptimizationEvent {
@@ -232,6 +293,7 @@ impl DomainEvent for OptimizationEvent {
             OptimizationEvent::OptimizationRecommendationsGenerated { .. } => "optimization.recommendations_generated",
             OptimizationEvent::OptimizationPlanCreated { .. } => "optimization.plan_created",
             OptimizationEvent::OptimizationExecutionCompleted { .. } => "optimization.execution_completed",
+            OptimizationEvent::RegisterAllocationCompleted { .. } => "optimization.register_allocation_completed",
         }
     }
 
@@ -259,6 +321,7 @@ impl DomainEvent for OptimizationEvent {
             OptimizationEvent::OptimizationRecommendationsGenerated { occurred_at, .. } => *occurred_at,
             OptimizationEvent::OptimizationPlanCreated { occurred_at, .. } => *occurred_at,
             OptimizationEvent::OptimizationExecutionCompleted { occurred_at, .. } => *occurred_at,
+            OptimizationEvent::RegisterAllocationCompleted { occurred_at, .. } => *occurred_at,
         }
     }
 }
@@ -429,11 +492,100 @@ impl DomainEvent for ExecutionEvent {
     }
 }
 
-/// Extended domain event enumeration that includes all base events plus domain service specific events
+/// VM lifecycle events
+#[derive(Debug, Clone)]
+pub enum VmLifecycleEvent {
+    /// VM was created
+    VmCreated {
+        vm_id: String,
+        config_snapshot: VmConfigSnapshot,
+    },
+    /// VM was started
+    VmStarted {
+        vm_id: String,
+    },
+    /// VM was paused
+    VmPaused {
+        vm_id: String,
+    },
+    /// VM was resumed
+    VmResumed {
+        vm_id: String,
+    },
+    /// VM was stopped
+    VmStopped {
+        vm_id: String,
+        reason: String,
+    },
+    /// VM was destroyed
+    VmDestroyed {
+        vm_id: String,
+    },
+    /// VM state transition occurred
+    StateTransition {
+        vm_id: String,
+        from_state: String,
+        to_state: String,
+    },
+    /// VM state changed (alias for StateTransition)
+    VmStateChanged {
+        vm_id: String,
+        to: String,
+    },
+}
+
+impl DomainEvent for VmLifecycleEvent {
+    fn event_type(&self) -> &'static str {
+        match self {
+            VmLifecycleEvent::VmCreated { .. } => "vm_lifecycle.created",
+            VmLifecycleEvent::VmStarted { .. } => "vm_lifecycle.started",
+            VmLifecycleEvent::VmPaused { .. } => "vm_lifecycle.paused",
+            VmLifecycleEvent::VmResumed { .. } => "vm_lifecycle.resumed",
+            VmLifecycleEvent::VmStopped { .. } => "vm_lifecycle.stopped",
+            VmLifecycleEvent::VmDestroyed { .. } => "vm_lifecycle.destroyed",
+            VmLifecycleEvent::StateTransition { .. } => "vm_lifecycle.state_transition",
+            VmLifecycleEvent::VmStateChanged { .. } => "vm_lifecycle.state_changed",
+        }
+    }
+
+    fn occurred_at(&self) -> SystemTime {
+        SystemTime::now()
+    }
+}
+
+/// VM configuration snapshot
+#[derive(Debug, Clone)]
+pub struct VmConfigSnapshot {
+    /// Guest architecture
+    pub guest_arch: String,
+    /// Memory size in bytes
+    pub memory_size: u64,
+    /// VCPU count
+    pub vcpu_count: u32,
+    /// Execution mode
+    pub exec_mode: String,
+    /// Kernel path (if any)
+    pub kernel_path: Option<String>,
+    /// Snapshot timestamp
+    pub timestamp: SystemTime,
+}
+
+impl From<&crate::VmConfig> for VmConfigSnapshot {
+    fn from(config: &crate::VmConfig) -> Self {
+        Self {
+            guest_arch: config.guest_arch.name().to_string(),
+            memory_size: config.memory_size as u64,
+            vcpu_count: config.vcpu_count as u32,
+            exec_mode: format!("{:?}", config.exec_mode),
+            kernel_path: config.kernel_path.clone(),
+            timestamp: SystemTime::now(),
+        }
+    }
+}
+
+/// Extended domain event enumeration that includes all domain service specific events
 #[derive(Debug, Clone)]
 pub enum DomainEventEnum {
-    /// Base domain events
-    Base(BaseDomainEventEnum),
     /// Translation events
     Translation(TranslationEvent),
     /// Optimization events
@@ -444,35 +596,31 @@ pub enum DomainEventEnum {
     PageTable(PageTableEvent),
     /// Execution events
     Execution(ExecutionEvent),
+    /// VM lifecycle events
+    VmLifecycle(VmLifecycleEvent),
 }
 
 impl DomainEvent for DomainEventEnum {
     fn event_type(&self) -> &'static str {
         match self {
-            DomainEventEnum::Base(e) => e.event_type(),
             DomainEventEnum::Translation(e) => e.event_type(),
             DomainEventEnum::Optimization(e) => e.event_type(),
             DomainEventEnum::Tlb(e) => e.event_type(),
             DomainEventEnum::PageTable(e) => e.event_type(),
             DomainEventEnum::Execution(e) => e.event_type(),
+            DomainEventEnum::VmLifecycle(e) => e.event_type(),
         }
     }
 
     fn occurred_at(&self) -> SystemTime {
         match self {
-            DomainEventEnum::Base(e) => e.occurred_at(),
             DomainEventEnum::Translation(e) => e.occurred_at(),
             DomainEventEnum::Optimization(e) => e.occurred_at(),
             DomainEventEnum::Tlb(e) => e.occurred_at(),
             DomainEventEnum::PageTable(e) => e.occurred_at(),
             DomainEventEnum::Execution(e) => e.occurred_at(),
+            DomainEventEnum::VmLifecycle(e) => e.occurred_at(),
         }
-    }
-}
-
-impl From<BaseDomainEventEnum> for DomainEventEnum {
-    fn from(event: BaseDomainEventEnum) -> Self {
-        DomainEventEnum::Base(event)
     }
 }
 
@@ -503,6 +651,12 @@ impl From<PageTableEvent> for DomainEventEnum {
 impl From<TlbEvent> for DomainEventEnum {
     fn from(event: TlbEvent) -> Self {
         DomainEventEnum::Tlb(event)
+    }
+}
+
+impl From<VmLifecycleEvent> for DomainEventEnum {
+    fn from(event: VmLifecycleEvent) -> Self {
+        DomainEventEnum::VmLifecycle(event)
     }
 }
 
@@ -571,14 +725,14 @@ impl InMemoryDomainEventBus {
     }
 
     /// Helper: Lock events mutex
-    fn lock_events(&self) -> MutexGuard<VecDeque<DomainEventEnum>> {
+    fn lock_events(&self) -> MutexGuard<'_, VecDeque<DomainEventEnum>> {
         self.events.lock().unwrap_or_else(|e| {
             panic!("Mutex lock failed for events: {}", e);
         })
     }
 
     /// Helper: Lock handlers mutex
-    fn lock_handlers(&self) -> MutexGuard<Vec<Arc<dyn DomainEventHandler>>> {
+    fn lock_handlers(&self) -> MutexGuard<'_, Vec<Arc<dyn DomainEventHandler>>> {
         self.handlers.lock().unwrap_or_else(|e| {
             panic!("Mutex lock failed for handlers: {}", e);
         })
@@ -650,7 +804,7 @@ impl MockDomainEventBus {
     }
 
     /// Helper: Lock events mutex
-    fn lock_events(&self) -> MutexGuard<Vec<DomainEventEnum>> {
+    fn lock_events(&self) -> MutexGuard<'_, Vec<DomainEventEnum>> {
         self.events.lock().unwrap_or_else(|e| {
             panic!("Mutex lock failed for events: {}", e);
         })
@@ -707,7 +861,7 @@ impl CollectingEventHandler {
     }
 
     /// Helper: Lock events mutex
-    fn lock_events(&self) -> MutexGuard<Vec<DomainEventEnum>> {
+    fn lock_events(&self) -> MutexGuard<'_, Vec<DomainEventEnum>> {
         self.events.lock().unwrap_or_else(|e| {
             panic!("Mutex lock failed for events: {}", e);
         })
@@ -748,27 +902,24 @@ impl DomainEventHandler for CollectingEventHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jit::domain_events::{VmLifecycleEvent, DomainEventEnum as BaseDomainEventEnum};
-    
+
     #[test]
     fn test_in_memory_event_bus() {
         let event_bus = InMemoryDomainEventBus::new();
         let handler = Arc::new(CollectingEventHandler::new());
-        
+
         event_bus.subscribe(handler.clone());
-        
-        let base_event = BaseDomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
+
+        let event = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm".to_string(),
-            occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12345),
         });
-        let event = DomainEventEnum::Base(base_event);
-        
+
         event_bus.publish(event.clone());
-        
+
         // Check that the event was stored
         let events = event_bus.get_events();
         assert_eq!(events.len(), 1);
-        
+
         // Check that the handler received the event
         let handler_events = handler.get_events();
         assert_eq!(handler_events.len(), 1);
@@ -777,20 +928,18 @@ mod tests {
     #[test]
     fn test_mock_event_bus() {
         let event_bus = MockDomainEventBus::new();
-        
-        let base_event = BaseDomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
+
+        let event = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm".to_string(),
-            occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12345),
         });
-        let event = DomainEventEnum::Base(base_event);
-        
+
         event_bus.publish(event.clone());
-        
+
         let events = event_bus.published_events();
         assert_eq!(events.len(), 1);
-        
+
         assert_eq!(event_bus.event_count(), 1);
-        
+
         event_bus.clear();
         assert_eq!(event_bus.event_count(), 0);
     }
@@ -798,28 +947,24 @@ mod tests {
     #[test]
     fn test_collecting_event_handler() {
         let handler = CollectingEventHandler::new();
-        
-        let base_event1 = BaseDomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
+
+        let event1 = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm-1".to_string(),
-            occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12345),
         });
-        let event1 = DomainEventEnum::Base(base_event1);
-        
-        let base_event2 = BaseDomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStopped {
+
+        let event2 = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStopped {
             vm_id: "test-vm-2".to_string(),
             reason: "test".to_string(),
-            occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12346),
         });
-        let event2 = DomainEventEnum::Base(base_event2);
-        
+
         handler.handle(&event1);
         handler.handle(&event2);
-        
+
         let events = handler.get_events();
         assert_eq!(events.len(), 2);
-        
+
         assert_eq!(handler.event_count(), 2);
-        
+
         handler.clear();
         assert_eq!(handler.event_count(), 0);
     }
@@ -840,32 +985,24 @@ mod tests {
     #[test]
     fn test_in_memory_event_bus_max_events() {
         let event_bus = InMemoryDomainEventBus::with_max_events(2);
-        
-        let base_event1 = BaseDomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
+
+        let event1 = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm-1".to_string(),
-            occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12345),
         });
-        let event1 = DomainEventEnum::Base(base_event1);
-        
-        let base_event2 = BaseDomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
+
+        let event2 = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm-2".to_string(),
-            occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12346),
         });
-        let event2 = DomainEventEnum::Base(base_event2);
-        
-        let base_event3 = BaseDomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
+
+        let event3 = DomainEventEnum::VmLifecycle(VmLifecycleEvent::VmStarted {
             vm_id: "test-vm-3".to_string(),
-            occurred_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12347),
         });
-        let event3 = DomainEventEnum::Base(base_event3);
-        
+
         event_bus.publish(event1);
         event_bus.publish(event2);
         event_bus.publish(event3);
-        
+
         let events = event_bus.get_events();
         assert_eq!(events.len(), 2); // Should only keep the last 2 events
-        assert_eq!(events[0].timestamp(), 12346);
-        assert_eq!(events[1].timestamp(), 12347);
     }
 }

@@ -28,9 +28,10 @@
 //! let translated = smmu.translate_dma_addr(device_id, guest_addr, size)?;
 //! ```
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+use parking_lot::RwLock;
 use vm_core::GuestAddr;
 use vm_smmu::{
     AddressTranslator, InterruptController, PageSize, SmmuConfig, SmmuDevice, SmmuError,

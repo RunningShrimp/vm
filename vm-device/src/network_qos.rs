@@ -778,7 +778,8 @@ impl NetworkQosManager {
             queues.insert(tc_config.tc_id, queue);
 
             let shaper_config = TrafficShaperConfig {
-                cir: (tc_config.min_bandwidth as u64 * 1_000_000) / 8, // Convert Mbps to bytes per second
+                cir: (tc_config.min_bandwidth as u64 * 1_000_000) / 8, /* Convert Mbps to bytes
+                                                                        * per second */
                 cbs: config.burst_size as u64,
                 pir: (tc_config.max_bandwidth as u64 * 1_000_000) / 8,
                 pbs: (config.burst_size as u64) * 2,

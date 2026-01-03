@@ -35,7 +35,7 @@
 //! ### Basic Hotspot Detection
 //!
 //! ```rust
-//! use crate::jit::domain_services::adaptive_optimization_service::{
+//! use crate::domain_services::adaptive_optimization_service::{
 //!     AdaptiveOptimizationDomainService, HotspotConfig
 //! };
 //!
@@ -135,11 +135,12 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
-use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::{VmError, VmResult};
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::VmResult;
 
 /// Hotspot information for adaptive optimization
 #[derive(Debug, Clone)]
@@ -261,16 +262,15 @@ impl Default for AdaptiveOptimizationConfig {
 }
 
 /// Adaptive Optimization Domain Service
-/// 
+///
 /// This service encapsulates business logic for adaptive optimization
 /// including hotspot detection, performance profiling, tiered compilation,
 /// and dynamic recompilation decisions.
-#[derive(Debug)]
 pub struct AdaptiveOptimizationDomainService {
     /// Business rules for adaptive optimization
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
     /// Event bus for publishing domain events
-    event_bus: Option<Arc<dyn DomainEventBus>>,
+    event_bus: Option<Arc<DomainEventBus>>,
     /// Configuration for adaptive optimization
     config: AdaptiveOptimizationConfig,
 }
@@ -319,7 +319,7 @@ impl AdaptiveOptimizationDomainService {
                 let performance_trend = self.analyze_performance_trend(history);
                 let last_execution = history.last()
                     .map(|dp| dp.timestamp)
-                    .unwrap_or_else(|| std::time::SystemTime::now());
+                    .unwrap_or_else(Instant::now);
 
                 hotspots.push(Hotspot {
                     address,
@@ -342,6 +342,7 @@ impl AdaptiveOptimizationDomainService {
         self.publish_optimization_event(OptimizationEvent::HotspotsDetected {
             count: hotspots.len(),
             threshold: self.config.hotspot_threshold,
+            occurred_at: SystemTime::now(),
         })?;
 
         Ok(hotspots)
@@ -355,9 +356,7 @@ impl AdaptiveOptimizationDomainService {
     ) -> VmResult<OptimizationStrategy> {
         // Validate business rules
         for rule in &self.business_rules {
-            if let Err(e) = rule.validate_pipeline_config(&self.create_pipeline_config()) {
-                return Err(e);
-            }
+            rule.validate_pipeline_config(&self.create_pipeline_config())?
         }
 
         let strategy = if hotspots.is_empty() {
@@ -379,6 +378,7 @@ impl AdaptiveOptimizationDomainService {
             strategy: format!("{:?}", strategy),
             hotspot_count: hotspots.len(),
             resource_utilization: profile.resource_utilization.clone(),
+            occurred_at: SystemTime::now(),
         })?;
 
         Ok(strategy)
@@ -442,25 +442,21 @@ impl AdaptiveOptimizationDomainService {
 
     /// Create a pipeline configuration from the adaptive optimization config
     fn create_pipeline_config(&self) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
-        crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
-            enable_instruction_scheduling: true,
-            enable_loop_optimization: true,
-            enable_constant_folding: true,
-            enable_dead_code_elimination: true,
-            enable_common_subexpression_elimination: true,
-            enable_register_allocation: true,
-            optimization_level: 2,
-            max_inline_size: 50,
-            loop_unroll_factor: 4,
-            enable_vectorization: true,
-        }
+        // Use default x86_64 architecture for both source and target
+        // In a real implementation, these would be determined from the VM configuration
+        let arch = crate::GuestArch::X86_64;
+        crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig::new(
+            arch,
+            arch,
+            2, // optimization level 2
+        )
     }
 
     /// Publish an optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
         if let Some(ref event_bus) = self.event_bus {
             let domain_event = DomainEventEnum::Optimization(event);
-            event_bus.publish(domain_event)?;
+            event_bus.publish(&domain_event)?;
         }
         Ok(())
     }

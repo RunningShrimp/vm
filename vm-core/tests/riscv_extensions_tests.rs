@@ -2,7 +2,7 @@
 //!
 //! 测试RISC-V各种扩展的基本功能
 
-use vm_core::{GuestArch, GuestAddr, VmError, CoreError};
+use vm_core::{CoreError, GuestAddr, GuestArch, VmError};
 
 // ============================================================================
 // 测试辅助结构
@@ -398,8 +398,8 @@ fn test_riscv_x0_always_zero() {
     // 测试x0寄存器始终为0
     let mut cpu = TestCPUState::new();
 
-    cpu.set_reg(0, 42);  // 尝试写入x0
-    assert_eq!(cpu.get_reg(0), 0);  // x0应该仍然是0
+    cpu.set_reg(0, 42); // 尝试写入x0
+    assert_eq!(cpu.get_reg(0), 0); // x0应该仍然是0
 }
 
 #[test]
@@ -431,10 +431,10 @@ fn test_riscv_memory_operations() {
     let val: u32 = 0x12345678;
 
     let bytes = val.to_le_bytes();
-    cpu.memory[addr..addr+4].copy_from_slice(&bytes);
+    cpu.memory[addr..addr + 4].copy_from_slice(&bytes);
 
     // 读回内存
-    let read_bytes = &cpu.memory[addr..addr+4];
+    let read_bytes = &cpu.memory[addr..addr + 4];
     let read_val = u32::from_le_bytes(read_bytes.try_into().unwrap());
 
     assert_eq!(read_val, 0x12345678);

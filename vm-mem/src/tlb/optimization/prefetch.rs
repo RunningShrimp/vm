@@ -4,8 +4,9 @@
 //! - 使用示例和最佳实践
 //! - 配置说明
 
-use crate::tlb::core::unified::{MultiLevelTlb, MultiLevelTlbConfig};
 use vm_core::AccessType;
+
+use crate::tlb::core::unified::{MultiLevelTlb, MultiLevelTlbConfig};
 
 // ============================================================================
 // 预热功能使用指南

@@ -39,7 +39,6 @@
 //! | 代码大小 | 重复配置 | 类型复用 |
 
 use crate::mmu::{PageTableFlags, PageWalkResult};
-//
 // PageTableFlags 辅助函数
 fn flags_to_u64(f: &PageTableFlags) -> u64 {
     f.to_x86_64_entry(0)
@@ -50,6 +49,7 @@ fn u64_to_flags(u: u64) -> PageTableFlags {
 }
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
 use vm_core::GuestAddr;
 
 /// TLB条目（优化版）
@@ -653,9 +653,10 @@ pub fn compare_stats(
 
 #[cfg(test)]
 mod tests {
+    use vm_core::GuestAddr;
+
     use super::*;
     use crate::mmu::PageTableFlags;
-    use vm_core::GuestAddr;
 
     #[test]
     fn test_const_generic_tlb_basic() {
@@ -793,10 +794,12 @@ mod tests {
 
 // ============== UnifiedTlb Trait 实现 ==============
 
-use crate::tlb::core::unified::{TlbEntryResult, TlbStats, UnifiedTlb};
 use std::sync::RwLock;
+
 use vm_core::error::MemoryError;
 use vm_core::{AccessType, GuestPhysAddr};
+
+use crate::tlb::core::unified::{TlbEntryResult, TlbStats, UnifiedTlb};
 
 /// 适配器：将Const泛型TLB适配为UnifiedTlb trait
 pub struct ConstGenericTlbAdapter<const CAPACITY: usize, const ASSOC: usize, const POLICY: u8 = 1> {

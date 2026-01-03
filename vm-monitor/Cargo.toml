@@ -8,7 +8,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
-vm-interface = { path = "../vm-interface" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # vm-monitor uses: sync (RwLock, broadcast), rt-multi-thread (tokio::spawn), time (sleep, interval), macros (tokio::test), net (TcpListener), fs (create_dir_all, write)

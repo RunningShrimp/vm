@@ -1,6 +1,7 @@
-use log::{error, info};
 use std::path::PathBuf;
 use std::process;
+
+use log::{error, info};
 use vm_core::{ExecMode, GuestArch, VmConfig};
 use vm_device::hw_detect::HardwareDetector;
 use vm_osal::{host_arch, host_os};

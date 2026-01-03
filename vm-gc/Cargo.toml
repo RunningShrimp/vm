@@ -1,0 +1,57 @@
+[package]
+name = "vm-gc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Core types and error handling
+# vm-gc is independent - no dependency on vm-core to avoid circular dependency
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# Concurrency
+parking_lot = { workspace = true }
+crossbeam-queue = { workspace = true }
+
+# Serialization (for GC statistics)
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = []
+
+# Enable generational GC
+generational = []
+
+# Enable incremental GC
+incremental = []
+
+# Enable adaptive GC
+adaptive = ["generational", "incremental"]
+
+# Enable GC statistics and profiling
+stats = []
+
+# Enable benchmarking support
+benchmarking = ["stats"]
+
+# Benchmark configuration - disabled until benchmark file is created
+# [[bench]]
+# name = "gc_benchmark"
+# harness = false
+# required-features = ["benchmarking"]

@@ -1,19 +1,22 @@
-#![allow(clippy::bad_bit_mask)]
 use vm_accel::cpuinfo::CpuInfo;
-use vm_core::{Decoder, GuestAddr, MMU, VmError};
+use vm_core::{AccessType, Decoder, GuestAddr, MMU, VmError};
 use vm_ir::{IRBlock, IRBuilder, IROp, MemFlags, RegisterFile, Terminator};
 
 mod apple_amx;
 mod extended_insns;
 mod hisilicon_npu;
 mod mediatek_apu;
+mod optimizer;
 mod qualcomm_hexagon;
 
-use extended_insns::ExtendedDecoder;
-
 pub use apple_amx::{AmxDecoder, AmxInstruction, AmxPrecision};
+use extended_insns::ExtendedDecoder;
 pub use hisilicon_npu::{NpuActType, NpuDecoder, NpuInstruction};
 pub use mediatek_apu::{ApuActType, ApuDecoder, ApuInstruction, ApuPoolType};
+pub use optimizer::{
+    ArchitectureExtension, Arm64Optimizer, ArmCondition, ArmInstructionClass, NeonInstructionType,
+    NeonStats,
+};
 pub use qualcomm_hexagon::{HexVectorOp, HexagonDecoder, HexagonInstruction};
 pub enum Cond {
     EQ = 0,
@@ -122,12 +125,30 @@ impl Default for Arm64Decoder {
     }
 }
 
+/// 辅助函数：从 MMU 读取指令
+fn fetch_insn(mmu: &mut dyn MMU, pc: GuestAddr) -> Result<u64, VmError> {
+    // 首先翻译地址
+    let pa = mmu.translate(pc, AccessType::Execute).map_err(|e| {
+        VmError::Memory(vm_core::MemoryError::PageTableError {
+            message: format!("Translation failed: {:?}", e),
+            level: None,
+        })
+    })?;
+    // 然后读取4字节
+    let insn_lo = mmu.read(vm_core::GuestAddr(pa.0), 4)?;
+    Ok(insn_lo)
+}
+
 impl Decoder for Arm64Decoder {
     type Instruction = Arm64Instruction;
     type Block = IRBlock;
 
-    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Instruction, VmError> {
-        let insn = mmu.fetch_insn(pc)? as u32;
+    fn decode_insn(
+        &mut self,
+        mmu: &mut dyn MMU,
+        pc: GuestAddr,
+    ) -> Result<Self::Instruction, VmError> {
+        let insn = fetch_insn(mmu, pc)? as u32;
 
         // Determine mnemonic based on instruction pattern
         let mnemonic = if (insn & 0x1F000000) == 0x11000000 {
@@ -155,7 +176,11 @@ impl Decoder for Arm64Decoder {
         })
     }
 
-    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> Result<Self::Block, VmError> {
+    fn decode(
+        &mut self,
+        mmu: &mut (dyn MMU + 'static),
+        pc: GuestAddr,
+    ) -> Result<Self::Block, VmError> {
         // 检查缓存
         if let Some(ref cache) = self.decode_cache
             && let Some(cached_block) = cache.get(&pc)
@@ -167,7 +192,7 @@ impl Decoder for Arm64Decoder {
         let mut current_pc = pc;
 
         loop {
-            let insn = mmu.fetch_insn(current_pc)? as u32;
+            let insn = fetch_insn(mmu, current_pc)? as u32;
 
             // ADD/SUB (immediate)
             // 31 30 29 28 27 26 25 24 23 22 21 ... 10 9 ... 5 4 ... 0
@@ -238,8 +263,8 @@ impl Decoder for Arm64Decoder {
 
             // LDR/STR (Unsigned Immediate)
             if (insn & 0x3F000000) == 0x39000000
-                || (insn & 0xFF000000) == 0xF9000000
-                || (insn & 0xFF000000) == 0xF9400000
+                || (insn & 0xFFC00000) == 0xF9000000
+                || (insn & 0xFFC00000) == 0xF9400000
             {
                 let size_bits = (insn >> 30) & 0x3;
                 let is_load = (insn & 0x00400000) != 0;
@@ -906,7 +931,7 @@ impl Decoder for Arm64Decoder {
 
             // NEG/NEGS (Negate)
             // sf 1 1 0 1 0 1 0 0 0 0 0 0 ...
-            if (insn & 0x1FE00000) == 0x4B000000 || (insn & 0x1FE00000) == 0x4B200000 {
+            if (insn & 0x1FE00000) == 0x0B000000 || (insn & 0x1FE00000) == 0x0B200000 {
                 let sets_flags = (insn & 0x20000000) != 0; // S bit
                 let rm = (insn >> 16) & 0x1F;
                 let rd = insn & 0x1F;
@@ -1010,7 +1035,7 @@ impl Decoder for Arm64Decoder {
             // CMP is SUB with zero destination, CMN is ADD with zero destination
             // sf 1 1 0 1 0 0 0 0 0 0 0 0 ... (CMP)
             // sf 1 0 1 1 0 0 0 0 0 0 0 0 ... (CMN)
-            if (insn & 0x1FE00000) == 0x4B000000 && (insn & 0x1FFC00) == 0x1F0000 {
+            if (insn & 0x1FE00000) == 0x0B000000 && (insn & 0x1FFC00) == 0x1F0000 {
                 // CMP: Rn - Rm (SUB with zero destination)
                 let rm = (insn >> 16) & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
@@ -1109,7 +1134,7 @@ impl Decoder for Arm64Decoder {
                 continue;
             }
 
-            if (insn & 0x1FE00000) == 0x2B000000 && (insn & 0x1FFC00) == 0x1F0000 {
+            if (insn & 0x1FE00000) == 0x0B000000 && (insn & 0x1FFC00) == 0x1F0000 {
                 // CMN: Rn + Rm (ADD with zero destination)
                 let rm = (insn >> 16) & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
@@ -1966,8 +1991,9 @@ impl Decoder for Arm64Decoder {
 
                     // Validate size - only sizes 0, 1, 2 are valid for ADDV
                     if size > 2 {
-                        // Invalid size for ADDV instruction, could panic or handle as undefined instruction
-                        // For now, we'll continue with a default element size
+                        // Invalid size for ADDV instruction, could panic or handle as undefined
+                        // instruction For now, we'll continue with a
+                        // default element size
                     }
 
                     let element_size = match size {
@@ -2308,8 +2334,8 @@ impl Decoder for Arm64Decoder {
                 continue;
             }
 
-            // NEON LD2/ST2, LD3/ST3, LD4/ST4 (Load/Store multiple structures with deinterleaving/interleaving)
-            // Pattern: 0 0 1 1 0 1 0 0 0 0 0 0 ...
+            // NEON LD2/ST2, LD3/ST3, LD4/ST4 (Load/Store multiple structures with
+            // deinterleaving/interleaving) Pattern: 0 0 1 1 0 1 0 0 0 0 0 0 ...
             // Bits [15:13] determine the number of structures (2, 3, or 4)
             // LD2/ST2: opcode bits [15:13] = 0b100 (opcode = 0b1000 or 0b1001)
             // LD3/ST3: opcode bits [15:13] = 0b010 (opcode = 0b0100 or 0b0101)
@@ -2345,8 +2371,8 @@ impl Decoder for Arm64Decoder {
                     let stride = num_structures as i64 * element_size as i64;
 
                     // Load/store each vector register
-                    // In interleaved mode, elements are stored as: V0[0], V1[0], V2[0], V3[0], V0[1], V1[1], ...
-                    // So we load with stride
+                    // In interleaved mode, elements are stored as: V0[0], V1[0], V2[0], V3[0],
+                    // V0[1], V1[1], ... So we load with stride
                     for struct_idx in 0..num_structures {
                         let vt = 32 + (rt as usize + struct_idx) % 32;
                         let base_offset = struct_idx as i64 * element_size as i64;
@@ -2372,7 +2398,8 @@ impl Decoder for Arm64Decoder {
                         }
                     }
 
-                    // Update base register: stride * number of elements per vector (assume 16-byte vectors)
+                    // Update base register: stride * number of elements per vector (assume 16-byte
+                    // vectors)
                     let vector_size = 16i64;
                     let elements_per_vector = vector_size / element_size as i64;
                     let total_offset = stride * elements_per_vector;
@@ -4101,7 +4128,7 @@ impl Decoder for Arm64Decoder {
             // LSL/LSR/ASR (Logical/Arithmetic Shift)
             // These are handled as part of ADD/SUB with shift, but also exist as standalone
             // sf 1 1 0 1 0 1 1 0 0 0 0 0 ...
-            if (insn & 0x1F800000) == 0x1AC00000 {
+            if (insn & 0x1FC00000) == 0x1AC00000 {
                 let shift_type = (insn >> 22) & 3;
                 let rm = (insn >> 16) & 0x1F;
                 let rn = (insn >> 5) & 0x1F;
@@ -6231,8 +6258,9 @@ pub mod api {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::{AccessType, Fault, GuestAddr, GuestPhysAddr, MMU};
+
+    use super::*;
 
     struct TestMmu {
         insn: u32,
@@ -6301,6 +6329,9 @@ mod tests {
         fn dump_memory(&self) -> Vec<u8> {
             vec![]
         }
+        fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     impl vm_core::MmioManager for TestMmu {
@@ -6339,11 +6370,11 @@ mod tests {
         let pc: GuestAddr = GuestAddr(0x1000);
         // CAS (word), acquire only
         let insn = assemble_lse_base(0x3820_0400, 2, 3, 5, 7, true, false);
-        let mmu = TestMmu { insn };
+        let mut mmu = TestMmu { insn };
 
-        let mut dec = Arm64Decoder;
+        let mut dec = Arm64Decoder::new();
         let block = dec
-            .decode(&mmu, pc)
+            .decode(&mut mmu, pc)
             .expect("Failed to decode ARM64 LSE CAL instruction");
         // Expect one AtomicCmpXchgOrder op
         assert!(matches!(block.ops[0], IROp::AtomicCmpXchgOrder { .. }));
@@ -6371,11 +6402,11 @@ mod tests {
         let pc: GuestAddr = GuestAddr(0x2000);
         // CASAL (doubleword), acquire+release
         let insn = assemble_lse_base(0x3820_0400, 3, 2, 4, 6, true, true);
-        let mmu = TestMmu { insn };
+        let mut mmu = TestMmu { insn };
 
-        let mut dec = Arm64Decoder;
+        let mut dec = Arm64Decoder::new();
         let block = dec
-            .decode(&mmu, pc)
+            .decode(&mut mmu, pc)
             .expect("Failed to decode ARM64 LSE CASAL instruction");
         assert!(matches!(block.ops[0], IROp::AtomicCmpXchgOrder { .. }));
         if let IROp::AtomicCmpXchgOrder {

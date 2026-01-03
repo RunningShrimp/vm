@@ -18,8 +18,9 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use vm_ir::IRBlock;
+
 use vm_core::GuestAddr;
+use vm_ir::IRBlock;
 
 /// 融合模式
 ///
@@ -133,6 +134,12 @@ pub struct TranslationOptimizer {
     dead_code_elimination_enabled: bool,
 }
 
+impl Default for InstructionFusion {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InstructionFusion {
     /// 创建新的指令融合器
     pub fn new() -> Self {
@@ -151,7 +158,11 @@ impl InstructionFusion {
     ///
     /// # 返回值
     /// - `FusionResult`: 融合结果
-    pub fn fuse_instructions(&mut self, instructions: &[vm_ir::IROp], _riscv_pc: GuestAddr) -> FusionResult {
+    pub fn fuse_instructions(
+        &mut self,
+        instructions: &[vm_ir::IROp],
+        _riscv_pc: GuestAddr,
+    ) -> FusionResult {
         self.total_instructions += instructions.len() as u64;
 
         // 尝试6种融合模式
@@ -199,8 +210,6 @@ impl InstructionFusion {
     /// - `AddiAddi`: ADDI + ADDI → 单次ADDI
     /// - `AndiAndi`: ANDI + ANDI → 单次ANDI
     pub fn fuse_block(&mut self, ir_block: &IRBlock) -> Result<IRBlock, String> {
-        use vm_ir::IROp;
-
         let mut optimized_ops = Vec::new();
         let ops = &ir_block.ops;
         let mut i = 0;
@@ -212,7 +221,10 @@ impl InstructionFusion {
 
                 if fusion_result.success {
                     // 融合成功，记录统计信息并跳过下一个操作
-                    *self.pattern_stats.entry(fusion_result.pattern.clone()).or_insert(0) += 1;
+                    *self
+                        .pattern_stats
+                        .entry(fusion_result.pattern.clone())
+                        .or_insert(0) += 1;
                     self.total_fusions += 1;
 
                     // 添加融合后的操作（简化：保留原操作）
@@ -268,8 +280,10 @@ impl InstructionFusion {
                     performance_gain: 0.25, // 25%性能提升
                 };
             }
-            (IROp::SllImm { .. } | IROp::SrlImm { .. } | IROp::SraImm { .. },
-             IROp::SllImm { .. } | IROp::SrlImm { .. } | IROp::SraImm { .. }) => {
+            (
+                IROp::SllImm { .. } | IROp::SrlImm { .. } | IROp::SraImm { .. },
+                IROp::SllImm { .. } | IROp::SrlImm { .. } | IROp::SraImm { .. },
+            ) => {
                 return FusionResult {
                     success: true,
                     fused_x86_code: vec![0xC1], // 复合移位指令
@@ -279,9 +293,15 @@ impl InstructionFusion {
                     performance_gain: 0.15, // 15%性能提升
                 };
             }
-            (IROp::CmpEq { .. } | IROp::CmpNe { .. } | IROp::CmpLt { .. } | IROp::CmpGe { .. }, _) => {
+            (
+                IROp::CmpEq { .. } | IROp::CmpNe { .. } | IROp::CmpLt { .. } | IROp::CmpGe { .. },
+                _,
+            ) => {
                 // 检查第二个操作是否是分支指令
-                if matches!(op2, IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. } | IROp::Bge { .. }) {
+                if matches!(
+                    op2,
+                    IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. } | IROp::Bge { .. }
+                ) {
                     return FusionResult {
                         success: true,
                         fused_x86_code: vec![0x0F], // 条件跳转指令
@@ -389,9 +409,9 @@ impl TranslationOptimizer {
     /// # 返回值
     /// - `std::sync::MutexGuard<'_, TranslationCache>`: 缓存锁
     fn lock_cache(&self) -> std::sync::MutexGuard<'_, TranslationCache> {
-        self.cache.lock().unwrap_or_else(|e| {
-            panic!("Failed to lock cache: {:?}", e)
-        })
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| panic!("Failed to lock cache: {:?}", e))
     }
 
     /// 设置优化选项
@@ -401,11 +421,13 @@ impl TranslationOptimizer {
     /// - `fusion_enabled`: 是否启用指令融合
     /// - `constant_propagation_enabled`: 是否启用常量传播
     /// - `dead_code_elimination_enabled`: 是否启用死代码消除
-    pub fn set_optimizations(&mut self, 
-                           cache_enabled: bool,
-                           fusion_enabled: bool,
-                           constant_propagation_enabled: bool,
-                           dead_code_elimination_enabled: bool) {
+    pub fn set_optimizations(
+        &mut self,
+        cache_enabled: bool,
+        fusion_enabled: bool,
+        constant_propagation_enabled: bool,
+        dead_code_elimination_enabled: bool,
+    ) {
         self.cache_enabled = cache_enabled;
         self.fusion_enabled = fusion_enabled;
         self.constant_propagation_enabled = constant_propagation_enabled;
@@ -432,7 +454,12 @@ impl TranslationOptimizer {
     /// let result = optimizer.translate(&ir_block, vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x1010));
     /// assert!(result.is_ok());
     /// ```
-    pub fn translate(&self, ir_block: &IRBlock, riscv_pc_start: GuestAddr, _riscv_pc_end: GuestAddr) -> Result<Vec<u8>, String> {
+    pub fn translate(
+        &self,
+        ir_block: &IRBlock,
+        riscv_pc_start: GuestAddr,
+        _riscv_pc_end: GuestAddr,
+    ) -> Result<Vec<u8>, String> {
         // 1. 在翻译缓存中查找
         if self.cache_enabled {
             let cache = self.lock_cache();
@@ -551,7 +578,12 @@ impl TranslationOptimizer {
                 }
 
                 // DIV: dst = src1 / src2
-                IROp::Div { dst, src1, src2, signed } => {
+                IROp::Div {
+                    dst,
+                    src1,
+                    src2,
+                    signed,
+                } => {
                     // x86 DIV/IDIV使用RDX:RAX作为被除数
                     // 需要先将src1移动到RAX，然后符号扩展到RDX
                     emit_mov_reg_rax(&mut code, *src1);
@@ -574,7 +606,12 @@ impl TranslationOptimizer {
                 }
 
                 // REM: dst = src1 % src2
-                IROp::Rem { dst, src1, src2, signed } => {
+                IROp::Rem {
+                    dst,
+                    src1,
+                    src2,
+                    signed,
+                } => {
                     // Similar to DIV, but remainder is in RDX
                     emit_mov_reg_rax(&mut code, *src1);
                     if *signed {
@@ -708,65 +745,97 @@ impl TranslationOptimizer {
 
                 // ========== 内存指令 ==========
                 // LOAD: dst = [base + offset] (load size bytes)
-                IROp::Load { dst, base, offset, size, .. } => {
-                    match size {
-                        1 => emit_load_byte(&mut code, *dst, *base, *offset),
-                        2 => emit_load_word(&mut code, *dst, *base, *offset),
-                        4 => emit_load_dword(&mut code, *dst, *base, *offset),
-                        8 => emit_load_qword(&mut code, *dst, *base, *offset),
-                        _ => return Err(format!("Unsupported load size: {}", size)),
-                    }
-                }
+                IROp::Load {
+                    dst,
+                    base,
+                    offset,
+                    size,
+                    ..
+                } => match size {
+                    1 => emit_load_byte(&mut code, *dst, *base, *offset),
+                    2 => emit_load_word(&mut code, *dst, *base, *offset),
+                    4 => emit_load_dword(&mut code, *dst, *base, *offset),
+                    8 => emit_load_qword(&mut code, *dst, *base, *offset),
+                    _ => return Err(format!("Unsupported load size: {}", size)),
+                },
 
                 // STORE: [base + offset] = src (store size bytes)
-                IROp::Store { src, base, offset, size, .. } => {
-                    match size {
-                        1 => emit_store_byte(&mut code, *src, *base, *offset),
-                        2 => emit_store_word(&mut code, *src, *base, *offset),
-                        4 => emit_store_dword(&mut code, *src, *base, *offset),
-                        8 => emit_store_qword(&mut code, *src, *base, *offset),
-                        _ => return Err(format!("Unsupported store size: {}", size)),
-                    }
-                }
+                IROp::Store {
+                    src,
+                    base,
+                    offset,
+                    size,
+                    ..
+                } => match size {
+                    1 => emit_store_byte(&mut code, *src, *base, *offset),
+                    2 => emit_store_word(&mut code, *src, *base, *offset),
+                    4 => emit_store_dword(&mut code, *src, *base, *offset),
+                    8 => emit_store_qword(&mut code, *src, *base, *offset),
+                    _ => return Err(format!("Unsupported store size: {}", size)),
+                },
 
                 // ========== 比较指令 ==========
                 // SLT: dst = (src1 < src2) ? 1 : 0 (signed)
-                IROp::CmpLt { dst, lhs: src1, rhs: src2 } => {
+                IROp::CmpLt {
+                    dst,
+                    lhs: src1,
+                    rhs: src2,
+                } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xC); // SETL (less)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // SLTU: dst = (src1 < src2) ? 1 : 0 (unsigned)
-                IROp::CmpLtU { dst, lhs: src1, rhs: src2 } => {
+                IROp::CmpLtU {
+                    dst,
+                    lhs: src1,
+                    rhs: src2,
+                } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xB); // SETB (below)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // SGE: dst = (src1 >= src2) ? 1 : 0 (signed)
-                IROp::CmpGe { dst, lhs: src1, rhs: src2 } => {
+                IROp::CmpGe {
+                    dst,
+                    lhs: src1,
+                    rhs: src2,
+                } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xD); // SETGE (greater or equal)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // SGEU: dst = (src1 >= src2) ? 1 : 0 (unsigned)
-                IROp::CmpGeU { dst, lhs: src1, rhs: src2 } => {
+                IROp::CmpGeU {
+                    dst,
+                    lhs: src1,
+                    rhs: src2,
+                } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0xA); // SETAE (above or equal)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // EQ: dst = (src1 == src2) ? 1 : 0
-                IROp::CmpEq { dst, lhs: src1, rhs: src2 } => {
+                IROp::CmpEq {
+                    dst,
+                    lhs: src1,
+                    rhs: src2,
+                } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0x4); // SETE (equal)
                     emit_movzx_reg(&mut code, *dst);
                 }
 
                 // NE: dst = (src1 != src2) ? 1 : 0
-                IROp::CmpNe { dst, lhs: src1, rhs: src2 } => {
+                IROp::CmpNe {
+                    dst,
+                    lhs: src1,
+                    rhs: src2,
+                } => {
                     emit_cmp_reg_reg(&mut code, *src1, *src2);
                     emit_setcc_reg(&mut code, 0x5); // SETNE (not equal)
                     emit_movzx_reg(&mut code, *dst);
@@ -832,7 +901,11 @@ impl TranslationOptimizer {
             vm_ir::Terminator::JmpReg { base, offset } => {
                 emit_jmp_reg_offset(&mut code, *base, *offset);
             }
-            vm_ir::Terminator::CondJmp { cond, target_true, target_false } => {
+            vm_ir::Terminator::CondJmp {
+                cond,
+                target_true,
+                target_false,
+            } => {
                 // 条件跳转到target_true，否则跳到target_false
                 emit_jmp_reg(&mut code, *cond);
                 emit_jmp(&mut code, *target_true);
@@ -862,16 +935,16 @@ fn reg_id_to_x86_enc(reg: vm_ir::RegId) -> u8 {
     // 0=RAX, 1=RCX, 2=RDX, 3=RBX, 4=RSP, 5=RBP, 6=RSI, 7=RDI
     // 8=R15, 9=R14, 10=R13, 11=R12, 12=R11, 13=R10, 14=R9, 15=R8
     let reg_map = [
-        0, // RAX
-        1, // RCX
-        2, // RDX
-        3, // RBX
-        4, // RSP
-        5, // RBP
-        6, // RSI
-        7, // RDI
-        8, // R8
-        9, // R9
+        0,  // RAX
+        1,  // RCX
+        2,  // RDX
+        3,  // RBX
+        4,  // RSP
+        5,  // RBP
+        6,  // RSI
+        7,  // RDI
+        8,  // R8
+        9,  // R9
         10, // R10
         11, // R11
         12, // R12
@@ -1502,7 +1575,6 @@ fn emit_call(code: &mut Vec<u8>, _target: vm_core::GuestAddr) {
 }
 
 impl TranslationOptimizer {
-    ///
     /// 通过分析IR块，识别常量并在编译时计算它们，从而减少运行时计算。
     ///
     /// # 参数
@@ -1531,8 +1603,9 @@ impl TranslationOptimizer {
     /// mov x3, 30      ; 常量折叠: 10 + 20 = 30
     /// ```
     fn constant_propagation(&self, ir_block: &IRBlock) -> Result<IRBlock, String> {
-        use vm_ir::IROp;
         use std::collections::HashMap;
+
+        use vm_ir::IROp;
 
         // 常量表: RegId -> Option<u64>
         // None表示寄存器的值未知（非常量）
@@ -1551,13 +1624,15 @@ impl TranslationOptimizer {
 
                 // Add: 如果两个操作数都是常量，则折叠
                 IROp::Add { dst, src1, src2 } => {
-                    if let (Some(Some(val1)), Some(Some(val2))) = (
-                        constants.get(src1),
-                        constants.get(src2)
-                    ) {
+                    if let (Some(Some(val1)), Some(Some(val2))) =
+                        (constants.get(src1), constants.get(src2))
+                    {
                         // 常量折叠
                         let result = val1.wrapping_add(*val2);
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1567,12 +1642,14 @@ impl TranslationOptimizer {
 
                 // Sub: 常量折叠
                 IROp::Sub { dst, src1, src2 } => {
-                    if let (Some(Some(val1)), Some(Some(val2))) = (
-                        constants.get(src1),
-                        constants.get(src2)
-                    ) {
+                    if let (Some(Some(val1)), Some(Some(val2))) =
+                        (constants.get(src1), constants.get(src2))
+                    {
                         let result = val1.wrapping_sub(*val2);
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1581,13 +1658,17 @@ impl TranslationOptimizer {
                 }
 
                 // Mul: 常量折叠
-                IROp::Mul { dst, src1, src2, .. } => {
-                    if let (Some(Some(val1)), Some(Some(val2))) = (
-                        constants.get(src1),
-                        constants.get(src2)
-                    ) {
+                IROp::Mul {
+                    dst, src1, src2, ..
+                } => {
+                    if let (Some(Some(val1)), Some(Some(val2))) =
+                        (constants.get(src1), constants.get(src2))
+                    {
                         let result = val1.wrapping_mul(*val2);
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1597,12 +1678,14 @@ impl TranslationOptimizer {
 
                 // And: 常量折叠
                 IROp::And { dst, src1, src2 } => {
-                    if let (Some(Some(val1)), Some(Some(val2))) = (
-                        constants.get(src1),
-                        constants.get(src2)
-                    ) {
+                    if let (Some(Some(val1)), Some(Some(val2))) =
+                        (constants.get(src1), constants.get(src2))
+                    {
                         let result = val1 & val2;
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1612,12 +1695,14 @@ impl TranslationOptimizer {
 
                 // Or: 常量折叠
                 IROp::Or { dst, src1, src2 } => {
-                    if let (Some(Some(val1)), Some(Some(val2))) = (
-                        constants.get(src1),
-                        constants.get(src2)
-                    ) {
+                    if let (Some(Some(val1)), Some(Some(val2))) =
+                        (constants.get(src1), constants.get(src2))
+                    {
                         let result = val1 | val2;
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1627,12 +1712,14 @@ impl TranslationOptimizer {
 
                 // Xor: 常量折叠
                 IROp::Xor { dst, src1, src2 } => {
-                    if let (Some(Some(val1)), Some(Some(val2))) = (
-                        constants.get(src1),
-                        constants.get(src2)
-                    ) {
+                    if let (Some(Some(val1)), Some(Some(val2))) =
+                        (constants.get(src1), constants.get(src2))
+                    {
                         let result = val1 ^ val2;
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1643,8 +1730,11 @@ impl TranslationOptimizer {
                 // AddImm: 如果src是常量，则折叠
                 IROp::AddImm { dst, src, imm } => {
                     if let Some(Some(val)) = constants.get(src) {
-                        let result = (val.wrapping_add(*imm as u64)) as u64;
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        let result = val.wrapping_add(*imm as u64);
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1656,7 +1746,10 @@ impl TranslationOptimizer {
                 IROp::MulImm { dst, src, imm } => {
                     if let Some(Some(val)) = constants.get(src) {
                         let result = val.wrapping_mul(*imm as u64);
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1668,7 +1761,10 @@ impl TranslationOptimizer {
                 IROp::SllImm { dst, src, sh } => {
                     if let Some(Some(val)) = constants.get(src) {
                         let result = val.wrapping_shl(*sh as u32);
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1680,7 +1776,10 @@ impl TranslationOptimizer {
                 IROp::SrlImm { dst, src, sh } => {
                     if let Some(Some(val)) = constants.get(src) {
                         let result = val.wrapping_shr(*sh as u32);
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1693,7 +1792,10 @@ impl TranslationOptimizer {
                     if let Some(Some(val)) = constants.get(src) {
                         // 算术右移需要处理符号位
                         let result = (*val as i64).wrapping_shr(*sh as u32) as u64;
-                        optimized_ops.push(IROp::MovImm { dst: *dst, imm: result });
+                        optimized_ops.push(IROp::MovImm {
+                            dst: *dst,
+                            imm: result,
+                        });
                         constants.insert(*dst, Some(result));
                     } else {
                         optimized_ops.push(op.clone());
@@ -1746,113 +1848,113 @@ impl TranslationOptimizer {
     fn get_dst_register(&self, op: &vm_ir::IROp) -> Option<vm_ir::RegId> {
         use vm_ir::IROp;
         match op {
-            IROp::Add { dst, .. } |
-            IROp::Sub { dst, .. } |
-            IROp::Mul { dst, .. } |
-            IROp::Div { dst, .. } |
-            IROp::Rem { dst, .. } |
-            IROp::And { dst, .. } |
-            IROp::Or { dst, .. } |
-            IROp::Xor { dst, .. } |
-            IROp::Not { dst, .. } |
-            IROp::Sll { dst, .. } |
-            IROp::Srl { dst, .. } |
-            IROp::Sra { dst, .. } |
-            IROp::AddImm { dst, .. } |
-            IROp::MulImm { dst, .. } |
-            IROp::Mov { dst, .. } |
-            IROp::MovImm { dst, .. } |
-            IROp::SllImm { dst, .. } |
-            IROp::SrlImm { dst, .. } |
-            IROp::SraImm { dst, .. } |
-            IROp::CmpEq { dst, .. } |
-            IROp::CmpNe { dst, .. } |
-            IROp::CmpLt { dst, .. } |
-            IROp::CmpLtU { dst, .. } |
-            IROp::CmpGe { dst, .. } |
-            IROp::CmpGeU { dst, .. } |
-            IROp::Select { dst, .. } |
-            IROp::Load { dst, .. } => Some(*dst),
+            IROp::Add { dst, .. }
+            | IROp::Sub { dst, .. }
+            | IROp::Mul { dst, .. }
+            | IROp::Div { dst, .. }
+            | IROp::Rem { dst, .. }
+            | IROp::And { dst, .. }
+            | IROp::Or { dst, .. }
+            | IROp::Xor { dst, .. }
+            | IROp::Not { dst, .. }
+            | IROp::Sll { dst, .. }
+            | IROp::Srl { dst, .. }
+            | IROp::Sra { dst, .. }
+            | IROp::AddImm { dst, .. }
+            | IROp::MulImm { dst, .. }
+            | IROp::Mov { dst, .. }
+            | IROp::MovImm { dst, .. }
+            | IROp::SllImm { dst, .. }
+            | IROp::SrlImm { dst, .. }
+            | IROp::SraImm { dst, .. }
+            | IROp::CmpEq { dst, .. }
+            | IROp::CmpNe { dst, .. }
+            | IROp::CmpLt { dst, .. }
+            | IROp::CmpLtU { dst, .. }
+            | IROp::CmpGe { dst, .. }
+            | IROp::CmpGeU { dst, .. }
+            | IROp::Select { dst, .. }
+            | IROp::Load { dst, .. } => Some(*dst),
 
             // 浮点操作
-            IROp::Fadd { dst, .. } |
-            IROp::Fsub { dst, .. } |
-            IROp::Fmul { dst, .. } |
-            IROp::Fdiv { dst, .. } |
-            IROp::Fsqrt { dst, .. } |
-            IROp::Fmin { dst, .. } |
-            IROp::Fmax { dst, .. } |
-            IROp::FaddS { dst, .. } |
-            IROp::FsubS { dst, .. } |
-            IROp::FmulS { dst, .. } |
-            IROp::FdivS { dst, .. } |
-            IROp::FsqrtS { dst, .. } |
-            IROp::FminS { dst, .. } |
-            IROp::FmaxS { dst, .. } |
-            IROp::Fmadd { dst, .. } |
-            IROp::Fmsub { dst, .. } |
-            IROp::Fnmadd { dst, .. } |
-            IROp::Fnmsub { dst, .. } |
-            IROp::FmaddS { dst, .. } |
-            IROp::FmsubS { dst, .. } |
-            IROp::FnmaddS { dst, .. } |
-            IROp::FnmsubS { dst, .. } |
-            IROp::Feq { dst, .. } |
-            IROp::Flt { dst, .. } |
-            IROp::Fle { dst, .. } |
-            IROp::FeqS { dst, .. } |
-            IROp::FltS { dst, .. } |
-            IROp::FleS { dst, .. } |
-            IROp::Fcvtws { dst, .. } |
-            IROp::Fcvtwus { dst, .. } |
-            IROp::Fcvtls { dst, .. } |
-            IROp::Fcvtlus { dst, .. } |
-            IROp::Fcvtsw { dst, .. } |
-            IROp::Fcvtswu { dst, .. } |
-            IROp::Fcvtsl { dst, .. } |
-            IROp::Fcvtslu { dst, .. } |
-            IROp::Fcvtwd { dst, .. } |
-            IROp::Fcvtwud { dst, .. } |
-            IROp::Fcvtld { dst, .. } |
-            IROp::Fcvtlud { dst, .. } |
-            IROp::Fcvtdw { dst, .. } |
-            IROp::Fcvtdwu { dst, .. } |
-            IROp::Fcvtdl { dst, .. } |
-            IROp::Fcvtdlu { dst, .. } |
-            IROp::Fcvtsd { dst, .. } |
-            IROp::Fcvtds { dst, .. } |
-            IROp::Fsgnj { dst, .. } |
-            IROp::Fsgnjn { dst, .. } |
-            IROp::Fsgnjx { dst, .. } |
-            IROp::FsgnjS { dst, .. } |
-            IROp::FsgnjnS { dst, .. } |
-            IROp::FsgnjxS { dst, .. } |
-            IROp::Fclass { dst, .. } |
-            IROp::FclassS { dst, .. } |
-            IROp::FmvXW { dst, .. } |
-            IROp::FmvWX { dst, .. } |
-            IROp::FmvXD { dst, .. } |
-            IROp::FmvDX { dst, .. } |
-            IROp::Fabs { dst, .. } |
-            IROp::Fneg { dst, .. } |
-            IROp::FabsS { dst, .. } |
-            IROp::FnegS { dst, .. } |
-            IROp::Fload { dst, .. } => Some(*dst),
+            IROp::Fadd { dst, .. }
+            | IROp::Fsub { dst, .. }
+            | IROp::Fmul { dst, .. }
+            | IROp::Fdiv { dst, .. }
+            | IROp::Fsqrt { dst, .. }
+            | IROp::Fmin { dst, .. }
+            | IROp::Fmax { dst, .. }
+            | IROp::FaddS { dst, .. }
+            | IROp::FsubS { dst, .. }
+            | IROp::FmulS { dst, .. }
+            | IROp::FdivS { dst, .. }
+            | IROp::FsqrtS { dst, .. }
+            | IROp::FminS { dst, .. }
+            | IROp::FmaxS { dst, .. }
+            | IROp::Fmadd { dst, .. }
+            | IROp::Fmsub { dst, .. }
+            | IROp::Fnmadd { dst, .. }
+            | IROp::Fnmsub { dst, .. }
+            | IROp::FmaddS { dst, .. }
+            | IROp::FmsubS { dst, .. }
+            | IROp::FnmaddS { dst, .. }
+            | IROp::FnmsubS { dst, .. }
+            | IROp::Feq { dst, .. }
+            | IROp::Flt { dst, .. }
+            | IROp::Fle { dst, .. }
+            | IROp::FeqS { dst, .. }
+            | IROp::FltS { dst, .. }
+            | IROp::FleS { dst, .. }
+            | IROp::Fcvtws { dst, .. }
+            | IROp::Fcvtwus { dst, .. }
+            | IROp::Fcvtls { dst, .. }
+            | IROp::Fcvtlus { dst, .. }
+            | IROp::Fcvtsw { dst, .. }
+            | IROp::Fcvtswu { dst, .. }
+            | IROp::Fcvtsl { dst, .. }
+            | IROp::Fcvtslu { dst, .. }
+            | IROp::Fcvtwd { dst, .. }
+            | IROp::Fcvtwud { dst, .. }
+            | IROp::Fcvtld { dst, .. }
+            | IROp::Fcvtlud { dst, .. }
+            | IROp::Fcvtdw { dst, .. }
+            | IROp::Fcvtdwu { dst, .. }
+            | IROp::Fcvtdl { dst, .. }
+            | IROp::Fcvtdlu { dst, .. }
+            | IROp::Fcvtsd { dst, .. }
+            | IROp::Fcvtds { dst, .. }
+            | IROp::Fsgnj { dst, .. }
+            | IROp::Fsgnjn { dst, .. }
+            | IROp::Fsgnjx { dst, .. }
+            | IROp::FsgnjS { dst, .. }
+            | IROp::FsgnjnS { dst, .. }
+            | IROp::FsgnjxS { dst, .. }
+            | IROp::Fclass { dst, .. }
+            | IROp::FclassS { dst, .. }
+            | IROp::FmvXW { dst, .. }
+            | IROp::FmvWX { dst, .. }
+            | IROp::FmvXD { dst, .. }
+            | IROp::FmvDX { dst, .. }
+            | IROp::Fabs { dst, .. }
+            | IROp::Fneg { dst, .. }
+            | IROp::FabsS { dst, .. }
+            | IROp::FnegS { dst, .. }
+            | IROp::Fload { dst, .. } => Some(*dst),
 
             // 向量操作
-            IROp::VecAdd { dst, .. } |
-            IROp::VecSub { dst, .. } |
-            IROp::VecMul { dst, .. } |
-            IROp::VecAddSat { dst, .. } |
-            IROp::VecSubSat { dst, .. } |
-            IROp::VecMulSat { dst, .. } |
-            IROp::Broadcast { dst, .. } => Some(*dst),
+            IROp::VecAdd { dst, .. }
+            | IROp::VecSub { dst, .. }
+            | IROp::VecMul { dst, .. }
+            | IROp::VecAddSat { dst, .. }
+            | IROp::VecSubSat { dst, .. }
+            | IROp::VecMulSat { dst, .. }
+            | IROp::Broadcast { dst, .. } => Some(*dst),
 
             // 系统操作
-            IROp::CsrRead { dst, .. } |
-            IROp::CsrWriteImm { dst, .. } |
-            IROp::CsrSetImm { dst, .. } |
-            IROp::CsrClearImm { dst, .. } => Some(*dst),
+            IROp::CsrRead { dst, .. }
+            | IROp::CsrWriteImm { dst, .. }
+            | IROp::CsrSetImm { dst, .. }
+            | IROp::CsrClearImm { dst, .. } => Some(*dst),
 
             _ => None,
         }
@@ -1894,8 +1996,9 @@ impl TranslationOptimizer {
     /// add x4, x1, x2
     /// ```
     fn dead_code_elimination(&self, ir_block: &IRBlock) -> Result<IRBlock, String> {
-        use vm_ir::IROp;
         use std::collections::HashSet;
+
+        use vm_ir::IROp;
 
         // 第一步：分析活跃变量
         let mut live_vars: HashSet<vm_ir::RegId> = HashSet::new();
@@ -1922,38 +2025,42 @@ impl TranslationOptimizer {
 
             // 分析操作使用的和定义的变量
             match op {
-                IROp::Add { dst, src1, src2 } |
-                IROp::Sub { dst, src1, src2 } |
-                IROp::Mul { dst, src1, src2, .. } |
-                IROp::Div { dst, src1, src2, .. } |
-                IROp::Rem { dst, src1, src2, .. } |
-                IROp::And { dst, src1, src2 } |
-                IROp::Or { dst, src1, src2 } |
-                IROp::Xor { dst, src1, src2 } => {
+                IROp::Add { dst, src1, src2 }
+                | IROp::Sub { dst, src1, src2 }
+                | IROp::Mul {
+                    dst, src1, src2, ..
+                }
+                | IROp::Div {
+                    dst, src1, src2, ..
+                }
+                | IROp::Rem {
+                    dst, src1, src2, ..
+                }
+                | IROp::And { dst, src1, src2 }
+                | IROp::Or { dst, src1, src2 }
+                | IROp::Xor { dst, src1, src2 } => {
                     defined_vars.push(*dst);
                     used_vars.push(*src1);
                     used_vars.push(*src2);
                 }
-                IROp::Not { dst, src } |
-                IROp::Mov { dst, src } => {
+                IROp::Not { dst, src } | IROp::Mov { dst, src } => {
                     defined_vars.push(*dst);
                     used_vars.push(*src);
                 }
-                IROp::Sll { dst, src, shreg } |
-                IROp::Srl { dst, src, shreg } |
-                IROp::Sra { dst, src, shreg } => {
+                IROp::Sll { dst, src, shreg }
+                | IROp::Srl { dst, src, shreg }
+                | IROp::Sra { dst, src, shreg } => {
                     defined_vars.push(*dst);
                     used_vars.push(*src);
                     used_vars.push(*shreg);
                 }
-                IROp::AddImm { dst, src, .. } |
-                IROp::MulImm { dst, src, .. } => {
+                IROp::AddImm { dst, src, .. } | IROp::MulImm { dst, src, .. } => {
                     defined_vars.push(*dst);
                     used_vars.push(*src);
                 }
-                IROp::SllImm { dst, src, .. } |
-                IROp::SrlImm { dst, src, .. } |
-                IROp::SraImm { dst, src, .. } => {
+                IROp::SllImm { dst, src, .. }
+                | IROp::SrlImm { dst, src, .. }
+                | IROp::SraImm { dst, src, .. } => {
                     defined_vars.push(*dst);
                     used_vars.push(*src);
                 }
@@ -1968,28 +2075,33 @@ impl TranslationOptimizer {
                     used_vars.push(*src);
                     used_vars.push(*base);
                 }
-                IROp::CmpEq { dst, lhs, rhs } |
-                IROp::CmpNe { dst, lhs, rhs } |
-                IROp::CmpLt { dst, lhs, rhs } |
-                IROp::CmpLtU { dst, lhs, rhs } |
-                IROp::CmpGe { dst, lhs, rhs } |
-                IROp::CmpGeU { dst, lhs, rhs } => {
+                IROp::CmpEq { dst, lhs, rhs }
+                | IROp::CmpNe { dst, lhs, rhs }
+                | IROp::CmpLt { dst, lhs, rhs }
+                | IROp::CmpLtU { dst, lhs, rhs }
+                | IROp::CmpGe { dst, lhs, rhs }
+                | IROp::CmpGeU { dst, lhs, rhs } => {
                     defined_vars.push(*dst);
                     used_vars.push(*lhs);
                     used_vars.push(*rhs);
                 }
-                IROp::Select { dst, cond, true_val, false_val } => {
+                IROp::Select {
+                    dst,
+                    cond,
+                    true_val,
+                    false_val,
+                } => {
                     defined_vars.push(*dst);
                     used_vars.push(*cond);
                     used_vars.push(*true_val);
                     used_vars.push(*false_val);
                 }
-                IROp::Beq { src1, src2, .. } |
-                IROp::Bne { src1, src2, .. } |
-                IROp::Blt { src1, src2, .. } |
-                IROp::Bge { src1, src2, .. } |
-                IROp::Bltu { src1, src2, .. } |
-                IROp::Bgeu { src1, src2, .. } => {
+                IROp::Beq { src1, src2, .. }
+                | IROp::Bne { src1, src2, .. }
+                | IROp::Blt { src1, src2, .. }
+                | IROp::Bge { src1, src2, .. }
+                | IROp::Bltu { src1, src2, .. }
+                | IROp::Bgeu { src1, src2, .. } => {
                     used_vars.push(*src1);
                     used_vars.push(*src2);
                 }
@@ -2075,7 +2187,10 @@ impl TranslationOptimizer {
             // And x, x, -1: 可以移除（x & -1 = x）
             IROp::And { dst, src1, src2 } if dst == src1 && dst == src2 => {
                 // x & x = x，可以保留原值
-                Some(IROp::Mov { dst: *dst, src: *src1 })
+                Some(IROp::Mov {
+                    dst: *dst,
+                    src: *src1,
+                })
             }
 
             _ => Some(op.clone()),
@@ -2125,9 +2240,9 @@ impl TranslationCache {
     /// # 返回值
     /// - `std::sync::MutexGuard<'_, TranslationCacheStats>`: 统计锁
     fn lock_stats(&self) -> std::sync::MutexGuard<'_, TranslationCacheStats> {
-        self.stats.lock().unwrap_or_else(|e| {
-            panic!("Failed to lock stats: {:?}", e)
-        })
+        self.stats
+            .lock()
+            .unwrap_or_else(|e| panic!("Failed to lock stats: {:?}", e))
     }
 
     /// 查找缓存
@@ -2156,10 +2271,17 @@ impl TranslationCache {
     ///
     /// # 返回值
     /// - `Result<usize, String>`: 当前缓存大小或错误
-    pub fn insert(&mut self, riscv_pc: GuestAddr, x86_machine_code: Vec<u8>) -> Result<usize, String> {
+    pub fn insert(
+        &mut self,
+        riscv_pc: GuestAddr,
+        x86_machine_code: Vec<u8>,
+    ) -> Result<usize, String> {
         let size_bytes = x86_machine_code.len();
         if size_bytes > 16384 {
-            return Err(format!("Translation entry too large: {} bytes (max 16KB)", size_bytes));
+            return Err(format!(
+                "Translation entry too large: {} bytes (max 16KB)",
+                size_bytes
+            ));
         }
 
         // Check if we need to evict entries
@@ -2181,9 +2303,10 @@ impl TranslationCache {
 
         // Update stats
         {
-            let mut stats = self.stats.lock().unwrap_or_else(|e| {
-                panic!("Failed to lock stats: {:?}", e)
-            });
+            let mut stats = self
+                .stats
+                .lock()
+                .unwrap_or_else(|e| panic!("Failed to lock stats: {:?}", e));
             stats.current_size = self.current_size;
             if stats.current_size > stats.max_size {
                 stats.max_size = self.current_size;
@@ -2242,7 +2365,6 @@ mod tests {
         assert_eq!(found.expect("cache lookup should return code"), code);
     }
 
-
     #[test]
     fn test_cache_stats() {
         let mut cache = TranslationCache::new(256);
@@ -2255,9 +2377,11 @@ mod tests {
         assert_eq!(stats.misses, 2);
 
         // 插入条目
-        cache.insert(vm_core::GuestAddr(0x1000), vec![0x90])
+        cache
+            .insert(vm_core::GuestAddr(0x1000), vec![0x90])
             .expect("cache insert at 0x1000 should succeed");
-        cache.insert(vm_core::GuestAddr(0x1004), vec![0x90])
+        cache
+            .insert(vm_core::GuestAddr(0x1004), vec![0x90])
             .expect("cache insert at 0x1004 should succeed");
 
         // 测试命中
@@ -2279,7 +2403,7 @@ mod tests {
     #[test]
     fn test_no_fusion() {
         let mut fusion = InstructionFusion::new();
-        
+
         // 测试空指令序列
         let result = fusion.fuse_instructions(&[], vm_core::GuestAddr(0));
         assert!(!result.success);
@@ -2301,10 +2425,17 @@ mod tests {
             ops: vec![],
             term: vm_ir::Terminator::Ret,
         };
-        let result = optimizer.translate(&ir_block, vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x1010));
+        let result = optimizer.translate(
+            &ir_block,
+            vm_core::GuestAddr(0x1000),
+            vm_core::GuestAddr(0x1010),
+        );
         assert!(result.is_ok());
         // Empty IR block with Ret terminator should generate RET (0xC3)
-        assert_eq!(result.expect("optimizer translate should succeed"), vec![0xC3]);
+        assert_eq!(
+            result.expect("optimizer translate should succeed"),
+            vec![0xC3]
+        );
     }
 
     #[test]
@@ -2328,11 +2459,19 @@ mod tests {
         let mut fusion = InstructionFusion::new();
         let ir_block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
-            ops: vec
-![
-                IROp::AddImm { dst: 1, src: 0, imm: 10 },
-                IROp::Load { dst: 2, base: 1, offset: 0, size: 8, flags: vm_ir::MemFlags::default()
- },
+            ops: vec![
+                IROp::AddImm {
+                    dst: 1,
+                    src: 0,
+                    imm: 10,
+                },
+                IROp::Load {
+                    dst: 2,
+                    base: 1,
+                    offset: 0,
+                    size: 8,
+                    flags: vm_ir::MemFlags::default(),
+                },
             ],
             term: vm_ir::Terminator::Ret,
         };
@@ -2349,18 +2488,20 @@ mod tests {
     }
 
     #[test]
-    fn test_constant_propagation()
- {
+    fn test_constant_propagation() {
         use vm_ir::IROp;
 
         let optimizer = TranslationOptimizer::new(1024);
         let ir_block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
-            ops: vec
-![
+            ops: vec![
                 IROp::MovImm { dst: 1, imm: 10 },
                 IROp::MovImm { dst: 2, imm: 20 },
-                IROp::Add { dst: 3, src1: 1, src2: 2 }, // 应该被优化为 MovImm x3, 30
+                IROp::Add {
+                    dst: 3,
+                    src1: 1,
+                    src2: 2,
+                }, // 应该被优化为 MovImm x3, 30
             ],
             term: vm_ir::Terminator::Ret,
         };
@@ -2381,15 +2522,13 @@ mod tests {
     }
 
     #[test]
-    fn test_dead_code_elimination()
- {
+    fn test_dead_code_elimination() {
         use vm_ir::IROp;
 
         let optimizer = TranslationOptimizer::new(1024);
         let ir_block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
-            ops: vec
-![
+            ops: vec![
                 IROp::MovImm { dst: 1, imm: 10 },
                 IROp::MovImm { dst: 2, imm: 20 }, // x2从未被使用，应该被消除
                 IROp::MovImm { dst: 3, imm: 30 },
@@ -2406,17 +2545,19 @@ mod tests {
     }
 
     #[test]
-    fn test_constant_propagation_with_shifts()
- {
+    fn test_constant_propagation_with_shifts() {
         use vm_ir::IROp;
 
         let optimizer = TranslationOptimizer::new(1024);
         let ir_block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
-            ops: vec
-![
+            ops: vec![
                 IROp::MovImm { dst: 1, imm: 8 },
-                IROp::SllImm { dst: 2, src: 1, sh: 2 }, // 应该被优化为 MovImm x2, 32 (8 << 2)
+                IROp::SllImm {
+                    dst: 2,
+                    src: 1,
+                    sh: 2,
+                }, // 应该被优化为 MovImm x2, 32 (8 << 2)
             ],
             term: vm_ir::Terminator::Ret,
         };
@@ -2443,7 +2584,11 @@ mod tests {
         assert!(simplified.is_none(), "Redundant MOV should be removed");
 
         // 测试XOR优化
-        let xor_op = IROp::Xor { dst: 1, src1: 1, src2: 1 };
+        let xor_op = IROp::Xor {
+            dst: 1,
+            src1: 1,
+            src2: 1,
+        };
         let simplified = optimizer.simplify_operation(&xor_op);
         assert!(simplified.is_some());
         if let Some(IROp::MovImm { dst, imm }) = simplified {
@@ -2454,44 +2599,63 @@ mod tests {
         }
 
         // 测试ADD x, x, 0优化
-        let add_op = IROp::AddImm { dst: 1, src: 1, imm: 0 };
+        let add_op = IROp::AddImm {
+            dst: 1,
+            src: 1,
+            imm: 0,
+        };
         let simplified = optimizer.simplify_operation(&add_op);
         assert!(simplified.is_none(), "ADD x, x, 0 should be removed");
     }
 
     #[test]
-    fn test_combined_optimizations()
- {
+    fn test_combined_optimizations() {
         use vm_ir::IROp;
 
         let optimizer = TranslationOptimizer::new(1024);
         let ir_block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
-            ops: vec
-![
+            ops: vec![
                 IROp::MovImm { dst: 1, imm: 10 },
                 IROp::MovImm { dst: 2, imm: 20 },
-                IROp::Add { dst: 3, src1: 1, src2: 2 }, // 常量传播: 10 + 20 = 30
+                IROp::Add {
+                    dst: 3,
+                    src1: 1,
+                    src2: 2,
+                }, // 常量传播: 10 + 20 = 30
                 IROp::MovImm { dst: 4, imm: 40 }, // 死代码: x4从未被使用
             ],
             term: vm_ir::Terminator::Ret,
         };
 
         // 执行完整的翻译流程（包括所有优化）
-        let result = optimizer.translate(&ir_block, vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x1010));
+        let result = optimizer.translate(
+            &ir_block,
+            vm_core::GuestAddr(0x1000),
+            vm_core::GuestAddr(0x1010),
+        );
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_fusion_pattern_detection()
- {
+    fn test_fusion_pattern_detection() {
         use vm_ir::IROp;
 
         let mut fusion = InstructionFusion::new();
 
         // 测试ADDI + LOAD模式
-        let op1 = IROp::AddImm { dst: 1, src: 0, imm: 10 };
-        let op2 = IROp::Load { dst: 2, base: 1, offset: 0, size: 8, flags: vm_ir::MemFlags::default() };
+        let op1 = IROp::AddImm {
+            dst: 1,
+            src: 0,
+            imm: 10,
+        };
+        let op2 = IROp::Load {
+            dst: 2,
+            base: 1,
+            offset: 0,
+            size: 8,
+            flags: vm_ir::MemFlags::default(),
+        };
 
         let result = fusion.try_fuse_ops(&op1, &op2);
         assert!(result.success);
@@ -2501,18 +2665,20 @@ mod tests {
     }
 
     #[test]
-    fn test_constant_propagation_with_logical_ops()
- {
+    fn test_constant_propagation_with_logical_ops() {
         use vm_ir::IROp;
 
         let optimizer = TranslationOptimizer::new(1024);
         let ir_block = IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
-            ops: vec
-![
+            ops: vec![
                 IROp::MovImm { dst: 1, imm: 0xFF },
                 IROp::MovImm { dst: 2, imm: 0x0F },
-                IROp::And { dst: 3, src1: 1, src2: 2 }, // 应该被优化为 MovImm x3, 0x0F
+                IROp::And {
+                    dst: 3,
+                    src1: 1,
+                    src2: 2,
+                }, // 应该被优化为 MovImm x3, 0x0F
             ],
             term: vm_ir::Terminator::Ret,
         };
@@ -2528,14 +2694,17 @@ mod tests {
     }
 
     #[test]
-    fn test_get_dst_register()
- {
+    fn test_get_dst_register() {
         use vm_ir::IROp;
 
         let optimizer = TranslationOptimizer::new(1024);
 
         // 测试Arithmetic操作
-        let add_op = IROp::Add { dst: 5, src1: 1, src2: 2 };
+        let add_op = IROp::Add {
+            dst: 5,
+            src1: 1,
+            src2: 2,
+        };
         assert_eq!(optimizer.get_dst_register(&add_op), Some(5));
 
         // 测试Mov操作
@@ -2547,7 +2716,13 @@ mod tests {
         assert_eq!(optimizer.get_dst_register(&movi_op), Some(7));
 
         // 测试Load操作
-        let load_op = IROp::Load { dst: 4, base: 1, offset: 0, size: 8, flags: vm_ir::MemFlags::default() };
+        let load_op = IROp::Load {
+            dst: 4,
+            base: 1,
+            offset: 0,
+            size: 8,
+            flags: vm_ir::MemFlags::default(),
+        };
         assert_eq!(optimizer.get_dst_register(&load_op), Some(4));
 
         // 测试没有目标寄存器的操作

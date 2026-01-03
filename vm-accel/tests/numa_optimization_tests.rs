@@ -3,6 +3,7 @@
 //! Comprehensive tests for NUMA-aware memory allocation and optimization
 
 use std::sync::{Arc, RwLock};
+
 use vm_accel::numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer};
 use vm_accel::vcpu_affinity::{CPUTopology, NUMAAwareAllocator, VCPUAffinityManager};
 
@@ -90,7 +91,7 @@ fn test_numa_optimizer_creation() {
     let affinity_manager = Arc::new(VCPUAffinityManager::new_with_topology(topology.clone()));
     let memory_per_node = 1024 * 1024 * 1024; // 1GB
 
-    let optimizer = NUMAOptimizer::new(topology.clone(), affinity_manager, memory_per_node);
+    let _optimizer = NUMAOptimizer::new(topology.clone(), affinity_manager, memory_per_node);
 
     println!("Created NUMA optimizer with {} nodes", topology.numa_nodes);
     assert_eq!(topology.numa_nodes, topology.numa_nodes);
@@ -173,7 +174,7 @@ fn test_numa_memory_allocation_tracking() {
     // Allocate on node 0
     {
         let mut alloc = allocator.write().unwrap();
-        let result = alloc.allocate_on_node(0, 4096);
+        let result = alloc.alloc_from_node(0, 4096);
         assert!(result.is_ok(), "Allocation should succeed");
     }
 
@@ -195,7 +196,7 @@ fn test_numa_node_selection() {
     let affinity_manager = Arc::new(VCPUAffinityManager::new_with_topology(topology.clone()));
     let memory_per_node = 1024 * 1024; // 1MB
 
-    let optimizer = NUMAOptimizer::new(topology.clone(), affinity_manager, memory_per_node);
+    let _optimizer = NUMAOptimizer::new(topology.clone(), affinity_manager, memory_per_node);
 
     // Get available nodes (just count from topology)
     let node_count = topology.numa_nodes;
@@ -211,7 +212,7 @@ fn test_numa_statistics_update() {
     let affinity_manager = Arc::new(VCPUAffinityManager::new_with_topology(topology.clone()));
     let memory_per_node = 1024 * 1024; // 1MB
 
-    let optimizer = NUMAOptimizer::new(topology, affinity_manager, memory_per_node);
+    let _optimizer = NUMAOptimizer::new(topology, affinity_manager, memory_per_node);
 
     // Update statistics
     optimizer.update_stats();
@@ -314,7 +315,7 @@ fn test_numa_allocator_node_validation() {
     let allocator = NUMAAwareAllocator::new(2, 1024 * 1024);
 
     // Try to allocate on invalid node
-    let result = allocator.allocate_on_node(999, 4096);
+    let result = allocator.alloc_from_node(999, 4096);
     assert!(result.is_err(), "Should fail for invalid node");
 
     println!("Node validation works correctly");
@@ -327,11 +328,11 @@ fn test_numa_allocator_memory_limits() {
     let allocator = NUMAAwareAllocator::new(1, memory_per_node);
 
     // Allocate within limit
-    let result = allocator.allocate_on_node(0, 2048);
+    let result = allocator.alloc_from_node(0, 2048);
     assert!(result.is_ok(), "Allocation within limit should succeed");
 
     // Try to allocate more than available
-    let result = allocator.allocate_on_node(0, memory_per_node * 2);
+    let result = allocator.alloc_from_node(0, memory_per_node * 2);
     assert!(result.is_err(), "Allocation exceeding limit should fail");
 
     println!("Memory limits enforced correctly");

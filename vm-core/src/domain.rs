@@ -206,3 +206,166 @@ pub trait ExecutionManager<B>: Send {
     /// 设置要执行的 PC。
     fn set_pc(&mut self, pc: GuestAddr);
 }
+
+/// 缓存管理接口
+///
+/// 标识: 服务接口
+///
+/// 提供统一的缓存管理接口，支持多种缓存实现（LRU、LFU、FIFO等）。
+/// 具体实现应在基础设施层（如 vm-engine、vm-mem）。
+///
+/// # 类型参数
+/// - `K`: 缓存键类型
+/// - `V`: 缓存值类型
+///
+/// # 使用场景
+/// - JIT 编译缓存：缓存编译后的代码块
+/// - 翻译缓存：缓存跨架构翻译结果
+/// - 优化缓存：缓存优化后的 IR
+pub trait CacheManager<K, V>: Send + Sync {
+    /// 获取缓存值
+    ///
+    /// # 参数
+    /// - `key`: 缓存键
+    ///
+    /// # 返回
+    /// 缓存值（如果存在），否则返回 None
+    fn get(&self, key: &K) -> Option<V>;
+
+    /// 插入缓存值
+    ///
+    /// # 参数
+    /// - `key`: 缓存键
+    /// - `value`: 缓存值
+    fn put(&mut self, key: K, value: V);
+
+    /// 移除缓存值
+    ///
+    /// # 参数
+    /// - `key`: 要移除的缓存键
+    fn evict(&mut self, key: &K);
+
+    /// 清空缓存
+    fn clear(&mut self);
+
+    /// 获取缓存统计
+    ///
+    /// # 返回
+    /// 缓存统计信息
+    fn stats(&self) -> CacheStats;
+}
+
+/// 缓存统计信息
+#[derive(Debug, Clone)]
+pub struct CacheStats {
+    /// 缓存命中次数
+    pub hits: u64,
+    /// 缓存缺失次数
+    pub misses: u64,
+    /// 当前缓存条目数
+    pub size: usize,
+    /// 缓存容量
+    pub capacity: usize,
+}
+
+/// 优化策略接口
+///
+/// 标识: 服务接口
+///
+/// 提供统一的优化策略接口，支持多种优化实现。
+/// 具体实现应在基础设施层（如 vm-engine、vm-optimizers）。
+///
+/// # 使用场景
+/// - IR 优化：对中间表示进行优化
+/// - 代码优化：对生成的代码进行优化
+/// - 跨架构优化：针对特定架构的优化
+pub trait OptimizationStrategy: Send + Sync {
+    /// 优化 IR 块
+    ///
+    /// # 参数
+    /// - `ir`: 要优化的 IR 块
+    ///
+    /// # 返回
+    /// 优化后的 IR 块
+    ///
+    /// # 注意
+    /// 此方法应使用 `vm_ir::IRBlock`，但为避免循环依赖，
+    /// 具体类型应在基础设施层定义。
+    fn optimize_ir(&self, ir: &[u8]) -> VmResult<Vec<u8>>;
+
+    /// 获取优化级别
+    ///
+    /// # 返回
+    /// 优化级别 (0-3)
+    fn optimization_level(&self) -> u32;
+
+    /// 是否支持特定优化
+    ///
+    /// # 参数
+    /// - `opt_type`: 优化类型
+    ///
+    /// # 返回
+    /// 是否支持该优化
+    fn supports_optimization(&self, opt_type: OptimizationType) -> bool;
+}
+
+/// 优化类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OptimizationType {
+    /// 常量折叠
+    ConstantFolding,
+    /// 死代码消除
+    DeadCodeElimination,
+    /// 指令合并
+    InstructionCombining,
+    /// 循环优化
+    LoopOptimization,
+    /// 寄存器分配优化
+    RegisterAllocation,
+    /// 指令调度
+    InstructionScheduling,
+}
+
+/// 寄存器分配器接口
+///
+/// 标识: 服务接口
+///
+/// 提供统一的寄存器分配接口，支持多种分配算法（图着色、线性扫描等）。
+/// 具体实现应在基础设施层（如 vm-engine）。
+///
+/// # 使用场景
+/// - JIT 编译：为生成的代码分配寄存器
+/// - 跨架构翻译：将源架构寄存器映射到目标架构
+pub trait RegisterAllocator: Send + Sync {
+    /// 分配寄存器
+    ///
+    /// # 参数
+    /// - `ir`: IR 块（序列化形式，避免循环依赖）
+    ///
+    /// # 返回
+    /// 寄存器映射结果（序列化形式）
+    ///
+    /// # 注意
+    /// 为避免循环依赖，使用序列化形式传递数据。
+    /// 具体类型应在基础设施层定义。
+    fn allocate(&mut self, ir: &[u8]) -> VmResult<Vec<u8>>;
+
+    /// 获取分配统计
+    ///
+    /// # 返回
+    /// 寄存器分配统计信息
+    fn stats(&self) -> RegisterAllocationStats;
+}
+
+/// 寄存器分配统计信息
+#[derive(Debug, Clone)]
+pub struct RegisterAllocationStats {
+    /// 总分配次数
+    pub total_allocations: usize,
+    /// 溢出次数
+    pub spills: usize,
+    /// 使用的物理寄存器数
+    pub physical_regs_used: usize,
+    /// 虚拟寄存器数
+    pub virtual_regs: usize,
+}

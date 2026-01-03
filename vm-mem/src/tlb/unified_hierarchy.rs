@@ -9,7 +9,7 @@
 //! 3. **策略灵活**: 支持不同的替换策略
 //! 4. **批量失效**: 支持TLB批量失效操作
 
-use super::management::manager::{TlbManager, StandardTlbManager};
+use super::management::manager::{StandardTlbManager, TlbManager};
 use std::sync::Arc;
 use vm_core::{AccessType, GuestAddr, TlbEntry};
 
@@ -18,8 +18,7 @@ use vm_core::{AccessType, GuestAddr, TlbEntry};
 // ============================================================================
 
 /// TLB替换策略
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReplacementPolicy {
     /// LRU (Least Recently Used)
     #[default]
@@ -33,7 +32,6 @@ pub enum ReplacementPolicy {
     /// 自适应替换策略（ARC）
     AdaptiveARC,
 }
-
 
 // ============================================================================
 // 统一TLB层次结构
@@ -153,10 +151,18 @@ impl UnifiedTlbHierarchy {
         replacement_policy: ReplacementPolicy,
     ) -> Self {
         Self {
-            l1_itlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(l1_itlb_capacity))),
-            l1_dtlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(l1_dtlb_capacity))),
-            l2_tlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(l2_capacity))),
-            l3_tlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(l3_capacity))),
+            l1_itlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(
+                l1_itlb_capacity,
+            ))),
+            l1_dtlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(
+                l1_dtlb_capacity,
+            ))),
+            l2_tlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(
+                l2_capacity,
+            ))),
+            l3_tlb: Arc::new(parking_lot::Mutex::new(StandardTlbManager::new(
+                l3_capacity,
+            ))),
             l1_itlb_capacity,
             l1_dtlb_capacity,
             l2_capacity,
@@ -196,13 +202,17 @@ impl UnifiedTlbHierarchy {
         };
 
         if let Some(entry) = l1_result {
-            self.stats.l1_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.stats
+                .l1_hits
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return Some(entry);
         }
 
         // 2. 检查L2 TLB（统一TLB）
         if let Some(entry) = self.l2_tlb.lock().lookup(addr, asid, access) {
-            self.stats.l2_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.stats
+                .l2_hits
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             // 将L2命中的条目提升到L1
             self.promote_to_l1(entry, access);
@@ -212,7 +222,9 @@ impl UnifiedTlbHierarchy {
 
         // 3. 检查L3 TLB
         if let Some(entry) = self.l3_tlb.lock().lookup(addr, asid, access) {
-            self.stats.l3_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.stats
+                .l3_hits
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             // 将L3命中的条目提升到L2和L1
             self.l2_tlb.lock().update(entry);
@@ -222,7 +234,9 @@ impl UnifiedTlbHierarchy {
         }
 
         // 4. 全部未命中
-        self.stats.total_misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .total_misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         None
     }
 
@@ -289,7 +303,12 @@ impl UnifiedTlbHierarchy {
 
     /// 获取各层级容量
     pub fn capacities(&self) -> (usize, usize, usize, usize) {
-        (self.l1_itlb_capacity, self.l1_dtlb_capacity, self.l2_capacity, self.l3_capacity)
+        (
+            self.l1_itlb_capacity,
+            self.l1_dtlb_capacity,
+            self.l2_capacity,
+            self.l3_capacity,
+        )
     }
 
     /// 动态调整各层级容量
@@ -492,7 +511,13 @@ impl TlbManager for AdaptiveTlbManager {
         }
 
         // 定期分析并调整
-        if self.access_history.lock().unwrap().len().is_multiple_of(self.detection_window) {
+        if self
+            .access_history
+            .lock()
+            .unwrap()
+            .len()
+            .is_multiple_of(self.detection_window)
+        {
             self.analyze_and_adapt();
         }
 
@@ -583,10 +608,18 @@ mod tests {
         let stats = HierarchyStats::default();
 
         // 模拟命中
-        stats.l1_hits.fetch_add(90, std::sync::atomic::Ordering::Relaxed);
-        stats.l2_hits.fetch_add(7, std::sync::atomic::Ordering::Relaxed);
-        stats.l3_hits.fetch_add(2, std::sync::atomic::Ordering::Relaxed);
-        stats.total_misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .l1_hits
+            .fetch_add(90, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .l2_hits
+            .fetch_add(7, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .l3_hits
+            .fetch_add(2, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .total_misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         assert!((stats.overall_hit_rate() - 0.99).abs() < 0.01);
     }
@@ -772,9 +805,15 @@ mod tests {
     fn test_hit_distribution() {
         let stats = HierarchyStats::default();
 
-        stats.l1_hits.fetch_add(80, std::sync::atomic::Ordering::Relaxed);
-        stats.l2_hits.fetch_add(15, std::sync::atomic::Ordering::Relaxed);
-        stats.l3_hits.fetch_add(5, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .l1_hits
+            .fetch_add(80, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .l2_hits
+            .fetch_add(15, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .l3_hits
+            .fetch_add(5, std::sync::atomic::Ordering::Relaxed);
 
         let (l1_pct, l2_pct, l3_pct) = stats.hit_distribution();
         assert!((l1_pct - 0.8).abs() < 0.01); // 80%
@@ -869,7 +908,9 @@ mod tests {
 
         let stats = hierarchy.stats();
         let l1_hits = stats.l1_hits.load(std::sync::atomic::Ordering::Relaxed);
-        let misses = stats.total_misses.load(std::sync::atomic::Ordering::Relaxed);
+        let misses = stats
+            .total_misses
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         assert_eq!(l1_hits, 0); // 第一次查找
         assert!(misses >= 0);
@@ -893,7 +934,12 @@ mod tests {
         assert_eq!(stats.l1_hits.load(std::sync::atomic::Ordering::Relaxed), 0);
         assert_eq!(stats.l2_hits.load(std::sync::atomic::Ordering::Relaxed), 0);
         assert_eq!(stats.l3_hits.load(std::sync::atomic::Ordering::Relaxed), 0);
-        assert_eq!(stats.total_misses.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(
+            stats
+                .total_misses
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
         assert_eq!(stats.overall_hit_rate(), 0.0);
     }
 

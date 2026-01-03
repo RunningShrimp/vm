@@ -2,9 +2,7 @@
 //!
 //! 测试单精度浮点指令集的完整功能
 
-use vm_frontend::riscv64::f_extension::{
-    FPRegisters, FCSR, FFlags, RoundingMode,
-};
+use vm_frontend::riscv64::f_extension::{FCSR, FFlags, FPRegisters, RoundingMode};
 
 // ============================================================================
 // FPRegisters测试

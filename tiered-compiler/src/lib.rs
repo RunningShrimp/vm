@@ -6,10 +6,11 @@
 //! - Tier 2: Balanced JIT (300-500 μs, current default)
 //! - Tier 3: Optimized JIT (>1ms, aggressive optimization)
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+
+use parking_lot::RwLock;
 
 /// Result type for compilation operations
 pub type CompileResult = Result<CompiledCode, CompileError>;

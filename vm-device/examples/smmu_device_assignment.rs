@@ -4,6 +4,7 @@
 //! functionality in vm-device.
 
 use std::sync::Arc;
+
 use vm_accel::SmmuManager;
 use vm_core::GuestAddr;
 use vm_device::smmu_device::SmmuDeviceManager;

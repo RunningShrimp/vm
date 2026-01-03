@@ -26,22 +26,18 @@ pub use error::{
     ErrorSeverity, GuestAddr, JITErrorBuilder, JITResult, JitError, MemoryError, NetworkError,
     RegId, TranslationError, VmError, VmResult,
 };
-
-pub use validation::{
-    ErrorSeverity as ValidationSeverity, ValidationError, ValidationResult, ValidationRule,
-    ValidationWarning, Validator,
-};
-
-pub use validation::rules::{NonEmptyRule, RangeRule, RegexRule};
-pub use validation::validators::{
-    ArchitectureValidator, MemoryAddressValidator, RegisterValidator, StringLengthValidator,
-};
-
 pub use resource::{
     PoolStats, Resource, ResourceConfig, ResourceGuard, ResourceManager, ResourcePool,
     ResourceState, ResourceStats,
 };
-
 // Support re-exports (always available with std)
 pub use support_test_helpers::*;
 pub use support_utils::*;
+pub use validation::rules::{NonEmptyRule, RangeRule, RegexRule};
+pub use validation::validators::{
+    ArchitectureValidator, MemoryAddressValidator, RegisterValidator, StringLengthValidator,
+};
+pub use validation::{
+    ErrorSeverity as ValidationSeverity, ValidationError, ValidationResult, ValidationRule,
+    ValidationWarning, Validator,
+};

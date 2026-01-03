@@ -3,12 +3,12 @@ use vm_core::AddressTranslator;
 //!
 //! 测试物理内存管理器的读写吞吐量
 
+// Use std::hint::black_box instead of criterion's deprecated version
+use std::hint::black_box;
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use vm_core::mmu_traits::MemoryAccess;
 use vm_mem::PhysicalMemory;
-
-// Use std::hint::black_box instead of criterion's deprecated version
-use std::hint::black_box;
 
 /// 基准测试: 内存读取性能
 fn bench_memory_read_throughput(c: &mut Criterion) {

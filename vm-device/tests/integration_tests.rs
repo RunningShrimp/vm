@@ -139,32 +139,30 @@ mod block_device_integration_tests {
 
     // Tests requiring full MMU trait implementation are commented out
     // IntegrationMmu doesn't implement AddressTranslator, MmioManager, and MmuAsAny traits
-    /*
-    #[test]
-    fn test_complete_block_request_cycle() {
-        let service = BlockDeviceService::new(1024, 512, false);
-        let mut mmu = IntegrationMmu::new(0x10000, 16);
-
-        // Setup request
-        let req_addr = GuestAddr(0x1000);
-        let data_addr = GuestAddr(0x2000);
-        let status_addr = GuestAddr(0x3000);
-
-        // Write read request to MMU (type=0, sector=0)
-        let req_bytes = [
-            0u8, 0u8, 0u8, 0u8, // type = 0 (read)
-            0u8, 0u8, 0u8, 0u8, // reserved
-            0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // sector = 0
-        ];
-        mmu.memory[0x1000..0x1010].copy_from_slice(&req_bytes);
-
-        // Process request
-        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
-
-        // Should fail gracefully without file backing
-        assert_eq!(status, BlockStatus::IoErr);
-    }
-    */
+    // #[test]
+    // fn test_complete_block_request_cycle() {
+    // let service = BlockDeviceService::new(1024, 512, false);
+    // let mut mmu = IntegrationMmu::new(0x10000, 16);
+    //
+    // Setup request
+    // let req_addr = GuestAddr(0x1000);
+    // let data_addr = GuestAddr(0x2000);
+    // let status_addr = GuestAddr(0x3000);
+    //
+    // Write read request to MMU (type=0, sector=0)
+    // let req_bytes = [
+    // 0u8, 0u8, 0u8, 0u8, // type = 0 (read)
+    // 0u8, 0u8, 0u8, 0u8, // reserved
+    // 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // sector = 0
+    // ];
+    // mmu.memory[0x1000..0x1010].copy_from_slice(&req_bytes);
+    //
+    // Process request
+    // let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
+    //
+    // Should fail gracefully without file backing
+    // assert_eq!(status, BlockStatus::IoErr);
+    // }
 
     #[test]
     fn test_block_device_features_integration() {
@@ -213,69 +211,68 @@ mod block_device_integration_tests {
 // VirtIO queue integration tests require full MMU trait implementation
 // These tests are commented out as they need IntegrationMmu to implement
 // AddressTranslator, MemoryAccess, MmioManager, and MmuAsAny traits
-/*
-#[cfg(test)]
-mod virtio_queue_integration_tests {
-    use super::*;
-    use vm_device::virtio::*;
-
-    #[test]
-    fn test_queue_full_cycle() {
-        let mut mmu = IntegrationMmu::new(0x10000, 16);
-        let mut queue = Queue::new(16);
-        queue.desc_addr = 0x1000;
-        queue.avail_addr = 0x2000;
-        queue.used_addr = 0x3000;
-
-        // Setup descriptor at 0x1000
-        let desc_bytes = [
-            0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
-            0u8, 0x02, 0u8, 0u8, // len = 512
-            0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
-        ];
-        mmu.desc_table.copy_from_slice(&desc_bytes);
-
-        // Setup available ring
-        mmu.avail_ring[2] = 1; // idx = 1
-        mmu.avail_ring[4] = 0; // ring[0] = desc 0
-
-        // Pop from queue
-        let chain = queue.pop(&mmu).unwrap();
-        assert_eq!(chain.head_index, 0);
-        assert_eq!(chain.descs.len(), 1);
-
-        // Add to used ring
-        queue.add_used(&mut mmu, 0, 512);
-
-        // Verify used ring
-        let used_idx = u16::from_le_bytes([mmu.used_ring[2], mmu.used_ring[3]]);
-        assert_eq!(used_idx, 1);
-    }
-
-    #[test]
-    fn test_descriptor_chain_with_data() {
-        let mut mmu = IntegrationMmu::new(0x10000, 16);
-
-        // Setup data buffer
-        let test_data = vec![0xAA, 0xBB, 0xCC, 0xDD];
-        mmu.memory[0x4000..0x4004].copy_from_slice(&test_data);
-
-        // Setup descriptor pointing to data
-        let desc_bytes = [
-            0u8, 0u8, 0x40, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
-            4u8, 0u8, 0u8, 0u8, // len = 4
-            0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
-        ];
-        mmu.desc_table.copy_from_slice(&desc_bytes);
-
-        // Create descriptor chain
-        let chain = DescChain::new(&mmu, 0x1000, 0);
-        assert_eq!(chain.descs.len(), 1);
-        assert_eq!(chain.descs[0].addr, 0x4000);
-        assert_eq!(chain.descs[0].len, 4);
-    }
-}
-*/
+// #[cfg(test)]
+// mod virtio_queue_integration_tests {
+// use vm_device::virtio::*;
+//
+// use super::*;
+//
+// #[test]
+// fn test_queue_full_cycle() {
+// let mut mmu = IntegrationMmu::new(0x10000, 16);
+// let mut queue = Queue::new(16);
+// queue.desc_addr = 0x1000;
+// queue.avail_addr = 0x2000;
+// queue.used_addr = 0x3000;
+//
+// Setup descriptor at 0x1000
+// let desc_bytes = [
+// 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
+// 0u8, 0x02, 0u8, 0u8, // len = 512
+// 0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
+// ];
+// mmu.desc_table.copy_from_slice(&desc_bytes);
+//
+// Setup available ring
+// mmu.avail_ring[2] = 1; // idx = 1
+// mmu.avail_ring[4] = 0; // ring[0] = desc 0
+//
+// Pop from queue
+// let chain = queue.pop(&mmu).unwrap();
+// assert_eq!(chain.head_index, 0);
+// assert_eq!(chain.descs.len(), 1);
+//
+// Add to used ring
+// queue.add_used(&mut mmu, 0, 512);
+//
+// Verify used ring
+// let used_idx = u16::from_le_bytes([mmu.used_ring[2], mmu.used_ring[3]]);
+// assert_eq!(used_idx, 1);
+// }
+//
+// #[test]
+// fn test_descriptor_chain_with_data() {
+// let mut mmu = IntegrationMmu::new(0x10000, 16);
+//
+// Setup data buffer
+// let test_data = vec![0xAA, 0xBB, 0xCC, 0xDD];
+// mmu.memory[0x4000..0x4004].copy_from_slice(&test_data);
+//
+// Setup descriptor pointing to data
+// let desc_bytes = [
+// 0u8, 0u8, 0x40, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
+// 4u8, 0u8, 0u8, 0u8, // len = 4
+// 0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
+// ];
+// mmu.desc_table.copy_from_slice(&desc_bytes);
+//
+// Create descriptor chain
+// let chain = DescChain::new(&mmu, 0x1000, 0);
+// assert_eq!(chain.descs.len(), 1);
+// assert_eq!(chain.descs[0].addr, 0x4000);
+// assert_eq!(chain.descs[0].len, 4);
+// }
+// }
 
 #[cfg(test)]
 mod network_device_integration_tests {
@@ -378,24 +375,22 @@ mod error_recovery_tests {
     use super::*;
 
     // Test requiring full MMU trait implementation is commented out
-    /*
-    #[test]
-    fn test_block_service_error_handling() {
-        let service = BlockDeviceService::new(1024, 512, false);
-        let mut mmu = IntegrationMmu::new(0x10000, 16);
-
-        // Invalid request type
-        let req_addr = GuestAddr(0x1000);
-        let data_addr = GuestAddr(0x2000);
-        let status_addr = GuestAddr(0x3000);
-
-        // Write invalid request type (99)
-        mmu.memory[0x1000] = 99;
-
-        let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
-        assert_eq!(status, BlockStatus::Unsupported);
-    }
-    */
+    // #[test]
+    // fn test_block_service_error_handling() {
+    // let service = BlockDeviceService::new(1024, 512, false);
+    // let mut mmu = IntegrationMmu::new(0x10000, 16);
+    //
+    // Invalid request type
+    // let req_addr = GuestAddr(0x1000);
+    // let data_addr = GuestAddr(0x2000);
+    // let status_addr = GuestAddr(0x3000);
+    //
+    // Write invalid request type (99)
+    // mmu.memory[0x1000] = 99;
+    //
+    // let status = service.process_request(&mut mmu, req_addr, data_addr, 512, status_addr);
+    // assert_eq!(status, BlockStatus::Unsupported);
+    // }
 
     #[test]
     fn test_network_device_disable_with_pending_packets() {
@@ -441,38 +436,36 @@ mod performance_tests {
 
     // Queue batch operations test requires full MMU trait implementation
     // Commented out as it needs IntegrationMmu to implement MMU trait
-    /*
-    #[test]
-    fn test_queue_batch_operations() {
-        let mut mmu = IntegrationMmu::new(0x10000, 256);
-        let mut queue = Queue::new(256);
-        queue.desc_addr = 0x1000;
-        queue.avail_addr = 0x2000;
-        queue.used_addr = 0x3000;
-
-        // Setup 50 descriptors
-        for i in 0..50 {
-            let offset = i as usize * 16;
-            mmu.desc_table[offset..offset + 16].copy_from_slice(&[
-                0u8, 0u8, 0x40, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
-                0u8, 0x02, 0u8, 0u8, // len = 512
-                0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
-            ]);
-        }
-
-        // Setup available ring for 50 entries
-        mmu.avail_ring[2] = 50; // idx = 50
-        for i in 0..50u16 {
-            let offset = 4 + i as usize * 2;
-            mmu.avail_ring[offset] = i as u8;
-            mmu.avail_ring[offset + 1] = 0;
-        }
-
-        // Pop batch
-        let batch = queue.pop_batch(&mmu, 50);
-        assert_eq!(batch.len(), 50);
-    }
-    */
+    // #[test]
+    // fn test_queue_batch_operations() {
+    // let mut mmu = IntegrationMmu::new(0x10000, 256);
+    // let mut queue = Queue::new(256);
+    // queue.desc_addr = 0x1000;
+    // queue.avail_addr = 0x2000;
+    // queue.used_addr = 0x3000;
+    //
+    // Setup 50 descriptors
+    // for i in 0..50 {
+    // let offset = i as usize * 16;
+    // mmu.desc_table[offset..offset + 16].copy_from_slice(&[
+    // 0u8, 0u8, 0x40, 0u8, 0u8, 0u8, 0u8, 0u8, // addr = 0x4000
+    // 0u8, 0x02, 0u8, 0u8, // len = 512
+    // 0u8, 0u8, 0u8, 0u8, // flags = 0, next = 0
+    // ]);
+    // }
+    //
+    // Setup available ring for 50 entries
+    // mmu.avail_ring[2] = 50; // idx = 50
+    // for i in 0..50u16 {
+    // let offset = 4 + i as usize * 2;
+    // mmu.avail_ring[offset] = i as u8;
+    // mmu.avail_ring[offset + 1] = 0;
+    // }
+    //
+    // Pop batch
+    // let batch = queue.pop_batch(&mmu, 50);
+    // assert_eq!(batch.len(), 50);
+    // }
 
     #[test]
     fn test_device_stats_accuracy() {

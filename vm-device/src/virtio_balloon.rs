@@ -2,9 +2,11 @@
 //!
 //! 提供内存气球功能，允许动态调整虚拟机内存大小
 
-use crate::virtio::{Queue, VirtioDevice};
 use std::sync::{Arc, Mutex};
+
 use vm_core::{MMU, MemoryError, VmError, VmResult};
+
+use crate::virtio::{Queue, VirtioDevice};
 
 /// VirtIO Balloon 统计信息
 #[derive(Debug, Clone, Default)]
@@ -242,8 +244,9 @@ impl VirtioBalloonMmio {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
+
+    use super::*;
 
     struct MockMmu {
         memory: std::collections::HashMap<u64, u8>,

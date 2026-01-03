@@ -4,8 +4,11 @@
 
 use super::ml_model_enhanced::ExecutionFeaturesEnhanced;
 use super::ml_random_forest::{CompilationDecision, RandomForestModel};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use rand::SeedableRng;
+use rand::Rng;
 
 // ============================================================================
 // 性能记录
@@ -46,7 +49,7 @@ pub struct ModelComparison {
 }
 
 /// 模型性能统计
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ModelPerformanceStats {
     /// 总预测次数
     pub total_predictions: u64,
@@ -63,7 +66,7 @@ pub struct ModelPerformanceStats {
 }
 
 /// 决策分布
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DecisionDistribution {
     pub skip_count: u64,
     pub compile_count: u64,
@@ -171,7 +174,7 @@ impl ModelABTest {
         // 随机选择模型
         let use_model_a = {
             let mut rng = self.rng.lock().unwrap();
-            rand::Rng::gen::<f64, _>(&mut *rng) < self.config.traffic_split
+            rng.r#gen::<f64>() < self.config.traffic_split
         };
 
         let (decision, model_name) = if use_model_a {
@@ -361,7 +364,7 @@ impl ModelABTest {
             return None;
         }
 
-        let comparison = self.evaluate();
+        let _comparison = self.evaluate();
 
         // 返回获胜模型的克隆（如果实现支持）
         // 简化实现：只返回当前使用的模型
@@ -430,7 +433,7 @@ impl ABTestManager {
         // 根据traffic_split选择模型
         let use_first = {
             let mut rng = self.rng.lock().unwrap();
-            rand::Rng::gen::<f64, _>(&mut *rng) < self.config.traffic_split
+            rng.r#gen::<f64>() < self.config.traffic_split
         };
 
         if use_first && self.models.len() > 0 {
@@ -452,7 +455,7 @@ impl ABTestManager {
             let min_samples = self.config.min_samples;
             let all_have_enough = self.models.iter().all(|name| {
                 records.get(name)
-                    .map(|recs| refs.len() >= min_samples)
+                    .map(|recs| recs.len() >= min_samples)
                     .unwrap_or(false)
             });
 

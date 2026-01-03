@@ -6,11 +6,12 @@
 //! - NUMA-aware allocation
 //! - Batch operation support with async concurrency
 
-use futures::stream::{self, StreamExt};
-use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
+
+use futures::stream::{self, StreamExt};
+use parking_lot::RwLock;
 use thiserror::Error;
 
 /// Result type for memory operations

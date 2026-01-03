@@ -2,16 +2,17 @@
 //!
 //! 提供异步执行引擎与主循环集成的辅助功能
 
-use crate::interpreter::Interpreter;
-use crate::interpreter::async_executor::{AsyncExecStats, AsyncExecutor};
-use parking_lot::Mutex;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 use vm_core::ExecutionEngine;
 use vm_core::{ExecResult, MMU};
 use vm_ir::IRBlock;
-
 #[cfg(test)]
 use vm_ir::{IRBuilder, IROp, Terminator};
+
+use crate::interpreter::Interpreter;
+use crate::interpreter::async_executor::{AsyncExecStats, AsyncExecutor};
 
 /// 异步执行引擎包装器
 ///
@@ -164,8 +165,9 @@ pub async fn benchmark_async_vs_sync(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_mem::SoftMmu;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_async_executor_wrapper() {

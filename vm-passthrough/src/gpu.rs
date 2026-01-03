@@ -2,8 +2,9 @@
 //!
 //! 支持 NVIDIA、AMD 和移动端 GPU
 
-use super::{PassthroughDevice, PassthroughError, PciAddress, PciDeviceInfo};
 use std::collections::HashMap;
+
+use super::{PassthroughDevice, PassthroughError, PciAddress, PciDeviceInfo};
 
 /// GPU 厂商
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,10 +302,10 @@ impl PassthroughDevice for AmdGpu {
 }
 
 /// 直通 GPU 设备管理器
-/// 
+///
 /// 管理直通模式下的物理 GPU 设备（NVIDIA、AMD 等），
 /// 提供设备枚举、添加和查询功能。
-/// 
+///
 /// 注意：与 `vm-device` 中的 `VirtualGpuManager` 不同，
 /// 本管理器专注于物理 GPU 的直通管理，而非虚拟化后端选择。
 pub struct PassthroughGpuManager {

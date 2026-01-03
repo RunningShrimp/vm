@@ -8,8 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, ExecutionEvent};
-use crate::{GuestAddr, VmError, VmResult};
+use crate::domain_services::events::{DomainEventEnum, ExecutionEvent};
+use crate::domain_event_bus::DomainEventBus;
+use crate::{CoreError, GuestAddr, VmError, VmResult};
 
 /// Execution context state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,7 +191,11 @@ impl ExecutionManagerDomainService {
     /// Create a new execution context
     pub fn create_context(&mut self, id: u64, pc: GuestAddr) -> VmResult<()> {
         if self.contexts.contains_key(&id) {
-            return Err(VmError::InvalidState);
+            return Err(VmError::Core(CoreError::InvalidState {
+                message: "Context already exists".to_string(),
+                current: "present".to_string(),
+                expected: "absent".to_string(),
+            }));
         }
 
         let context = ExecutionContext::new(id, pc);
@@ -200,7 +205,7 @@ impl ExecutionManagerDomainService {
 
         self.publish_event(ExecutionEvent::ContextCreated {
             id,
-            pc,
+            pc: pc.0,
             priority: ExecutionPriority::Normal,
         });
 
@@ -231,21 +236,33 @@ impl ExecutionManagerDomainService {
 
             Ok(())
         } else {
-            Err(VmError::InvalidState)
+            Err(VmError::Core(CoreError::InvalidState {
+                message: "Context not found".to_string(),
+                current: "absent".to_string(),
+                expected: "present".to_string(),
+            }))
         }
     }
 
     /// Schedule a context for execution
     pub fn schedule(&mut self, id: u64, priority: ExecutionPriority) -> VmResult<()> {
         if !self.contexts.contains_key(&id) {
-            return Err(VmError::InvalidState);
+            return Err(VmError::Core(CoreError::InvalidState {
+                message: "Context not found".to_string(),
+                current: "absent".to_string(),
+                expected: "present".to_string(),
+            }));
         }
 
         self.ready_queue.retain(|(_, ctx_id)| *ctx_id != id);
         self.ready_queue.push((priority, id));
         self.ready_queue.sort_by(|a, b| b.0.cmp(&a.0));
 
-        let context = self.contexts.get_mut(&id).ok_or(VmError::InvalidState)?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
+            message: "Context not found".to_string(),
+            current: "absent".to_string(),
+            expected: "present".to_string(),
+        }))?;
         context.state = ExecutionState::Ready;
 
         self.publish_event(ExecutionEvent::ContextScheduled {
@@ -259,7 +276,7 @@ impl ExecutionManagerDomainService {
     /// Get next context to execute
     pub fn next_context(&mut self) -> Option<u64> {
         let active_count = self.count_active_contexts();
-        if active_count >= self.max_active_contexts {
+        if active_count as usize >= self.max_active_contexts {
             return None;
         }
 
@@ -275,19 +292,27 @@ impl ExecutionManagerDomainService {
 
     /// Complete execution of a context
     pub fn complete_execution(&mut self, id: u64) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or(VmError::InvalidState)?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
+            message: "Context not found".to_string(),
+            current: "absent".to_string(),
+            expected: "present".to_string(),
+        }))?;
         context.state = ExecutionState::Completed;
         self.statistics.active_contexts = self.statistics.active_contexts.saturating_sub(1);
         self.statistics.successful_executions += 1;
         self.statistics.total_executions += 1;
         self.statistics.total_instructions += context.instructions_executed;
 
-        self.update_avg_execution_time(context.total_execution_time);
+        // Clone values before calling methods that need &mut self
+        let total_execution_time = context.total_execution_time;
+        let instructions_executed = context.instructions_executed;
+
+        self.update_avg_execution_time(total_execution_time);
 
         self.publish_event(ExecutionEvent::ContextCompleted {
             id,
-            execution_time: context.total_execution_time,
-            instructions_executed: context.instructions_executed,
+            execution_time: total_execution_time,
+            instructions_executed,
         });
 
         Ok(())
@@ -295,7 +320,11 @@ impl ExecutionManagerDomainService {
 
     /// Fail execution of a context
     pub fn fail_execution(&mut self, id: u64, error: VmError) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or(VmError::InvalidState)?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
+            message: "Context not found".to_string(),
+            current: "absent".to_string(),
+            expected: "present".to_string(),
+        }))?;
         context.state = ExecutionState::Failed;
         self.statistics.active_contexts = self.statistics.active_contexts.saturating_sub(1);
         self.statistics.failed_executions += 1;
@@ -311,7 +340,11 @@ impl ExecutionManagerDomainService {
 
     /// Pause a context
     pub fn pause_context(&mut self, id: u64) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or(VmError::InvalidState)?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
+            message: "Context not found".to_string(),
+            current: "absent".to_string(),
+            expected: "present".to_string(),
+        }))?;
         context.state = ExecutionState::Waiting;
 
         self.publish_event(ExecutionEvent::ContextPaused { id });
@@ -321,7 +354,11 @@ impl ExecutionManagerDomainService {
 
     /// Resume a paused context
     pub fn resume_context(&mut self, id: u64) -> VmResult<()> {
-        let context = self.contexts.get_mut(&id).ok_or(VmError::InvalidState)?;
+        let context = self.contexts.get_mut(&id).ok_or_else(|| VmError::Core(CoreError::InvalidState {
+            message: "Context not found".to_string(),
+            current: "absent".to_string(),
+            expected: "present".to_string(),
+        }))?;
         context.state = ExecutionState::Ready;
         self.ready_queue.push((ExecutionPriority::Normal, id));
         self.ready_queue.sort_by(|a, b| b.0.cmp(&a.0));
@@ -360,9 +397,7 @@ impl ExecutionManagerDomainService {
 
     /// Publish an execution event
     fn publish_event(&self, event: ExecutionEvent) {
-        if let Ok(bus) = self.event_bus.lock() {
-            let _ = bus.publish(DomainEventEnum::Execution(event));
-        }
+        let _ = self.event_bus.publish(&DomainEventEnum::Execution(event));
     }
 }
 

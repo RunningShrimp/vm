@@ -98,10 +98,9 @@ impl DExtensionExecutor {
         }
 
         // 检测无穷
-        if result.is_infinite()
-            && (a.is_infinite() || b.is_infinite()) {
-                self.fcsr.flags.of = true;
-            }
+        if result.is_infinite() && (a.is_infinite() || b.is_infinite()) {
+            self.fcsr.flags.of = true;
+        }
 
         // 检测下溢（比最小正数还小的绝对值）
         if result.abs() < f64::MIN_POSITIVE {
@@ -593,7 +592,8 @@ impl<'a> RiscvCPU<'a> {
         self.fp_regs.set_f64(rd, result);
 
         // 对于大值（> 2^53），设置不精确标志
-        if a > 9007199254740992 { // 2^53
+        if a > 9007199254740992 {
+            // 2^53
             self.fcsr.flags.nx = true;
         }
 
@@ -658,12 +658,10 @@ impl<'a> RiscvCPU<'a> {
                 } else {
                     0b0000_0010_0000 // bit 1: 负正常数
                 }
+            } else if is_subnormal {
+                0b0000_0001_0000 // bit 5: 正次正规数
             } else {
-                if is_subnormal {
-                    0b0000_0001_0000 // bit 5: 正次正规数
-                } else {
-                    0b0000_0000_1000 // bit 6: 正正常数
-                }
+                0b0000_0000_1000 // bit 6: 正正常数
             }
         };
 
@@ -679,10 +677,9 @@ impl<'a> RiscvCPU<'a> {
         }
 
         // 检测无穷
-        if result.is_infinite()
-            && (a.is_infinite() || b.is_infinite()) {
-                self.fcsr.flags.of = true;
-            }
+        if result.is_infinite() && (a.is_infinite() || b.is_infinite()) {
+            self.fcsr.flags.of = true;
+        }
 
         // 检测下溢（比最小正数还小的绝对值）
         if result.abs() < f64::MIN_POSITIVE && result != 0.0 {
@@ -703,18 +700,138 @@ impl<'a> RiscvCPU<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::riscv64::f_extension::{FPRegisters, FCSR, FFlags, RoundingMode};
+    use crate::riscv64::f_extension::{FCSR, FFlags, FPRegisters, RoundingMode};
+    use std::collections::HashMap;
+    use vm_core::{
+        AccessType, AddressTranslator, GuestAddr, GuestPhysAddr, MemoryAccess, MmioDevice,
+        MmioManager, MmuAsAny, VmError,
+    };
+
+    /// 简单的Mock MMU，用于测试
+    struct MockMMU {
+        memory: HashMap<u64, u8>,
+    }
+
+    impl MockMMU {
+        fn new() -> Self {
+            Self {
+                memory: HashMap::new(),
+            }
+        }
+    }
+
+    impl MemoryAccess for MockMMU {
+        fn read(&self, addr: GuestAddr, size: u8) -> Result<u64, VmError> {
+            let mut result = 0u64;
+            for i in 0..size {
+                let byte = self.memory.get(&(addr.0 + i as u64)).copied().unwrap_or(0);
+                result |= (byte as u64) << (i * 8);
+            }
+            Ok(result)
+        }
+
+        fn write(&mut self, addr: GuestAddr, value: u64, size: u8) -> Result<(), VmError> {
+            for i in 0..size {
+                let byte = (value >> (i * 8)) & 0xFF;
+                self.memory.insert(addr.0 + i as u64, byte as u8);
+            }
+            Ok(())
+        }
+
+        fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, VmError> {
+            self.read(pc, 4)
+        }
+
+        fn memory_size(&self) -> usize {
+            self.memory.len()
+        }
+
+        fn dump_memory(&self) -> Vec<u8> {
+            let max_addr = self.memory.keys().copied().max().unwrap_or(0) as usize;
+            let mut result = vec![0u8; max_addr + 1];
+            for (addr, &val) in &self.memory {
+                if *addr as usize <= max_addr {
+                    result[*addr as usize] = val;
+                }
+            }
+            result
+        }
+
+        fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
+            for (i, &val) in data.iter().enumerate() {
+                self.memory.insert(i as u64, val);
+            }
+            Ok(())
+        }
+    }
+
+    impl AddressTranslator for MockMMU {
+        fn translate(
+            &mut self,
+            va: GuestAddr,
+            _access: AccessType,
+        ) -> Result<GuestPhysAddr, VmError> {
+            Ok(GuestPhysAddr(va.0))
+        }
+
+        fn flush_tlb(&mut self) {
+            // No TLB in simple test MMU
+        }
+    }
+
+    impl MmioManager for MockMMU {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn MmioDevice>) {
+            // No MMIO mapping in test MMU
+        }
+    }
+
+    impl MmuAsAny for MockMMU {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    }
 
     /// 创建测试用的虚拟机实例
     fn create_test_cpu() -> crate::riscv64::RiscvCPU<'static> {
-        // 这是一个简化的测试helper
-        // 实际实现需要根据具体CPU结构调整
-        todo!("Implement test helper")
+        use crate::riscv64::RiscvCPU;
+
+        // 创建MMU实例并使用leak创建'static引用
+        let mmu = Box::leak(Box::new(MockMMU::new()));
+
+        // 创建CPU并初始化基本状态
+        let mut cpu = RiscvCPU::new(mmu);
+        cpu.pc = GuestAddr(0x1000);
+
+        // 初始化x0为0（RISC-V约定：x0始终为0）
+        cpu.regs[0] = 0;
+
+        // 初始化浮点寄存器为0
+        for i in 0..32 {
+            cpu.fp_regs.set_f64(i, 0.0f64);
+        }
+
+        // 初始化FCSR
+        cpu.fcsr = FCSR {
+            flags: FFlags {
+                nv: false,
+                dz: false,
+                of: false,
+                uf: false,
+                nx: false,
+            },
+            rm: RoundingMode::RNE,
+        };
+
+        cpu
     }
 
     #[test]
     fn test_fld_fsd() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 测试双精度浮点加载/存储
         let test_value: f64 = 1.5;
@@ -724,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_fadd_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
         let mut fcsr = FCSR {
             flags: FFlags {
                 nv: false,
@@ -749,7 +866,7 @@ mod tests {
 
     #[test]
     fn test_fdiv_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, 10.0);
         fp_regs.set_f64(2, 2.0);
@@ -764,7 +881,7 @@ mod tests {
 
     #[test]
     fn test_fsqrt_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, 16.0);
         let a = fp_regs.get_f64(1);
@@ -776,7 +893,7 @@ mod tests {
 
     #[test]
     fn test_fcvt_s_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // double -> float转换
         fp_regs.set_f64(1, 1.5);
@@ -789,7 +906,7 @@ mod tests {
 
     #[test]
     fn test_fcvt_d_s() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // float -> double转换
         fp_regs.set(1, 3.14159f32);
@@ -802,7 +919,7 @@ mod tests {
 
     #[test]
     fn test_fcvt_l_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // double -> i64转换
         fp_regs.set_f64(1, 42.7);
@@ -814,7 +931,7 @@ mod tests {
 
     #[test]
     fn test_fcvt_d_l() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // i64 -> double转换
         let a: i64 = -12345;
@@ -826,7 +943,7 @@ mod tests {
 
     #[test]
     fn test_fcvt_lu_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // double -> u64转换
         fp_regs.set_f64(1, 4294967295.7); // u32::MAX
@@ -838,7 +955,7 @@ mod tests {
 
     #[test]
     fn test_fcvt_d_lu() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // u64 -> double转换
         let a: u64 = 18446744073709551615; // u64::MAX
@@ -851,7 +968,7 @@ mod tests {
 
     #[test]
     fn test_d_extension_precision() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 测试双精度精度
         fp_regs.set_f64(1, std::f64::consts::PI);
@@ -868,7 +985,7 @@ mod tests {
 
     #[test]
     fn test_fmin_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, 3.5);
         fp_regs.set_f64(2, 2.7);
@@ -883,7 +1000,7 @@ mod tests {
 
     #[test]
     fn test_fmax_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, 3.5);
         fp_regs.set_f64(2, 2.7);
@@ -898,7 +1015,7 @@ mod tests {
 
     #[test]
     fn test_feq_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, 1.0);
         fp_regs.set_f64(2, 1.0);
@@ -912,7 +1029,7 @@ mod tests {
 
     #[test]
     fn test_flt_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, 1.0);
         fp_regs.set_f64(2, 2.0);
@@ -926,7 +1043,7 @@ mod tests {
 
     #[test]
     fn test_fle_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, 1.0);
         fp_regs.set_f64(2, 1.0);
@@ -940,7 +1057,7 @@ mod tests {
 
     #[test]
     fn test_nan_handling_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // NaN加法测试
         fp_regs.set_f64(1, f64::NAN);
@@ -956,7 +1073,7 @@ mod tests {
 
     #[test]
     fn test_infinity_handling_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 无穷大测试
         fp_regs.set_f64(1, f64::INFINITY);
@@ -972,7 +1089,7 @@ mod tests {
 
     #[test]
     fn test_divide_by_zero_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
         let mut fcsr = FCSR {
             flags: FFlags {
                 nv: false,
@@ -1006,7 +1123,7 @@ mod tests {
 
     #[test]
     fn test_fclass_d_infinity() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 正无穷大
         fp_regs.set_f64(1, f64::INFINITY);
@@ -1031,7 +1148,7 @@ mod tests {
 
     #[test]
     fn test_fclass_d_zero() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 正零
         fp_regs.set_f64(1, 0.0);
@@ -1056,7 +1173,7 @@ mod tests {
 
     #[test]
     fn test_fclass_d_nan() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         fp_regs.set_f64(1, f64::NAN);
         let a = fp_regs.get_f64(1);
@@ -1077,7 +1194,7 @@ mod tests {
 
     #[test]
     fn test_fclass_d_normal() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 正正常数
         fp_regs.set_f64(1, 1.5);
@@ -1104,7 +1221,7 @@ mod tests {
 
     #[test]
     fn test_fclass_d_subnormal() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 正次正规数（subnormal）
         let subnormal_pos: f64 = 1.0e-320; // 非常小的正数
@@ -1136,7 +1253,7 @@ mod tests {
 
     #[test]
     fn test_rounding_modes_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 测试不同舍入模式（简化测试）
         fp_regs.set_f64(1, 1.5);
@@ -1152,7 +1269,7 @@ mod tests {
 
     #[test]
     fn test_double_vs_single_precision() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 演示双精度vs单精度的差异
         let value_single: f32 = 1.0 / 3.0;
@@ -1171,7 +1288,7 @@ mod tests {
 
     #[test]
     fn test_overflow_handling_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
         let mut fcsr = FCSR {
             flags: FFlags {
                 nv: false,
@@ -1198,7 +1315,7 @@ mod tests {
 
     #[test]
     fn test_underflow_handling_d() {
-        let mut fp_regs = FPRegisters { regs: [0.0; 32] };
+        let mut fp_regs = FPRegisters::default();
 
         // 测试下溢
         fp_regs.set_f64(1, f64::MIN_POSITIVE);

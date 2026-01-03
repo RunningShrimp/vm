@@ -2,8 +2,9 @@
 //!
 //! 测试异步执行和批处理的性能特征
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_engine::executor::async_executor::{HybridExecutor, InterpreterExecutor, JitExecutor};
 
 /// 批量执行基准测试

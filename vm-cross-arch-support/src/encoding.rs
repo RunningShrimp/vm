@@ -5,7 +5,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
+
 use thiserror::Error;
+use vm_core::error::{CoreError, MemoryError as VmMemoryError};
+use vm_core::{GuestAddr, VmError};
 
 /// Supported CPU architectures
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,6 +64,45 @@ pub enum EncodingError {
     BufferOverflow,
     #[error("Invalid instruction format")]
     InvalidFormat,
+}
+
+impl From<EncodingError> for VmError {
+    fn from(err: EncodingError) -> Self {
+        match err {
+            EncodingError::InvalidRegister(reg_id) => VmError::Core(CoreError::InvalidParameter {
+                name: "register_id".to_string(),
+                value: reg_id.to_string(),
+                message: "Invalid register ID for encoding".to_string(),
+            }),
+            EncodingError::ImmediateOutOfRange(val, format) => {
+                VmError::Core(CoreError::InvalidParameter {
+                    name: "immediate".to_string(),
+                    value: format!("{}", val),
+                    message: format!("Immediate value out of range for format {:?}", format),
+                })
+            }
+            EncodingError::InvalidMemoryOperand(msg) => {
+                VmError::Memory(VmMemoryError::AllocationFailed {
+                    message: format!("Invalid memory operand: {}", msg),
+                    size: None,
+                })
+            }
+            EncodingError::UnsupportedOperation(arch) => VmError::Core(CoreError::NotSupported {
+                feature: format!("Instruction encoding for {:?}", arch),
+                module: "vm-cross-arch-support::encoding".to_string(),
+            }),
+            EncodingError::BufferOverflow => VmError::Core(CoreError::ResourceExhausted {
+                resource: "encoding_buffer".to_string(),
+                current: 0,
+                limit: 0,
+            }),
+            EncodingError::InvalidFormat => VmError::Core(CoreError::DecodeError {
+                message: "Invalid instruction format".to_string(),
+                position: Some(GuestAddr(0)),
+                module: "vm-cross-arch-support::encoding".to_string(),
+            }),
+        }
+    }
 }
 
 /// Endianness for different architectures
@@ -375,5 +417,40 @@ mod tests {
         assert!(utils::is_aligned(16, 8));
         assert!(!utils::is_aligned(10, 8));
         assert!(utils::is_aligned(0, 8));
+    }
+
+    #[test]
+    fn test_encoding_error_to_vm_error_conversion() {
+        use vm_core::VmError;
+
+        // Test InvalidRegister conversion
+        let err = EncodingError::InvalidRegister(RegId(99));
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test ImmediateOutOfRange conversion
+        let err = EncodingError::ImmediateOutOfRange(9999, ImmediateFormat::Unsigned12);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test InvalidMemoryOperand conversion
+        let err = EncodingError::InvalidMemoryOperand("bad operand".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Memory(_)));
+
+        // Test UnsupportedOperation conversion
+        let err = EncodingError::UnsupportedOperation(Architecture::X86_64);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test BufferOverflow conversion
+        let err = EncodingError::BufferOverflow;
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test InvalidFormat conversion
+        let err = EncodingError::InvalidFormat;
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
     }
 }

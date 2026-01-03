@@ -7,10 +7,11 @@
 //! - Error handling and fallback
 //! - Statistics tracking
 
-use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
+
+use parking_lot::{Mutex, RwLock};
 
 /// Result type for parallel JIT operations
 pub type ParallelJitResult = Result<(), ParallelJitError>;

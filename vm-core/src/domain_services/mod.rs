@@ -77,7 +77,7 @@
 //! All domain services publish domain events to notify other parts of the system:
 //!
 //! ```rust
-//! use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
+//! use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 //!
 //! // Services publish events when important state changes occur
 //! service.publish_optimization_event(OptimizationEvent::HotspotsDetected {
@@ -99,7 +99,7 @@
 //! ### Creating a Domain Service
 //!
 //! ```rust
-//! use crate::jit::domain_services::MyDomainService;
+//! use crate::domain_services::MyDomainService;
 //! use std::sync::Arc;
 //!
 //! let service = MyDomainService::new(config);
@@ -109,7 +109,7 @@
 //! ### Using Business Rules
 //!
 //! ```rust
-//! use crate::jit::domain_services::rules::MyBusinessRule;
+//! use crate::domain_services::rules::MyBusinessRule;
 //!
 //! let mut service = MyDomainService::new(config);
 //! service.add_business_rule(Box::new(MyBusinessRule::new()));
@@ -129,7 +129,7 @@
 //! Domain services work with aggregate roots to coordinate business logic:
 //!
 //! ```rust
-//! use crate::jit::aggregate_root::VirtualMachineAggregate;
+//! use crate::aggregate_root::VirtualMachineAggregate;
 //!
 //! let mut aggregate = VirtualMachineAggregate::new(...);
 //! service.execute_optimization(&config, &mut aggregate)?;
@@ -141,6 +141,9 @@
 //! - Invalid configuration returns `VmError::Core(CoreError::InvalidConfig)`
 //! - Invalid state returns `VmError::Core(CoreError::InvalidState)`
 //! - Business rule violations return appropriate `VmError` variants
+
+// Re-export DomainEventBus for use in other crates
+pub use crate::domain_event_bus::DomainEventBus;
 
 pub mod vm_lifecycle_service;
 pub mod translation_strategy_service;
@@ -171,7 +174,7 @@ pub use register_allocation_service::RegisterAllocationDomainService;
 pub use architecture_compatibility_service::ArchitectureCompatibilityDomainService;
 pub use performance_optimization_service::PerformanceOptimizationDomainService;
 pub use tlb_management_service::{
-    TlbManagementDomainService, TlbLevel, TlbReplacementPolicy, TlbManagedEntry, TlbStatistics,
+    TlbManagementDomainService, TlbLevel,
 };
 pub use page_table_walker_service::{
     PageTableWalkerDomainService, PageTableLevel, PageTableEntryFlags, PageTableEntry,
@@ -181,4 +184,4 @@ pub use execution_manager_service::{
     ExecutionManagerDomainService, ExecutionState, ExecutionContext, ExecutionPriority,
     ExecutionStatistics,
 };
-pub use events::{DomainEventBus, DomainEventEnum, TlbEvent, PageTableEvent, ExecutionEvent};
+pub use events::{DomainEventEnum, TlbEvent, PageTableEvent, ExecutionEvent};

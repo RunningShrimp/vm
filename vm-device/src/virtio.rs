@@ -1,5 +1,6 @@
-use crate::mmu_util::MmuUtil;
 use vm_core::{MMU, VmError};
+
+use crate::mmu_util::MmuUtil;
 
 pub trait VirtioDevice {
     fn device_id(&self) -> u32;

@@ -2,10 +2,11 @@
 //!
 //! 实现 RISC-V PLIC，管理外部中断的优先级和路由
 
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+
+use parking_lot::Mutex;
 use vm_core::{MmioDevice, VmResult};
 
 /// PLIC 寄存器偏移

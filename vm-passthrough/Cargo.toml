@@ -5,8 +5,27 @@ edition = "2024"
 
 [dependencies]
 vm-core = { path = "../vm-core" }
+vm-ir = { path = "../vm-ir" }
 log = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dependencies.cudarc]
+version = "0.12"
+optional = true
+
+[features]
+default = []
+# CUDA GPU support (requires CUDA SDK)
+cuda = ["cudarc"]
+# ROCm GPU support (requires ROCm SDK)
+rocm = []
+# ARM NPU support (experimental)
+npu = []
+# All GPU/NPU features (for convenience)
+gpu = ["cuda", "rocm"]
+all-accelerators = ["cuda", "rocm", "npu"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { workspace = true }

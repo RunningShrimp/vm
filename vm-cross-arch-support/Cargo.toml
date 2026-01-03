@@ -5,14 +5,22 @@ edition = "2024"
 description = "Consolidated cross-architecture support utilities for VM translation"
 
 [dependencies]
-vm-core = { path = "../vm-core", features = ["foundation"] }
+vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 static_assertions = "1.1"
 lru = "0.12"
+rayon = "1.10"
+
+[dev-dependencies]
+criterion = "0.5"
 
 [features]
 default = ["std"]
 std = []
+
+[[bench]]
+name = "cross_arch_translation_bench"
+harness = false

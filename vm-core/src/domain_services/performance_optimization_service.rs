@@ -7,10 +7,11 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::SystemTime;
-use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::jit::domain_services::optimization_pipeline_service::OptimizationPipelineConfig;
-use crate::jit::error::VmError;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig;
+use crate::VmError;
 use crate::VmResult;
 use crate::GuestArch;
 
@@ -20,7 +21,7 @@ use crate::GuestArch;
 /// across different domains, providing a unified interface for optimization decisions.
 pub struct PerformanceOptimizationDomainService {
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    event_bus: Option<Arc<dyn DomainEventBus>>,
+    event_bus: Option<Arc<DomainEventBus>>,
     optimization_strategies: HashMap<OptimizationDomain, Vec<OptimizationStrategy>>,
     performance_metrics: PerformanceMetrics,
 }
@@ -99,7 +100,7 @@ impl PerformanceOptimizationDomainService {
             memory_bottlenecks,
             io_bottlenecks,
             translation_bottlenecks,
-            prioritized_bottlenecks,
+            prioritized_bottlenecks: prioritized_bottlenecks.clone(),
             overall_impact_score: self.calculate_overall_impact_score(&prioritized_bottlenecks),
         };
         
@@ -143,13 +144,13 @@ impl PerformanceOptimizationDomainService {
         // Estimate optimization impact
         let impact_estimation = self.estimate_optimization_impact(
             &prioritized_recommendations,
-            &bottleneck_analysis,
+            bottleneck_analysis,
         )?;
         
         let result = OptimizationRecommendations {
             target_arch: bottleneck_analysis.target_arch,
-            recommendations: prioritized_recommendations,
-            impact_estimation,
+            recommendations: prioritized_recommendations.clone(),
+            impact_estimation: impact_estimation.clone(),
             total_estimated_improvement: impact_estimation.clone().overall_improvement,
             implementation_complexity: self.calculate_implementation_complexity(&prioritized_recommendations.clone()),
         };
@@ -188,7 +189,7 @@ impl PerformanceOptimizationDomainService {
         
         let result = UnifiedOptimizationPlan {
             target_arch: recommendations.target_arch,
-            phases,
+            phases: phases.clone(),
             resource_requirements,
             timeline,
             expected_improvement: recommendations.total_estimated_improvement,
@@ -230,7 +231,7 @@ impl PerformanceOptimizationDomainService {
         
         let result = OptimizationExecutionResult {
             target_arch: plan.target_arch,
-            phase_results,
+            phase_results: phase_results.clone(),
             overall_success,
             total_improvement,
             expected_improvement: plan.expected_improvement,
@@ -285,7 +286,7 @@ impl PerformanceOptimizationDomainService {
         
         let result = OptimizationEffectivenessReport {
             target_arch: execution_result.target_arch,
-            performance_comparison,
+            performance_comparison: performance_comparison.clone(),
             domain_effectiveness,
             overall_effectiveness,
             improvement_recommendations,
@@ -667,11 +668,10 @@ impl PerformanceOptimizationDomainService {
     /// Check if strategy meets constraints
     fn strategy_meets_constraints(&self, strategy: &OptimizationStrategy, constraints: &OptimizationConstraints) -> bool {
         // Check implementation complexity constraint
-        if let Some(max_complexity) = &constraints.max_implementation_complexity {
-            if strategy.implementation_complexity > *max_complexity {
+        if let Some(max_complexity) = &constraints.max_implementation_complexity
+            && strategy.implementation_complexity > *max_complexity {
                 return false;
             }
-        }
         
         // Check resource constraints
         if !strategy.resource_requirements.within_limits(&constraints.resource_limits) {
@@ -718,7 +718,7 @@ impl PerformanceOptimizationDomainService {
     fn prioritize_recommendations(
         &self,
         recommendations: Vec<OptimizationRecommendation>,
-        optimization_goals: &[OptimizationGoal],
+        _optimization_goals: &[OptimizationGoal],
     ) -> VmResult<Vec<OptimizationRecommendation>> {
         let mut prioritized = recommendations;
         
@@ -853,7 +853,7 @@ impl PerformanceOptimizationDomainService {
     fn create_optimization_phases(
         &self,
         domain_groups: &HashMap<OptimizationDomain, Vec<OptimizationRecommendation>>,
-        constraints: &OptimizationConstraints,
+        _constraints: &OptimizationConstraints,
     ) -> VmResult<Vec<OptimizationPhase>> {
         let mut phases = Vec::new();
         
@@ -949,8 +949,8 @@ impl PerformanceOptimizationDomainService {
             .map(|p| p.estimated_duration)
             .sum();
         
-        if let Some(max_duration) = constraints.max_duration_days {
-            if total_duration > max_duration {
+        if let Some(max_duration) = constraints.max_duration_days
+            && total_duration > max_duration {
                 return Err(VmError::Core(crate::error::CoreError::InvalidConfig {
                     field: "plan_duration".to_string(),
                     message: format!(
@@ -959,7 +959,6 @@ impl PerformanceOptimizationDomainService {
                     ),
                 }));
             }
-        }
         
         Ok(())
     }
@@ -1024,7 +1023,7 @@ impl PerformanceOptimizationDomainService {
     fn execute_optimization_phase(
         &self,
         phase: &OptimizationPhase,
-        context: &OptimizationContext,
+        _context: &OptimizationContext,
     ) -> VmResult<PhaseExecutionResult> {
         // This is a simplified implementation
         // In reality, this would coordinate the actual execution
@@ -1137,7 +1136,7 @@ impl PerformanceOptimizationDomainService {
     fn calculate_overall_effectiveness(
         &self,
         domain_effectiveness: &HashMap<OptimizationDomain, DomainEffectiveness>,
-        performance_comparison: &PerformanceComparison,
+        _performance_comparison: &PerformanceComparison,
     ) -> VmResult<f32> {
         let total_effectiveness: f32 = domain_effectiveness.values()
             .map(|e| e.effectiveness_percentage)
@@ -1241,9 +1240,7 @@ impl PerformanceOptimizationDomainService {
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
         if let Some(event_bus) = &self.event_bus {
             let domain_event = DomainEventEnum::Optimization(event);
-            if let Err(e) = event_bus.publish(domain_event) {
-                    return Err(e);
-                }
+            event_bus.publish(&domain_event)?
         }
         Ok(())
     }
@@ -1472,21 +1469,13 @@ pub enum OptimizationGoal {
 
 /// Optimization constraints
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct OptimizationConstraints {
     pub max_duration_days: Option<u32>,
     pub max_implementation_complexity: Option<ImplementationComplexity>,
     pub resource_limits: ResourceRequirements,
 }
 
-impl Default for OptimizationConstraints {
-    fn default() -> Self {
-        Self {
-            max_duration_days: None,
-            max_implementation_complexity: None,
-            resource_limits: ResourceRequirements::default(),
-        }
-    }
-}
 
 /// Execution profile
 #[derive(Debug, Clone, Default)]

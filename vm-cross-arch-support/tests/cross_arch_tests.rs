@@ -76,10 +76,8 @@ fn test_guest_arch_copy() {
 fn test_library_exports() {
     // 测试库正确导出类型
     use vm_cross_arch_support::{
-        InstructionEncodingCache,
-        PatternMatchCache,
+        CrossArchTranslationPipeline, InstructionEncodingCache, PatternMatchCache,
         RegisterMappingCache,
-        CrossArchTranslationPipeline,
     };
 
     // 只验证类型存在，不实例化

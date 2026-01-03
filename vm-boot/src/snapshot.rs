@@ -6,6 +6,7 @@ use std::fs::{File, create_dir_all};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
 use vm_core::GuestAddr;
 
 /// 快照错误
@@ -168,9 +169,9 @@ pub struct VmSnapshot {
 }
 
 /// 快照文件管理器
-/// 
+///
 /// 管理虚拟机快照的文件 I/O 操作，包括保存和加载完整的虚拟机状态。
-/// 
+///
 /// 注意：这与 `vm-core` 中的 `SnapshotMetadataManager` 不同：
 /// - `SnapshotMetadataManager`: 管理快照的元数据和快照树结构
 /// - `SnapshotFileManager`: 管理快照文件的读写

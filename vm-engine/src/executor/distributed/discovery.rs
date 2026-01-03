@@ -2,10 +2,12 @@
 //!
 //! This module provides mechanisms for VMs to discover each other and the coordinator.
 
-use crate::executor::distributed::protocol::{VmCapabilities, VmId};
-use parking_lot::Mutex;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
+
+use parking_lot::Mutex;
+
+use crate::executor::distributed::protocol::{VmCapabilities, VmId};
 
 /// VM information
 #[derive(Debug, Clone)]
@@ -66,8 +68,8 @@ impl VmDiscovery {
                     Ok((len, addr)) => {
                         let msg = &buf[0..len];
 
-                        // Parse the message (in a real implementation, this would be JSON or Protobuf)
-                        // For now, we'll mock it
+                        // Parse the message (in a real implementation, this would be JSON or
+                        // Protobuf) For now, we'll mock it
                         if msg.starts_with(b"HELLO") {
                             log::debug!("Received HELLO from {}", addr);
 

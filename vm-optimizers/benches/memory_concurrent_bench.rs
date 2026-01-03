@@ -3,8 +3,9 @@
 // This benchmark demonstrates the 200-300% performance improvement
 // when using concurrent async operations for batch translations.
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use vm_optimizers::memory::{AsyncPrefetchingTlb, ConcurrencyConfig, MemoryOptimizer, NumaConfig};
 
 fn bench_sequential_batch_translation(c: &mut Criterion) {

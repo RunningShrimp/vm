@@ -11,7 +11,7 @@
 //! - 统计信息
 
 use vm_optimizers::{
-    AdaptiveQuota, AllocStats, GcStats, LockFreeWriteBarrier, OptimizedGc, ParallelMarker,
+    AdaptiveQuota, AllocStats, LockFreeWriteBarrier, OptimizedGc, OptimizedGcStats, ParallelMarker,
     WriteBarrierType,
 };
 
@@ -160,7 +160,7 @@ mod stats_tests {
     /// 测试11: 默认统计信息
     #[test]
     fn test_default_stats() {
-        let stats = GcStats::default();
+        let stats = OptimizedGcStats::default();
 
         assert_eq!(stats.minor_collections, 0);
         assert_eq!(stats.major_collections, 0);
@@ -205,8 +205,7 @@ mod stats_tests {
         gc.collect_minor(300).unwrap();
 
         let stats = gc.get_stats();
-        // 暂停时间应该被记录 (至少>=0)
-        assert!(stats.min_pause_time_us >= 0);
+        // 暂停时间应该被记录 (u64 is always >= 0)
         assert!(stats.max_pause_time_us >= stats.min_pause_time_us);
     }
 
@@ -266,8 +265,7 @@ mod stats_tests {
         let stats2 = gc.get_stats();
         let pause2 = stats2.current_pause_time_us;
 
-        // 验证当前暂停时间被更新
-        assert!(pause2 >= 0);
+        // 验证当前暂停时间被更新 (u64 is always >= 0)
         assert_eq!(
             stats2.total_pause_time_us,
             stats1.total_pause_time_us + pause2
@@ -323,10 +321,11 @@ mod alloc_stats_tests {
     /// 测试22: 存活率计算
     #[test]
     fn test_live_ratio() {
-        let mut stats = AllocStats::default();
-
-        stats.bytes_allocated = 1000;
-        stats.bytes_used = 500;
+        let stats = AllocStats {
+            bytes_allocated: 1000,
+            bytes_used: 500,
+            ..Default::default()
+        };
 
         assert_eq!(stats.live_ratio(), 0.5);
     }
@@ -342,10 +341,11 @@ mod alloc_stats_tests {
     /// 测试24: 完全存活率
     #[test]
     fn test_full_live_ratio() {
-        let mut stats = AllocStats::default();
-
-        stats.bytes_allocated = 1000;
-        stats.bytes_used = 1000;
+        let stats = AllocStats {
+            bytes_allocated: 1000,
+            bytes_used: 1000,
+            ..Default::default()
+        };
 
         assert_eq!(stats.live_ratio(), 1.0);
     }
@@ -353,10 +353,11 @@ mod alloc_stats_tests {
     /// 测试25: 碎片化计算
     #[test]
     fn test_fragmentation() {
-        let mut stats = AllocStats::default();
-
-        stats.bytes_allocated = 1000;
-        stats.bytes_used = 700;
+        let stats = AllocStats {
+            bytes_allocated: 1000,
+            bytes_used: 700,
+            ..Default::default()
+        };
 
         let frag = stats.fragmentation();
         assert!((frag - 0.3).abs() < 1e-10, "fragmentation = {}", frag);
@@ -365,10 +366,11 @@ mod alloc_stats_tests {
     /// 测试26: 零碎片化
     #[test]
     fn test_zero_fragmentation() {
-        let mut stats = AllocStats::default();
-
-        stats.bytes_allocated = 1000;
-        stats.bytes_used = 1000;
+        let stats = AllocStats {
+            bytes_allocated: 1000,
+            bytes_used: 1000,
+            ..Default::default()
+        };
 
         assert_eq!(stats.fragmentation(), 0.0);
     }
@@ -376,10 +378,11 @@ mod alloc_stats_tests {
     /// 测试27: 完全碎片化
     #[test]
     fn test_full_fragmentation() {
-        let mut stats = AllocStats::default();
-
-        stats.bytes_allocated = 1000;
-        stats.bytes_used = 0;
+        let stats = AllocStats {
+            bytes_allocated: 1000,
+            bytes_used: 0,
+            ..Default::default()
+        };
 
         assert_eq!(stats.fragmentation(), 1.0);
     }

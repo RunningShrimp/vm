@@ -5,12 +5,13 @@
 //! - jit_execution: JIT编译支持（通过performance feature gate）
 //! - async_execution: 协程调度支持（通过performance feature gate）
 
-use log::{debug, error, info};
 use std::collections::HashMap;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
+
+use log::{debug, error, info};
 use tracing::{debug as tdebug, info as tinfo};
 use vm_core::{Decoder, ExecStatus, ExecutionEngine, GuestAddr, GuestArch, VmError, VmResult};
 use vm_engine::interpreter::{ExecInterruptAction, Interpreter};
@@ -54,8 +55,9 @@ pub struct VcpuExecuteParams {
 // 条件模块：JIT编译支持
 #[cfg(feature = "performance")]
 pub mod jit_execution {
-    use super::*;
     use vm_engine::jit::{AdaptiveThresholdConfig, AdaptiveThresholdStats, CodePtr, Jit};
+
+    use super::*;
 
     /// JIT执行器状态
     pub struct JitExecutionState {
@@ -144,8 +146,9 @@ pub mod jit_execution {
 // 条件模块：协程调度支持
 #[cfg(feature = "performance")]
 pub mod async_execution {
+    use vm_core::runtime::CoroutineScheduler;
+
     use super::*;
-    use vm_runtime::CoroutineScheduler;
 
     /// 协程执行状态
     pub struct CoroutineExecutionState {
@@ -209,7 +212,7 @@ pub mod async_execution {
                 else => {}
             }
 
-            match decoder.decode(&local_mmu, pc) {
+            match decoder.decode(&mut local_mmu, pc) {
                 Ok(block) => {
                     let res = if let Some(j) = jit.as_mut() {
                         super::jit_execution::run_with_jit(
@@ -285,7 +288,7 @@ pub mod async_execution {
                 break;
             }
 
-            match decoder.decode(&local_mmu, thread_pc) {
+            match decoder.decode(&mut local_mmu, thread_pc) {
                 Ok(block) => {
                     let res = if let Some(j) = jit.as_mut() {
                         super::jit_execution::run_with_jit(
@@ -345,7 +348,7 @@ pub mod async_execution {
                 else => {}
             }
 
-            match decoder.decode(&local_mmu, pc) {
+            match decoder.decode(&mut local_mmu, pc) {
                 Ok(block) => {
                     let res = interp.run(&mut local_mmu, &block);
 
@@ -392,7 +395,7 @@ pub mod async_execution {
                 break;
             }
 
-            match decoder.decode(&local_mmu, thread_pc) {
+            match decoder.decode(&mut local_mmu, thread_pc) {
                 Ok(block) => {
                     let res = interp.run(&mut local_mmu, &block);
                     if debug && step % 1000 == 0 {
@@ -470,7 +473,7 @@ impl PerfExtState {
 
     pub fn with_coroutine_scheduler(
         mut self,
-        scheduler: Arc<Mutex<vm_runtime::CoroutineScheduler>>,
+        scheduler: Arc<Mutex<vm_core::runtime::CoroutineScheduler>>,
     ) -> Self {
         self.coroutine = Some(async_execution::CoroutineExecutionState::with_scheduler(
             scheduler,
@@ -512,7 +515,7 @@ impl ExecutionContext {
     #[cfg(feature = "performance")]
     pub fn with_coroutine_scheduler(
         mut self,
-        scheduler: Arc<Mutex<vm_runtime::CoroutineScheduler>>,
+        scheduler: Arc<Mutex<vm_core::runtime::CoroutineScheduler>>,
     ) -> Self {
         self.perf_state = self.perf_state.with_coroutine_scheduler(scheduler);
         self
@@ -563,7 +566,7 @@ fn run_single_vcpu_sync(
         if ctx.pause_flag.load(Ordering::Relaxed) {
             break;
         }
-        match local_decoder.decode(&local_mmu, pc) {
+        match local_decoder.decode(&mut local_mmu, pc) {
             Ok(block) => {
                 let _res = local_interpreter.run(&mut local_mmu, &block);
                 if matches!(_res.status, ExecStatus::InterruptPending) {
@@ -891,7 +894,7 @@ async fn execute_vcpu_task(mut local_mmu: vm_mem::SoftMmu, params: VcpuExecutePa
             break;
         }
 
-        match decoder.decode(&local_mmu, thread_pc) {
+        match decoder.decode(&mut local_mmu, thread_pc) {
             Ok(block) => {
                 let _res = interp.run(&mut local_mmu, &block);
                 if matches!(_res.status, ExecStatus::InterruptPending) {

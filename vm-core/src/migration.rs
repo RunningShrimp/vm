@@ -1,5 +1,6 @@
-use crate::{VcpuStateContainer, VmConfig};
 use serde::{Deserialize, Serialize};
+
+use crate::{VcpuStateContainer, VmConfig};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MigrationState {

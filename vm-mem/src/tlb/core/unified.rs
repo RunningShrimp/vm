@@ -27,6 +27,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+
 use vm_core::error::MemoryError;
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
 
@@ -585,11 +586,10 @@ mod tlb_factory_basic {
 }
 
 // Re-export TlbFactory based on feature
-#[cfg(feature = "optimizations")]
-pub use tlb_factory_optimized::TlbFactory;
-
 #[cfg(not(feature = "optimizations"))]
 pub use tlb_factory_basic::TlbFactory;
+#[cfg(feature = "optimizations")]
+pub use tlb_factory_optimized::TlbFactory;
 
 // ============================================================================
 // Module: Tests
@@ -652,12 +652,14 @@ mod tests_optimized {
 // ============================================================================
 #[cfg(feature = "optimizations")]
 pub mod multilevel_tlb_impl {
-    use crate::PAGE_SHIFT;
     // 补充需要的额外导入（HashMap 和 Arc 已在文件顶部导入）
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
+
     use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
+
+    use crate::PAGE_SHIFT;
 
     /// TLB条目优化版本
     #[derive(Debug, Clone, Copy)]

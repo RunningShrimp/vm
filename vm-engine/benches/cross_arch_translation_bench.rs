@@ -2,8 +2,9 @@
 //!
 //! 测试RISC-V到x86的翻译性能，验证P1-2缓存效果
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_core::GuestAddr;
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 

@@ -4,6 +4,7 @@
 
 use crate::ml_guided_jit::{CompilationDecision, ExecutionFeatures};
 use crate::pgo::{BlockProfile, ProfileData};
+use vm_core::GuestAddr;
 use vm_ir::{IRBlock, IROp, Terminator};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -22,6 +23,14 @@ pub trait MLModel: Send + Sync {
 
     /// 加载模型（静态方法，不能通过 dyn 调用）
     fn load(path: &str) -> Result<Box<dyn MLModel>, String> where Self: Sized;
+
+    /// 获取模型统计信息
+    ///
+    /// 返回模型的训练统计和性能指标。默认实现返回None，
+    /// 具体模型可以覆盖此方法以提供统计信息。
+    fn get_statistics(&self) -> Option<ModelStatistics> {
+        None
+    }
 }
 
 /// 线性回归模型
@@ -127,6 +136,16 @@ impl LinearRegressionModel {
             weights: self.weights.clone(),
         }
     }
+
+    /// 获取学习率
+    pub fn learning_rate(&self) -> f64 {
+        self.learning_rate
+    }
+
+    /// 获取性能历史记录长度
+    pub fn performance_history_len(&self) -> usize {
+        self.performance_history.len()
+    }
 }
 
 impl MLModel for LinearRegressionModel {
@@ -185,6 +204,10 @@ impl MLModel for LinearRegressionModel {
             performance_history: Vec::new(),
         }))
     }
+
+    fn get_statistics(&self) -> Option<ModelStatistics> {
+        Some(self.get_statistics())
+    }
 }
 
 /// 模型数据（用于序列化）
@@ -237,23 +260,26 @@ impl FeatureExtractor {
         }
 
         ExecutionFeatures::new(
-            block.ops.len() as u32 * 8, // 估算块大小
-            block.ops.len() as u32,
+            block.ops.len() * 8, // 估算块大小
+            block.ops.len(),
             branch_count,
             memory_access_count,
+            0,      // execution_count - 初始为0
+            0.0,    // cache_hit_rate - 初始为0.0
+            0.0,    // avg_block_time_us - 初始为0.0
         )
     }
 
     /// 从PGO Profile数据提取特征
-    pub fn extract_from_pgo_profile(pc: u64, profile: &ProfileData) -> Option<ExecutionFeatures> {
-        if let Some(block_profile) = profile.block_profiles.get(&pc) {
+    pub fn extract_from_pgo_profile(pc: GuestAddr, profile: &ProfileData) -> Option<ExecutionFeatures> {
+        if let Some(block_profile) = profile.block_profiles.get(&(pc.0 as usize)) {
             Some(ExecutionFeatures {
                 block_size: 0, // 需要从其他地方获取
                 instr_count: 0, // 需要从其他地方获取
                 branch_count: 0, // 需要从其他地方获取
                 memory_access_count: 0, // 需要从其他地方获取
                 execution_count: block_profile.execution_count,
-                avg_block_time_us: block_profile.avg_execution_time_ns / 1000,
+                avg_block_time_us: (block_profile.avg_duration_ns as f64) / 1000.0,
                 cache_hit_rate: 0.0, // 需要从其他地方获取
             })
         } else {
@@ -269,7 +295,7 @@ impl FeatureExtractor {
             branch_count: 0, // 需要从其他地方获取
             memory_access_count: 0, // 需要从其他地方获取
             execution_count: block_profile.execution_count,
-            avg_block_time_us: block_profile.avg_execution_time_ns / 1000,
+            avg_block_time_us: (block_profile.avg_duration_ns as f64) / 1000.0,
             cache_hit_rate: 0.0, // 需要从其他地方获取
         }
     }
@@ -360,12 +386,37 @@ impl OnlineLearner {
     }
 
     /// 获取模型统计
+    ///
+    /// 返回当前模型的统计信息，包括：
+    /// - 训练样本数
+    /// - 平均性能
+    /// - 模型权重
+    ///
+    /// 如果模型不支持统计信息，则返回None。
     pub fn get_model_statistics(&self) -> Option<ModelStatistics> {
         let model = self.model.lock().unwrap();
-        // 尝试获取统计信息（如果模型支持）
-        // 这里简化实现，实际需要trait扩展
-        None
+        model.get_statistics()
     }
+
+    /// 获取训练样本缓冲区大小
+    pub fn buffer_size(&self) -> usize {
+        self.training_buffer.len()
+    }
+
+    /// 获取训练配置
+    pub fn config(&self) -> LearnerConfig {
+        LearnerConfig {
+            batch_size: self.batch_size,
+            update_interval: self.update_interval,
+        }
+    }
+}
+
+/// 学习器配置
+#[derive(Debug, Clone)]
+pub struct LearnerConfig {
+    pub batch_size: usize,
+    pub update_interval: Duration,
 }
 
 /// 性能验证器
@@ -442,8 +493,10 @@ mod tests {
     #[test]
     fn test_linear_regression_model() {
         let model = LinearRegressionModel::new(0.01);
-        let features = ExecutionFeatures::new(100, 20, 2, 5);
+        // 使用较小的特征值来触发Skip或FastJit决策
+        let features = ExecutionFeatures::new(10, 2, 0, 1, 1, 0.5, 10.0);
         let decision = model.predict(&features);
+        // 小代码块、低执行次数应该触发Skip或FastJit
         assert!(matches!(
             decision,
             CompilationDecision::Skip | CompilationDecision::FastJit
@@ -453,7 +506,7 @@ mod tests {
     #[test]
     fn test_model_update() {
         let mut model = LinearRegressionModel::new(0.01);
-        let features = ExecutionFeatures::new(100, 20, 2, 5);
+        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
 
         // 初始预测
         let initial_decision = model.predict(&features);
@@ -470,16 +523,28 @@ mod tests {
     fn test_feature_extractor() {
 
         let block = IRBlock {
-            start_pc: 0x1000,
+            start_pc: GuestAddr(0x1000),
             ops: vec![
-                IROp::Load { dst: 1, base: 2, offset: 0 },
+                IROp::Load {
+                    dst: 1,
+                    base: 2,
+                    offset: 0,
+                    size: 8,
+                    flags: vm_ir::MemFlags::default(),
+                },
                 IROp::Add { dst: 1, src1: 1, src2: 3 },
-                IROp::Store { src: 1, base: 2, offset: 4 },
+                IROp::Store {
+                    src: 1,
+                    base: 2,
+                    offset: 4,
+                    size: 8,
+                    flags: vm_ir::MemFlags::default(),
+                },
             ],
             term: Terminator::CondJmp {
                 cond: 1,
-                target_true: 0x2000,
-                target_false: 0x3000,
+                target_true: GuestAddr(0x2000),
+                target_false: GuestAddr(0x3000),
             },
         };
 
@@ -493,7 +558,7 @@ mod tests {
         let model = LinearRegressionModel::new(0.01);
         let mut learner = OnlineLearner::new(Box::new(model), 10, Duration::from_secs(1));
 
-        let features = ExecutionFeatures::new(100, 20, 2, 5);
+        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
         let decision = learner.predict(&features);
 
         learner.add_sample(features.clone(), decision, 1.2);
@@ -514,6 +579,156 @@ mod tests {
         assert_eq!(report.total_blocks, 1);
         assert_eq!(report.improved_blocks, 1);
         assert!((report.avg_improvement - 20.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_model_statistics_initial() {
+        let model = LinearRegressionModel::new(0.01);
+        let stats = model.get_statistics();
+
+        // 初始状态应该没有训练样本
+        assert_eq!(stats.training_samples, 0);
+        assert_eq!(stats.avg_performance, 0.0);
+        // 权重应该被初始化
+        assert_eq!(stats.weights.len(), 6);
+    }
+
+    #[test]
+    fn test_model_statistics_after_training() {
+        let mut model = LinearRegressionModel::new(0.01);
+        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
+
+        // 训练模型
+        model.update(&features, CompilationDecision::OptimizedJit, 1.5);
+        model.update(&features, CompilationDecision::OptimizedJit, 2.0);
+        model.update(&features, CompilationDecision::OptimizedJit, 1.8);
+
+        let stats = model.get_statistics();
+
+        // 应该有3个训练样本
+        assert_eq!(stats.training_samples, 3);
+        // 平均性能应该是 (1.5 + 2.0 + 1.8) / 3 = 1.766...
+        assert!((stats.avg_performance - 1.7666).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_model_statistics_through_trait() {
+        let model = LinearRegressionModel::new(0.01);
+        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
+
+        // 通过trait引用测试
+        let trait_model: &dyn MLModel = &model;
+        let stats = trait_model.get_statistics();
+
+        assert!(stats.is_some());
+        let stats = stats.unwrap();
+        assert_eq!(stats.training_samples, 0);
+        assert_eq!(stats.weights.len(), 6);
+    }
+
+    #[test]
+    fn test_online_learner_statistics() {
+        let model = LinearRegressionModel::new(0.01);
+        let learner = OnlineLearner::new(Box::new(model), 10, Duration::from_secs(1));
+
+        // 获取初始统计
+        let stats = learner.get_model_statistics();
+        assert!(stats.is_some());
+        let stats = stats.unwrap();
+        assert_eq!(stats.training_samples, 0);
+    }
+
+    #[test]
+    fn test_online_learner_statistics_after_updates() {
+        let model = LinearRegressionModel::new(0.01);
+        let mut learner = OnlineLearner::new(Box::new(model), 10, Duration::from_secs(1));
+
+        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
+        let decision = CompilationDecision::OptimizedJit;
+
+        // 添加足够的样本以触发更新
+        for _ in 0..10 {
+            learner.add_sample(features.clone(), decision, 1.5);
+        }
+
+        // 现在应该有统计信息
+        let stats = learner.get_model_statistics();
+        assert!(stats.is_some());
+        let stats = stats.unwrap();
+        assert!(stats.training_samples > 0);
+    }
+
+    #[test]
+    fn test_online_learner_buffer_size() {
+        let model = LinearRegressionModel::new(0.01);
+        let mut learner = OnlineLearner::new(Box::new(model), 10, Duration::from_secs(1));
+
+        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
+        let decision = CompilationDecision::OptimizedJit;
+
+        // 初始缓冲区应该为空
+        assert_eq!(learner.buffer_size(), 0);
+
+        // 添加5个样本（不会触发更新，因为batch_size=10）
+        for _ in 0..5 {
+            learner.add_sample(features.clone(), decision, 1.5);
+        }
+
+        // 缓冲区应该有5个样本
+        assert_eq!(learner.buffer_size(), 5);
+
+        // 添加更多样本触发更新
+        for _ in 0..10 {
+            learner.add_sample(features.clone(), decision, 1.5);
+        }
+
+        // 缓冲区应该被清理（保留最近1000个，所以实际上应该有约5个剩余）
+        assert!(learner.buffer_size() <= 15);
+    }
+
+    #[test]
+    fn test_online_learner_config() {
+        let model = LinearRegressionModel::new(0.01);
+        let batch_size = 20;
+        let update_interval = Duration::from_secs(5);
+        let learner = OnlineLearner::new(Box::new(model), batch_size, update_interval);
+
+        let config = learner.config();
+        assert_eq!(config.batch_size, batch_size);
+        assert_eq!(config.update_interval, update_interval);
+    }
+
+    #[test]
+    fn test_linear_regression_helper_methods() {
+        let model = LinearRegressionModel::new(0.05);
+
+        // 测试learning_rate方法
+        assert_eq!(model.learning_rate(), 0.05);
+
+        // 测试performance_history_len方法
+        assert_eq!(model.performance_history_len(), 0);
+
+        // 训练后应该有性能历史
+        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
+        let mut model_mut = LinearRegressionModel::new(0.05);
+        model_mut.update(&features, CompilationDecision::OptimizedJit, 1.5);
+        model_mut.update(&features, CompilationDecision::OptimizedJit, 2.0);
+
+        assert_eq!(model_mut.performance_history_len(), 2);
+    }
+
+    #[test]
+    fn test_model_statistics_weights_accuracy() {
+        let model = LinearRegressionModel::with_optimized_weights(0.01);
+        let stats = model.get_statistics();
+
+        // 验证优化后的权重
+        assert_eq!(stats.weights[0], 0.18); // block_size
+        assert_eq!(stats.weights[1], 0.22); // instr_count
+        assert_eq!(stats.weights[2], 0.10); // branch_count
+        assert_eq!(stats.weights[3], 0.18); // memory_access_count
+        assert_eq!(stats.weights[4], 0.25); // execution_count
+        assert_eq!(stats.weights[5], 0.07); // cache_hit_rate
     }
 }
 

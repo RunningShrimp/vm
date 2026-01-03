@@ -4,10 +4,40 @@
 
 use std::collections::HashMap;
 
-pub mod gpu;
+// GPU/NPU 加速器模块（通过 feature 控制）
+#[cfg(feature = "cuda")]
+pub mod cuda;
+#[cfg(feature = "cuda")]
+pub mod cuda_compiler;
+
+#[cfg(feature = "rocm")]
+pub mod rocm;
+#[cfg(feature = "rocm")]
+pub mod rocm_compiler;
+
+#[cfg(feature = "npu")]
+pub mod arm_npu;
+#[cfg(feature = "npu")]
 pub mod npu;
+
+// 通用模块（始终可用）
+pub mod gpu;
 pub mod pcie;
 pub mod sriov;
+
+// 条件导出
+#[cfg(feature = "cuda")]
+pub use cuda::{CudaAccelerator, CudaDevicePtr, CudaMemcpyKind, CudaStream};
+#[cfg(feature = "cuda")]
+pub use cuda_compiler::{CompileOptions, CompiledKernel, CudaJITCompiler};
+
+#[cfg(feature = "rocm")]
+pub use rocm::{RocmAccelerator, RocmDevicePtr, RocmStream};
+#[cfg(feature = "rocm")]
+pub use rocm_compiler::{CompiledAmdGpuKernel, RocmCompileOptions, RocmJITCompiler};
+
+#[cfg(feature = "npu")]
+pub use arm_npu::{ArmNpuAccelerator, NpuCapabilities, NpuDevicePtr, NpuVendor};
 
 pub use sriov::{QosConfig, SriovVfManager, VfConfig, VfId, VfMacConfig, VfState, VlanConfig};
 
@@ -317,8 +347,9 @@ pub trait PassthroughDevice: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
+
+    use super::*;
 
     #[test]
     fn test_pci_address_parsing() {

@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+
 use vm_core::error::VmError;
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MMU};
 
@@ -28,10 +29,11 @@ pub trait TlbCache: Send + Sync {
 /// 该模块仅在启用"optimizations"特性时可用
 #[cfg(feature = "optimizations")]
 pub mod async_impl {
-    use super::*;
     use async_trait::async_trait;
     use parking_lot::RwLock as AsyncRwLock;
     use tokio::sync::Mutex as AsyncMutex;
+
+    use super::*;
 
     // Type alias for complex cache type to reduce type complexity
     type FastCacheType = Arc<AsyncRwLock<HashMap<(u64, u16), (u64, u64)>>>;
@@ -194,7 +196,8 @@ pub mod async_impl {
                         AccessType::Read => 1 << 1,
                         AccessType::Write => 1 << 2,
                         AccessType::Execute => 1 << 3,
-                        AccessType::Atomic => (1 << 1) | (1 << 2), // Atomic operations need both R and W bits
+                        AccessType::Atomic => (1 << 1) | (1 << 2), /* Atomic operations need both
+                                                                    * R and W bits */
                     };
                     if (flags & required) != 0 {
                         return Some((ppn, flags));
@@ -343,6 +346,7 @@ pub mod async_impl {
     /// 使用tokio::fs替代std::fs，提供异步文件操作
     pub mod async_file_io {
         use std::path::Path;
+
         use vm_core::error::VmError;
         use vm_core::{AccessType, GuestAddr};
 

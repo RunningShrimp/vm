@@ -3,9 +3,9 @@
 //! 定义虚拟机的纯数据结构，符合DDD贫血模型原则。
 //! 所有业务逻辑应位于服务层（VirtualMachineService）。
 
-use crate::{ExecStats, ExecutionEngine, MMU, VmConfig, VmLifecycleState};
 use crate::snapshot::SnapshotMetadataManager;
 use crate::template::TemplateManager;
+use crate::{ExecStats, ExecutionEngine, MMU, VmConfig, VmLifecycleState};
 use std::sync::{Arc, Mutex};
 
 /// 虚拟机状态容器

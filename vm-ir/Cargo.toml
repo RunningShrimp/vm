@@ -4,6 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-vm-core = { path = "../vm-core", features = ["foundation"] }
+vm-core = { path = "../vm-core" }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+# Optional LLVM/inkwell dependencies
+inkwell = { version = "0.5", optional = true, features = ["llvm18-0"] }
+llvm-sys = { version = "180", optional = true }
+
+[features]
+default = []
+llvm = ["inkwell", "llvm-sys"]

@@ -3,23 +3,55 @@
 //! This module provides a comprehensive error handling system that reduces
 //! code duplication and improves error consistency across the VM project.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 // Type aliases for common VM types
+
+/// Guest virtual address type.
+///
+/// Used throughout the VM system to represent addresses in the guest's
+/// virtual address space.
 pub type GuestAddr = u64;
+
+/// Register identifier type.
+///
+/// Used to identify CPU registers in a platform-independent way.
 pub type RegId = u32;
 
+/// Supported CPU architectures.
+///
+/// Represents the different instruction set architectures that the VM can emulate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Architecture {
+    /// x86_64 (AMD64) architecture
     X86_64,
+
+    /// AArch64 (ARM64) architecture
     ARM64,
+
+    /// RISC-V 64-bit architecture
     RISCV64,
 }
 
 impl Architecture {
-    /// 获取架构的寄存器数量
+    /// Returns the number of general-purpose registers for this architecture.
+    ///
+    /// # Returns
+    ///
+    /// Number of general-purpose registers
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vm_core::foundation::Architecture;
+    ///
+    /// assert_eq!(Architecture::X86_64.register_count(), 16);
+    /// assert_eq!(Architecture::ARM64.register_count(), 31);
+    /// assert_eq!(Architecture::RISCV64.register_count(), 32);
+    /// ```
     pub fn register_count(&self) -> usize {
         match self {
             Architecture::X86_64 => 16,  // RAX, RBX, RCX, RDX, RSI, RDI, RBP, R8-R15
@@ -39,91 +71,153 @@ impl fmt::Display for Architecture {
     }
 }
 
-/// Unified error type for all VM components
+/// Unified error type for all VM components.
+///
+/// This enum provides a consistent error handling interface across all VM
+/// subsystems, wrapping specific error categories with contextual messages.
+///
+/// # Error Categories
+///
+/// - `Core` - Core VM functionality errors
+/// - `Memory` - Memory management and access errors
+/// - `Translation` - Binary translation and instruction decoding errors
+/// - `JitCompilation` - JIT compilation errors
+/// - `Device` - Device emulation errors
+/// - `Configuration` - Configuration and validation errors
+/// - `Network` - Network-related errors
+/// - `Io` - I/O operation errors
+/// - `Generic` - Uncategorized errors
+///
+/// # Examples
+///
+/// ```
+/// use vm_core::foundation::{VmError, CoreError};
+///
+/// let error = VmError::Core {
+///     source: CoreError::InvalidRegister(0),
+///     message: "Register X0 does not exist on x86_64".to_string(),
+/// };
+///
+/// println!("Error: {}", error);
+/// ```
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum VmError {
+    /// Core VM functionality error
     #[error("Core error: {message}")]
     Core { source: CoreError, message: String },
 
+    /// Memory operation error
     #[error("Memory error: {message}")]
     Memory {
         source: MemoryError,
         message: String,
     },
 
+    /// Binary translation error
     #[error("Translation error: {message}")]
     Translation {
         source: TranslationError,
         message: String,
     },
 
+    /// JIT compilation error
     #[error("JIT compilation error: {message}")]
     JitCompilation { source: JitError, message: String },
 
+    /// Device emulation error
     #[error("Device error: {message}")]
     Device {
         source: DeviceError,
         message: String,
     },
 
+    /// Configuration error
     #[error("Configuration error: {message}")]
     Configuration {
         source: ConfigError,
         message: String,
     },
 
+    /// Network operation error
     #[error("Network error: {message}")]
     Network {
         source: NetworkError,
         message: String,
     },
 
+    /// I/O operation error
     #[error("I/O error: {message}")]
     Io { message: String },
 
+    /// Generic error with message
     #[error("{message}")]
     Generic { message: String },
 
+    /// Simple error message
     #[error("{0}")]
     GenericMsg(String),
 }
 
-/// Core VM errors
+/// Core VM functionality errors.
+///
+/// Errors related to core VM operations including register management,
+/// architecture validation, and resource management.
+///
+/// # Examples
+///
+/// ```
+/// use vm_core::foundation::CoreError;
+///
+/// let err = CoreError::InvalidRegister(999);
+/// assert_eq!(err.to_string(), "Invalid register ID: 999");
+/// ```
 #[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum CoreError {
+    /// Invalid register identifier
     #[error("Invalid register ID: {0}")]
     InvalidRegister(RegId),
 
+    /// Invalid or unsupported architecture
     #[error("Invalid architecture: {0:?}")]
     InvalidArchitecture(Architecture),
 
+    /// Invalid guest virtual address
     #[error("Invalid guest address: {0}")]
     InvalidGuestAddress(String),
 
+    /// Invalid instruction format/encoding
     #[error("Invalid instruction format: {0}")]
     InvalidInstructionFormat(String),
 
+    /// Operation not supported for current configuration
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
 
+    /// Required resource unavailable
     #[error("Resource not available: {0}")]
     ResourceNotAvailable(String),
 
+    /// Resource already in use
     #[error("Resource already in use: {0}")]
     ResourceInUse(String),
 
+    /// Invalid state machine transition
     #[error("Invalid state transition: {0} -> {1}")]
     InvalidStateTransition(String, String),
 
+    /// Permission/authorization error
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
 
+    /// Operation timeout
     #[error("Timeout occurred: {0}")]
     Timeout(String),
 
+    /// Buffer overflow detected
     #[error("Buffer overflow: attempted to write {0} bytes to buffer of size {1}")]
     BufferOverflow(usize, usize),
 
+    /// Buffer underflow detected
     #[error("Buffer underflow: attempted to read {0} bytes from buffer of size {1}")]
     BufferUnderflow(usize, usize),
 }

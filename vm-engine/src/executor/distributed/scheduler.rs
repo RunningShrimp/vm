@@ -2,11 +2,13 @@
 //!
 //! This module provides task scheduling capabilities for distributed VMs.
 
-use crate::executor::distributed::architecture::DistributedArchitectureConfig;
-use crate::executor::distributed::protocol::{TaskId, TaskInfo, TaskStatus, TaskType};
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
+
+use crate::executor::distributed::architecture::DistributedArchitectureConfig;
+use crate::executor::distributed::protocol::{TaskId, TaskInfo, TaskStatus, TaskType};
 
 /// Task Scheduler
 pub struct TaskScheduler {

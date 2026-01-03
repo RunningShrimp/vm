@@ -3,7 +3,7 @@
 //! This module contains business rules related to VM lifecycle management.
 
 use crate::{VmError, VmResult, VmState};
-use crate::jit::aggregate_root::VirtualMachineAggregate;
+use crate::aggregate_root::VirtualMachineAggregate;
 
 /// Trait for lifecycle business rules
 ///
@@ -127,7 +127,7 @@ mod tests {
     fn create_test_aggregate(state: VmState) -> VirtualMachineAggregate {
         let config = VmConfig {
             guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
+            memory_size: crate::DEFAULT_MEMORY_SIZE,
             vcpu_count: 1,
             ..Default::default()
         };
@@ -276,7 +276,7 @@ mod tests {
         // Create aggregate with zero vCPUs
         let config = VmConfig {
             guest_arch: GuestArch::Riscv64,
-            memory_size: 64 * 1024 * 1024,
+            memory_size: crate::DEFAULT_MEMORY_SIZE,
             vcpu_count: 0,
             ..Default::default()
         };

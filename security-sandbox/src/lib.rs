@@ -6,10 +6,11 @@
 //! - 访问控制列表 (权限管理)
 //! - 审计日志 (安全事件记录)
 
-use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use parking_lot::RwLock;
 
 /// 权限映射类型别名：简化复杂类型定义
 /// Key: (资源类型, 资源ID) -> Value: 权限集合

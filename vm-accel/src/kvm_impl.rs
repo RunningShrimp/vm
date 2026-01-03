@@ -3,9 +3,11 @@
 //! 支持 Intel VT-x, AMD-V 和 ARM 虚拟化扩展
 //! 优化后的版本: 将架构特定代码分离到独立模块,减少feature gates
 
-use super::{Accel, AccelError};
 use std::collections::HashMap;
+
 use vm_core::{GuestRegs, MMU, PlatformError, VmError};
+
+use super::{Accel, AccelError};
 
 // ============================================================================
 // 架构特定模块 - 使用模块级条件编译减少重复的feature gates
@@ -297,7 +299,6 @@ mod kvm_stub {
 
 #[cfg(feature = "kvm")]
 use kvm_common::{KVM_MEM_LOG_DIRTY_PAGES, kvm_irq_level, kvm_userspace_memory_region};
-
 #[cfg(feature = "kvm")]
 use kvm_ioctls::{Kvm, VcpuExit, VmFd};
 
@@ -478,7 +479,8 @@ impl AccelKvm {
                 }
             }
 
-            // Get vCPU thread ID (simplified - actual implementation would need proper thread handling)
+            // Get vCPU thread ID (simplified - actual implementation would need proper thread
+            // handling)
             let tid = libc::gettid();
 
             let ret =
@@ -567,8 +569,9 @@ impl AccelKvm {
         }
 
         // SAFETY: vm.set_user_memory_region is a KVM ioctl wrapper
-        // Preconditions: mem_region contains valid slot, guest_phys_addr, memory_size, and userspace_addr
-        // Invariants: Maps or unmaps guest physical memory region to host virtual address with NUMA hints
+        // Preconditions: mem_region contains valid slot, guest_phys_addr, memory_size, and
+        // userspace_addr Invariants: Maps or unmaps guest physical memory region to host
+        // virtual address with NUMA hints
         unsafe {
             vm.set_user_memory_region(mem_region).map_err(|e| {
                 VmError::Platform(PlatformError::MemoryMappingFailed(format!(
@@ -1039,8 +1042,9 @@ impl Accel for AccelKvm {
             };
 
             // SAFETY: vm.set_user_memory_region is a KVM ioctl wrapper
-            // Preconditions: mem_region contains valid slot, guest_phys_addr, memory_size, and userspace_addr
-            // Invariants: Maps or unmaps guest physical memory region to host virtual address
+            // Preconditions: mem_region contains valid slot, guest_phys_addr, memory_size, and
+            // userspace_addr Invariants: Maps or unmaps guest physical memory region to
+            // host virtual address
             unsafe {
                 vm.set_user_memory_region(mem_region).map_err(|e| {
                     VmError::Platform(PlatformError::MemoryMappingFailed(format!(
@@ -1101,8 +1105,9 @@ impl Accel for AccelKvm {
             };
 
             // SAFETY: vm.set_user_memory_region is a KVM ioctl wrapper
-            // Preconditions: mem_region contains valid slot and size=0 to unmap, or valid all fields to map
-            // Invariants: Unmaps guest physical memory region (size=0 signals deletion)
+            // Preconditions: mem_region contains valid slot and size=0 to unmap, or valid all
+            // fields to map Invariants: Unmaps guest physical memory region (size=0
+            // signals deletion)
             unsafe {
                 vm.set_user_memory_region(mem_region).map_err(|e| {
                     VmError::Platform(PlatformError::MemoryMappingFailed(format!(

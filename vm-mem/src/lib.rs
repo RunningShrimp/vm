@@ -2,27 +2,32 @@
 //!
 //! 包含 SoftMMU（软件 MMU）和 RISC-V SV39/SV48 页表遍历
 
-use crate::mmu::hugepage::{HugePageAllocator, HugePageSize};
-
-use lru::LruCache;
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use lru::LruCache;
+use parking_lot::RwLock;
 use vm_core::error::{CoreError, MemoryError};
 use vm_core::{
     AccessType, Fault, MemoryAccess, MmioDevice, MmioManager, MmuAsAny, VmError,
     mmu_traits::AddressTranslator,
 };
 
+use crate::mmu::hugepage::{HugePageAllocator, HugePageSize};
+
 /// Type alias for MMIO device result to reduce type complexity
 type MmioDeviceResult = Result<Option<(Arc<RwLock<Box<dyn MmioDevice>>>, u64)>, String>;
 
 // 模块组织
+pub mod cpu_features;
 pub mod domain_services;
+pub mod lockfree_mmu;
 pub mod memory;
 pub mod optimization;
+pub mod simd;
+pub mod simd_memcpy;
 pub mod tlb;
 pub mod unified_mmu;
 pub mod unified_mmu_v2;
@@ -32,27 +37,33 @@ pub mod unified_mmu_v2;
 pub mod async_mmu;
 
 // 重新导出主要类型
+// 显式导入 TlbStats 避免冲突
+// CPU features detection
+pub use cpu_features::CPUFeatures;
+pub use domain_services::AddressTranslationDomainService;
+// Lock-free MMU types
+pub use lockfree_mmu::{LockFreeMMU, LockFreeMMUStatsSnapshot};
 pub use memory::{
     MemoryPool, NumaAllocPolicy, NumaAllocStats, NumaAllocator, NumaNodeInfo, PageTableEntryPool,
     PoolError, PoolManager, PoolStats, StackPool, Sv39PageTableWalker, Sv48PageTableWalker,
     TlbEntryPool,
 };
 pub use optimization::unified::*;
+// SIMD-optimized memory operations
+pub use simd_memcpy::memcpy_fast;
+pub use tlb::BasicTlbStats as TlbStats;
+#[cfg(feature = "optimizations")]
+pub use tlb::SingleLevelTlb;
 pub use tlb::{
     AdaptiveReplacementPolicy, AtomicTlbStats, ConcurrentTlbConfig, ConcurrentTlbManager,
     ConcurrentTlbManagerAdapter, MultiLevelTlb, MultiLevelTlbConfig, OptimizedTlbEntry, ShardedTlb,
     StandardTlbManager, TlbFactory, TlbResult, UnifiedTlb,
 };
-
-#[cfg(feature = "optimizations")]
-pub use tlb::SingleLevelTlb;
-// 显式导入 TlbStats 避免冲突
-pub use domain_services::AddressTranslationDomainService;
-pub use tlb::BasicTlbStats as TlbStats;
 /// @deprecated 使用unified_mmu_v2中的类型替代
 pub use unified_mmu::{MmuOptimizationStrategy, UnifiedMmu, UnifiedMmuConfig, UnifiedMmuStats};
-pub use unified_mmu_v2::{HybridMMU, UnifiedMMU as UnifiedMMUV2, UnifiedMmuConfigV2, UnifiedMmuStats as UnifiedMmuStatsV2};
-
+pub use unified_mmu_v2::{
+    HybridMMU, UnifiedMMU as UnifiedMMUV2, UnifiedMmuConfigV2, UnifiedMmuStats as UnifiedMmuStatsV2,
+};
 // Re-export common types from vm_core for test convenience
 pub use vm_core::{GuestAddr, GuestPhysAddr};
 
@@ -135,7 +146,8 @@ pub enum PagingMode {
     X86_64,
 }
 
-// ============================================================================// TLB 实现 (优化版: HashMap + LRU)// ============================================================================
+// ============================================================================// TLB 实现 (优化版:
+// HashMap + LRU)// ============================================================================
 use vm_core::TlbEntry;
 
 /// TLB 条目
@@ -319,9 +331,22 @@ impl PhysicalMemory {
 
             let mem_vec = if use_hugepages {
                 match allocator.allocate_linux(current_shard_size) {
-                    Ok(ptr) => unsafe {
-                        Vec::from_raw_parts(ptr, current_shard_size, current_shard_size)
-                    },
+                    Ok(ptr) => {
+                        // Safety: 调用者必须确保：
+                        // - `ptr` 是由 `allocator.allocate_linux` 返回的有效指针
+                        // - `ptr` 指向的内存至少有 `current_shard_size` 字节
+                        // - `ptr` 指向的内存已初始化（由 Linux mmap 保证）
+                        // - capacity 和 length 参数相等且正确
+                        // - 生成的 Vec 不会被双重释放
+                        //
+                        // 维护者必须确保：
+                        // - `ptr` 来自大页分配器，已正确映射到物理内存
+                        // - capacity = length = current_shard_size，确保内存完全初始化
+                        // - Vec 的生命周期由 shards 向量管理，不会提前释放
+                        // - 如果大页分配失败，回退到普通 Vec 分配
+                        // - 修改时验证内存分配和释放的对称性
+                        unsafe { Vec::from_raw_parts(ptr, current_shard_size, current_shard_size) }
+                    }
                     Err(_) => vec![0u8; current_shard_size],
                 }
             } else {
@@ -758,7 +783,7 @@ static NEXT_MMU_ID: AtomicU64 = AtomicU64::new(1);
 /// let mut mmu = SoftMmu::new(64 * 1024 * 1024, false);
 ///
 /// // Bare模式：恒等映射
-/// use vm_core::{GuestAddr, AccessType};
+/// use vm_core::{AccessType, GuestAddr};
 /// let phys = mmu.translate(GuestAddr(0x1000), AccessType::Read).unwrap();
 /// ```
 ///
@@ -1421,8 +1446,9 @@ impl PageTableBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::ExecutionError;
+
+    use super::*;
 
     #[test]
     fn test_bare_mode() {

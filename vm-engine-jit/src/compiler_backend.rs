@@ -1,8 +1,10 @@
 //! 编译器后端抽象层
 //!
-//! 定义统一的编译器接口，支持多种后端实现，包括Cranelift和LLVM。
+//! 定义统一的编译器接口，支持多种后端实现，包括Cranelift和LLVM.
 
-use vm_ir::{IROp, IRBlock};
+#![allow(unexpected_cfgs)]
+
+use vm_ir::IRBlock;
 use std::fmt;
 
 /// 编译器错误类型
@@ -16,6 +18,8 @@ pub enum CompilerError {
     OptimizationFailed(String),
     /// 后端不可用
     BackendUnavailable(String),
+    /// 无效寄存器
+    InvalidRegister(String),
 }
 
 impl fmt::Display for CompilerError {
@@ -25,6 +29,7 @@ impl fmt::Display for CompilerError {
             CompilerError::UnsupportedOperation(msg) => write!(f, "Unsupported operation: {}", msg),
             CompilerError::OptimizationFailed(msg) => write!(f, "Optimization failed: {}", msg),
             CompilerError::BackendUnavailable(msg) => write!(f, "Backend unavailable: {}", msg),
+            CompilerError::InvalidRegister(msg) => write!(f, "Invalid register: {}", msg),
         }
     }
 }

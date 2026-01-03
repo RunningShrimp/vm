@@ -43,15 +43,16 @@ mod decoder_pipeline;
 mod extended_insns;
 mod opcode_decode;
 mod operand_decode;
+mod optimizer;
 mod prefix_decode;
 
 // Import extended instruction enums and decoder
-use extended_insns::ExtendedDecoder;
-
 // Re-export key decoding stages for modular architecture
 pub use decoder_pipeline::{DecoderPipeline, InsnStream};
+use extended_insns::ExtendedDecoder;
 pub use opcode_decode::{OpcodeInfo, OperandKind, decode_opcode};
 pub use operand_decode::{ModRM, Operand, OperandDecoder, SIB};
+pub use optimizer::{OptimizedPrefixInfo, SimdInstructionType, X86Optimizer};
 pub use prefix_decode::{PrefixInfo, RexPrefix, decode_prefixes};
 
 /// x86-64 解码器，支持解码缓存优化
@@ -811,7 +812,7 @@ impl Decoder for X86Decoder {
     type Instruction = X86Instruction;
     type Block = IRBlock;
 
-    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<X86Instruction> {
+    fn decode_insn(&mut self, mmu: &mut dyn MMU, pc: GuestAddr) -> VmResult<X86Instruction> {
         // 简单实现：读取一个字节作为操作码
         let byte = mmu.read(pc, 1)?;
 
@@ -838,7 +839,7 @@ impl Decoder for X86Decoder {
         })
     }
 
-    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<IRBlock> {
+    fn decode(&mut self, mmu: &mut (dyn MMU + 'static), pc: GuestAddr) -> VmResult<IRBlock> {
         // Check cache first
         if let Some(ref cache) = self.decode_cache
             && let Some(cached_block) = cache.get(&pc)
@@ -1038,7 +1039,8 @@ fn decode_insn_impl(
     // Table lookup
     let (mnemonic, k1, k2, k3, cc_opt) = if is_evex {
         // EVEX-encoded AVX-512 instructions
-        // EVEX format: 62 [R X B R' 0 0 m m] [W vvvv 1 pp] [z L'L v'vvvv] [opcode] [ModR/M] [SIB] [disp]
+        // EVEX format: 62 [R X B R' 0 0 m m] [W vvvv 1 pp] [z L'L v'vvvv] [opcode] [ModR/M] [SIB]
+        // [disp]
         let evex = evex_info.ok_or_else(|| {
             VmError::from(Fault::InvalidOpcode {
                 pc,
@@ -1356,7 +1358,8 @@ fn decode_insn_impl(
             }
             0x58 => {
                 if is_vex {
-                    // VEX.W determines operand width: VEX.W=0 -> ADDPS (float32), VEX.W=1 -> ADDSD (float64)
+                    // VEX.W determines operand width: VEX.W=0 -> ADDPS (float32), VEX.W=1 -> ADDSD
+                    // (float64)
                     let mnemonic = if vex_w {
                         X86Mnemonic::Addsd
                     } else {
@@ -1381,7 +1384,8 @@ fn decode_insn_impl(
             }
             0x59 => {
                 if is_vex {
-                    // VEX.W determines operand width: VEX.W=0 -> MULPS (float32), VEX.W=1 -> MULSD (float64)
+                    // VEX.W determines operand width: VEX.W=0 -> MULPS (float32), VEX.W=1 -> MULSD
+                    // (float64)
                     let mnemonic = if vex_w {
                         X86Mnemonic::Mulsd
                     } else {
@@ -1406,7 +1410,8 @@ fn decode_insn_impl(
             }
             0x5C => {
                 if is_vex {
-                    // VEX.W determines operand width: VEX.W=0 -> SUBPS (float32), VEX.W=1 -> SUBSD (float64)
+                    // VEX.W determines operand width: VEX.W=0 -> SUBPS (float32), VEX.W=1 -> SUBSD
+                    // (float64)
                     let mnemonic = if vex_w {
                         X86Mnemonic::Subsd
                     } else {
@@ -1431,7 +1436,8 @@ fn decode_insn_impl(
             }
             0x5F => {
                 if is_vex {
-                    // VEX.W determines operand width: VEX.W=0 -> MAXPS (float32), VEX.W=1 -> MAXPS (float64, same mnemonic)
+                    // VEX.W determines operand width: VEX.W=0 -> MAXPS (float32), VEX.W=1 -> MAXPS
+                    // (float64, same mnemonic)
                     let mnemonic = X86Mnemonic::Maxps;
                     (
                         mnemonic,
@@ -3154,7 +3160,8 @@ fn decode_insn_impl(
                     // Fixup for RIP-relative (Mod=0, RM=5 in 64-bit mode is RIP-rel if no SIB)
                     // But wait, in 64-bit mode:
                     // Mod=00, RM=101 (5) -> RIP + disp32
-                    // If SIB present (RM=100), then Base=101 (5) -> Mod=00 means disp32 only (no base)
+                    // If SIB present (RM=100), then Base=101 (5) -> Mod=00 means disp32 only (no
+                    // base)
 
                     let final_base = if mod_ == 0
                         && (rm == 5 && !has_sib
@@ -4537,8 +4544,8 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
 
             if is_right {
                 // RCR: Rotate right through carry
-                // Result = (src >> count) | (CF << (size_bits - count)) | (src << (size_bits - count + 1))
-                // CF_new = (src >> (count - 1)) & 1
+                // Result = (src >> count) | (CF << (size_bits - count)) | (src << (size_bits -
+                // count + 1)) CF_new = (src >> (count - 1)) & 1
 
                 // Shift right by count
                 let right_shift = 201;
@@ -6800,7 +6807,8 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             // TZCNT: Count trailing zeros (similar to BSF but undefined behavior for zero input)
             let src = load_operand(builder, &insn.op2, op_bytes)?;
             let dst = 103;
-            // Use BSF-like implementation (TZCNT is similar to BSF but with different behavior for zero)
+            // Use BSF-like implementation (TZCNT is similar to BSF but with different behavior for
+            // zero)
             let zero = 200;
             let result = 201;
             builder.push(IROp::MovImm { dst: zero, imm: 0 });
@@ -7557,8 +7565,8 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             // RDRAND: Read Random Number
             // Format: RDRAND r16/r32/r64
             // Output: dest = random number, CF = success flag (1=success, 0=failure)
-            // The execution engine should generate random numbers when accessing the special memory region
-            // Retry logic should be implemented in the execution engine if CF=0
+            // The execution engine should generate random numbers when accessing the special memory
+            // region Retry logic should be implemented in the execution engine if CF=0
 
             // Get destination register from op1 (ModR/M rm field)
             let dest_reg = if let X86Operand::Reg(r) = insn.op1 {
@@ -7645,7 +7653,8 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
             // Format: RDSEED r16/r32/r64
             // Output: dest = random seed, CF = success flag (1=success, 0=failure)
             // RDSEED provides cryptographic-quality random seeds (higher entropy than RDRAND)
-            // The execution engine should generate high-quality random seeds when accessing the special memory region
+            // The execution engine should generate high-quality random seeds when accessing the
+            // special memory region
 
             // Get destination register from op1 (ModR/M rm field)
             let dest_reg = if let X86Operand::Reg(r) = insn.op1 {
@@ -7664,7 +7673,8 @@ fn translate_insn(builder: &mut IRBuilder, insn: X86Instruction) -> Result<(), V
 
             // Load random seed from special memory-mapped region
             // Address 0xF0003008 is reserved for RDSEED random seeds
-            // The execution engine should intercept this and generate a cryptographic-quality random seed
+            // The execution engine should intercept this and generate a cryptographic-quality
+            // random seed
             builder.push(IROp::MovImm {
                 dst: seed_addr,
                 imm: 0xF0003008,
@@ -9695,32 +9705,29 @@ pub mod api {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use vm_core::GuestAddr;
+    use vm_core::{GuestAddr, GuestPhysAddr};
     use vm_ir::IROp;
+
+    use super::*;
 
     struct MockMMU {
         data: Vec<u8>,
         base: GuestAddr,
     }
 
-    impl MMU for MockMMU {
-        fn translate(
-            &mut self,
-            va: GuestAddr,
-            _access: vm_core::AccessType,
-        ) -> Result<GuestAddr, Fault> {
-            Ok(va)
-        }
+    impl MockMMU {
         fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, Fault> {
             self.read(pc, 8)
         }
+
         fn read(&self, addr: GuestAddr, size: u8) -> Result<u64, Fault> {
             let offset = (addr - self.base) as usize;
             if offset + size as usize > self.data.len() {
                 return Err(Fault::PageFault {
                     addr,
-                    access: vm_core::AccessType::Read,
+                    access_type: vm_core::AccessType::Read,
+                    is_write: false,
+                    is_user: false,
                 });
             }
             let mut val = 0;
@@ -9729,26 +9736,62 @@ mod tests {
             }
             Ok(val)
         }
-        fn write(&mut self, _addr: GuestAddr, _val: u64, _size: u8) -> Result<(), Fault> {
+    }
+
+    impl vm_core::AddressTranslator for MockMMU {
+        fn translate(
+            &mut self,
+            va: GuestAddr,
+            _access: vm_core::AccessType,
+        ) -> Result<GuestPhysAddr, VmError> {
+            Ok(GuestPhysAddr(va.0))
+        }
+
+        fn flush_tlb(&mut self) {
+            // No TLB in mock MMU
+        }
+    }
+
+    impl vm_core::MemoryAccess for MockMMU {
+        fn read(&self, pa: GuestAddr, size: u8) -> Result<u64, VmError> {
+            MockMMU::read(self, pa, size).map_err(|e| match e {
+                Fault::PageFault { addr, .. } => {
+                    VmError::Memory(vm_core::MemoryError::InvalidAddress(addr))
+                }
+                _ => VmError::Memory(vm_core::MemoryError::InvalidAddress(pa)),
+            })
+        }
+
+        fn write(&mut self, _pa: GuestAddr, _val: u64, _size: u8) -> Result<(), VmError> {
             Ok(())
         }
-        fn map_mmio(&mut self, _base: u64, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
-            // No-op for mock
+
+        fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, VmError> {
+            self.read(pc, 4)
+                .map_err(|e| VmError::Memory(vm_core::MemoryError::InvalidAddress(pc)))
         }
-        fn flush_tlb(&mut self) {
-            // No-op for mock
-        }
+
         fn memory_size(&self) -> usize {
             self.data.len()
         }
+
         fn dump_memory(&self) -> Vec<u8> {
             self.data.clone()
         }
+
         fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
-            self.data.clear();
-            self.data.extend_from_slice(data);
+            self.data = data.to_vec();
             Ok(())
         }
+    }
+
+    impl vm_core::MmioManager for MockMMU {
+        fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
+            // No-op for mock
+        }
+    }
+
+    impl vm_core::MmuAsAny for MockMMU {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
@@ -9760,13 +9803,13 @@ mod tests {
     #[test]
     fn test_simd_addps() {
         let code = api::encode_addps(1, 2);
-        let mmu = MockMMU {
+        let mut mmu = MockMMU {
             data: code,
-            base: 0x1000,
+            base: vm_core::GuestAddr(0x1000),
         };
-        let mut decoder = X86Decoder;
+        let mut decoder = X86Decoder::new();
         let block = decoder
-            .decode_block(&mmu, 0x1000)
+            .decode(&mut mmu, vm_core::GuestAddr(0x1000))
             .expect("Operation failed");
 
         // Expected ops:
@@ -9779,11 +9822,11 @@ mod tests {
             src1,
             src2,
             element_size,
-        } = op
+        } = *op
         {
-            assert_eq!(*src1, 17); // XMM1 -> 16+1
-            assert_eq!(*src2, 18); // XMM2 -> 16+2
-            assert_eq!(*element_size, 4);
+            assert_eq!(src1, 17); // XMM1 -> 16+1
+            assert_eq!(src2, 18); // XMM2 -> 16+2
+            assert_eq!(element_size, 4);
         } else {
             panic!("Expected VecAdd, got {:?}", op);
         }
@@ -9792,13 +9835,13 @@ mod tests {
     #[test]
     fn test_syscall() {
         let code = api::encode_syscall();
-        let mmu = MockMMU {
+        let mut mmu = MockMMU {
             data: code,
-            base: 0x1000,
+            base: vm_core::GuestAddr(0x1000),
         };
-        let mut decoder = X86Decoder;
+        let mut decoder = X86Decoder::new();
         let block = decoder
-            .decode_block(&mmu, 0x1000)
+            .decode(&mut mmu, vm_core::GuestAddr(0x1000))
             .expect("Operation failed");
 
         if let IROp::SysCall = block.ops[0] {
@@ -9819,13 +9862,13 @@ mod tests {
         // Decoder: mnemonic=Add, op1=Rm(EAX), op2=Reg(ECX).
 
         let code = vec![0x01, 0xC8];
-        let mmu = MockMMU {
+        let mut mmu = MockMMU {
             data: code,
-            base: 0x1000,
+            base: vm_core::GuestAddr(0x1000),
         };
-        let mut decoder = X86Decoder;
+        let mut decoder = X86Decoder::new();
         let block = decoder
-            .decode_block(&mmu, 0x1000)
+            .decode(&mut mmu, vm_core::GuestAddr(0x1000))
             .expect("Operation failed");
 
         if let IROp::Add {
@@ -9843,13 +9886,13 @@ mod tests {
     #[test]
     fn test_int3() {
         let code = vec![0xCC];
-        let mmu = MockMMU {
+        let mut mmu = MockMMU {
             data: code,
-            base: 0x1000,
+            base: vm_core::GuestAddr(0x1000),
         };
-        let mut decoder = X86Decoder;
+        let mut decoder = X86Decoder::new();
         let block = decoder
-            .decode_block(&mmu, 0x1000)
+            .decode(&mut mmu, vm_core::GuestAddr(0x1000))
             .expect("Operation failed");
 
         if let Terminator::Interrupt { vector } = block.term {

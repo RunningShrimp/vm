@@ -5,7 +5,7 @@
 //! ## 设备类型
 //!
 //! - `block`: VirtIO Block 设备 - 块存储
-//! - `console`: VirtIO Console 设备 - 串口控制台  
+//! - `console`: VirtIO Console 设备 - 串口控制台
 //! - `net`: VirtIO Network 设备 - 网络（通过 vhost）
 //! - `gpu`: VirtIO GPU 设备 - 图形加速
 //! - `ai`: VirtIO AI 设备 - AI 推理加速

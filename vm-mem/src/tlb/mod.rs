@@ -77,4 +77,6 @@ pub use optimization::prefetch::{TlbPrefetchExample, TlbPrefetchGuide};
 pub use core::unified::multilevel_tlb_impl::SingleLevelTlb;
 
 // 统一层次结构类型
-pub use unified_hierarchy::{AdaptiveTlbManager, HierarchyStats, ReplacementPolicy, UnifiedTlbHierarchy};
+pub use unified_hierarchy::{
+    AdaptiveTlbManager, HierarchyStats, ReplacementPolicy, UnifiedTlbHierarchy,
+};

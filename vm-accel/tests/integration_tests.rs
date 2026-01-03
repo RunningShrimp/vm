@@ -3,6 +3,7 @@
 //! End-to-end integration tests for vm-accel components
 
 use std::sync::Arc;
+
 use vm_accel::accel::AccelerationManager;
 use vm_accel::numa_optimizer::{MemoryAllocationStrategy, NUMAOptimizer};
 use vm_accel::vcpu_affinity::{CPUTopology, VCPUAffinityManager};

@@ -365,8 +365,9 @@ mod policy_tests {
 
 #[cfg(test)]
 mod concurrent_allocation_tests {
-    use super::*;
     use std::sync::Barrier;
+
+    use super::*;
 
     /// 测试21: 多线程分配
     #[test]

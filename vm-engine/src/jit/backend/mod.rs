@@ -33,15 +33,34 @@ pub enum OptLevel {
 impl OptLevel {
     /// 从执行次数和总时间确定优化级别
     pub fn from_exec_stats(exec_count: u64, total_time_us: u64) -> Self {
-        match (exec_count, total_time_us) {
-            // Tier 0 → Tier 1: 执行10次 + 总时间>100ms
-            (0..=10, _) | (_, 0..=100_000) => OptLevel::None,
-            // Tier 1 → Tier 2: 执行100次 + 总时间>100ms
-            (11..=100, _) | (_, 100_001..=1_000_000) => OptLevel::Basic,
-            // Tier 2 → Tier 3: 执行1000次 + 总时间>100ms
-            (101..=1000, _) | (_, 1_000_001..) => OptLevel::Balanced,
-            // 极热代码
-            _ => OptLevel::Aggressive,
+        // 优先按执行次数分级，总时间作为辅助判断
+        match exec_count {
+            // 极热代码: 执行超过1000次
+            1001.. => OptLevel::Aggressive,
+            // Tier 2 → Tier 3: 执行100-1000次
+            101..=1000 => {
+                if total_time_us > 1_000_000 {
+                    OptLevel::Aggressive
+                } else {
+                    OptLevel::Balanced
+                }
+            }
+            // Tier 1 → Tier 2: 执行10-100次
+            11..=100 => {
+                if total_time_us > 100_000 {
+                    OptLevel::Balanced
+                } else {
+                    OptLevel::Basic
+                }
+            }
+            // Tier 0 → Tier 1: 执行0-10次或总时间<=100ms
+            _ => {
+                if total_time_us > 100_000 {
+                    OptLevel::Basic
+                } else {
+                    OptLevel::None
+                }
+            }
         }
     }
 }
@@ -138,6 +157,8 @@ pub enum BackendType {
     /// 解释器后端
     #[default]
     Interpreter,
+    /// Cranelift JIT后端
+    Cranelift,
 }
 
 /// 简单的解释器后端（占位符）
@@ -187,6 +208,13 @@ impl JITBackend for InterpreterBackend {
 
 /// 重新导出常用类型
 pub type JITBackendImpl = InterpreterBackend;
+
+// Cranelift 后端
+pub mod cranelift;
+
+// Re-export for use by other crates
+#[allow(unused_imports)]
+pub use cranelift::CraneliftBackend;
 
 #[cfg(test)]
 mod tests {

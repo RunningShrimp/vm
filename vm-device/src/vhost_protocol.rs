@@ -574,7 +574,8 @@ impl VhostFrontend {
             .negotiated_features
             .load(std::sync::atomic::Ordering::Relaxed);
         format!(
-            "VhostFrontend: features={:016x}, negotiated={:016x}, queues={}, messages={}, negotiations={}",
+            "VhostFrontend: features={:016x}, negotiated={:016x}, queues={}, messages={}, \
+             negotiations={}",
             self.supported_features,
             negotiated,
             self.queue_count(),

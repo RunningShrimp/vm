@@ -10,9 +10,11 @@
 //!
 //! 这种模式将原来的 ~17 个特性门减少到 1 个模块级特性门。
 
-use super::{Accel, AccelError};
 use std::collections::HashMap;
+
 use vm_core::{GuestRegs, MMU};
+
+use super::{Accel, AccelError};
 
 // ============================================================================
 // KVM 后端实现 - 仅在启用 "kvm" 特性时编译
@@ -26,9 +28,10 @@ pub mod kvm_backend {
     //! - 内存映射和管理
     //! - I/O 和 MMIO 处理
 
-    use super::*;
     use kvm_bindings::*;
     use kvm_ioctls::{Kvm, VcpuExit, VcpuFd, VmFd};
+
+    use super::*;
 
     /// KVM vCPU 包装
     pub struct KvmVcpu {

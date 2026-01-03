@@ -3,9 +3,9 @@
 //! 整合基础缓存和增强型缓存的特性，实现智能缓存管理和后台异步编译
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, RwLock as AsyncRwLock};
+use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use vm_core::GuestAddr;
 
@@ -570,9 +570,9 @@ impl UnifiedCodeCache {
 
                 // 根据优先级决定放入哪个缓存
                 if matches!(request.priority, CompilePriority::High) {
-                    hot_cache.write().unwrap().insert(request.addr, entry);
+                    hot_cache.write().await.insert(request.addr, entry);
                 } else {
-                    cold_cache.write().unwrap().insert(request.addr, entry);
+                    cold_cache.write().await.insert(request.addr, entry);
                 }
 
                 // 更新统计
@@ -595,7 +595,7 @@ impl UnifiedCodeCache {
         let code = vec![0u8; ir_block.ops.len() * 4]; // 模拟生成的代码
 
         CompileResult {
-            addr: 0, // 会在调用时设置
+            addr: vm_core::GuestAddr(0), // 会在调用时设置
             code,
             compile_time_ns: 1000, // 模拟编译时间
             success: true,
@@ -616,54 +616,58 @@ impl UnifiedCodeCache {
         // 优化：先尝试只读锁查找热点缓存（快速路径，无写锁竞争）
         // 使用两次查找策略：第一次只读查找，第二次只在命中时更新
         let hot_hit = {
-            let hot = self.hot_cache.read().unwrap();
+            let hot = self.hot_cache.try_read().ok()?;
             hot.get(&addr).map(|e| (e.code_ptr, e.access_count))
         };
 
         if let Some((code_ptr, old_count)) = hot_hit {
             // 命中热点缓存，需要更新访问信息
-            // 优化：使用try_write减少阻塞，如果失败则使用普通write
-            let mut hot = self.hot_cache.write().unwrap();
-            if let Some(entry) = hot.get_mut(&addr) {
-                entry.update_access();
-                let new_count = entry.access_count;
+            // 优化：使用try_write减少阻塞，如果失败则跳过更新（避免阻塞）
+            if let Ok(mut hot) = self.hot_cache.try_write() {
+                if let Some(entry) = hot.get_mut(&addr) {
+                    entry.update_access();
+                    let new_count = entry.access_count;
 
-                // 更新LRU+LFU索引（O(1)操作）
-                // 优化：批量更新，减少锁获取次数
-                if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
-                    let mut index = self.hybrid_index.write().unwrap();
-                    index.update_lru(addr);
-                    if new_count != old_count {
-                        index.update_lfu(addr, new_count);
+                    // 更新LRU+LFU索引（O(1)操作）
+                    // 优化：批量更新，减少锁获取次数
+                    if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
+                        if let Ok(mut index) = self.hybrid_index.try_write() {
+                            index.update_lru(addr);
+                            if new_count != old_count {
+                                index.update_lfu(addr, new_count);
+                            }
+                        }
+                    } else {
+                        // 向后兼容：更新传统LRU顺序
+                        if let Ok(mut lru) = self.lru_order.try_write() {
+                            if let Some(pos) = lru.iter().position(|&a| a == addr) {
+                                lru.remove(pos);
+                            }
+                            lru.push_back(addr);
+                        }
                     }
-                } else {
-                    // 向后兼容：更新传统LRU顺序
-                    let mut lru = self.lru_order.write().unwrap();
-                    if let Some(pos) = lru.iter().position(|&a| a == addr) {
-                        lru.remove(pos);
+
+                    let lookup_time = start_time.elapsed().as_nanos() as u64;
+                    self.update_lookup_time(lookup_time);
+
+                    if let Ok(mut stats) = self.stats.try_lock() {
+                        stats.hits += 1;
+                        stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
+
+                        // 优化：触发预取（如果命中率低于阈值）
+                        if stats.hit_rate < 0.90 {
+                            self.prefetch_related(addr);
+                        }
+
+                        return Some(code_ptr);
                     }
-                    lru.push_back(addr);
                 }
-
-                let lookup_time = start_time.elapsed().as_nanos() as u64;
-                self.update_lookup_time(lookup_time);
-
-                let mut stats = self.stats.lock().unwrap();
-                stats.hits += 1;
-                stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
-
-                // 优化：触发预取（如果命中率低于阈值）
-                if stats.hit_rate < 0.90 {
-                    self.prefetch_related(addr);
-                }
-
-                return Some(code_ptr);
             }
         }
 
         // 查找冷缓存（只读锁，无写锁竞争）
         let cold_hit = {
-            let cold = self.cold_cache.read().unwrap();
+            let cold = self.cold_cache.try_read().ok()?;
             cold.get(&addr).map(|e| (e.code_ptr, e.access_count))
         };
 
@@ -673,34 +677,37 @@ impl UnifiedCodeCache {
                 self.promote_to_hot(addr);
             } else {
                 // 更新冷缓存的访问信息
-                let mut cold = self.cold_cache.write().unwrap();
-                if let Some(entry) = cold.get_mut(&addr) {
-                    entry.update_access();
+                if let Ok(mut cold) = self.cold_cache.try_write() {
+                    if let Some(entry) = cold.get_mut(&addr) {
+                        entry.update_access();
+                    }
+                }
+
+                let lookup_time = start_time.elapsed().as_nanos() as u64;
+                self.update_lookup_time(lookup_time);
+
+                if let Ok(mut stats) = self.stats.try_lock() {
+                    stats.hits += 1;
+                    stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
+
+                    // 优化：触发预取（如果命中率低于阈值）
+                    if stats.hit_rate < 0.90 {
+                        self.prefetch_related(addr);
+                    }
+
+                    return Some(code_ptr);
                 }
             }
-
-            let lookup_time = start_time.elapsed().as_nanos() as u64;
-            self.update_lookup_time(lookup_time);
-
-            let mut stats = self.stats.lock().unwrap();
-            stats.hits += 1;
-            stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
-
-            // 优化：触发预取（如果命中率低于阈值）
-            if stats.hit_rate < 0.90 {
-                self.prefetch_related(addr);
-            }
-
-            return Some(code_ptr);
         }
 
         // 未命中
         let lookup_time = start_time.elapsed().as_nanos() as u64;
         self.update_lookup_time(lookup_time);
 
-        let mut stats = self.stats.lock().unwrap();
-        stats.misses += 1;
-        stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
+        if let Ok(mut stats) = self.stats.try_lock() {
+            stats.misses += 1;
+            stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
+        }
 
         None
     }
@@ -774,38 +781,54 @@ impl UnifiedCodeCache {
         let is_hot = self.hotspot_detector.is_hotspot(addr);
 
         if is_hot {
-            let mut hot = self.hot_cache.write().unwrap();
-            if hot.len() >= self.config.max_entries {
-                drop(hot);
-                self.evict_hot();
-                hot = self.hot_cache.write().unwrap();
+            if let Ok(mut hot) = self.hot_cache.try_write() {
+                if hot.len() >= self.config.max_entries {
+                    drop(hot);
+                    self.evict_hot();
+                    if let Ok(mut hot) = self.hot_cache.try_write() {
+                        hot.insert(addr, entry);
+                    }
+                } else {
+                    hot.insert(addr, entry);
+                }
             }
-            hot.insert(addr, entry);
 
             // 更新索引
             if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
-                let mut index = self.hybrid_index.write().unwrap();
-                index.add_lru(addr);
-                index.update_lfu(addr, 1);
+                if let Ok(mut index) = self.hybrid_index.try_write() {
+                    index.add_lru(addr);
+                    index.update_lfu(addr, 1);
+                }
             } else {
-                self.lru_order.write().unwrap().push_back(addr);
+                if let Ok(mut lru) = self.lru_order.try_write() {
+                    lru.push_back(addr);
+                }
             }
         } else {
-            let mut cold = self.cold_cache.write().unwrap();
-            if cold.len() >= self.config.max_entries {
-                drop(cold);
-                self.evict_cold();
-                cold = self.cold_cache.write().unwrap();
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                if cold.len() >= self.config.max_entries {
+                    drop(cold);
+                    self.evict_cold();
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        cold.insert(addr, entry);
+                    }
+                } else {
+                    cold.insert(addr, entry);
+                }
             }
-            cold.insert(addr, entry);
-            self.fifo_queue.write().unwrap().push_back(addr);
+
+            if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                fifo.push_back(addr);
+            }
         }
 
         // 更新统计
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_entries =
-            self.hot_cache.read().unwrap().len() + self.cold_cache.read().unwrap().len();
-        stats.total_size_bytes += code_size;
+        if let Ok(mut stats) = self.stats.try_lock() {
+            let hot_len = self.hot_cache.try_read().map(|h| h.len()).unwrap_or(0);
+            let cold_len = self.cold_cache.try_read().map(|c| c.len()).unwrap_or(0);
+            stats.total_entries = hot_len + cold_len;
+            stats.total_size_bytes += code_size;
+        }
     }
 
     /// 插入代码（同步编译）
@@ -814,67 +837,99 @@ impl UnifiedCodeCache {
         let entry = CacheEntry::new(code_ptr, code.len());
 
         if is_hot {
-            let mut hot = self.hot_cache.write().unwrap();
-            if hot.len() >= self.config.max_entries {
-                self.evict_hot();
+            if let Ok(mut hot) = self.hot_cache.try_write() {
+                if hot.len() >= self.config.max_entries {
+                    drop(hot);
+                    self.evict_hot();
+                    if let Ok(mut hot) = self.hot_cache.try_write() {
+                        hot.insert(addr, entry);
+                    }
+                } else {
+                    hot.insert(addr, entry);
+                }
             }
-            hot.insert(addr, entry);
 
             // 更新索引
             if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
-                let mut index = self.hybrid_index.write().unwrap();
-                index.add_lru(addr);
-                index.update_lfu(addr, 1);
+                if let Ok(mut index) = self.hybrid_index.try_write() {
+                    index.add_lru(addr);
+                    index.update_lfu(addr, 1);
+                }
             } else {
-                self.lru_order.write().unwrap().push_back(addr);
+                if let Ok(mut lru) = self.lru_order.try_write() {
+                    lru.push_back(addr);
+                }
             }
         } else {
-            let mut cold = self.cold_cache.write().unwrap();
-            if cold.len() >= self.config.max_entries {
-                self.evict_cold();
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                if cold.len() >= self.config.max_entries {
+                    drop(cold);
+                    self.evict_cold();
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        cold.insert(addr, entry);
+                    }
+                } else {
+                    cold.insert(addr, entry);
+                }
             }
-            cold.insert(addr, entry);
-            self.fifo_queue.write().unwrap().push_back(addr);
+
+            if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                fifo.push_back(addr);
+            }
         }
 
         // 更新统计
-        let mut stats = self.stats.lock().unwrap();
-        stats.total_entries =
-            self.hot_cache.read().unwrap().len() + self.cold_cache.read().unwrap().len();
-        stats.total_size_bytes += code.len();
+        if let Ok(mut stats) = self.stats.try_lock() {
+            let hot_len = self.hot_cache.try_read().map(|h| h.len()).unwrap_or(0);
+            let cold_len = self.cold_cache.try_read().map(|c| c.len()).unwrap_or(0);
+            stats.total_entries = hot_len + cold_len;
+            stats.total_size_bytes += code.len();
+        }
     }
 
     /// 提升冷缓存条目到热点缓存
     fn promote_to_hot(&self, addr: GuestAddr) {
         let access_count = {
-            let cold = self.cold_cache.read().unwrap();
-            cold.get(&addr).map(|e| e.access_count)
+            if let Ok(cold) = self.cold_cache.try_read() {
+                cold.get(&addr).map(|e| e.access_count)
+            } else {
+                None
+            }
         };
 
         if let Some(count) = access_count {
-            let mut cold = self.cold_cache.write().unwrap();
-            if let Some(entry) = cold.remove(&addr) {
-                let mut fifo = self.fifo_queue.write().unwrap();
-                if let Some(pos) = fifo.iter().position(|&a| a == addr) {
-                    fifo.remove(pos);
-                }
-                drop(fifo);
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                if let Some(entry) = cold.remove(&addr) {
+                    if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                        if let Some(pos) = fifo.iter().position(|&a| a == addr) {
+                            fifo.remove(pos);
+                        }
+                    }
 
-                let mut hot = self.hot_cache.write().unwrap();
-                if hot.len() >= self.config.max_entries {
-                    drop(hot);
-                    self.evict_hot();
-                    hot = self.hot_cache.write().unwrap();
-                }
-                hot.insert(addr, entry);
+                    if let Ok(mut hot) = self.hot_cache.try_write() {
+                        if hot.len() >= self.config.max_entries {
+                            drop(hot);
+                            drop(cold);
+                            self.evict_hot();
+                            if let Ok(mut hot) = self.hot_cache.try_write() {
+                                hot.insert(addr, entry);
+                            }
+                        } else {
+                            hot.insert(addr, entry);
+                        }
+                    }
 
-                // 更新索引
-                if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
-                    let mut index = self.hybrid_index.write().unwrap();
-                    index.add_lru(addr);
-                    index.update_lfu(addr, count);
-                } else {
-                    self.lru_order.write().unwrap().push_back(addr);
+                    // 更新索引
+                    if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
+                        if let Ok(mut index) = self.hybrid_index.try_write() {
+                            index.add_lru(addr);
+                            index.update_lfu(addr, count);
+                        }
+                    } else {
+                        if let Ok(mut lru) = self.lru_order.try_write() {
+                            lru.push_back(addr);
+                        }
+                    }
                 }
             }
         }
@@ -884,65 +939,89 @@ impl UnifiedCodeCache {
     fn evict_hot(&self) {
         let addr_to_evict = if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
             // 使用混合策略选择要淘汰的条目
-            let index = self.hybrid_index.read().unwrap();
-            let lru_candidate = index.get_lru_head();
-            let lfu_candidate = index.get_lfu_min();
-            drop(index);
-
-            // 优先选择LRU候选（最近性更重要）
-            lru_candidate.or(lfu_candidate)
+            let lru_candidate = if let Ok(index) = self.hybrid_index.try_read() {
+                let candidate = index.get_lru_head();
+                let lfu_candidate = index.get_lfu_min();
+                drop(index);
+                // 优先选择LRU候选（最近性更重要）
+                candidate.or(lfu_candidate)
+            } else {
+                None
+            };
+            lru_candidate
         } else {
             // 使用传统LRU
-            self.lru_order.read().unwrap().front().copied()
+            if let Ok(lru) = self.lru_order.try_read() {
+                lru.front().copied()
+            } else {
+                None
+            }
         };
 
         if let Some(addr) = addr_to_evict {
-            let mut hot = self.hot_cache.write().unwrap();
-            if let Some(entry) = hot.remove(&addr) {
-                // 更新索引
-                if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
-                    let mut index = self.hybrid_index.write().unwrap();
-                    index.remove_lru(addr);
-                    index.remove_lfu(addr);
-                } else {
-                    let mut lru = self.lru_order.write().unwrap();
-                    if let Some(pos) = lru.iter().position(|&a| a == addr) {
-                        lru.remove(pos);
+            if let Ok(mut hot) = self.hot_cache.try_write() {
+                if let Some(entry) = hot.remove(&addr) {
+                    // 更新索引
+                    if self.config.eviction_policy == EvictionPolicy::LRU_LFU {
+                        if let Ok(mut index) = self.hybrid_index.try_write() {
+                            index.remove_lru(addr);
+                            index.remove_lfu(addr);
+                        }
+                    } else {
+                        if let Ok(mut lru) = self.lru_order.try_write() {
+                            if let Some(pos) = lru.iter().position(|&a| a == addr) {
+                                lru.remove(pos);
+                            }
+                        }
+                    }
+
+                    // 移动到冷缓存
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        if cold.len() >= self.config.max_entries {
+                            drop(hot);
+                            drop(cold);
+                            self.evict_cold();
+                            if let Ok(mut cold) = self.cold_cache.try_write() {
+                                cold.insert(addr, entry);
+                            }
+                        } else {
+                            cold.insert(addr, entry);
+                        }
+                    }
+
+                    if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                        fifo.push_back(addr);
+                    }
+
+                    if let Ok(mut stats) = self.stats.try_lock() {
+                        stats.evictions += 1;
                     }
                 }
-
-                // 移动到冷缓存
-                let mut cold = self.cold_cache.write().unwrap();
-                if cold.len() >= self.config.max_entries {
-                    self.evict_cold();
-                }
-                cold.insert(addr, entry);
-                self.fifo_queue.write().unwrap().push_back(addr);
-
-                let mut stats = self.stats.lock().unwrap();
-                stats.evictions += 1;
             }
         }
     }
 
     /// 驱逐冷缓存条目
     fn evict_cold(&self) {
-        let mut cold = self.cold_cache.write().unwrap();
-        let mut fifo = self.fifo_queue.write().unwrap();
+        if let Ok(mut fifo) = self.fifo_queue.try_write() {
+            if let Some(addr) = fifo.pop_front() {
+                if let Ok(mut cold) = self.cold_cache.try_write() {
+                    cold.remove(&addr);
+                }
 
-        if let Some(addr) = fifo.pop_front() {
-            cold.remove(&addr);
-
-            let mut stats = self.stats.lock().unwrap();
-            stats.evictions += 1;
+                if let Ok(mut stats) = self.stats.try_lock() {
+                    stats.evictions += 1;
+                }
+            }
         }
     }
 
     /// 更新查找时间统计
     fn update_lookup_time(&self, time_ns: u64) {
-        let mut times = self.stats.lock().unwrap();
-        // 简化：只更新平均值
-        times.avg_lookup_time_ns = (times.avg_lookup_time_ns + time_ns) / 2;
+        if let Ok(mut times) = self.stats.try_lock() {
+            // 简化：只更新平均值
+            times.avg_lookup_time_ns = (times.avg_lookup_time_ns + time_ns) / 2;
+        }
     }
 
     /// 预取相关地址（智能预取策略）
@@ -1013,7 +1092,9 @@ impl UnifiedCodeCache {
 
     /// 获取统计信息
     pub fn stats(&self) -> CacheStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.try_lock()
+            .map(|s| s.clone())
+            .unwrap_or_default()
     }
 
     /// 检查是否为热点
@@ -1030,16 +1111,14 @@ impl UnifiedCodeCache {
     /// 更新执行收益
     pub fn update_execution_benefit(&self, addr: GuestAddr, benefit: f64) {
         // 更新热点缓存中的条目
-        {
-            let mut hot = self.hot_cache.write().unwrap();
+        if let Ok(mut hot) = self.hot_cache.try_write() {
             if let Some(entry) = hot.get_mut(&addr) {
                 entry.execution_benefit += benefit;
             }
         }
 
         // 更新冷缓存中的条目
-        {
-            let mut cold = self.cold_cache.write().unwrap();
+        if let Ok(mut cold) = self.cold_cache.try_write() {
             if let Some(entry) = cold.get_mut(&addr) {
                 entry.execution_benefit += benefit;
             }
@@ -1049,15 +1128,13 @@ impl UnifiedCodeCache {
     /// 定期维护
     pub fn periodic_maintenance(&self) {
         // 应用热度衰减
-        {
-            let mut hot = self.hot_cache.write().unwrap();
+        if let Ok(mut hot) = self.hot_cache.try_write() {
             for entry in hot.values_mut() {
                 entry.hotness_score *= self.config.hotness_decay_factor;
             }
         }
 
-        {
-            let mut cold = self.cold_cache.write().unwrap();
+        if let Ok(mut cold) = self.cold_cache.try_write() {
             for entry in cold.values_mut() {
                 entry.hotness_score *= self.config.hotness_decay_factor;
             }
@@ -1095,61 +1172,89 @@ impl UnifiedCodeCache {
     /// LRU+LFU混合淘汰策略
     /// 综合考虑最近访问时间和访问频率，选择最不适合保留的条目
     fn evict_by_lru_lfu_hybrid(&self) {
-        let mut hot = self.hot_cache.write().unwrap();
-        let index = self.hybrid_index.read().unwrap();
+        let (lru_candidate, lfu_candidate) = if let Ok(index) = self.hybrid_index.try_read() {
+            let lru = index.get_lru_head();
+            let lfu = index.get_lfu_min();
+            (lru, lfu)
+        } else {
+            (None, None)
+        };
 
-        // 获取LRU和LFU的候选
-        let lru_candidate = index.get_lru_head();
-        let lfu_candidate = index.get_lfu_min();
+        let mut entries_to_evict = Vec::new();
+        let mut addrs_to_remove_from_index = Vec::new();
 
-        drop(index);
+        if let Ok(mut hot) = self.hot_cache.try_write() {
+            // 计算混合评分：LRU权重0.6，LFU权重0.4
+            let mut candidates: Vec<(GuestAddr, f64)> = Vec::new();
 
-        // 计算混合评分：LRU权重0.6，LFU权重0.4
-        let mut candidates: Vec<(GuestAddr, f64)> = Vec::new();
+            for (&addr, entry) in hot.iter() {
+                let mut score = 0.0;
 
-        for (&addr, entry) in hot.iter() {
-            let mut score = 0.0;
-
-            // LRU评分：最近访问时间越久，分数越高（越应该淘汰）
-            if let Some(lru_addr) = lru_candidate {
-                if addr == lru_addr {
-                    score += 0.6; // LRU头节点得分最高
+                // LRU评分：最近访问时间越久，分数越高（越应该淘汰）
+                if let Some(lru_addr) = lru_candidate {
+                    if addr == lru_addr {
+                        score += 0.6; // LRU头节点得分最高
+                    }
                 }
+
+                // LFU评分：访问次数越少，分数越高（越应该淘汰）
+                if let Some(lfu_addr) = lfu_candidate {
+                    if addr == lfu_addr {
+                        score += 0.4; // LFU最小值得分最高
+                    }
+                }
+
+                // 综合热度评分：热度越低，越应该淘汰
+                score += (1.0 - entry.hotness_score) * 0.3;
+
+                candidates.push((addr, score));
             }
 
-            // LFU评分：访问次数越少，分数越高（越应该淘汰）
-            if let Some(lfu_addr) = lfu_candidate {
-                if addr == lfu_addr {
-                    score += 0.4; // LFU最小值得分最高
+            // 按评分排序，淘汰得分最高的20%
+            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let evict_count = (candidates.len() / 5).max(1);
+
+            // Clone the addrs to evict to avoid lifetime issues
+            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
+                .take(evict_count)
+                .map(|(addr, _)| *addr)
+                .collect();
+
+            for addr in addrs_to_evict {
+                if let Some(entry) = hot.remove(&addr) {
+                    entries_to_evict.push((addr, entry));
+                    addrs_to_remove_from_index.push(addr);
                 }
             }
-
-            // 综合热度评分：热度越低，越应该淘汰
-            score += (1.0 - entry.hotness_score) * 0.3;
-
-            candidates.push((addr, score));
         }
 
-        // 按评分排序，淘汰得分最高的20%
-        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        let evict_count = (candidates.len() / 5).max(1);
-
-        for (addr, _) in candidates.iter().take(evict_count) {
-            if let Some(entry) = hot.remove(addr) {
-                // 更新索引
-                let mut index = self.hybrid_index.write().unwrap();
+        // 更新索引
+        if let Ok(mut index) = self.hybrid_index.try_write() {
+            for addr in &addrs_to_remove_from_index {
                 index.remove_lru(*addr);
                 index.remove_lfu(*addr);
+            }
+        }
 
-                // 移动到冷缓存
-                let mut cold = self.cold_cache.write().unwrap();
+        // Now insert the evicted entries into cold cache
+        for (addr, entry) in entries_to_evict {
+            if let Ok(mut cold) = self.cold_cache.try_write() {
                 if cold.len() >= self.config.max_entries {
+                    drop(cold);
                     self.evict_cold();
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        cold.insert(addr, entry);
+                    }
+                } else {
+                    cold.insert(addr, entry);
                 }
-                cold.insert(*addr, entry);
-                self.fifo_queue.write().unwrap().push_back(*addr);
+            }
 
-                let mut stats = self.stats.lock().unwrap();
+            if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                fifo.push_back(addr);
+            }
+
+            if let Ok(mut stats) = self.stats.try_lock() {
                 stats.evictions += 1;
             }
         }
@@ -1157,26 +1262,51 @@ impl UnifiedCodeCache {
 
     /// 基于价值评分淘汰
     fn evict_by_value(&self) {
-        let mut hot = self.hot_cache.write().unwrap();
-        let mut candidates: Vec<_> = hot
-            .iter()
-            .map(|(&addr, entry)| (addr, entry.calculate_value_score()))
-            .collect();
-        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut entries_to_evict = Vec::new();
 
-        // 淘汰价值评分最低的20%
-        let evict_count = (candidates.len() / 5).max(1);
-        for (addr, _) in candidates.iter().take(evict_count) {
-            if let Some(entry) = hot.remove(addr) {
-                let mut cold = self.cold_cache.write().unwrap();
-                if cold.len() >= self.config.max_entries {
-                    self.evict_cold();
+        if let Ok(mut hot) = self.hot_cache.try_write() {
+            let mut candidates: Vec<_> = hot
+                .iter()
+                .map(|(&addr, entry)| (addr, entry.calculate_value_score()))
+                .collect();
+            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            // 淘汰价值评分最低的20%
+            let evict_count = (candidates.len() / 5).max(1);
+
+            // Clone the addrs to evict to avoid lifetime issues
+            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
+                .take(evict_count)
+                .map(|(addr, _)| *addr)
+                .collect();
+
+            for addr in addrs_to_evict {
+                if let Some(entry) = hot.remove(&addr) {
+                    entries_to_evict.push((addr, entry));
                 }
-                cold.insert(*addr, entry);
-                self.fifo_queue.write().unwrap().push_back(*addr);
+            }
+        }
 
-                let mut lru = self.lru_order.write().unwrap();
-                if let Some(pos) = lru.iter().position(|&a| a == *addr) {
+        // Now insert the evicted entries into cold cache
+        for (addr, entry) in entries_to_evict {
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                if cold.len() >= self.config.max_entries {
+                    drop(cold);
+                    self.evict_cold();
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        cold.insert(addr, entry);
+                    }
+                } else {
+                    cold.insert(addr, entry);
+                }
+            }
+
+            if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                fifo.push_back(addr);
+            }
+
+            if let Ok(mut lru) = self.lru_order.try_write() {
+                if let Some(pos) = lru.iter().position(|&a| a == addr) {
                     lru.remove(pos);
                 }
             }
@@ -1185,26 +1315,51 @@ impl UnifiedCodeCache {
 
     /// 基于频率淘汰
     fn evict_by_frequency(&self) {
-        let mut hot = self.hot_cache.write().unwrap();
-        let mut candidates: Vec<_> = hot
-            .iter()
-            .map(|(&addr, entry)| (addr, entry.access_count))
-            .collect();
-        candidates.sort_by_key(|(_, count)| *count);
+        let mut entries_to_evict = Vec::new();
 
-        // 淘汰访问次数最少的20%
-        let evict_count = (candidates.len() / 5).max(1);
-        for (addr, _) in candidates.iter().take(evict_count) {
-            if let Some(entry) = hot.remove(addr) {
-                let mut cold = self.cold_cache.write().unwrap();
-                if cold.len() >= self.config.max_entries {
-                    self.evict_cold();
+        if let Ok(mut hot) = self.hot_cache.try_write() {
+            let mut candidates: Vec<_> = hot
+                .iter()
+                .map(|(&addr, entry)| (addr, entry.access_count))
+                .collect();
+            candidates.sort_by_key(|(_, count)| *count);
+
+            // 淘汰访问次数最少的20%
+            let evict_count = (candidates.len() / 5).max(1);
+
+            // Clone the addrs to evict to avoid lifetime issues
+            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
+                .take(evict_count)
+                .map(|(addr, _)| *addr)
+                .collect();
+
+            for addr in addrs_to_evict {
+                if let Some(entry) = hot.remove(&addr) {
+                    entries_to_evict.push((addr, entry));
                 }
-                cold.insert(*addr, entry);
-                self.fifo_queue.write().unwrap().push_back(*addr);
+            }
+        }
 
-                let mut lru = self.lru_order.write().unwrap();
-                if let Some(pos) = lru.iter().position(|&a| a == *addr) {
+        // Now insert the evicted entries into cold cache
+        for (addr, entry) in entries_to_evict {
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                if cold.len() >= self.config.max_entries {
+                    drop(cold);
+                    self.evict_cold();
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        cold.insert(addr, entry);
+                    }
+                } else {
+                    cold.insert(addr, entry);
+                }
+            }
+
+            if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                fifo.push_back(addr);
+            }
+
+            if let Ok(mut lru) = self.lru_order.try_write() {
+                if let Some(pos) = lru.iter().position(|&a| a == addr) {
                     lru.remove(pos);
                 }
             }
@@ -1216,31 +1371,56 @@ impl UnifiedCodeCache {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let mut hot = self.hot_cache.write().unwrap();
-        let mut candidates: Vec<GuestAddr> = hot.keys().copied().collect();
+        let mut entries_to_evict = Vec::new();
 
-        // 使用地址哈希作为随机种子
-        let mut hasher = DefaultHasher::new();
-        std::time::SystemTime::now().hash(&mut hasher);
-        candidates.sort_by_key(|addr| {
-            let mut h = DefaultHasher::new();
-            addr.hash(&mut h);
-            h.finish()
-        });
+        if let Ok(mut hot) = self.hot_cache.try_write() {
+            let mut candidates: Vec<GuestAddr> = hot.keys().copied().collect();
 
-        // 淘汰20%
-        let evict_count = (candidates.len() / 5).max(1);
-        for addr in candidates.iter().take(evict_count) {
-            if let Some(entry) = hot.remove(addr) {
-                let mut cold = self.cold_cache.write().unwrap();
-                if cold.len() >= self.config.max_entries {
-                    self.evict_cold();
+            // 使用地址哈希作为随机种子
+            let mut hasher = DefaultHasher::new();
+            std::time::SystemTime::now().hash(&mut hasher);
+            candidates.sort_by_key(|addr| {
+                let mut h = DefaultHasher::new();
+                addr.hash(&mut h);
+                h.finish()
+            });
+
+            // 淘汰20%
+            let evict_count = (candidates.len() / 5).max(1);
+
+            // Clone the addrs to evict to avoid lifetime issues
+            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
+                .take(evict_count)
+                .copied()
+                .collect();
+
+            for addr in addrs_to_evict {
+                if let Some(entry) = hot.remove(&addr) {
+                    entries_to_evict.push((addr, entry));
                 }
-                cold.insert(*addr, entry);
-                self.fifo_queue.write().unwrap().push_back(*addr);
+            }
+        }
 
-                let mut lru = self.lru_order.write().unwrap();
-                if let Some(pos) = lru.iter().position(|&a| a == *addr) {
+        // Now insert the evicted entries into cold cache
+        for (addr, entry) in entries_to_evict {
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                if cold.len() >= self.config.max_entries {
+                    drop(cold);
+                    self.evict_cold();
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        cold.insert(addr, entry);
+                    }
+                } else {
+                    cold.insert(addr, entry);
+                }
+            }
+
+            if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                fifo.push_back(addr);
+            }
+
+            if let Ok(mut lru) = self.lru_order.try_write() {
+                if let Some(pos) = lru.iter().position(|&a| a == addr) {
                     lru.remove(pos);
                 }
             }
@@ -1250,8 +1430,7 @@ impl UnifiedCodeCache {
     /// 预热缓存
     pub fn warmup(&self, hot_addrs: &[GuestAddr]) {
         // 预热策略：保留热点地址的缓存条目
-        {
-            let mut hot = self.hot_cache.write().unwrap();
+        if let Ok(mut hot) = self.hot_cache.try_write() {
             for &addr in hot_addrs.iter().take(self.config.warmup_size) {
                 if let Some(entry) = hot.get_mut(&addr) {
                     // 提高热点条目的热度
@@ -1261,8 +1440,7 @@ impl UnifiedCodeCache {
             }
         }
 
-        {
-            let mut cold = self.cold_cache.write().unwrap();
+        if let Ok(mut cold) = self.cold_cache.try_write() {
             for &addr in hot_addrs.iter().take(self.config.warmup_size) {
                 if let Some(entry) = cold.get_mut(&addr) {
                     // 提高热点条目的热度
@@ -1275,47 +1453,47 @@ impl UnifiedCodeCache {
 
     /// 获取热点条目
     pub fn get_hot_entries(&self, limit: usize) -> Vec<(GuestAddr, f64)> {
-        let hot = self.hot_cache.read().unwrap();
-        let cold = self.cold_cache.read().unwrap();
+        let hot_entries = if let (Ok(hot), Ok(cold)) = (self.hot_cache.try_read(), self.cold_cache.try_read()) {
+            let mut entries: Vec<_> = hot
+                .iter()
+                .map(|(&addr, entry)| (addr, entry.hotness_score))
+                .chain(
+                    cold.iter()
+                        .map(|(&addr, entry)| (addr, entry.hotness_score)),
+                )
+                .collect();
 
-        let mut hot_entries: Vec<_> = hot
-            .iter()
-            .map(|(&addr, entry)| (addr, entry.hotness_score))
-            .chain(
-                cold.iter()
-                    .map(|(&addr, entry)| (addr, entry.hotness_score)),
-            )
-            .collect();
+            entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            entries.into_iter().take(limit).collect()
+        } else {
+            Vec::new()
+        };
 
-        hot_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        hot_entries.into_iter().take(limit).collect()
+        hot_entries
     }
 
     /// 清空缓存
     pub fn clear(&self) {
-        {
-            let mut hot = self.hot_cache.write().unwrap();
+        if let Ok(mut hot) = self.hot_cache.try_write() {
             hot.clear();
         }
 
-        {
-            let mut cold = self.cold_cache.write().unwrap();
+        if let Ok(mut cold) = self.cold_cache.try_write() {
             cold.clear();
         }
 
-        {
-            let mut lru = self.lru_order.write().unwrap();
+        if let Ok(mut lru) = self.lru_order.try_write() {
             lru.clear();
         }
 
-        {
-            let mut fifo = self.fifo_queue.write().unwrap();
+        if let Ok(mut fifo) = self.fifo_queue.try_write() {
             fifo.clear();
         }
 
         // 重置统计信息
-        let mut stats = self.stats.lock().unwrap();
-        *stats = CacheStats::default();
+        if let Ok(mut stats) = self.stats.try_lock() {
+            *stats = CacheStats::default();
+        }
     }
 
     /// 生成诊断报告
@@ -1397,61 +1575,66 @@ impl SmartPrefetcher {
 
     /// 记录执行跳转（用于学习访问模式）
     pub fn record_jump(&self, from_addr: GuestAddr, to_addr: GuestAddr) {
-        let mut history = self.history.write().unwrap();
-        history.jump_history.entry(from_addr)
-            .or_insert_with(Vec::new)
-            .push(to_addr);
-        history.last_updated = Instant::now();
+        if let Ok(mut history) = self.history.try_write() {
+            history.jump_history.entry(from_addr)
+                .or_insert_with(Vec::new)
+                .push(to_addr);
+            history.last_updated = Instant::now();
 
-        // 分析访问模式
-        let pattern = self.analyze_access_pattern(from_addr, to_addr);
-        history.access_patterns.insert(from_addr, pattern);
+            // 分析访问模式
+            let pattern = self.analyze_access_pattern(from_addr, to_addr);
+            history.access_patterns.insert(from_addr, pattern);
 
-        // 如果启用了智能预取，添加预测的地址到预取队列
-        if self.config.enable_smart_prefetch {
-            self.add_predicted_addresses(from_addr, to_addr);
+            // 如果启用了智能预取，添加预测的地址到预取队列
+            if self.config.enable_smart_prefetch {
+                self.add_predicted_addresses(from_addr, to_addr);
+            }
         }
     }
 
     /// 分析访问模式
     fn analyze_access_pattern(&self, from_addr: GuestAddr, to_addr: GuestAddr) -> AccessPattern {
-        let history = self.history.read().unwrap();
-
-        // 检查是否是顺序访问（地址连续）
-        if to_addr == from_addr + 4 {
-            return AccessPattern::Sequential;
-        }
-
-        // 检查是否是循环（返回到之前访问过的地址）
-        if let Some(targets) = history.jump_history.get(&to_addr) {
-            if targets.contains(&from_addr) {
-                return AccessPattern::Looping;
+        if let Ok(history) = self.history.try_read() {
+            // 检查是否是顺序访问（地址连续）
+            if to_addr == from_addr + 4 {
+                return AccessPattern::Sequential;
             }
-        }
 
-        AccessPattern::Branching
+            // 检查是否是循环（返回到之前访问过的地址）
+            if let Some(targets) = history.jump_history.get(&to_addr) {
+                if targets.contains(&from_addr) {
+                    return AccessPattern::Looping;
+                }
+            }
+
+            AccessPattern::Branching
+        } else {
+            AccessPattern::Branching
+        }
     }
 
     /// 添加预测的地址到预取队列
     fn add_predicted_addresses(&self, from_addr: GuestAddr, to_addr: GuestAddr) {
-        let mut queue = self.prefetch_queue.write().unwrap();
-        let mut prefetched = self.prefetched_addresses.write().unwrap();
-
-        // 基于访问模式预测后续地址
         let predicted_addresses = self.predict_next_addresses(from_addr, to_addr);
 
-        for addr in predicted_addresses {
-            // 检查是否已经在队列中或已预取
-            if !queue.contains(&addr) && !prefetched.contains(&addr) {
-                // 检查队列大小限制
-                if queue.len() >= self.config.max_prefetch_queue_size {
-                    queue.pop_front(); // 移除最旧的
-                }
-                queue.push_back(addr);
+        if let (Ok(mut queue), Ok(mut prefetched)) = (
+            self.prefetch_queue.try_write(),
+            self.prefetched_addresses.try_write()
+        ) {
+            for addr in predicted_addresses {
+                // 检查是否已经在队列中或已预取
+                if !queue.contains(&addr) && !prefetched.contains(&addr) {
+                    // 检查队列大小限制
+                    if queue.len() >= self.config.max_prefetch_queue_size {
+                        queue.pop_front(); // 移除最旧的
+                    }
+                    queue.push_back(addr);
 
-                // 更新统计
-                let mut stats = self.stats.lock().unwrap();
-                stats.total_prefetch_requests += 1;
+                    // 更新统计
+                    if let Ok(mut stats) = self.stats.try_lock() {
+                        stats.total_prefetch_requests += 1;
+                    }
+                }
             }
         }
     }
@@ -1459,32 +1642,33 @@ impl SmartPrefetcher {
     /// 预测后续访问地址
     fn predict_next_addresses(&self, from_addr: GuestAddr, to_addr: GuestAddr) -> Vec<GuestAddr> {
         let mut predictions = Vec::new();
-        let history = self.history.read().unwrap();
 
-        // 基于跳转历史进行预测
-        if let Some(targets) = history.jump_history.get(&to_addr) {
-            // 取最常跳转的目标
-            let mut target_counts = HashMap::new();
-            for &target in targets {
-                *target_counts.entry(target).or_insert(0) += 1;
+        if let Ok(history) = self.history.try_read() {
+            // 基于跳转历史进行预测
+            if let Some(targets) = history.jump_history.get(&to_addr) {
+                // 取最常跳转的目标
+                let mut target_counts = HashMap::new();
+                for &target in targets {
+                    *target_counts.entry(target).or_insert(0) += 1;
+                }
+
+                // 按频率排序，取前N个
+                let mut sorted_targets: Vec<_> = target_counts.into_iter().collect();
+                sorted_targets.sort_by(|a, b| b.1.cmp(&a.1));
+
+                for (target, _) in sorted_targets.into_iter().take(self.config.prefetch_window_size) {
+                    predictions.push(target);
+                }
             }
 
-            // 按频率排序，取前N个
-            let mut sorted_targets: Vec<_> = target_counts.into_iter().collect();
-            sorted_targets.sort_by(|a, b| b.1.cmp(&a.1));
-
-            for (target, _) in sorted_targets.into_iter().take(self.config.prefetch_window_size) {
-                predictions.push(target);
-            }
-        }
-
-        // 如果没有足够的跳转历史，使用启发式预测
-        if predictions.len() < self.config.prefetch_window_size {
-            // 对于顺序访问，预测后续地址
-            if let Some(AccessPattern::Sequential) = history.access_patterns.get(&from_addr) {
-                let remaining = self.config.prefetch_window_size - predictions.len();
-                for i in 1..=remaining {
-                    predictions.push(to_addr + (i as u64 * 4));
+            // 如果没有足够的跳转历史，使用启发式预测
+            if predictions.len() < self.config.prefetch_window_size {
+                // 对于顺序访问，预测后续地址
+                if let Some(AccessPattern::Sequential) = history.access_patterns.get(&from_addr) {
+                    let remaining = self.config.prefetch_window_size - predictions.len();
+                    for i in 1..=remaining {
+                        predictions.push(to_addr + (i as u64 * 4));
+                    }
                 }
             }
         }
@@ -1494,35 +1678,47 @@ impl SmartPrefetcher {
 
     /// 获取下一个要预取的地址
     pub fn get_next_prefetch_address(&self) -> Option<GuestAddr> {
-        let mut queue = self.prefetch_queue.write().unwrap();
-        queue.pop_front()
+        if let Ok(mut queue) = self.prefetch_queue.try_write() {
+            queue.pop_front()
+        } else {
+            None
+        }
     }
 
     /// 标记地址已预取
     pub fn mark_prefetched(&self, addr: GuestAddr) {
-        let mut prefetched = self.prefetched_addresses.write().unwrap();
-        prefetched.insert(addr);
+        if let Ok(mut prefetched) = self.prefetched_addresses.try_write() {
+            prefetched.insert(addr);
 
-        // 更新统计
-        let mut stats = self.stats.lock().unwrap();
-        stats.successful_prefetches += 1;
+            // 更新统计
+            if let Ok(mut stats) = self.stats.try_lock() {
+                stats.successful_prefetches += 1;
+            }
+        }
     }
 
     /// 记录预取命中
     pub fn record_prefetch_hit(&self) {
-        let mut stats = self.stats.lock().unwrap();
-        stats.prefetch_hits += 1;
-        stats.prefetch_accuracy = stats.prefetch_hits as f64 / stats.successful_prefetches as f64;
+        if let Ok(mut stats) = self.stats.try_lock() {
+            stats.prefetch_hits += 1;
+            if stats.successful_prefetches > 0 {
+                stats.prefetch_accuracy = stats.prefetch_hits as f64 / stats.successful_prefetches as f64;
+            }
+        }
     }
 
     /// 获取预取队列大小
     pub fn queue_size(&self) -> usize {
-        self.prefetch_queue.read().unwrap().len()
+        self.prefetch_queue.try_read()
+            .map(|q| q.len())
+            .unwrap_or(0)
     }
 
     /// 获取预取统计
     pub fn get_stats(&self) -> PrefetchStats {
-        let mut stats = self.stats.lock().unwrap().clone();
+        let mut stats = self.stats.try_lock()
+            .map(|s| s.clone())
+            .unwrap_or_default();
         stats.queue_size = self.queue_size();
         stats
     }
@@ -1573,11 +1769,13 @@ impl UnifiedCodeCache {
                     if let Some(addr) = prefetcher_clone.get_next_prefetch_address() {
                         // 检查地址是否已经在缓存中
                         let already_cached = {
-                            let hot = hot_cache.read().unwrap();
-                            let cold = cold_cache.read().unwrap();
-                            hot.contains_key(&addr) || cold.contains_key(&addr)
+                            if let (Ok(hot), Ok(cold)) = (hot_cache.try_read(), cold_cache.try_read()) {
+                                hot.contains_key(&addr) || cold.contains_key(&addr)
+                            } else {
+                                false
+                            }
                         };
-                        
+
                         if !already_cached {
                             // 创建空的IR块用于预编译
                             // 实际实现需要从某个源获取IR块
@@ -1586,20 +1784,21 @@ impl UnifiedCodeCache {
                                 ops: Vec::new(),
                                 term: vm_ir::Terminator::Ret,
                             };
-                            
+
                             // 发送编译请求
-                            if let Some(ref tx) = *compile_tx.lock().unwrap() {
+                            if let Some(ref tx) = compile_tx.try_lock().ok().and_then(|tx| tx.as_ref().cloned()) {
                                 let request = CompileRequest {
                                     addr,
                                     ir_block,
                                     priority: config.prefetch_priority,
                                 };
-                                
+
                                 if tx.try_send(request).is_ok() {
                                     // 更新预取统计
-                                    let mut stats_guard = stats.lock().unwrap();
-                                    stats_guard.prefetch_compiles = stats_guard.prefetch_compiles.saturating_add(1);
-                                    
+                                    if let Ok(mut stats_guard) = stats.try_lock() {
+                                        stats_guard.prefetch_compiles = stats_guard.prefetch_compiles.saturating_add(1);
+                                    }
+
                                     // 标记为已预取
                                     prefetcher_clone.mark_prefetched(addr);
                                 }
@@ -1658,11 +1857,11 @@ mod prefetch_tests {
         let prefetcher = SmartPrefetcher::new(config);
 
         // 记录一些跳转
-        prefetcher.record_jump(0x1000, 0x2000);
-        prefetcher.record_jump(0x1000, 0x2000); // 重复跳转
-        prefetcher.record_jump(0x1000, 0x3000);
-        prefetcher.record_jump(0x2000, 0x4000);
-        prefetcher.record_jump(0x2000, 0x4000); // 重复跳转
+        prefetcher.record_jump(vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x2000));
+        prefetcher.record_jump(vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x2000)); // 重复跳转
+        prefetcher.record_jump(vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x3000));
+        prefetcher.record_jump(vm_core::GuestAddr(0x2000), vm_core::GuestAddr(0x4000));
+        prefetcher.record_jump(vm_core::GuestAddr(0x2000), vm_core::GuestAddr(0x4000)); // 重复跳转
 
         // 检查预取队列
         let queue_size = prefetcher.queue_size();
@@ -1700,7 +1899,7 @@ mod prefetch_tests {
         assert!(cache.prefetcher.is_some());
 
         // 记录跳转
-        cache.record_jump(0x1000, 0x2000);
+        cache.record_jump(vm_core::GuestAddr(0x1000), vm_core::GuestAddr(0x2000));
 
         // 获取预取统计
         if let Some(stats) = cache.get_prefetch_stats() {

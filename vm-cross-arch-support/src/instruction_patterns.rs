@@ -3,9 +3,13 @@
 //! This module provides unified instruction pattern matching and semantic analysis
 //! across different architectures, enabling better cross-architecture translation.
 
-use crate::encoding::{Architecture, RegId};
 use std::collections::{HashMap, HashSet};
+
 use thiserror::Error;
+use vm_core::error::CoreError;
+use vm_core::{GuestAddr, VmError};
+
+use crate::encoding::{Architecture, RegId};
 
 /// Errors that can occur during pattern matching
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -20,6 +24,35 @@ pub enum PatternError {
     UnsupportedArchitecture(Architecture),
     #[error("Pattern matching failed: {0}")]
     MatchingFailed(String),
+}
+
+impl From<PatternError> for VmError {
+    fn from(err: PatternError) -> Self {
+        match err {
+            PatternError::InvalidPattern(msg) => VmError::Core(CoreError::DecodeError {
+                message: format!("Invalid instruction pattern: {}", msg),
+                position: Some(GuestAddr(0)),
+                module: "vm-cross-arch-support::instruction_patterns".to_string(),
+            }),
+            PatternError::PatternNotFound(op) => VmError::Core(CoreError::NotSupported {
+                feature: format!("Pattern for operation: {}", op),
+                module: "vm-cross-arch-support::instruction_patterns".to_string(),
+            }),
+            PatternError::IncompatibleOperands(msg) => VmError::Core(CoreError::InvalidParameter {
+                name: "operands".to_string(),
+                value: "".to_string(),
+                message: format!("Incompatible operands: {}", msg),
+            }),
+            PatternError::UnsupportedArchitecture(arch) => VmError::Core(CoreError::NotSupported {
+                feature: format!("Pattern matching for architecture {:?}", arch),
+                module: "vm-cross-arch-support::instruction_patterns".to_string(),
+            }),
+            PatternError::MatchingFailed(msg) => VmError::Core(CoreError::Internal {
+                message: format!("Pattern matching failed: {}", msg),
+                module: "vm-cross-arch-support::instruction_patterns".to_string(),
+            }),
+        }
+    }
 }
 
 /// Instruction categories for classification
@@ -451,8 +484,7 @@ impl DefaultPatternMatcher {
     /// Add common arithmetic patterns
     fn add_arithmetic_patterns(&mut self) {
         // ADD pattern
-        let add_pattern =
-            InstructionPattern::new("add", InstructionCategory::Arithmetic(ArithmeticType::Add))
+        let add_pattern = InstructionPattern::new("add", InstructionCategory::Arithmetic(ArithmeticType::Add))
                 .with_operand(OperandType::Register(RegId(0))) // dst
                 .with_operand(OperandType::Register(RegId(1))) // src1
                 .with_operand(OperandType::Register(RegId(2))) // src2
@@ -484,8 +516,7 @@ impl DefaultPatternMatcher {
         self.add_pattern(add_pattern);
 
         // SUB pattern
-        let sub_pattern =
-            InstructionPattern::new("sub", InstructionCategory::Arithmetic(ArithmeticType::Sub))
+        let sub_pattern = InstructionPattern::new("sub", InstructionCategory::Arithmetic(ArithmeticType::Sub))
                 .with_operand(OperandType::Register(RegId(0))) // dst
                 .with_operand(OperandType::Register(RegId(1))) // src1
                 .with_operand(OperandType::Register(RegId(2))) // src2
@@ -520,8 +551,7 @@ impl DefaultPatternMatcher {
     /// Add common logical patterns
     fn add_logical_patterns(&mut self) {
         // AND pattern
-        let and_pattern =
-            InstructionPattern::new("and", InstructionCategory::Logical(LogicalType::And))
+        let and_pattern = InstructionPattern::new("and", InstructionCategory::Logical(LogicalType::And))
                 .with_operand(OperandType::Register(RegId(0))) // dst
                 .with_operand(OperandType::Register(RegId(1))) // src1
                 .with_operand(OperandType::Register(RegId(2))) // src2
@@ -553,8 +583,7 @@ impl DefaultPatternMatcher {
         self.add_pattern(and_pattern);
 
         // OR pattern
-        let or_pattern =
-            InstructionPattern::new("or", InstructionCategory::Logical(LogicalType::Or))
+        let or_pattern = InstructionPattern::new("or", InstructionCategory::Logical(LogicalType::Or))
                 .with_operand(OperandType::Register(RegId(0))) // dst
                 .with_operand(OperandType::Register(RegId(1))) // src1
                 .with_operand(OperandType::Register(RegId(2))) // src2
@@ -589,8 +618,7 @@ impl DefaultPatternMatcher {
     /// Add common memory patterns
     fn add_memory_patterns(&mut self) {
         // LOAD pattern
-        let load_pattern =
-            InstructionPattern::new("load", InstructionCategory::Memory(MemoryType::Load))
+        let load_pattern = InstructionPattern::new("load", InstructionCategory::Memory(MemoryType::Load))
                 .with_operand(OperandType::Register(RegId(0))) // dst
                 .with_operand(OperandType::Memory(MemoryOperand::simple(RegId(1), 0, 8))) // [src]
                 .with_flags(InstructionFlags {
@@ -621,8 +649,7 @@ impl DefaultPatternMatcher {
         self.add_pattern(load_pattern);
 
         // STORE pattern
-        let store_pattern =
-            InstructionPattern::new("store", InstructionCategory::Memory(MemoryType::Store))
+        let store_pattern = InstructionPattern::new("store", InstructionCategory::Memory(MemoryType::Store))
                 .with_operand(OperandType::Memory(MemoryOperand::simple(RegId(0), 0, 8))) // [dst]
                 .with_operand(OperandType::Register(RegId(1))) // src
                 .with_flags(InstructionFlags {
@@ -809,5 +836,35 @@ mod tests {
         assert_eq!(indexed_op.base, Some(RegId(1)));
         assert_eq!(indexed_op.index, Some(RegId(2)));
         assert_eq!(indexed_op.scale, 4);
+    }
+
+    #[test]
+    fn test_pattern_error_to_vm_error_conversion() {
+        use vm_core::VmError;
+
+        // Test InvalidPattern conversion
+        let err = PatternError::InvalidPattern("bad pattern".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test PatternNotFound conversion
+        let err = PatternError::PatternNotFound("unknown_op".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test IncompatibleOperands conversion
+        let err = PatternError::IncompatibleOperands("type mismatch".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test UnsupportedArchitecture conversion
+        let err = PatternError::UnsupportedArchitecture(Architecture::RISCV64);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test MatchingFailed conversion
+        let err = PatternError::MatchingFailed("match error".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
     }
 }

@@ -66,8 +66,9 @@ pub mod optimized_regs {
 
 /// Optimized memory operation patterns
 pub mod optimized_memory {
-    use super::optimized_regs;
     use vm_core::MMU;
+
+    use super::optimized_regs;
 
     /// Load-add-store fusion - common in atomic operations
     #[inline(always)]

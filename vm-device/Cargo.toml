@@ -28,6 +28,9 @@ winit = { workspace = true }
 pollster = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+rand = { workspace = true }
 # vm-device uses: sync (Mutex, mpsc, oneshot, Semaphore), rt-multi-thread (tokio::spawn), fs (File), io-util (AsyncReadExt, AsyncSeekExt, AsyncWriteExt), time (sleep), macros (tokio::test)
 tokio = { workspace = true }
 parking_lot = { workspace = true }

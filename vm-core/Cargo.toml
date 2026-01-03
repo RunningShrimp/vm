@@ -3,49 +3,42 @@ name = "vm-core"
 version = "0.1.0"
 edition = "2024"
 
-
-
 [dependencies]
 log = { workspace = true }
 parking_lot = { workspace = true }
-
 serde = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
-toml = "0.8"
+toml = { workspace = true }
 chrono = { workspace = true, optional = true }
 miniz_oxide = { workspace = true }
-
 bincode = { workspace = true }
-
-# Dependencies from merged vm-common
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+regex = { workspace = true }
+backtrace = { workspace = true }
+num_cpus = { workspace = true }
+dashmap = "6.0"
 
-# Dependencies from merged vm-foundation
-regex = "1.0"
-backtrace = "0.3"
+# GC crate - resolves circular dependency with vm-optimizers
+vm-gc = { path = "../vm-gc" }
+
+tokio = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
 std = []
 async = ["tokio", "futures", "async-trait"]
-debug = ["std"]
-# Merged features from vm-common and vm-foundation
-common = []
-foundation = []
 
-[dependencies.tokio]
-workspace = true
-optional = true
+# Architecture features - used by macros
+x86_64 = []
+arm64 = []
+riscv64 = []
 
-[dependencies.futures]
-workspace = true
-optional = true
-
-[dependencies.async-trait]
-workspace = true
-optional = true
+# Event sourcing feature
+enhanced-event-sourcing = ["chrono", "tokio"]
 
 [dev-dependencies]
 proptest = "1.0"

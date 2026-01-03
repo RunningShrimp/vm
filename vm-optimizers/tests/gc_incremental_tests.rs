@@ -2,10 +2,12 @@
 //!
 //! 测试增量垃圾回收的功能和性能
 
-use vm_optimizers::gc_incremental_enhanced::{
-    GCPhase, IncrementalGC, IncrementalGCConfig, IncrementalGCStats, MarkStack, ObjectPtr,
-};
 use std::time::Instant;
+
+use vm_gc::common::ObjectPtr;
+use vm_gc::incremental::{
+    GCPhase, IncrementalGC, IncrementalGCConfig, IncrementalGCStats, MarkStack,
+};
 
 // ============================================================================
 // MarkStack测试
@@ -106,9 +108,24 @@ fn test_incremental_gc_config_custom() {
 fn test_incremental_gc_stats_default() {
     let stats = IncrementalGCStats::default();
 
-    assert_eq!(stats.marked_objects.load(std::sync::atomic::Ordering::Relaxed), 0);
-    assert_eq!(stats.swept_objects.load(std::sync::atomic::Ordering::Relaxed), 0);
-    assert_eq!(stats.freed_memory.load(std::sync::atomic::Ordering::Relaxed), 0);
+    assert_eq!(
+        stats
+            .marked_objects
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    assert_eq!(
+        stats
+            .swept_objects
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    assert_eq!(
+        stats
+            .freed_memory
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
 }
 
 #[test]
@@ -120,7 +137,9 @@ fn test_incremental_gc_stats_pause_time() {
     assert_eq!(stats.avg_pause_time_ms(), 0.0);
 
     // 添加一些暂停时间
-    stats.total_pauses.fetch_add(2, std::sync::atomic::Ordering::Relaxed);
+    stats
+        .total_pauses
+        .fetch_add(2, std::sync::atomic::Ordering::Relaxed);
     stats
         .total_pause_time_ns
         .fetch_add(10_000_000, std::sync::atomic::Ordering::Relaxed); // 10ms
@@ -150,15 +169,21 @@ fn test_incremental_gc_stats_mark_sweep() {
         .fetch_add(1000, std::sync::atomic::Ordering::Relaxed);
 
     assert_eq!(
-        stats.marked_objects.load(std::sync::atomic::Ordering::Relaxed),
+        stats
+            .marked_objects
+            .load(std::sync::atomic::Ordering::Relaxed),
         100
     );
     assert_eq!(
-        stats.swept_objects.load(std::sync::atomic::Ordering::Relaxed),
+        stats
+            .swept_objects
+            .load(std::sync::atomic::Ordering::Relaxed),
         50
     );
     assert_eq!(
-        stats.freed_memory.load(std::sync::atomic::Ordering::Relaxed),
+        stats
+            .freed_memory
+            .load(std::sync::atomic::Ordering::Relaxed),
         1000
     );
 }
@@ -220,11 +245,15 @@ fn test_incremental_gc_stats() {
 
     // 初始统计应该为0
     assert_eq!(
-        stats.marked_objects.load(std::sync::atomic::Ordering::Relaxed),
+        stats
+            .marked_objects
+            .load(std::sync::atomic::Ordering::Relaxed),
         0
     );
     assert_eq!(
-        stats.swept_objects.load(std::sync::atomic::Ordering::Relaxed),
+        stats
+            .swept_objects
+            .load(std::sync::atomic::Ordering::Relaxed),
         0
     );
 }
@@ -235,7 +264,10 @@ fn test_incremental_gc_concurrent_access() {
     use std::thread;
 
     let config = IncrementalGCConfig::default();
-    let gc = Arc::new(std::sync::Mutex::new(IncrementalGC::new(1024 * 1024, config)));
+    let gc = Arc::new(std::sync::Mutex::new(IncrementalGC::new(
+        1024 * 1024,
+        config,
+    )));
 
     let mut handles = vec![];
 
@@ -260,8 +292,11 @@ fn test_incremental_gc_concurrent_access() {
     let gc = gc.lock().unwrap();
     let stats = gc.stats();
     // 统计可能大于0
-    let marked = stats.marked_objects.load(std::sync::atomic::Ordering::Relaxed);
-    assert!(marked >= 0);
+    let marked = stats
+        .marked_objects
+        .load(std::sync::atomic::Ordering::Relaxed);
+    // marked is usize, always >= 0, just verify it's not causing overflow
+    assert!(marked < usize::MAX);
 }
 
 // ============================================================================
@@ -297,7 +332,7 @@ fn test_incremental_gc_mark_stack_performance() {
         let _ = stack.push(ObjectPtr(i));
     }
 
-    while let Some(_) = stack.pop() {}
+    while stack.pop().is_some() {}
 
     let duration = start.elapsed();
 
@@ -405,6 +440,8 @@ fn test_gc_stats_concurrent_updates() {
     }
 
     // 总和应该是 0+1+...+99 = 4950，乘以10个线程 = 49500
-    let marked = stats.marked_objects.load(std::sync::atomic::Ordering::Relaxed);
+    let marked = stats
+        .marked_objects
+        .load(std::sync::atomic::Ordering::Relaxed);
     assert_eq!(marked, 49500);
 }

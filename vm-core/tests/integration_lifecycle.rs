@@ -12,9 +12,10 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{
     ExecMode, GuestAddr, GuestArch, GuestRegs, VmConfig, VmError as CoreVmError, VmLifecycleState,
-    VmState,
+    VmRuntimeState,
 };
 
 // ============================================================================
@@ -24,7 +25,7 @@ use vm_core::{
 /// Test VM instance wrapper
 struct TestVm {
     config: VmConfig,
-    state: Arc<Mutex<VmState>>,
+    state: Arc<Mutex<VmRuntimeState>>,
     lifecycle_state: VmLifecycleState,
     test_data_dir: PathBuf,
 }
@@ -41,7 +42,7 @@ impl TestVm {
             initrd_path: None,
         };
 
-        let state = Arc::new(Mutex::new(VmState {
+        let state = Arc::new(Mutex::new(VmRuntimeState {
             regs: GuestRegs::default(),
             memory: vec![0u8; memory_size],
             pc: GuestAddr(0),
@@ -73,10 +74,10 @@ impl TestVm {
     /// Simulate boot process
     fn boot(&mut self) -> Result<(), CoreVmError> {
         if self.lifecycle_state != VmLifecycleState::Created {
-            return Err(CoreVmError::ExecutionError(ExecutionError::InvalidState {
-                expected: "Created".to_string(),
-                actual: format!("{:?}", self.lifecycle_state),
-            }));
+            return Err(CoreVmError::Io(format!(
+                "Invalid state: expected Created, got {:?}",
+                self.lifecycle_state
+            )));
         }
 
         self.init()?;
@@ -87,10 +88,10 @@ impl TestVm {
     /// Pause VM execution
     fn pause(&mut self) -> Result<(), CoreVmError> {
         if self.lifecycle_state != VmLifecycleState::Running {
-            return Err(CoreVmError::ExecutionError(ExecutionError::InvalidState {
-                expected: "Running".to_string(),
-                actual: format!("{:?}", self.lifecycle_state),
-            }));
+            return Err(CoreVmError::Io(format!(
+                "Invalid state: expected Running, got {:?}",
+                self.lifecycle_state
+            )));
         }
 
         self.lifecycle_state = VmLifecycleState::Paused;
@@ -100,10 +101,10 @@ impl TestVm {
     /// Resume VM execution
     fn resume(&mut self) -> Result<(), CoreVmError> {
         if self.lifecycle_state != VmLifecycleState::Paused {
-            return Err(CoreVmError::ExecutionError(ExecutionError::InvalidState {
-                expected: "Paused".to_string(),
-                actual: format!("{:?}", self.lifecycle_state),
-            }));
+            return Err(CoreVmError::Io(format!(
+                "Invalid state: expected Paused, got {:?}",
+                self.lifecycle_state
+            )));
         }
 
         self.lifecycle_state = VmLifecycleState::Running;
@@ -113,10 +114,7 @@ impl TestVm {
     /// Stop VM execution
     fn stop(&mut self) -> Result<(), CoreVmError> {
         if self.lifecycle_state == VmLifecycleState::Stopped {
-            return Err(CoreVmError::ExecutionError(ExecutionError::InvalidState {
-                expected: "!Stopped".to_string(),
-                actual: format!("{:?}", self.lifecycle_state),
-            }));
+            return Err(CoreVmError::Io(format!("Invalid state: already Stopped")));
         }
 
         self.lifecycle_state = VmLifecycleState::Stopped;
@@ -128,38 +126,23 @@ impl TestVm {
         let state = self.state.lock().unwrap();
         let snapshot_path = self.test_data_dir.join(format!("{}.snap", name));
 
-        // Serialize state
-        let serialized =
-            bincode::encode_to_vec(&*state, bincode::config::standard()).map_err(|e| {
-                CoreVmError::ExecutionError(ExecutionError::Other {
-                    msg: format!("Failed to serialize snapshot: {}", e),
-                })
-            })?;
+        // Use JSON serialization for simplicity since VmRuntimeState might not support bincode
+        let serialized = serde_json::to_vec(&*state)
+            .map_err(|e| CoreVmError::Io(format!("Failed to serialize snapshot: {}", e)))?;
 
-        fs::write(&snapshot_path, serialized).map_err(|e| {
-            CoreVmError::ExecutionError(ExecutionError::Other {
-                msg: format!("Failed to write snapshot: {}", e),
-            })
-        })?;
+        fs::write(&snapshot_path, serialized)
+            .map_err(|e| CoreVmError::Io(format!("Failed to write snapshot: {}", e)))?;
 
         Ok(snapshot_path)
     }
 
     /// Restore from a snapshot
     fn restore_snapshot(&mut self, path: &PathBuf) -> Result<(), CoreVmError> {
-        let data = fs::read(path).map_err(|e| {
-            CoreVmError::ExecutionError(ExecutionError::Other {
-                msg: format!("Failed to read snapshot: {}", e),
-            })
-        })?;
+        let data = fs::read(path)
+            .map_err(|e| CoreVmError::Io(format!("Failed to read snapshot: {}", e)))?;
 
-        let restored: VmState = bincode::decode_from_slice(&data, bincode::config::standard())
-            .map_err(|(e, _)| {
-                CoreVmError::ExecutionError(ExecutionError::Other {
-                    msg: format!("Failed to deserialize snapshot: {}", e),
-                })
-            })?
-            .0;
+        let restored: VmRuntimeState = serde_json::from_slice(&data)
+            .map_err(|e| CoreVmError::Io(format!("Failed to deserialize snapshot: {}", e)))?;
 
         let mut state = self.state.lock().unwrap();
         *state = restored;
@@ -230,7 +213,7 @@ fn test_vm_snapshot_and_restore() {
 
     {
         let mut state = vm.state.lock().unwrap();
-        state.regs.x[0] = 0xDEADBEEF;
+        state.regs.gpr[0] = 0xDEADBEEF;
         state.pc = GuestAddr(0x2000);
         state.memory[0] = 0x42;
     }
@@ -242,7 +225,7 @@ fn test_vm_snapshot_and_restore() {
     // Modify state again
     {
         let mut state = vm.state.lock().unwrap();
-        state.regs.x[0] = 0xBADBADBAD;
+        state.regs.gpr[0] = 0xBADBADBAD;
         state.pc = GuestAddr(0x3000);
         state.memory[0] = 0x99;
     }
@@ -251,7 +234,7 @@ fn test_vm_snapshot_and_restore() {
     assert!(vm.restore_snapshot(&snapshot_path).is_ok());
 
     let state = vm.state.lock().unwrap();
-    assert_eq!(state.regs.x[0], 0xDEADBEEF);
+    assert_eq!(state.regs.gpr[0], 0xDEADBEEF);
     assert_eq!(state.pc, GuestAddr(0x2000));
     assert_eq!(state.memory[0], 0x42);
 
@@ -291,13 +274,11 @@ fn test_boot_twice_should_fail() {
     let result = vm.boot();
     assert!(result.is_err());
 
-    if let Err(CoreVmError::ExecutionError(ExecutionError::InvalidState { expected, actual })) =
-        result
-    {
-        assert_eq!(expected, "Created");
-        assert!(actual.contains("Running"));
+    if let Err(CoreVmError::Io(msg)) = result {
+        assert!(msg.contains("Invalid state"));
+        assert!(msg.contains("Created"));
     } else {
-        panic!("Expected InvalidState error");
+        panic!("Expected Io error with invalid state message");
     }
 
     vm.cleanup();
@@ -503,8 +484,8 @@ fn test_snapshot_persistence() {
 
     {
         let mut state = vm1.state.lock().unwrap();
-        state.regs.x[0] = 0x12345678;
-        state.regs.x[1] = 0x87654321;
+        state.regs.gpr[0] = 0x12345678;
+        state.regs.gpr[1] = 0x87654321;
         state.pc = GuestAddr(0x5000);
     }
 
@@ -515,8 +496,8 @@ fn test_snapshot_persistence() {
     assert!(vm2.restore_snapshot(&snapshot_path).is_ok());
 
     let state = vm2.state.lock().unwrap();
-    assert_eq!(state.regs.x[0], 0x12345678);
-    assert_eq!(state.regs.x[1], 0x87654321);
+    assert_eq!(state.regs.gpr[0], 0x12345678);
+    assert_eq!(state.regs.gpr[1], 0x87654321);
     assert_eq!(state.pc, GuestAddr(0x5000));
 
     vm1.cleanup();
@@ -529,7 +510,7 @@ fn test_snapshot_persistence() {
 
 #[test]
 fn test_rapid_snapshot_creation() {
-    let vm = TestVm::new(GuestArch::Riscv64, 1024 * 1024);
+    let mut vm = TestVm::new(GuestArch::Riscv64, 1024 * 1024);
     assert!(vm.boot().is_ok());
 
     // Create 100 snapshots rapidly

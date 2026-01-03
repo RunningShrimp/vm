@@ -6,21 +6,58 @@
 //! - 错误恢复策略
 
 use std::sync::{Arc, Mutex};
-use vm_core::GuestAddr;
+
+use thiserror::Error;
+use vm_core::error::{CoreError, ExecutionError, MemoryError as VmMemoryError};
+use vm_core::{GuestAddr, VmError};
 
 /// 硬件加速回退错误类型（简化版本，用于回退管理）
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum FallbackError {
     /// 不支持的指令
+    #[error("Unsupported instruction during hardware acceleration")]
     UnsupportedInstruction,
     /// 内存访问错误
+    #[error("Memory access error during hardware acceleration")]
     MemoryError,
     /// I/O 错误
+    #[error("I/O error during hardware acceleration")]
     IoError,
     /// 中断错误
+    #[error("Interrupt error during hardware acceleration")]
     InterruptError,
     /// 其他错误
-    Other,
+    #[error("Other hardware acceleration error: {0}")]
+    Other(String),
+}
+
+impl From<FallbackError> for VmError {
+    fn from(err: FallbackError) -> Self {
+        match err {
+            FallbackError::UnsupportedInstruction => {
+                VmError::Execution(ExecutionError::InvalidInstruction {
+                    pc: GuestAddr(0),
+                    opcode: 0,
+                })
+            }
+            FallbackError::MemoryError => VmError::Memory(VmMemoryError::AccessViolation {
+                addr: GuestAddr(0),
+                msg: "Memory access error during hardware acceleration".to_string(),
+                access_type: None,
+            }),
+            FallbackError::IoError => {
+                VmError::Io("I/O error during hardware acceleration".to_string())
+            }
+            FallbackError::InterruptError => VmError::Core(CoreError::Internal {
+                message: "Interrupt error during hardware acceleration".to_string(),
+                module: "vm-accel::fallback".to_string(),
+            }),
+            FallbackError::Other(msg) => VmError::Core(CoreError::Internal {
+                message: msg,
+                module: "vm-accel::fallback".to_string(),
+            }),
+        }
+    }
 }
 
 /// 硬件加速执行结果
@@ -126,7 +163,7 @@ impl AccelFallbackManager {
 
     /// 获取最后一次错误
     pub fn last_error(&self) -> Option<FallbackError> {
-        self.last_error.lock().ok().and_then(|e| *e)
+        self.last_error.lock().ok().and_then(|e| e.clone())
     }
 
     /// 获取回退统计次数
@@ -146,7 +183,7 @@ impl AccelFallbackManager {
             // I/O 错误通常不能恢复
             FallbackError::IoError => false,
             // 其他错误视情况而定
-            FallbackError::Other => true,
+            FallbackError::Other(_) => true,
         }
     }
 
@@ -160,10 +197,10 @@ impl AccelFallbackManager {
     ///
     /// 软件回退执行的结果
     pub fn fallback_execute(&self, error: FallbackError, pc: vm_core::GuestAddr) -> ExecResult {
-        self.record_failure(error);
+        self.record_failure(error.clone());
 
         // 如果不应该回退，直接返回失败
-        if !self.should_fallback(error) {
+        if !self.should_fallback(error.clone()) {
             return ExecResult {
                 success: false,
                 error: Some(error),
@@ -324,5 +361,35 @@ mod tests {
         assert_eq!(resources.reg_buffer.len(), 256);
         assert_eq!(resources.mem_buffer.len(), 1024 * 1024);
         assert_eq!(resources.interrupt_buffer.len(), 128);
+    }
+
+    #[test]
+    fn test_fallback_error_to_vm_error_conversion() {
+        use vm_core::VmError;
+
+        // Test UnsupportedInstruction conversion
+        let err = FallbackError::UnsupportedInstruction;
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Execution(_)));
+
+        // Test MemoryError conversion
+        let err = FallbackError::MemoryError;
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Memory(_)));
+
+        // Test IoError conversion
+        let err = FallbackError::IoError;
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Io(_)));
+
+        // Test InterruptError conversion
+        let err = FallbackError::InterruptError;
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test Other conversion
+        let err = FallbackError::Other("test error".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
     }
 }

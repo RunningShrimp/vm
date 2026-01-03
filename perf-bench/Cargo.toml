@@ -4,6 +4,28 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-vm-engine = { path = "../vm-engine", features = ["executor"] }
+vm-engine = { path = "../vm-engine", features = ["executor", "jit"] }
+vm-mem = { path = "../vm-mem" }
+vm-ir = { path = "../vm-ir" }
+vm-core = { path = "../vm-core" }
+vm-cross-arch-support = { path = "../vm-cross-arch-support" }
 
 [dev-dependencies]
+criterion = { workspace = true }
+rand = { workspace = true }
+
+[[bench]]
+name = "jit_performance"
+harness = false
+
+[[bench]]
+name = "memory_operations"
+harness = false
+
+[[bench]]
+name = "gc_performance"
+harness = false
+
+[[bench]]
+name = "cross_arch_translation"
+harness = false

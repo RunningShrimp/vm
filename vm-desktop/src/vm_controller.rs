@@ -3,14 +3,16 @@
 //! Handles starting, stopping, pausing, and resuming virtual machines.
 //! Manages the integration with vm-core and vm-service.
 
-use crate::ipc::{VmConfig, VmInstance, VmState};
-use log::info;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+use log::info;
 use tokio::task::JoinHandle;
 use vm_core::{ExecMode, GuestArch as Arch, VmConfig as CoreVmConfig};
 use vm_service::VmService;
+
+use crate::ipc::{VmConfig, VmInstance, VmState};
 
 /// Enhanced VM instance with actual service integration
 pub struct EnhancedVmInstance {

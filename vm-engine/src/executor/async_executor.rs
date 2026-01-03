@@ -2,9 +2,10 @@
 //!
 //! 为虚拟机提供异步执行能力
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 /// 执行结果类型
 pub type ExecutionResult = Result<u64, String>;

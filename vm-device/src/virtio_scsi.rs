@@ -1,5 +1,6 @@
-use crate::virtio::{Queue, VirtioDevice};
 use vm_core::MMU;
+
+use crate::virtio::{Queue, VirtioDevice};
 
 pub struct VirtioScsi {
     queues: Vec<Queue>,

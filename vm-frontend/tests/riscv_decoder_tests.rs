@@ -11,7 +11,6 @@
 
 mod test_mmu;
 use test_mmu::TestMMU;
-
 use vm_core::{Decoder, GuestAddr};
 use vm_frontend::riscv64::{RiscvDecoder, RiscvInstruction};
 

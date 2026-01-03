@@ -1,20 +1,17 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+
 use vm_core::vm_state::VirtualMachineState;
 use vm_core::{GuestAddr, MemoryError, VmConfig, VmError, VmLifecycleState, VmResult};
-
 use vm_mem::SoftMmu;
-
-use super::execution::{ExecutionContext, run_async, run_sync};
-use super::lifecycle::{pause, request_pause, request_resume, request_stop, reset, start, stop};
 
 // Re-export type aliases for public use
 pub use super::execution::IrqPolicy;
 pub use super::execution::TrapHandler;
-
+use super::execution::{ExecutionContext, run_async, run_sync};
+use super::lifecycle::{pause, request_pause, request_resume, request_stop, reset, start, stop};
 #[cfg(feature = "performance")]
 use super::performance::{PerformanceConfig, PerformanceContext, PerformanceStats};
-
 #[cfg(feature = "smmu")]
 use super::smmu::SmmuContext;
 
@@ -622,11 +619,11 @@ impl<B: 'static> VirtualMachineService<B> {
         };
 
         // 创建或获取协程调度器（用于优化多vCPU执行）
-        let coroutine_scheduler: Option<Arc<Mutex<vm_runtime::CoroutineScheduler>>> =
+        let coroutine_scheduler: Option<Arc<Mutex<vm_core::runtime::CoroutineScheduler>>> =
             if vcpu_count > 1 {
                 // 为多vCPU场景创建协程调度器
                 Some(Arc::new(Mutex::new(
-                    vm_runtime::CoroutineScheduler::new().map_err(|e| {
+                    vm_core::runtime::CoroutineScheduler::new().map_err(|e| {
                         VmError::Core(vm_core::CoreError::Internal {
                             message: format!("Failed to create coroutine scheduler: {}", e),
                             module: "VirtualMachineService".to_string(),
@@ -671,7 +668,7 @@ impl<B: 'static> VirtualMachineService<B> {
     fn create_async_execution_context(
         &self,
         guest_arch: vm_core::GuestArch,
-        coroutine_scheduler: Option<Arc<Mutex<vm_runtime::CoroutineScheduler>>>,
+        coroutine_scheduler: Option<Arc<Mutex<vm_core::runtime::CoroutineScheduler>>>,
     ) -> ExecutionContext {
         self.performance.create_async_execution_context(
             Arc::clone(&self.run_flag),

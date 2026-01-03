@@ -3,6 +3,7 @@
 //! Provides a simple MMU implementation for testing decoders
 
 use std::collections::HashMap;
+
 use vm_core::{
     AccessType, AddressTranslator, GuestAddr, GuestPhysAddr, MemoryAccess, MmioDevice, MmioManager,
     MmuAsAny, VmError,

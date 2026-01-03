@@ -1,744 +1,878 @@
-//! Profile-Guided Optimization (PGO) 支持
+//! JIT 配置文件引导优化 (Profile-Guided Optimization, PGO)
 //!
-//! 提供运行时profile数据收集、序列化和基于profile的优化决策
+//! 基于运行时性能配置文件数据优化 JIT 编译决策。
+//!
+//! ## 核心概念
+//!
+//! PGO 通过收集程序运行时的实际执行数据来优化编译：
+//! - 哪些代码路径最热（hot paths）
+//! - 哪些分支更可能被采用
+//! - 哪些函数应该内联
+//! - 寄存器分配优化
+//!
+//! ## 实现策略
+//!
+//! 1. **数据收集**: 在运行时收集执行频率、分支预测等数据
+//! 2. **数据持久化**: 将配置文件数据保存到磁盘
+//! 3. **优化应用**: 使用收集的数据指导编译优化
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use vm_core::GuestAddr;
+use vm_ir::IRBlock;
 
-/// Profile数据类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ProfileDataType {
-    /// 代码块执行频率
-    BlockExecutionFrequency,
-    /// 分支预测信息
-    BranchPrediction,
-    /// 内存访问模式
-    MemoryAccessPattern,
-    /// 函数调用频率
-    FunctionCallFrequency,
-    /// 循环迭代次数
-    LoopIterationCount,
-    /// 指令执行频率
-    InstructionFrequency,
-}
+use crate::ExecutionError;
 
-/// 代码块Profile数据
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockProfile {
-    /// 代码块地址
-    pub pc: GuestAddr,
-    /// 执行次数
-    pub execution_count: u64,
-    /// 平均执行时间（纳秒）
-    pub avg_execution_time_ns: u64,
-    /// 总执行时间（纳秒）
-    pub total_execution_time_ns: u64,
-    /// 最后执行时间
-    pub last_execution_time: Option<u64>, // Unix时间戳（秒）
-    /// 调用者集合（哪些代码块调用了这个块）
-    pub callers: HashSet<GuestAddr>,
-    /// 被调用者集合（这个块调用了哪些代码块）
-    pub callees: HashSet<GuestAddr>,
-}
-
-/// 分支Profile数据
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BranchProfile {
-    /// 分支指令地址
-    pub pc: GuestAddr,
-    /// 总分支次数
-    pub total_branches: u64,
-    /// 跳转次数（taken）
-    pub taken_count: u64,
-    /// 不跳转次数（not taken）
-    pub not_taken_count: u64,
-    /// 跳转目标地址 -> 跳转次数
-    pub target_counts: HashMap<GuestAddr, u64>,
-    /// 跳转概率（taken / total）
-    pub taken_probability: f64,
-}
-
-/// 内存访问Profile数据
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryAccessProfile {
-    /// 代码块地址
-    pub pc: GuestAddr,
-    /// 内存访问次数
-    pub access_count: u64,
-    /// 访问的地址范围（最小地址）
-    pub min_address: u64,
-    /// 访问的地址范围（最大地址）
-    pub max_address: u64,
-    /// 访问模式（顺序/随机）
-    pub access_pattern: AccessPattern,
-    /// 缓存命中率（如果可用）
-    pub cache_hit_rate: Option<f64>,
-}
-
-/// 内存访问模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AccessPattern {
-    /// 顺序访问
-    Sequential,
-    /// 随机访问
-    Random,
-    /// 混合模式
-    Mixed,
-}
-
-/// 函数调用Profile数据
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FunctionCallProfile {
-    /// 函数入口地址
-    pub entry_pc: GuestAddr,
-    /// 调用次数
-    pub call_count: u64,
-    /// 平均执行时间（纳秒）
-    pub avg_execution_time_ns: u64,
-    /// 调用者集合
-    pub callers: HashSet<GuestAddr>,
-    /// 递归深度统计
-    pub recursion_depth_stats: HashMap<u32, u64>,
-}
-
-/// 循环Profile数据
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoopProfile {
-    /// 循环入口地址
-    pub entry_pc: GuestAddr,
-    /// 循环迭代次数
-    pub iteration_count: u64,
-    /// 平均迭代次数
-    pub avg_iterations: f64,
-    /// 最大迭代次数
-    pub max_iterations: u64,
-    /// 最小迭代次数
-    pub min_iterations: u64,
-    /// 循环体执行时间（纳秒）
-    pub body_execution_time_ns: u64,
-}
-
-/// 完整的Profile数据
+/// PGO 配置文件数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileData {
-    /// 收集开始时间
-    pub start_time: u64, // Unix时间戳（秒）
-    /// 收集结束时间
-    pub end_time: Option<u64>, // Unix时间戳（秒）
-    /// 代码块Profile数据
-    pub block_profiles: HashMap<GuestAddr, BlockProfile>,
-    /// 分支Profile数据
-    pub branch_profiles: HashMap<GuestAddr, BranchProfile>,
-    /// 内存访问Profile数据
-    pub memory_profiles: HashMap<GuestAddr, MemoryAccessProfile>,
-    /// 函数调用Profile数据
-    pub function_profiles: HashMap<GuestAddr, FunctionCallProfile>,
-    /// 循环Profile数据
-    pub loop_profiles: HashMap<GuestAddr, LoopProfile>,
-    /// 元数据
-    pub metadata: HashMap<String, String>,
+    /// 块执行频率统计
+    pub block_execution_count: HashMap<usize, u64>,
+
+    /// 分支预测数据
+    pub branch_predictions: HashMap<usize, BranchStats>,
+
+    /// 函数调用统计
+    pub function_calls: HashMap<String, CallStats>,
+
+    /// 内存访问模式
+    pub memory_patterns: HashMap<usize, MemoryPattern>,
+
+    /// 总执行次数
+    pub total_executions: u64,
+
+    /// 配置文件生成时间
+    pub profile_timestamp: u64,
+
+    /// 块级性能配置文件
+    pub block_profiles: HashMap<usize, BlockProfile>,
+}
+
+/// 块级性能配置文件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockProfile {
+    /// 块ID
+    pub block_id: usize,
+
+    /// 执行次数
+    pub execution_count: u64,
+
+    /// 平均执行时间（纳秒）
+    pub avg_duration_ns: u64,
+
+    /// 指令数量
+    pub instruction_count: usize,
+
+    /// 分支数量
+    pub branch_count: usize,
+
+    /// 内存访问次数
+    pub memory_access_count: usize,
+
+    /// 调用者列表
+    pub callers: Vec<usize>,
+
+    /// 被调用者列表
+    pub callees: Vec<usize>,
 }
 
 impl Default for ProfileData {
     fn default() -> Self {
         Self {
-            start_time: std::time::SystemTime::now()
+            block_execution_count: HashMap::new(),
+            branch_predictions: HashMap::new(),
+            function_calls: HashMap::new(),
+            memory_patterns: HashMap::new(),
+            total_executions: 0,
+            profile_timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
-            end_time: None,
             block_profiles: HashMap::new(),
-            branch_profiles: HashMap::new(),
-            memory_profiles: HashMap::new(),
-            function_profiles: HashMap::new(),
-            loop_profiles: HashMap::new(),
-            metadata: HashMap::new(),
         }
     }
 }
 
-/// Profile收集器
-pub struct ProfileCollector {
-    /// Profile数据
-    profile_data: Arc<Mutex<ProfileData>>,
-    /// 是否启用收集
-    enabled: Arc<Mutex<bool>>,
-    /// 收集间隔（秒）
-    collection_interval: Duration,
-    /// 最后收集时间
-    last_collection_time: Arc<Mutex<Instant>>,
+/// 分支统计信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchStats {
+    /// 总执行次数
+    pub total_taken: u64,
+
+    /// 采用（taken）次数
+    pub taken_count: u64,
+
+    /// 不采用（not taken）次数
+    pub not_taken_count: u64,
+
+    /// 采用率（0.0-1.0）
+    pub taken_rate: f64,
 }
 
-impl ProfileCollector {
-    /// 创建新的Profile收集器
-    pub fn new(collection_interval: Duration) -> Self {
+impl BranchStats {
+    pub fn new() -> Self {
         Self {
-            profile_data: Arc::new(Mutex::new(ProfileData::default())),
-            enabled: Arc::new(Mutex::new(true)),
-            collection_interval,
-            last_collection_time: Arc::new(Mutex::new(Instant::now())),
-        }
-    }
-
-    /// 启用/禁用收集
-    pub fn set_enabled(&self, enabled: bool) {
-        *self.enabled.lock().unwrap() = enabled;
-    }
-
-    /// 记录代码块执行
-    pub fn record_block_execution(&self, pc: GuestAddr, execution_time_ns: u64) {
-        if !*self.enabled.lock().unwrap() {
-            return;
-        }
-
-        let mut profile = self.profile_data.lock().unwrap();
-        let block_profile = profile.block_profiles.entry(pc).or_insert_with(|| BlockProfile {
-            pc,
-            execution_count: 0,
-            avg_execution_time_ns: 0,
-            total_execution_time_ns: 0,
-            last_execution_time: None,
-            callers: HashSet::new(),
-            callees: HashSet::new(),
-        });
-
-        block_profile.execution_count += 1;
-        block_profile.total_execution_time_ns += execution_time_ns;
-        block_profile.avg_execution_time_ns =
-            block_profile.total_execution_time_ns / block_profile.execution_count;
-        block_profile.last_execution_time = Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        );
-    }
-
-    /// 记录代码块调用关系
-    pub fn record_block_call(&self, caller_pc: GuestAddr, callee_pc: GuestAddr) {
-        if !*self.enabled.lock().unwrap() {
-            return;
-        }
-
-        let mut profile = self.profile_data.lock().unwrap();
-
-        // 更新调用者
-        let caller_profile = profile.block_profiles.entry(caller_pc).or_insert_with(|| BlockProfile {
-            pc: caller_pc,
-            execution_count: 0,
-            avg_execution_time_ns: 0,
-            total_execution_time_ns: 0,
-            last_execution_time: None,
-            callers: HashSet::new(),
-            callees: HashSet::new(),
-        });
-        caller_profile.callees.insert(callee_pc);
-
-        // 更新被调用者
-        let callee_profile = profile.block_profiles.entry(callee_pc).or_insert_with(|| BlockProfile {
-            pc: callee_pc,
-            execution_count: 0,
-            avg_execution_time_ns: 0,
-            total_execution_time_ns: 0,
-            last_execution_time: None,
-            callers: HashSet::new(),
-            callees: HashSet::new(),
-        });
-        callee_profile.callers.insert(caller_pc);
-    }
-
-    /// 记录分支预测
-    pub fn record_branch(&self, pc: GuestAddr, target: GuestAddr, taken: bool) {
-        if !*self.enabled.lock().unwrap() {
-            return;
-        }
-
-        let mut profile = self.profile_data.lock().unwrap();
-        let branch_profile = profile.branch_profiles.entry(pc).or_insert_with(|| BranchProfile {
-            pc,
-            total_branches: 0,
+            total_taken: 0,
             taken_count: 0,
             not_taken_count: 0,
-            target_counts: HashMap::new(),
-            taken_probability: 0.0,
-        });
+            taken_rate: 0.0,
+        }
+    }
 
-        branch_profile.total_branches += 1;
+    /// 更新分支统计
+    pub fn update(&mut self, taken: bool) {
+        self.total_taken += 1;
         if taken {
-            branch_profile.taken_count += 1;
-            *branch_profile.target_counts.entry(target).or_insert(0) += 1;
+            self.taken_count += 1;
         } else {
-            branch_profile.not_taken_count += 1;
+            self.not_taken_count += 1;
         }
-
-        branch_profile.taken_probability =
-            branch_profile.taken_count as f64 / branch_profile.total_branches as f64;
+        self.taken_rate = self.taken_count as f64 / self.total_taken as f64;
     }
 
-    /// 记录内存访问
-    pub fn record_memory_access(&self, pc: GuestAddr, address: u64) {
-        if !*self.enabled.lock().unwrap() {
-            return;
-        }
-
-        let mut profile = self.profile_data.lock().unwrap();
-        let mem_profile = profile.memory_profiles.entry(pc).or_insert_with(|| MemoryAccessProfile {
-            pc,
-            access_count: 0,
-            min_address: address,
-            max_address: address,
-            access_pattern: AccessPattern::Sequential,
-            cache_hit_rate: None,
-        });
-
-        mem_profile.access_count += 1;
-        mem_profile.min_address = mem_profile.min_address.min(address);
-        mem_profile.max_address = mem_profile.max_address.max(address);
-
-        // 简单的访问模式检测（基于地址连续性）
-        if mem_profile.access_count > 1 {
-            let address_range = mem_profile.max_address - mem_profile.min_address;
-            let expected_sequential = mem_profile.access_count as u64 * 64; // 假设64字节步长
-            if address_range > expected_sequential * 2 {
-                mem_profile.access_pattern = AccessPattern::Random;
-            } else if address_range > expected_sequential {
-                mem_profile.access_pattern = AccessPattern::Mixed;
-            }
-        }
+    /// 预测分支方向
+    pub fn predict(&self) -> bool {
+        self.taken_rate >= 0.5
     }
+}
 
-    /// 记录函数调用
-    pub fn record_function_call(&self, entry_pc: GuestAddr, caller_pc: Option<GuestAddr>, execution_time_ns: u64) {
-        if !*self.enabled.lock().unwrap() {
-            return;
-        }
+/// 函数调用统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallStats {
+    /// 调用次数
+    pub call_count: u64,
 
-        let mut profile = self.profile_data.lock().unwrap();
-        let func_profile = profile.function_profiles.entry(entry_pc).or_insert_with(|| FunctionCallProfile {
-            entry_pc,
+    /// 平均执行时间（微秒）
+    pub avg_duration_us: u64,
+
+    /// 是否是热函数（调用次数 > 阈值）
+    pub is_hot: bool,
+
+    /// 是否适合内联
+    pub should_inline: bool,
+}
+
+impl CallStats {
+    pub fn new() -> Self {
+        Self {
             call_count: 0,
-            avg_execution_time_ns: 0,
-            callers: HashSet::new(),
-            recursion_depth_stats: HashMap::new(),
-        });
-
-        func_profile.call_count += 1;
-        func_profile.avg_execution_time_ns =
-            (func_profile.avg_execution_time_ns * (func_profile.call_count - 1) as u64 + execution_time_ns)
-                / func_profile.call_count as u64;
-
-        if let Some(caller) = caller_pc {
-            func_profile.callers.insert(caller);
+            avg_duration_us: 0,
+            is_hot: false,
+            should_inline: false,
         }
     }
 
-    /// 记录循环迭代
-    pub fn record_loop_iteration(&self, entry_pc: GuestAddr, iteration_count: u64, body_time_ns: u64) {
-        if !*self.enabled.lock().unwrap() {
-            return;
+    /// 更新调用统计
+    pub fn update(&mut self, duration: Duration) {
+        self.call_count += 1;
+        let duration_us = duration.as_micros() as u64;
+
+        // 更新平均执行时间（简单移动平均）
+        if self.avg_duration_us == 0 {
+            self.avg_duration_us = duration_us;
+        } else {
+            self.avg_duration_us = (self.avg_duration_us * 9 + duration_us) / 10;
         }
 
-        let mut profile = self.profile_data.lock().unwrap();
-        let loop_profile = profile.loop_profiles.entry(entry_pc).or_insert_with(|| LoopProfile {
-            entry_pc,
-            iteration_count: 0,
-            avg_iterations: 0.0,
-            max_iterations: iteration_count,
-            min_iterations: iteration_count,
-            body_execution_time_ns: 0,
-        });
+        // 热函数阈值：调用次数 > 100
+        self.is_hot = self.call_count > 100;
 
-        loop_profile.iteration_count += iteration_count;
-        loop_profile.avg_iterations =
-            loop_profile.iteration_count as f64 / (loop_profile.iteration_count / iteration_count) as f64;
-        loop_profile.max_iterations = loop_profile.max_iterations.max(iteration_count);
-        loop_profile.min_iterations = loop_profile.min_iterations.min(iteration_count);
-        loop_profile.body_execution_time_ns += body_time_ns;
+        // 内联决策：调用频繁且执行时间短
+        self.should_inline = self.is_hot && self.avg_duration_us < 1000;
+    }
+}
+
+/// 内存访问模式
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPattern {
+    /// 访问类型统计
+    pub access_types: HashMap<MemoryAccessType, u64>,
+
+    /// 平均访问大小
+    pub avg_access_size: usize,
+
+    /// 是否是顺序访问
+    pub is_sequential: bool,
+
+    /// 是否是对齐访问
+    pub is_aligned: bool,
+}
+
+/// 内存访问类型
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum MemoryAccessType {
+    Load,
+    Store,
+    Atomic,
+}
+
+/// PGO 优化器
+///
+/// 收集和应用配置文件数据以优化 JIT 编译。
+pub struct PGOGuidedOptimizer {
+    /// 配置文件数据
+    profile_data: Arc<Mutex<ProfileData>>,
+
+    /// 配置文件文件路径
+    profile_path: Option<PathBuf>,
+
+    /// 热点阈值（块执行次数超过此值被认为是热点）
+    hot_threshold: u64,
+
+    /// 是否启用实时收集
+    enable_collection: bool,
+
+    /// 优化统计
+    stats: Arc<Mutex<OptimizationStats>>,
+}
+
+/// 优化统计
+#[derive(Debug, Default)]
+struct OptimizationStats {
+    /// 优化的块数量
+    optimized_blocks: usize,
+
+    /// 内联的函数数量
+    inlined_functions: usize,
+
+    /// 优化的分支数量
+    optimized_branches: usize,
+
+    /// 总优化时间
+    total_optimization_time: Duration,
+}
+
+impl PGOGuidedOptimizer {
+    /// 创建新的 PGO 优化器
+    pub fn new() -> Self {
+        Self {
+            profile_data: Arc::new(Mutex::new(ProfileData::default())),
+            profile_path: None,
+            hot_threshold: 100,
+            enable_collection: true,
+            stats: Arc::new(Mutex::new(OptimizationStats::default())),
+        }
     }
 
-    /// 获取Profile数据
-    pub fn get_profile_data(&self) -> ProfileData {
-        self.profile_data.lock().unwrap().clone()
-    }
+    /// 从文件加载配置文件
+    pub fn load_profile<P: AsRef<Path>>(&mut self, path: P) -> Result<(), ExecutionError> {
+        let path = path.as_ref();
+        log::info!("Loading PGO profile from: {:?}", path);
 
-    /// 重置Profile数据
-    pub fn reset(&self) {
-        let mut profile = self.profile_data.lock().unwrap();
-        *profile = ProfileData::default();
-    }
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            ExecutionError::JitError {
+                message: format!("Failed to read profile file: {}", e),
+                function_addr: None,
+            }
+        })?;
 
-    /// 序列化Profile数据到文件
-    pub fn serialize_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), String> {
-        let profile = self.get_profile_data();
-        let json = serde_json::to_string_pretty(&profile)
-            .map_err(|e| format!("Failed to serialize profile: {}", e))?;
-        std::fs::write(path, json)
-            .map_err(|e| format!("Failed to write profile file: {}", e))?;
+        let profile_data: ProfileData = serde_json::from_str(&content).map_err(|e| {
+            ExecutionError::JitError {
+                message: format!("Failed to parse profile data: {}", e),
+                function_addr: None,
+            }
+        })?;
+
+        *self.profile_data.lock() = profile_data;
+        self.profile_path = Some(path.to_path_buf());
+
+        log::info!("PGO profile loaded successfully");
         Ok(())
     }
 
-    /// 从文件反序列化Profile数据
-    pub fn deserialize_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<ProfileData, String> {
-        let json = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read profile file: {}", e))?;
-        let profile: ProfileData = serde_json::from_str(&json)
-            .map_err(|e| format!("Failed to deserialize profile: {}", e))?;
-        Ok(profile)
-    }
+    /// 保存配置文件到文件
+    pub fn save_profile<P: AsRef<Path>>(&self, path: P) -> Result<(), ExecutionError> {
+        let path = path.as_ref();
+        log::info!("Saving PGO profile to: {:?}", path);
 
-    /// 合并Profile数据
-    pub fn merge_profile_data(&self, other: &ProfileData) {
-        let mut profile = self.profile_data.lock().unwrap();
+        let profile_data = self.profile_data.lock();
 
-        // 合并代码块Profile
-        for (pc, other_block) in &other.block_profiles {
-            let block = profile.block_profiles.entry(*pc).or_insert_with(|| BlockProfile {
-                pc: *pc,
-                execution_count: 0,
-                avg_execution_time_ns: 0,
-                total_execution_time_ns: 0,
-                last_execution_time: None,
-                callers: HashSet::new(),
-                callees: HashSet::new(),
-            });
-
-            let total_count = block.execution_count + other_block.execution_count;
-            if total_count > 0 {
-                block.avg_execution_time_ns = (block.total_execution_time_ns + other_block.total_execution_time_ns)
-                    / total_count;
-            }
-            block.execution_count = total_count;
-            block.total_execution_time_ns += other_block.total_execution_time_ns;
-            block.callers.extend(&other_block.callers);
-            block.callees.extend(&other_block.callees);
-        }
-
-        // 合并分支Profile
-        for (pc, other_branch) in &other.branch_profiles {
-            let branch = profile.branch_profiles.entry(*pc).or_insert_with(|| BranchProfile {
-                pc: *pc,
-                total_branches: 0,
-                taken_count: 0,
-                not_taken_count: 0,
-                target_counts: HashMap::new(),
-                taken_probability: 0.0,
-            });
-
-            branch.total_branches += other_branch.total_branches;
-            branch.taken_count += other_branch.taken_count;
-            branch.not_taken_count += other_branch.not_taken_count;
-            for (target, count) in &other_branch.target_counts {
-                *branch.target_counts.entry(*target).or_insert(0) += count;
-            }
-            branch.taken_probability =
-                branch.taken_count as f64 / branch.total_branches as f64;
-        }
-
-        // 合并其他Profile数据（类似方式）
-        // ... 简化实现
-    }
-}
-
-/// 基于Profile的优化建议
-#[derive(Debug, Clone)]
-pub struct OptimizationSuggestion {
-    /// 代码块地址
-    pub pc: GuestAddr,
-    /// 建议的优化类型
-    pub optimization_type: OptimizationType,
-    /// 优先级（0-100）
-    pub priority: u8,
-    /// 预期性能提升（百分比）
-    pub expected_improvement: f64,
-    /// 理由
-    pub reason: String,
-}
-
-/// 优化类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OptimizationType {
-    /// 内联函数
-    InlineFunction,
-    /// 循环展开
-    UnrollLoop,
-    /// 分支预测优化
-    OptimizeBranch,
-    /// 内存预取
-    PrefetchMemory,
-    /// 寄存器分配优化
-    OptimizeRegisterAllocation,
-    /// 指令调度优化
-    OptimizeInstructionScheduling,
-}
-
-/// Profile分析器
-/// 执行路径分析器
-/// 
-/// 分析代码块调用关系，识别热点路径，用于代码预取
-pub struct ExecutionPathAnalyzer {
-    /// 路径频率映射 (路径 -> 频率)
-    path_frequencies: Arc<Mutex<HashMap<Vec<GuestAddr>, u64>>>,
-    /// 代码块到路径的映射
-    block_to_paths: Arc<Mutex<HashMap<GuestAddr, Vec<Vec<GuestAddr>>>>>,
-}
-
-impl ExecutionPathAnalyzer {
-    pub fn new() -> Self {
-        Self {
-            path_frequencies: Arc::new(Mutex::new(HashMap::new())),
-            block_to_paths: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    /// 记录执行路径
-    /// 
-    /// 记录从caller到callee的调用关系，构建执行路径
-    pub fn record_path(&self, caller_pc: GuestAddr, callee_pc: GuestAddr) {
-        let mut paths = self.block_to_paths.lock().unwrap();
-        let mut frequencies = self.path_frequencies.lock().unwrap();
-        
-        // 构建路径
-        let path = vec![caller_pc, callee_pc];
-        
-        // 更新路径频率
-        *frequencies.entry(path.clone()).or_insert(0) += 1;
-        
-        // 更新代码块到路径的映射
-        paths.entry(caller_pc).or_insert_with(Vec::new).push(path);
-    }
-
-    /// 识别热点路径
-    /// 
-    /// 返回最频繁的执行路径，用于预编译
-    pub fn identify_hot_paths(&self, limit: usize) -> Vec<(Vec<GuestAddr>, u64)> {
-        let frequencies = self.path_frequencies.lock().unwrap();
-        let mut paths: Vec<_> = frequencies.iter()
-            .map(|(path, &freq)| (path.clone(), freq))
-            .collect();
-        
-        // 按频率排序
-        paths.sort_by(|a, b| b.1.cmp(&a.1));
-        
-        paths.into_iter().take(limit).collect()
-    }
-
-    /// 预测下一个可能执行的代码块
-    /// 
-    /// 基于当前代码块和执行历史，预测下一个可能执行的代码块
-    pub fn predict_next_blocks(&self, current_pc: GuestAddr, limit: usize) -> Vec<GuestAddr> {
-        let paths = self.block_to_paths.lock().unwrap();
-        let frequencies = self.path_frequencies.lock().unwrap();
-        
-        let mut candidates: HashMap<GuestAddr, u64> = HashMap::new();
-        
-        // 查找包含当前PC的路径
-        if let Some(paths_for_block) = paths.get(&current_pc) {
-            for path in paths_for_block {
-                if let Some(freq) = frequencies.get(path) {
-                    // 找到路径中current_pc的下一个块
-                    if let Some(pos) = path.iter().position(|&pc| pc == current_pc) {
-                        if pos + 1 < path.len() {
-                            let next_pc = path[pos + 1];
-                            *candidates.entry(next_pc).or_insert(0) += freq;
-                        }
-                    }
+        // 创建父目录
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ExecutionError::JitError {
+                    message: format!("Failed to create profile directory: {}", e),
+                    function_addr: None,
                 }
+            })?;
+        }
+
+        let content = serde_json::to_string_pretty(&*profile_data).map_err(|e| {
+            ExecutionError::JitError {
+                message: format!("Failed to serialize profile data: {}", e),
+                function_addr: None,
+            }
+        })?;
+
+        std::fs::write(path, content).map_err(|e| {
+            ExecutionError::JitError {
+                message: format!("Failed to write profile file: {}", e),
+                function_addr: None,
+            }
+        })?;
+
+        log::info!("PGO profile saved successfully");
+        Ok(())
+    }
+
+    /// 记录块执行
+    pub fn record_block_execution(&self, block_id: usize) {
+        if !self.enable_collection {
+            return;
+        }
+
+        let mut profile = self.profile_data.lock();
+        *profile.block_execution_count.entry(block_id).or_insert(0) += 1;
+        profile.total_executions += 1;
+    }
+
+    /// 记录分支执行
+    pub fn record_branch(&self, block_id: usize, taken: bool) {
+        if !self.enable_collection {
+            return;
+        }
+
+        let mut profile = self.profile_data.lock();
+        let stats = profile
+            .branch_predictions
+            .entry(block_id)
+            .or_insert_with(BranchStats::new);
+        stats.update(taken);
+    }
+
+    /// 记录函数调用
+    pub fn record_function_call(&self, function_name: &str, duration: Duration) {
+        if !self.enable_collection {
+            return;
+        }
+
+        let mut profile = self.profile_data.lock();
+        let stats = profile
+            .function_calls
+            .entry(function_name.to_string())
+            .or_insert_with(CallStats::new);
+        stats.update(duration);
+    }
+
+    /// 检查块是否是热点
+    pub fn is_hot_block(&self, block_id: usize) -> bool {
+        let profile = self.profile_data.lock();
+        profile
+            .block_execution_count
+            .get(&block_id)
+            .copied()
+            .unwrap_or(0)
+            > self.hot_threshold
+    }
+
+    /// 获取块的执行频率
+    pub fn get_block_frequency(&self, block_id: usize) -> u64 {
+        let profile = self.profile_data.lock();
+        profile.block_execution_count.get(&block_id).copied().unwrap_or(0)
+    }
+
+    /// 预测分支方向
+    pub fn predict_branch(&self, block_id: usize) -> Option<bool> {
+        let profile = self.profile_data.lock();
+        profile
+            .branch_predictions
+            .get(&block_id)
+            .map(|stats| stats.predict())
+    }
+
+    /// 检查函数是否应该内联
+    pub fn should_inline_function(&self, function_name: &str) -> bool {
+        let profile = self.profile_data.lock();
+        profile
+            .function_calls
+            .get(function_name)
+            .map(|stats| stats.should_inline)
+            .unwrap_or(false)
+    }
+
+    /// 基于配置文件优化 IR 块
+    pub fn optimize_with_pgo(&self, block: &IRBlock) -> Result<PGOOptimizedBlock, ExecutionError> {
+        let start = Instant::now();
+
+        log::debug!("Optimizing block with PGO: {:?}", block.start_pc);
+
+        let block_id = block.start_pc.0 as usize;
+        let is_hot = self.is_hot_block(block_id);
+        let frequency = self.get_block_frequency(block_id);
+
+        // 应用 PGO 优化
+        let mut optimizations = vec![
+            PGOOptimization::HotPath(is_hot),
+            PGOOptimization::FrequencyHint(frequency),
+        ];
+
+        // 如果块有分支，添加分支预测提示
+        if let Some(branch_prediction) = self.predict_branch(block_id) {
+            optimizations.push(PGOOptimization::BranchPrediction(branch_prediction));
+        }
+
+        let elapsed = start.elapsed();
+
+        // 更新统计
+        let mut stats = self.stats.lock();
+        stats.optimized_blocks += 1;
+        stats.total_optimization_time += elapsed;
+
+        log::debug!("PGO optimization completed in {:?}", elapsed);
+
+        Ok(PGOOptimizedBlock {
+            block_id,
+            optimizations,
+            is_hot,
+            frequency,
+        })
+    }
+
+    /// 获取优化统计
+    pub fn get_stats(&self) -> OptimizationStatistics {
+        let profile = self.profile_data.lock();
+        let stats = self.stats.lock();
+
+        OptimizationStatistics {
+            total_blocks_tracked: profile.block_execution_count.len(),
+            hot_blocks_count: profile
+                .block_execution_count
+                .values()
+                .filter(|&&count| count > self.hot_threshold)
+                .count(),
+            total_branches_tracked: profile.branch_predictions.len(),
+            optimized_blocks: stats.optimized_blocks,
+            inlined_functions: stats.inlined_functions,
+            optimized_branches: stats.optimized_branches,
+            total_optimization_time: stats.total_optimization_time,
+        }
+    }
+
+    /// 重置配置文件数据
+    pub fn reset_profile(&self) {
+        let mut profile = self.profile_data.lock();
+        *profile = ProfileData::default();
+        log::info!("PGO profile data reset");
+    }
+
+    /// 合并另一个配置文件
+    pub fn merge_profile(&self, other: ProfileData) {
+        let mut profile = self.profile_data.lock();
+
+        // 合并块执行计数
+        for (block_id, count) in other.block_execution_count {
+            *profile.block_execution_count.entry(block_id).or_insert(0) += count;
+        }
+
+        // 合并分支预测
+        for (block_id, other_stats) in other.branch_predictions {
+            let stats = profile
+                .branch_predictions
+                .entry(block_id)
+                .or_insert_with(BranchStats::new);
+            stats.taken_count += other_stats.taken_count;
+            stats.not_taken_count += other_stats.not_taken_count;
+            stats.total_taken += other_stats.total_taken;
+            stats.taken_rate = stats.taken_count as f64 / stats.total_taken as f64;
+        }
+
+        // 合并函数调用
+        for (func_name, other_stats) in other.function_calls {
+            let stats = profile
+                .function_calls
+                .entry(func_name)
+                .or_insert_with(CallStats::new);
+            stats.call_count += other_stats.call_count;
+            // 重新计算平均时间
+            if stats.avg_duration_us == 0 {
+                stats.avg_duration_us = other_stats.avg_duration_us;
+            } else {
+                stats.avg_duration_us =
+                    (stats.avg_duration_us + other_stats.avg_duration_us) / 2;
             }
         }
-        
-        // 按频率排序
-        let mut sorted: Vec<_> = candidates.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
-        
-        sorted.into_iter().take(limit).map(|(pc, _)| pc).collect()
+
+        profile.total_executions += other.total_executions;
+
+        log::info!("PGO profile merged successfully");
     }
 }
 
-impl Default for ExecutionPathAnalyzer {
+impl Default for PGOGuidedOptimizer {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub struct ProfileAnalyzer;
+/// PGO 优化后的块
+#[derive(Debug, Clone)]
+pub struct PGOOptimizedBlock {
+    pub block_id: usize,
+    pub optimizations: Vec<PGOOptimization>,
+    pub is_hot: bool,
+    pub frequency: u64,
+}
 
-impl ProfileAnalyzer {
-    /// 分析Profile数据并生成优化建议
-    pub fn analyze(&self, profile: &ProfileData) -> Vec<OptimizationSuggestion> {
-        let mut suggestions = Vec::new();
+/// PGO 优化类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PGOOptimization {
+    /// 热路径优化
+    HotPath(bool),
 
-        // 分析热点代码块
-        for (pc, block_profile) in &profile.block_profiles {
-            if block_profile.execution_count > 1000 {
-                suggestions.push(OptimizationSuggestion {
-                    pc: *pc,
-                    optimization_type: OptimizationType::OptimizeRegisterAllocation,
-                    priority: 80,
-                    expected_improvement: 10.0,
-                    reason: format!("Hot block with {} executions", block_profile.execution_count),
-                });
-            }
-        }
+    /// 执行频率提示
+    FrequencyHint(u64),
 
-        // 分析分支预测
-        for (pc, branch_profile) in &profile.branch_profiles {
-            if branch_profile.total_branches > 100 {
-                // 如果分支几乎总是跳转或几乎总是不跳转，可以优化
-                if branch_profile.taken_probability > 0.9 || branch_profile.taken_probability < 0.1 {
-                    suggestions.push(OptimizationSuggestion {
-                        pc: *pc,
-                        optimization_type: OptimizationType::OptimizeBranch,
-                        priority: 70,
-                        expected_improvement: 5.0,
-                        reason: format!(
-                            "Highly predictable branch ({}% taken)",
-                            branch_profile.taken_probability * 100.0
-                        ),
-                    });
-                }
-            }
-        }
+    /// 分支预测提示
+    BranchPrediction(bool),
 
-        // 分析循环
-        for (pc, loop_profile) in &profile.loop_profiles {
-            if loop_profile.avg_iterations > 10.0 && loop_profile.avg_iterations < 100.0 {
-                suggestions.push(OptimizationSuggestion {
-                    pc: *pc,
-                    optimization_type: OptimizationType::UnrollLoop,
-                    priority: 60,
-                    expected_improvement: 15.0,
-                    reason: format!("Loop with {} average iterations", loop_profile.avg_iterations),
-                });
-            }
-        }
+    /// 函数内联
+    Inline,
 
-        // 分析函数调用
-        for (pc, func_profile) in &profile.function_profiles {
-            if func_profile.call_count > 100 && func_profile.callers.len() == 1 {
-                // 单调用者函数，适合内联
-                suggestions.push(OptimizationSuggestion {
-                    pc: *pc,
-                    optimization_type: OptimizationType::InlineFunction,
-                    priority: 75,
-                    expected_improvement: 8.0,
-                    reason: format!("Function called {} times from single caller", func_profile.call_count),
-                });
-            }
-        }
+    /// 循环展开
+    LoopUnroll(usize),
+}
 
-        // 分析内存访问模式
-        for (pc, mem_profile) in &profile.memory_profiles {
-            if mem_profile.access_pattern == AccessPattern::Sequential && mem_profile.access_count > 1000 {
-                suggestions.push(OptimizationSuggestion {
-                    pc: *pc,
-                    optimization_type: OptimizationType::PrefetchMemory,
-                    priority: 65,
-                    expected_improvement: 12.0,
-                    reason: "Sequential memory access pattern detected".to_string(),
-                });
-            }
-        }
-
-        // 按优先级排序
-        suggestions.sort_by(|a, b| b.priority.cmp(&a.priority));
-
-        suggestions
-    }
-
-    /// 获取热点代码块列表
-    pub fn get_hot_blocks(&self, profile: &ProfileData, threshold: u64) -> Vec<GuestAddr> {
-        profile
-            .block_profiles
-            .iter()
-            .filter(|(_, block)| block.execution_count >= threshold)
-            .map(|(pc, _)| *pc)
-            .collect()
-    }
-
-    /// 获取冷代码块列表
-    pub fn get_cold_blocks(&self, profile: &ProfileData, threshold: u64) -> Vec<GuestAddr> {
-        profile
-            .block_profiles
-            .iter()
-            .filter(|(_, block)| block.execution_count < threshold)
-            .map(|(pc, _)| *pc)
-            .collect()
-    }
+/// 优化统计信息
+#[derive(Debug, Clone)]
+pub struct OptimizationStatistics {
+    pub total_blocks_tracked: usize,
+    pub hot_blocks_count: usize,
+    pub total_branches_tracked: usize,
+    pub optimized_blocks: usize,
+    pub inlined_functions: usize,
+    pub optimized_branches: usize,
+    pub total_optimization_time: Duration,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
-    fn test_profile_collector() {
-        let collector = ProfileCollector::new(Duration::from_secs(1));
-
-        // 记录代码块执行
-        collector.record_block_execution(0x1000, 1000);
-        collector.record_block_execution(0x1000, 2000);
-
-        let profile = collector.get_profile_data();
-        assert_eq!(profile.block_profiles.len(), 1);
-        assert_eq!(profile.block_profiles[&0x1000].execution_count, 2);
-        assert_eq!(profile.block_profiles[&0x1000].avg_execution_time_ns, 1500);
+    fn test_pgo_optimizer_creation() {
+        let optimizer = PGOGuidedOptimizer::new();
+        assert!(optimizer.is_hot_block(0) == false);
+        assert_eq!(optimizer.get_block_frequency(0), 0);
     }
 
     #[test]
-    fn test_branch_profile() {
-        let collector = ProfileCollector::new(Duration::from_secs(1));
+    fn test_block_execution_recording() {
+        let optimizer = PGOGuidedOptimizer::new();
 
-        // 记录分支
-        for _ in 0..90 {
-            collector.record_branch(0x2000, 0x3000, true);
-        }
-        for _ in 0..10 {
-            collector.record_branch(0x2000, 0x2000, false);
+        // 记录执行
+        for _ in 0..150 {
+            optimizer.record_block_execution(1);
         }
 
-        let profile = collector.get_profile_data();
-        let branch = &profile.branch_profiles[&0x2000];
-        assert_eq!(branch.total_branches, 100);
-        assert_eq!(branch.taken_count, 90);
-        assert!((branch.taken_probability - 0.9).abs() < 0.01);
+        assert_eq!(optimizer.get_block_frequency(1), 150);
+        assert!(optimizer.is_hot_block(1)); // 超过阈值100
+        assert!(!optimizer.is_hot_block(2)); // 未执行
     }
 
     #[test]
-    fn test_profile_serialization() {
-        let collector = ProfileCollector::new(Duration::from_secs(1));
-        collector.record_block_execution(0x1000, 1000);
+    fn test_branch_prediction() {
+        let optimizer = PGOGuidedOptimizer::new();
 
-        // 序列化
-        let temp_file = std::env::temp_dir().join("test_profile.json");
-        collector.serialize_to_file(&temp_file).unwrap();
+        // 记录分支：80% 采用
+        for _ in 0..80 {
+            optimizer.record_branch(1, true);
+        }
+        for _ in 0..20 {
+            optimizer.record_branch(1, false);
+        }
 
-        // 反序列化
-        let loaded = ProfileCollector::deserialize_from_file(&temp_file).unwrap();
-        assert_eq!(loaded.block_profiles.len(), 1);
-        assert_eq!(loaded.block_profiles[&0x1000].execution_count, 1);
+        // 预测应该倾向于 true
+        let prediction = optimizer.predict_branch(1);
+        assert_eq!(prediction, Some(true));
+    }
+
+    #[test]
+    fn test_function_call_recording() {
+        let optimizer = PGOGuidedOptimizer::new();
+
+        // 记录多次快速调用
+        for _ in 0..150 {
+            optimizer.record_function_call("hot_function", Duration::from_micros(100));
+        }
+
+        // 应该是热函数且适合内联
+        let profile = optimizer.profile_data.lock();
+        let stats = profile.function_calls.get("hot_function").unwrap();
+        assert!(stats.is_hot);
+        assert!(stats.should_inline);
+    }
+
+    #[test]
+    fn test_profile_save_load() {
+        let optimizer1 = PGOGuidedOptimizer::new();
+
+        // 记录一些数据
+        for _ in 0..150 {
+            optimizer1.record_block_execution(1);
+            optimizer1.record_branch(1, true);
+        }
+        optimizer1.record_function_call("test_func", Duration::from_micros(50));
+
+        // 保存到临时文件
+        let temp_dir = std::env::temp_dir();
+        let profile_path = temp_dir.join("test_profile.json");
+
+        let result = optimizer1.save_profile(&profile_path);
+        assert!(result.is_ok());
+
+        // 创建新优化器并加载
+        let mut optimizer2 = PGOGuidedOptimizer::new();
+        let result = optimizer2.load_profile(&profile_path);
+        assert!(result.is_ok());
+
+        // 验证数据加载正确
+        assert_eq!(optimizer2.get_block_frequency(1), 150);
+        assert_eq!(optimizer2.predict_branch(1), Some(true));
 
         // 清理
-        let _ = std::fs::remove_file(&temp_file);
-    }
-
-    #[test]
-    fn test_profile_analyzer() {
-        let collector = ProfileCollector::new(Duration::from_secs(1));
-
-        // 创建热点代码块
-        for _ in 0..2000 {
-            collector.record_block_execution(0x1000, 1000);
-        }
-
-        let profile = collector.get_profile_data();
-        let analyzer = ProfileAnalyzer;
-        let suggestions = analyzer.analyze(&profile);
-
-        assert!(!suggestions.is_empty());
-        assert!(suggestions.iter().any(|s| s.pc == 0x1000));
+        let _ = std::fs::remove_file(&profile_path);
     }
 }
 
+/// Profile collector for runtime profiling data
+pub struct ProfileCollector {
+    collection_interval: Duration,
+    profile_data: Arc<Mutex<ProfileData>>,
+    start_time: Instant,
+}
+
+impl ProfileCollector {
+    pub fn new(collection_interval: Duration) -> Self {
+        Self {
+            collection_interval,
+            profile_data: Arc::new(Mutex::new(ProfileData::default())),
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Record a block call relationship (caller -> callee)
+    pub fn record_block_call(&self, caller: vm_core::GuestAddr, callee: vm_core::GuestAddr) {
+        let mut profile = self.profile_data.lock();
+        let caller_id = caller.0 as usize;
+        let callee_id = callee.0 as usize;
+
+        // Update caller's callees list
+        if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id) {
+            if !caller_profile.callees.contains(&callee_id) {
+                caller_profile.callees.push(callee_id);
+            }
+        }
+
+        // Update callee's callers list
+        if let Some(callee_profile) = profile.block_profiles.get_mut(&callee_id) {
+            if !callee_profile.callers.contains(&caller_id) {
+                callee_profile.callers.push(caller_id);
+            }
+        }
+    }
+
+    /// Record branch execution with target and direction
+    pub fn record_branch(&self, pc: vm_core::GuestAddr, _target: vm_core::GuestAddr, taken: bool) {
+        let mut profile = self.profile_data.lock();
+        let block_id = pc.0 as usize;
+
+        // Update branch statistics
+        let stats = profile
+            .branch_predictions
+            .entry(block_id)
+            .or_insert_with(BranchStats::new);
+        stats.update(taken);
+
+        // Update block profile branch count
+        if let Some(block_profile) = profile.block_profiles.get_mut(&block_id) {
+            block_profile.branch_count += 1;
+        }
+    }
+
+    /// Record block execution with timing information
+    pub fn record_block_execution(&self, pc: vm_core::GuestAddr, duration_ns: u64) {
+        let mut profile = self.profile_data.lock();
+        let block_id = pc.0 as usize;
+
+        // Update execution count
+        *profile.block_execution_count.entry(block_id).or_insert(0) += 1;
+        profile.total_executions += 1;
+
+        // Update block profile
+        let block_profile = profile.block_profiles.entry(block_id).or_insert_with(|| BlockProfile {
+            block_id,
+            execution_count: 0,
+            avg_duration_ns: 0,
+            instruction_count: 0,
+            branch_count: 0,
+            memory_access_count: 0,
+            callers: Vec::new(),
+            callees: Vec::new(),
+        });
+
+        block_profile.execution_count += 1;
+        if block_profile.avg_duration_ns == 0 {
+            block_profile.avg_duration_ns = duration_ns;
+        } else {
+            block_profile.avg_duration_ns = (block_profile.avg_duration_ns * 9 + duration_ns) / 10;
+        }
+    }
+
+    /// Record function call with caller information and execution time
+    pub fn record_function_call(
+        &self,
+        target: vm_core::GuestAddr,
+        caller: Option<vm_core::GuestAddr>,
+        execution_time_ns: u64,
+    ) {
+        let mut profile = self.profile_data.lock();
+        let target_id = target.0 as usize;
+        let function_name = format!("func_{:#x}", target.0);
+
+        // Update function call statistics
+        let stats = profile
+            .function_calls
+            .entry(function_name.clone())
+            .or_insert_with(CallStats::new);
+        stats.call_count += 1;
+
+        // Update average execution time
+        let duration_us = execution_time_ns / 1000; // Convert to microseconds
+        if stats.avg_duration_us == 0 {
+            stats.avg_duration_us = duration_us;
+        } else {
+            stats.avg_duration_us = (stats.avg_duration_us * 9 + duration_us) / 10;
+        }
+
+        // Update hot function status
+        stats.is_hot = stats.call_count > 100;
+        stats.should_inline = stats.is_hot && stats.avg_duration_us < 1000;
+
+        // Update caller-callee relationship if provided
+        if let Some(caller_addr) = caller {
+            let caller_id = caller_addr.0 as usize;
+
+            // Update caller's callees list
+            if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id) {
+                if !caller_profile.callees.contains(&target_id) {
+                    caller_profile.callees.push(target_id);
+                }
+            }
+
+            // Update target's callers list
+            if let Some(target_profile) = profile.block_profiles.get_mut(&target_id) {
+                if !target_profile.callers.contains(&caller_id) {
+                    target_profile.callers.push(caller_id);
+                }
+            }
+        }
+    }
+
+    pub fn collect_block_profile(&self, block_id: usize, duration: Duration) {
+        let mut profile = self.profile_data.lock();
+        let block_profile = profile.block_profiles.entry(block_id).or_insert_with(|| BlockProfile {
+            block_id,
+            execution_count: 0,
+            avg_duration_ns: 0,
+            instruction_count: 0,
+            branch_count: 0,
+            memory_access_count: 0,
+            callers: Vec::new(),
+            callees: Vec::new(),
+        });
+
+        block_profile.execution_count += 1;
+        let duration_ns = duration.as_nanos() as u64;
+        if block_profile.avg_duration_ns == 0 {
+            block_profile.avg_duration_ns = duration_ns;
+        } else {
+            block_profile.avg_duration_ns = (block_profile.avg_duration_ns * 9 + duration_ns) / 10;
+        }
+    }
+
+    pub fn get_profile_data(&self) -> ProfileData {
+        self.profile_data.lock().clone()
+    }
+
+    pub fn serialize_to_file(&self, path: &std::path::Path) -> Result<(), String> {
+        let profile = self.get_profile_data();
+        let json = serde_json::to_string_pretty(&profile)
+            .map_err(|e| format!("Failed to serialize profile: {}", e))?;
+        std::fs::write(path, json)
+            .map_err(|e| format!("Failed to write profile to file: {}", e))
+    }
+}
+
+#[cfg(test)]
+mod tests_optimization_stats {
+    use super::*;
+    #[test]
+    fn test_optimization_stats() {
+        let optimizer = PGOGuidedOptimizer::new();
+
+        // 记录一些数据
+        for i in 1..=5 {
+            for _ in 0..(100 + i * 50) {
+                optimizer.record_block_execution(i);
+            }
+        }
+
+        let stats = optimizer.get_stats();
+        assert_eq!(stats.total_blocks_tracked, 5);
+
+        // 块1执行150次，块5执行350次，都超过阈值100
+        assert_eq!(stats.hot_blocks_count, 5);
+    }
+
+    #[test]
+    fn test_profile_merge() {
+        let optimizer1 = PGOGuidedOptimizer::new();
+        let optimizer2 = PGOGuidedOptimizer::new();
+
+        // optimizer1 记录块1
+        for _ in 0..100 {
+            optimizer1.record_block_execution(1);
+        }
+
+        // optimizer2 记录块1和块2
+        for _ in 0..50 {
+            optimizer2.record_block_execution(1);
+        }
+        for _ in 0..100 {
+            optimizer2.record_block_execution(2);
+        }
+
+        // 创建要合并的配置文件
+        let profile2 = optimizer2.profile_data.lock().clone();
+
+        // 合并到 optimizer1
+        optimizer1.merge_profile(profile2);
+
+        // 验证合并结果
+        assert_eq!(optimizer1.get_block_frequency(1), 150); // 100 + 50
+        assert_eq!(optimizer1.get_block_frequency(2), 100); // 仅来自 optimizer2
+    }
+
+    #[test]
+    fn test_profile_reset() {
+        let optimizer = PGOGuidedOptimizer::new();
+
+        // 记录一些数据
+        for _ in 0..100 {
+            optimizer.record_block_execution(1);
+        }
+
+        assert_eq!(optimizer.get_block_frequency(1), 100);
+
+        // 重置
+        optimizer.reset_profile();
+
+        // 验证数据已清除
+        assert_eq!(optimizer.get_block_frequency(1), 0);
+    }
+}

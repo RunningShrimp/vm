@@ -3,9 +3,13 @@
 //! This module provides unified memory access patterns, alignment handling,
 //! and endianness conversion across different architectures.
 
-use crate::encoding::{Architecture, RegId};
 use std::collections::HashMap;
+
 use thiserror::Error;
+use vm_core::error::{CoreError, MemoryError as VmMemoryError};
+use vm_core::{GuestAddr, VmError};
+
+use crate::encoding::{Architecture, RegId};
 
 /// Errors that can occur during memory access operations
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -28,6 +32,51 @@ pub enum MemoryError {
     AtomicViolation(String),
     #[error("Endianness conversion error: {0}")]
     EndiannessError(String),
+}
+
+impl From<MemoryError> for VmError {
+    fn from(err: MemoryError) -> Self {
+        match err {
+            MemoryError::AlignmentViolation(addr, alignment) => {
+                VmError::Memory(VmMemoryError::AccessViolation {
+                    addr: GuestAddr(addr),
+                    msg: format!("Address not aligned to {} bytes", alignment),
+                    access_type: None,
+                })
+            }
+            MemoryError::OutOfBounds(addr, size) => {
+                VmError::Memory(VmMemoryError::AccessViolation {
+                    addr: GuestAddr(addr),
+                    msg: format!("Access out of bounds: size {}", size),
+                    access_type: None,
+                })
+            }
+            MemoryError::InvalidSize(size) => VmError::Core(CoreError::InvalidParameter {
+                name: "access_size".to_string(),
+                value: format!("{}", size),
+                message: "Invalid memory access size".to_string(),
+            }),
+            MemoryError::ProtectionViolation(msg) => {
+                VmError::Memory(VmMemoryError::AccessViolation {
+                    addr: GuestAddr(0),
+                    msg,
+                    access_type: None,
+                })
+            }
+            MemoryError::PageFault(_addr, msg) => VmError::Memory(VmMemoryError::PageTableError {
+                message: format!("Page fault: {}", msg),
+                level: None,
+            }),
+            MemoryError::AtomicViolation(msg) => VmError::Core(CoreError::Internal {
+                message: format!("Atomic operation violation: {}", msg),
+                module: "vm-cross-arch-support::memory_access".to_string(),
+            }),
+            MemoryError::EndiannessError(msg) => VmError::Core(CoreError::Internal {
+                message: format!("Endianness conversion error: {}", msg),
+                module: "vm-cross-arch-support::memory_access".to_string(),
+            }),
+        }
+    }
 }
 
 /// Memory access types
@@ -637,5 +686,45 @@ mod tests {
         let result = analyzer.analyze();
         assert_eq!(result.total_accesses, 3);
         assert_eq!(result.most_common_size, Some(4));
+    }
+
+    #[test]
+    fn test_memory_error_to_vm_error_conversion() {
+        use vm_core::VmError;
+
+        // Test AlignmentViolation conversion
+        let err = MemoryError::AlignmentViolation(0x1003, 4);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Memory(_)));
+
+        // Test OutOfBounds conversion
+        let err = MemoryError::OutOfBounds(0x1000, 4096);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Memory(_)));
+
+        // Test InvalidSize conversion
+        let err = MemoryError::InvalidSize(999);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test ProtectionViolation conversion
+        let err = MemoryError::ProtectionViolation("write to read-only".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Memory(_)));
+
+        // Test PageFault conversion
+        let err = MemoryError::PageFault(0x5000, "page not present".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Memory(_)));
+
+        // Test AtomicViolation conversion
+        let err = MemoryError::AtomicViolation("atomic alignment error".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test EndiannessError conversion
+        let err = MemoryError::EndiannessError("conversion failed".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
     }
 }

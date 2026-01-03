@@ -19,9 +19,9 @@
 //! ## 快速开始
 //!
 //! ```rust,no_run
-//! use vm_ir::lift::{LiftingContext, ISA};
-//! use vm_ir::lift::decoder::{create_decoder, InstructionDecoder};
+//! use vm_ir::lift::decoder::{InstructionDecoder, create_decoder};
 //! use vm_ir::lift::semantics::create_semantics;
+//! use vm_ir::lift::{ISA, LiftingContext};
 //!
 //! // 创建上下文
 //! let mut ctx = LiftingContext::new(ISA::X86_64);
@@ -39,34 +39,35 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 use vm_core::VmError;
 
 pub mod decoder;
-pub mod ir_gen;
+// TODO: Implement these modules
+// pub mod ir_gen;
 #[cfg(feature = "llvm")]
-pub mod llvm_integration;
-#[cfg(feature = "llvm")]
+// pub mod llvm_integration;
 pub mod inkwell_integration;
-pub mod optimizer;
-pub mod riscv64_semantics;
+// pub mod optimizer;
+// pub mod riscv64_semantics;
 pub mod semantics;
 
 // Re-export commonly used types
 pub use decoder::{ISA, Instruction, InstructionDecoder, OperandType, create_decoder};
-pub use ir_gen::{BasicBlock, IRBuilder, IROptimizer, LLVMFunction};
-#[cfg(feature = "llvm")]
-pub use llvm_integration::{
-    LLVMCodeGenerator, LLVMContext, LLVMFunction as LLVMFunc, LLVMFunctionBuilder, LLVMModule,
-    LLVMPassExecutor, OptimizationRunStats,
-};
+// pub use ir_gen::{BasicBlock, IRBuilder, IROptimizer, LLVMFunction};
+// #[cfg(feature = "llvm")]
+// pub use llvm_integration::{
+//     LLVMCodeGenerator, LLVMContext, LLVMFunction as LLVMFunc, LLVMFunctionBuilder,
+// LLVMModule,     LLVMPassExecutor, OptimizationRunStats,
+// };
 #[cfg(feature = "llvm")]
 pub use inkwell_integration::{
-    InkwellCodeGenerator, InkwellContext, InkwellModule, InkwellBuilder,
+    InkwellBuilder, InkwellCodeGenerator, InkwellContext, InkwellModule,
 };
-pub use optimizer::{OptimizationLevel, OptimizationPreset, OptimizationStats, PassManager};
+// pub use optimizer::{OptimizationLevel, OptimizationPreset, OptimizationStats, PassManager};
 pub use semantics::{FlagsState, Semantics, X86_64Semantics, create_semantics};
 
 /// 指令抬升上下文

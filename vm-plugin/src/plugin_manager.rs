@@ -2,17 +2,19 @@
 //!
 //! 提供插件的加载、卸载、生命周期管理和通信功能
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+
+use libloading::Library;
+use serde::{Deserialize, Serialize};
+use vm_core::VmError;
+
 use crate::{
     DependencyResolver, Plugin, PluginContext, PluginEvent, PluginEventBus, PluginId,
     PluginInstance, PluginManagerStats, PluginMetadata, PluginPermission, PluginState, PluginType,
     SecurityManager,
 };
-use libloading::Library;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
-use vm_core::VmError;
 
 /// 插件管理器
 pub struct PluginManager {

@@ -2,7 +2,7 @@
 //!
 //! 测试压缩指令集（C扩展）的完整功能
 
-use vm_frontend::riscv64::c_extension::{CInstruction, CDecoder};
+use vm_frontend::riscv64::c_extension::{CDecoder, CInstruction};
 
 // ============================================================================
 // CDecoder基础测试
@@ -30,7 +30,7 @@ fn test_c_addi4spn_decode() {
             assert!(rd >= 8 && rd <= 15); // x8-x15
         }
         Ok(_) => panic!("Expected C_ADDI4SPN"),
-        Err(_) => {}, // Invalid instruction is OK for test data
+        Err(_) => {} // Invalid instruction is OK for test data
     }
 }
 
@@ -45,8 +45,8 @@ fn test_c_fld_decode() {
             assert!(rd >= 8 && rd <= 15); // f8-f15
             assert!(rs1 >= 8 && rs1 <= 15); // x8-x15
         }
-        Ok(_) => {}, // Other instructions OK for test data
-        Err(_) => {}, // Invalid instruction OK
+        Ok(_) => {}  // Other instructions OK for test data
+        Err(_) => {} // Invalid instruction OK
     }
 }
 
@@ -61,8 +61,8 @@ fn test_c_lw_decode() {
             assert!(rd >= 8 && rd <= 15); // x8-x15
             assert!(rs1 >= 8 && rs1 <= 15); // x8-x15
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -77,8 +77,8 @@ fn test_c_flw_decode() {
             assert!(rd >= 8 && rd <= 15); // f8-f15
             assert!(rs1 >= 8 && rs1 <= 15); // x8-x15
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -93,8 +93,8 @@ fn test_c_fsd_decode() {
             assert!(rs2 >= 8 && rs2 <= 15); // f8-f15
             assert!(rs1 >= 8 && rs1 <= 15); // x8-x15
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -109,8 +109,8 @@ fn test_c_sw_decode() {
             assert!(rs2 >= 8 && rs2 <= 15); // x8-x15
             assert!(rs1 >= 8 && rs1 <= 15); // x8-x15
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -125,8 +125,8 @@ fn test_c_fsw_decode() {
             assert!(rs2 >= 8 && rs2 <= 15); // f8-f15
             assert!(rs1 >= 8 && rs1 <= 15); // x8-x15
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -143,8 +143,8 @@ fn test_c_addi_decode() {
         Ok(CInstruction::C_ADDI { rd, imm }) => {
             assert!(rd < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -158,8 +158,8 @@ fn test_c_jal_decode() {
             // Check imm is reasonable
             assert!((imm as i32) > -2048 && (imm as i32) < 2048);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -172,8 +172,8 @@ fn test_c_li_decode() {
         Ok(CInstruction::C_LI { rd, imm }) => {
             assert!(rd < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -186,8 +186,8 @@ fn test_c_lui_decode() {
         Ok(CInstruction::C_LUI { rd, imm }) => {
             assert!(rd < 32 && rd != 0 && rd != 2); // Not x0 or x2
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -201,8 +201,8 @@ fn test_c_srli_decode() {
             assert!(rd < 32);
             assert!(shamt <= 31);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -216,8 +216,8 @@ fn test_c_srai_decode() {
             assert!(rd < 32);
             assert!(shamt <= 31);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -230,8 +230,8 @@ fn test_c_andi_decode() {
         Ok(CInstruction::C_ANDI { rd, imm }) => {
             assert!(rd < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -245,8 +245,8 @@ fn test_c_sub_decode() {
             assert!(rd < 32);
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -260,8 +260,8 @@ fn test_c_xor_decode() {
             assert!(rd < 32);
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -275,8 +275,8 @@ fn test_c_or_decode() {
             assert!(rd < 32);
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -290,8 +290,8 @@ fn test_c_and_decode() {
             assert!(rd < 32);
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -305,8 +305,8 @@ fn test_c_j_decode() {
             // Check imm range
             assert!((imm as i32) > -2048 && (imm as i32) < 2048);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -319,8 +319,8 @@ fn test_c_beqz_decode() {
         Ok(CInstruction::C_BEQZ { rs1, imm }) => {
             assert!(rs1 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -333,8 +333,8 @@ fn test_c_bnez_decode() {
         Ok(CInstruction::C_BNEZ { rs1, imm }) => {
             assert!(rs1 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -352,8 +352,8 @@ fn test_c_slli_decode() {
             assert!(rd < 32);
             assert!(shamt <= 31);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -366,8 +366,8 @@ fn test_c_fldsp_decode() {
         Ok(CInstruction::C_FLDSP { rd, imm }) => {
             assert!(rd < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -380,8 +380,8 @@ fn test_c_lwsp_decode() {
         Ok(CInstruction::C_LWSP { rd, imm }) => {
             assert!(rd < 32 && rd != 0); // Not x0
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -394,8 +394,8 @@ fn test_c_flwsp_decode() {
         Ok(CInstruction::C_FLWSP { rd, imm }) => {
             assert!(rd < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -408,8 +408,8 @@ fn test_c_jr_decode() {
         Ok(CInstruction::C_JR { rs1 }) => {
             assert!(rs1 < 32 && rs1 != 0); // Not x0
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -423,8 +423,8 @@ fn test_c_mv_decode() {
             assert!(rd < 32);
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -437,8 +437,8 @@ fn test_c_ebreak_decode() {
         Ok(CInstruction::C_EBREAK) => {
             // Success
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -451,8 +451,8 @@ fn test_c_jalr_decode() {
         Ok(CInstruction::C_JALR { rs1 }) => {
             assert!(rs1 < 32 && rs1 != 0); // Not x0
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -466,8 +466,8 @@ fn test_c_add_decode() {
             assert!(rd < 32);
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -480,8 +480,8 @@ fn test_c_fsdsp_decode() {
         Ok(CInstruction::C_FSDSP { rs2, imm }) => {
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -494,8 +494,8 @@ fn test_c_swsp_decode() {
         Ok(CInstruction::C_SWSP { rs2, imm }) => {
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -508,8 +508,8 @@ fn test_c_fswsp_decode() {
         Ok(CInstruction::C_FSWSP { rs2, imm }) => {
             assert!(rs2 < 32);
         }
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -533,8 +533,7 @@ fn test_compression_ratio() {
 fn test_compressed_decode_performance() {
     let decoder = CDecoder::new();
     let instructions = vec![
-        0x0000u16, 0x1000, 0x2000, 0x3000, 0x4000,
-        0x5000, 0x6000, 0x7000, 0x8000, 0x9000,
+        0x0000u16, 0x1000, 0x2000, 0x3000, 0x4000, 0x5000, 0x6000, 0x7000, 0x8000, 0x9000,
     ];
 
     let start = std::time::Instant::now();
@@ -558,8 +557,8 @@ fn test_invalid_opcode() {
     let result = decoder.decode(0xFFFF);
     // Should either decode to something or return error
     match result {
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 
@@ -569,8 +568,8 @@ fn test_zero_instruction() {
     let result = decoder.decode(0x0000);
     // C.ADDI4SPN with nzimm=0 is invalid
     match result {
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     }
 }
 

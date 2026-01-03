@@ -3,8 +3,8 @@
 //! 测试NUMA分配器和跨节点访问的性能指标
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use vm_core::AddressTranslator;
 use std::alloc::Layout;
+use vm_core::AddressTranslator;
 
 use vm_mem::{NumaAllocPolicy, NumaAllocator, NumaNodeInfo};
 

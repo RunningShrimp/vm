@@ -24,7 +24,7 @@
 //! ### 基本使用
 //!
 //! ```rust
-//! use vm_mem::{init_global_thp_manager, allocate_with_thp, deallocate_with_thp, ThpPolicy};
+//! use vm_mem::{ThpPolicy, allocate_with_thp, deallocate_with_thp, init_global_thp_manager};
 //!
 //! // 初始化THP管理器
 //! init_global_thp_manager(ThpPolicy::Transparent)?;
@@ -38,7 +38,7 @@
 //!     unsafe {
 //!         std::ptr::write_bytes(ptr, 0xCC, size);
 //!     }
-//!     
+//!
 //!     // 释放内存
 //!     deallocate_with_thp(ptr, size);
 //! }
@@ -47,7 +47,7 @@
 //! ### THP管理器使用
 //!
 //! ```rust
-//! use vm_mem::{TransparentHugePageManager, ThpPolicy};
+//! use vm_mem::{ThpPolicy, TransparentHugePageManager};
 //!
 //! // 创建THP管理器
 //! let manager = TransparentHugePageManager::new(ThpPolicy::Transparent)?;
@@ -73,9 +73,9 @@
 //!     // 检查是否使用了THP
 //!     let is_thp = manager.is_thp_address(ptr);
 //!     println!("使用THP: {}", is_thp);
-//!     
+//!
 //!     // 使用内存...
-//!     
+//!
 //!     // 释放内存
 //!     manager.deallocate_thp(ptr, size);
 //! }
@@ -84,7 +84,7 @@
 //! ### 不同THP策略比较
 //!
 //! ```rust
-//! use vm_mem::{TransparentHugePageManager, ThpPolicy};
+//! use vm_mem::{ThpPolicy, TransparentHugePageManager};
 //!
 //! let policies = [
 //!     (ThpPolicy::Always, "Always"),
@@ -97,7 +97,7 @@
 //!
 //! for (policy, name) in &policies {
 //!     println!("\n测试策略: {}", name);
-//!     
+//!
 //!     // 创建THP管理器
 //!     match TransparentHugePageManager::new(*policy) {
 //!         Ok(manager) => {
@@ -105,11 +105,11 @@
 //!             match manager.allocate_with_thp(test_size) {
 //!                 Ok(ptr) if !ptr.is_null() => {
 //!                     println!("  分配成功: {:p}", ptr);
-//!                     
+//!
 //!                     // 检查是否使用了THP
 //!                     let is_thp = manager.is_thp_address(ptr);
 //!                     println!("  使用THP: {}", is_thp);
-//!                     
+//!
 //!                     // 释放内存
 //!                     manager.deallocate_thp(ptr, test_size);
 //!                 }
@@ -120,13 +120,21 @@
 //!                     println!("  分配失败: {}", e);
 //!                 }
 //!             }
-//!             
+//!
 //!             // 打印统计信息
 //!             let stats = manager.stats();
-//!             println!("  THP分配: {}",
-//!                 stats.thp_allocations.load(std::sync::atomic::Ordering::Relaxed));
-//!             println!("  常规分配: {}",
-//!                 stats.normal_allocations.load(std::sync::atomic::Ordering::Relaxed));
+//!             println!(
+//!                 "  THP分配: {}",
+//!                 stats
+//!                     .thp_allocations
+//!                     .load(std::sync::atomic::Ordering::Relaxed)
+//!             );
+//!             println!(
+//!                 "  常规分配: {}",
+//!                 stats
+//!                     .normal_allocations
+//!                     .load(std::sync::atomic::Ordering::Relaxed)
+//!             );
 //!         }
 //!         Err(e) => {
 //!             println!("  创建THP管理器失败: {}", e);
@@ -138,8 +146,9 @@
 //! ### THP性能测试
 //!
 //! ```rust
-//! use vm_mem::{allocate_with_thp, deallocate_with_thp, init_global_thp_manager, ThpPolicy};
 //! use std::time::Instant;
+//!
+//! use vm_mem::{ThpPolicy, allocate_with_thp, deallocate_with_thp, init_global_thp_manager};
 //!
 //! // 初始化THP管理器
 //! init_global_thp_manager(ThpPolicy::Transparent)?;
@@ -199,6 +208,19 @@
 //!
 //! // 释放内存
 //! for ptr in regular_ptrs {
+//!     //! # Safety
+//!     //!
+//!     //! 调用者必须确保：
+//!     //! - `ptr` 必须有效且对齐
+//!     //! - `ptr` 指向的内存至少包含 `T` 类型大小的可写字节
+//!     //! - 在写入期间，没有其他线程会访问该内存
+//!     //! - 该内存当前未被借用或包含需要 drop 的值
+//!     //!
+//!     //! # 维护者必须确保：
+//!     //! - 验证指针的可写性和对齐
+//!     //! - 确保不会发生数据竞争
+//!     //! - 修改时验证内存写入的安全性
+//!     //!
 //!     unsafe {
 //!         let layout = match std::alloc::Layout::from_size_align(block_size, 8) {
 //!             Ok(l) => l,
@@ -387,7 +409,21 @@ impl TransparentHugePageManager {
                 // 使用mmap分配内存，让内核自动使用THP
                 let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
                 let prot = libc::PROT_READ | libc::PROT_WRITE;
-                let addr = unsafe { libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
+                let addr = /// # Safety
+                ///
+                /// 调用者必须确保：
+                /// - `size` 不为零且在合理的内存分配范围内
+                /// - 返回的指针在失败时为 `libc::MAP_FAILED`，成功时为有效映射地址
+                /// - 成功返回的指针必须在使用后通过 `libc::munmap` 释放
+                /// - 映射的内存区域仅用于指定的操作（由 `prot` 参数指定）
+                ///
+                /// # 维护者必须确保：
+                /// - `libc::mmap` 的参数符合操作系统规范
+                /// - 检查返回值是否为 `libc::MAP_FAILED` 以检测失败情况
+                /// - 修改时验证在不同操作系统配置下的兼容性
+                unsafe {
+                    libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0)
+                };
 
                 if addr == libc::MAP_FAILED {
                     self.stats
@@ -422,7 +458,18 @@ impl TransparentHugePageManager {
                     }
                 } else {
                     // 建议内核使用THP
-                    let result = unsafe {
+                    let result = /// # Safety
+                    ///
+                    /// 调用者必须确保：
+                    /// - `size` 不是零
+                    /// - `align` 是 2 的幂次
+                    /// - `size` 是 `align` 的倍数（或满足分配器对齐要求）
+                    ///
+                    /// # 维护者必须确保：
+                    /// - 在调用前已验证所有前置条件
+                    /// - 不会创建无效的 Layout 对象
+                    /// - 修改时确保条件检查的完整性
+                    unsafe {
                         libc::madvise(addr as *mut libc::c_void, size, libc::MADV_HUGEPAGE)
                     };
                     if result == 0 {

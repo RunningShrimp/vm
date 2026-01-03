@@ -498,21 +498,34 @@ impl AccelKind {
 pub mod accel;
 pub mod accel_fallback;
 pub mod event;
+pub mod perf_optimizer;
+pub mod platform_detect;
 
 #[cfg(feature = "smmu")]
 pub mod smmu;
 
-#[cfg(feature = "smmu")]
-pub use crate::accel::{AccelManagerError, AccelerationManager};
+#[cfg(target_os = "windows")]
+pub mod whp;
+
 pub use accel_fallback::{AccelFallbackManager, ExecResult};
-pub use numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer};
-pub use vcpu_numa_manager::{NumaTopology, VcpuNumaManager};
-
-#[cfg(feature = "smmu")]
-pub use smmu::{SmmuDeviceAttachment, SmmuDeviceInfo, SmmuManager};
-
 #[cfg(target_os = "linux")]
 pub use kvm_numa::NUMAKvmAccelerator;
+pub use numa_optimizer::{MemoryAllocationStrategy, NUMANodeStats, NUMAOptimizer};
+pub use perf_optimizer::{
+    AccelPerformanceStats, MmuBatchStats, MmuBatchUpdate, MmuBatchUpdater, SwitchAction,
+    VmContextOptimizer, VmContextStats, VmContextStrategy,
+};
+pub use platform_detect::{
+    Platform, SkipReason, is_hvf_available, is_kvm_available, is_whpx_available,
+};
+#[cfg(feature = "smmu")]
+pub use smmu::{SmmuDeviceAttachment, SmmuDeviceInfo, SmmuManager};
+pub use vcpu_numa_manager::{NumaTopology, VcpuNumaManager};
+#[cfg(target_os = "windows")]
+pub use whp::{WHPX_VERSION, WhpxFeatures};
+
+#[cfg(feature = "smmu")]
+pub use crate::accel::{AccelManagerError, AccelerationManager};
 
 pub struct NoAccel;
 impl Accel for NoAccel {
@@ -738,8 +751,9 @@ pub use whpx_impl::AccelWhpx;
 pub fn add_i32x8(a: [i32; 8], b: [i32; 8]) -> [i32; 8] {
     if std::is_x86_feature_detected!("avx2") {
         // SAFETY: AVX2 intrinsics require CPU feature check (done above)
-        // Preconditions: a and b are valid arrays of 8 i32 each (32 bytes), pointers properly aligned for loadu/storeu
-        // Invariants: _mm256_loadu_si256 supports unaligned loads, _mm256_storeu_si256 supports unaligned stores
+        // Preconditions: a and b are valid arrays of 8 i32 each (32 bytes), pointers properly
+        // aligned for loadu/storeu Invariants: _mm256_loadu_si256 supports unaligned loads,
+        // _mm256_storeu_si256 supports unaligned stores
         unsafe {
             use core::arch::x86_64::*;
             let va = _mm256_loadu_si256(a.as_ptr() as *const __m256i);
@@ -790,7 +804,8 @@ pub fn add_i32x8(a: [i32; 8], b: [i32; 8]) -> [i32; 8] {
 pub fn add_i32x4(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
     // SAFETY: NEON intrinsics are mandatory on aarch64 (always available)
     // Preconditions: a and b are valid arrays of 4 i32 each (16 bytes), pointers properly aligned
-    // Invariants: vld1q_s32 loads 4 i32 values, vst1q_s32 stores 4 i32 values, vaddq_s32 performs SIMD addition
+    // Invariants: vld1q_s32 loads 4 i32 values, vst1q_s32 stores 4 i32 values, vaddq_s32 performs
+    // SIMD addition
     unsafe {
         use core::arch::aarch64::*;
         let va = vld1q_s32(a.as_ptr());

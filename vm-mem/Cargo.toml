@@ -7,7 +7,7 @@ edition = "2024"
 path = "src/lib.rs"
 
 [dependencies]
-vm-core = { path = "../vm-core", features = ["common"] }
+vm-core = { path = "../vm-core" }
 libc = { workspace = true }
 lru = "0.16"
 parking_lot = { workspace = true }
@@ -48,13 +48,36 @@ required-features = ["async"]
 name = "memory_allocation"
 harness = false
 
+[[bench]]
+name = "simd_memcpy"
+harness = false
+
+[[bench]]
+name = "simd_memcpy_standalone"
+harness = false
+
+[[bench]]
+name = "concurrent_mmu"
+harness = false
+
 [features]
 default = ["std", "optimizations"]
+
+# Standard library support
 std = []
 
-# Optimization features (merged: async, tlb)
-optimizations = ["tokio", "async-trait"]
+# Fine-grained optimization features
+opt-simd = []
+opt-tlb = []
+opt-numa = []
+opt-prefetch = []
+opt-concurrent = []
 
-# Legacy feature aliases (deprecated, use "optimizations" instead)
-async = ["optimizations"]
-tlb = []
+# Combined optimizations (included in default for backward compatibility)
+optimizations = ["opt-simd", "opt-tlb", "opt-numa"]
+
+# Async support
+async = ["tokio", "async-trait"]
+
+# Legacy feature aliases (deprecated)
+tlb = ["opt-tlb"]

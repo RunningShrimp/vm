@@ -1,8 +1,9 @@
-use bincode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use vm_core::{GuestAddr, MMU, VmResult};
 
 /// SR-IOV (Single Root I/O Virtualization) support for network devices

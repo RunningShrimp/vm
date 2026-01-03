@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 /// VirtioBlock 充血模型性能基准测试
 ///
 /// 本基准测试验证 VirtioBlock 充血模型的性能表现，确保没有性能回归
@@ -13,7 +15,6 @@
 /// cargo bench --bench block_benchmark
 /// ```
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use std::time::Duration;
 use vm_device::block::{BlockRequest, BlockResponse, VirtioBlock};
 
 /// 基准测试：读操作性能

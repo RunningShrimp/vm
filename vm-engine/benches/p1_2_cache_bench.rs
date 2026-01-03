@@ -2,12 +2,13 @@
 //!
 //! 验证跨架构翻译缓存系统的性能效果
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use vm_core::GuestAddr;
 use vm_cross_arch_support::{
-    encoding_cache::{InstructionEncodingCache, Arch as CacheArch, Instruction, Operand},
-    pattern_cache::{PatternMatchCache, Arch as PatternArch},
+    encoding_cache::{Arch as CacheArch, Instruction, InstructionEncodingCache, Operand},
+    pattern_cache::{Arch as PatternArch, PatternMatchCache},
     translation_pipeline::{CrossArchTranslationPipeline, RegisterMappingCache},
 };
 
@@ -36,9 +37,7 @@ fn bench_encoding_cache(c: &mut Criterion) {
     // 测试缓存命中性能
     group.bench_function("cache_hit", |b| {
         let insn = create_test_instruction(CacheArch::Riscv64, 50);
-        b.iter(|| {
-            black_box(cache.encode_or_lookup(black_box(&insn)).unwrap())
-        })
+        b.iter(|| black_box(cache.encode_or_lookup(black_box(&insn)).unwrap()))
     });
 
     // 测试缓存未命中性能
@@ -70,36 +69,28 @@ fn bench_pattern_cache(c: &mut Criterion) {
     group.bench_function("pattern_hit", |b| {
         let insn: u32 = 0x00000383; // LB加载指令
         let bytes = insn.to_le_bytes();
-        b.iter(|| {
-            black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4])))
-        })
+        b.iter(|| black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4]))))
     });
 
     // 测试RISC-V加载指令检测
     group.bench_function("riscv_load_detect", |b| {
         let insn: u32 = 0x00000303; // LB指令
         let bytes = insn.to_le_bytes();
-        b.iter(|| {
-            black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4])))
-        })
+        b.iter(|| black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4]))))
     });
 
     // 测试RISC-V存储指令检测
     group.bench_function("riscv_store_detect", |b| {
         let insn: u32 = 0x0010A023; // SB指令
         let bytes = insn.to_le_bytes();
-        b.iter(|| {
-            black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4])))
-        })
+        b.iter(|| black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4]))))
     });
 
     // 测试RISC-V分支指令检测
     group.bench_function("riscv_branch_detect", |b| {
         let insn: u32 = 0x00000063; // BEQ指令
         let bytes = insn.to_le_bytes();
-        b.iter(|| {
-            black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4])))
-        })
+        b.iter(|| black_box(cache.match_or_analyze(PatternArch::Riscv64, black_box(&bytes[..4]))))
     });
 
     group.finish();
@@ -184,7 +175,11 @@ fn bench_translation_pipeline(c: &mut Criterion) {
             b.iter(|| {
                 black_box(
                     pipeline
-                        .translate_block(CacheArch::X86_64, CacheArch::Riscv64, black_box(&instructions))
+                        .translate_block(
+                            CacheArch::X86_64,
+                            CacheArch::Riscv64,
+                            black_box(&instructions),
+                        )
                         .unwrap(),
                 )
             })

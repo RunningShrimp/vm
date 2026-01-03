@@ -2,10 +2,12 @@
 //!
 //! 提供插件执行的安全隔离和权限控制
 
-use crate::PluginPermission;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+
 use vm_core::VmError;
+
+use crate::PluginPermission;
 
 /// 安全管理器
 pub struct SecurityManager {

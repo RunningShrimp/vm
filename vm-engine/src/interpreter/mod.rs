@@ -18,185 +18,191 @@
 //! - 支持指令融合减少调度开销
 
 use std::collections::HashMap;
+
 use vm_core::{
     ExecResult, ExecStats, ExecStatus, ExecutionEngine, GuestAddr, MMU, SyscallResult, VmError,
     VmResult,
 };
 use vm_ir::{AtomicOp, IRBlock, IROp, Terminator};
 
-// SIMD 函数的条件导入和 fallback 实现
-cfg_if::cfg_if! {
-    if #[cfg(feature = "vm-simd")] {
-        use vm_simd::{
-            vec_add, vec_add_sat_s, vec_add_sat_u, vec_mul, vec_sub, vec_sub_sat_s, vec_sub_sat_u,
-            vec256_add_sat_s, vec256_add_sat_u, vec256_mul_sat_s, vec256_mul_sat_u, vec256_sub_sat_s,
-            vec256_sub_sat_u,
-        };
-    } else {
-        // Fallback 实现当 vm-simd 不可用时
-        fn vec_add(a: u64, b: u64, element_size: u8) -> u64 {
-            // 简单的逐元素加法实现
-            let es = element_size as u64;
-            let lane_bits = es * 8;
-            let lanes = 64 / lane_bits;
-            let mut result = 0u64;
-            for i in 0..lanes {
-                let shift = i * lane_bits;
-                let mask = ((1u64 << lane_bits) - 1) << shift;
-                let av = (a & mask) >> shift;
-                let bv = (b & mask) >> shift;
-                result |= (av.wrapping_add(bv) & ((1u64 << lane_bits) - 1)) << shift;
-            }
-            result
-        }
-
-        fn vec_sub(a: u64, b: u64, element_size: u8) -> u64 {
-            let es = element_size as u64;
-            let lane_bits = es * 8;
-            let lanes = 64 / lane_bits;
-            let mut result = 0u64;
-            for i in 0..lanes {
-                let shift = i * lane_bits;
-                let mask = ((1u64 << lane_bits) - 1) << shift;
-                let av = (a & mask) >> shift;
-                let bv = (b & mask) >> shift;
-                result |= (av.wrapping_sub(bv) & ((1u64 << lane_bits) - 1)) << shift;
-            }
-            result
-        }
-
-        fn vec_mul(a: u64, b: u64, element_size: u8) -> u64 {
-            let es = element_size as u64;
-            let lane_bits = es * 8;
-            let lanes = 64 / lane_bits;
-            let mut result = 0u64;
-            for i in 0..lanes {
-                let shift = i * lane_bits;
-                let mask = ((1u64 << lane_bits) - 1) << shift;
-                let av = (a & mask) >> shift;
-                let bv = (b & mask) >> shift;
-                result |= ((av * bv) & ((1u64 << lane_bits) - 1)) << shift;
-            }
-            result
-        }
-
-        fn vec_add_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
-            let es = element_size as u64;
-            let lane_bits = es * 8;
-            let lanes = 64 / lane_bits;
-            let mut result = 0u64;
-            for i in 0..lanes {
-                let shift = i * lane_bits;
-                let mask = ((1u64 << lane_bits) - 1) << shift;
-                let av = (a & mask) >> shift;
-                let bv = (b & mask) >> shift;
-                let bits = lane_bits - 1;
-                let max = (1i64 << bits) - 1;
-                let min = -(1i64 << bits);
-                let sa = av as i64;
-                let sb = bv as i64;
-                let res = sa + sb;
-                let clamped = if res > max { max } else if res < min { min } else { res };
-                result |= (clamped as u64 & ((1u64 << lane_bits) - 1)) << shift;
-            }
-            result
-        }
-
-        fn vec_add_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
-            let es = element_size as u64;
-            let lane_bits = es * 8;
-            let lanes = 64 / lane_bits;
-            let mut result = 0u64;
-            for i in 0..lanes {
-                let shift = i * lane_bits;
-                let mask = ((1u64 << lane_bits) - 1) << shift;
-                let av = (a & mask) >> shift;
-                let bv = (b & mask) >> shift;
-                let res = av.wrapping_add(bv);
-                let clamped = if av.wrapping_add(bv) < av { (1u64 << lane_bits) - 1 } else { res };
-                result |= clamped << shift;
-            }
-            result
-        }
-
-        fn vec_sub_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
-            let es = element_size as u64;
-            let lane_bits = es * 8;
-            let lanes = 64 / lane_bits;
-            let mut result = 0u64;
-            for i in 0..lanes {
-                let shift = i * lane_bits;
-                let mask = ((1u64 << lane_bits) - 1) << shift;
-                let av = (a & mask) >> shift;
-                let bv = (b & mask) >> shift;
-                let bits = lane_bits - 1;
-                let max = (1i64 << bits) - 1;
-                let min = -(1i64 << bits);
-                let sa = av as i64;
-                let sb = bv as i64;
-                let res = sa - sb;
-                let clamped = if res > max { max } else if res < min { min } else { res };
-                result |= (clamped as u64 & ((1u64 << lane_bits) - 1)) << shift;
-            }
-            result
-        }
-
-        fn vec_sub_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
-            let es = element_size as u64;
-            let lane_bits = es * 8;
-            let lanes = 64 / lane_bits;
-            let mut result = 0u64;
-            for i in 0..lanes {
-                let shift = i * lane_bits;
-                let mask = ((1u64 << lane_bits) - 1) << shift;
-                let av = (a & mask) >> shift;
-                let bv = (b & mask) >> shift;
-                let clamped = av.saturating_sub(bv);
-                result |= clamped << shift;
-            }
-            result
-        }
-
-        fn vec256_add_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-            let mut result = [0u64; 4];
-            for (i, result_item) in result.iter_mut().enumerate() {
-                *result_item = vec_add_sat_s(src_a[i], src_b[i], element_size);
-            }
-            result
-        }
-
-        fn vec256_add_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-            let mut result = [0u64; 4];
-            for (i, result_item) in result.iter_mut().enumerate() {
-                *result_item = vec_add_sat_u(src_a[i], src_b[i], element_size);
-            }
-            result
-        }
-
-        fn vec256_sub_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-            let mut result = [0u64; 4];
-            for (i, result_item) in result.iter_mut().enumerate() {
-                *result_item = vec_sub_sat_s(src_a[i], src_b[i], element_size);
-            }
-            result
-        }
-
-        fn vec256_sub_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-            let mut result = [0u64; 4];
-            for (i, result_item) in result.iter_mut().enumerate() {
-                *result_item = vec_sub_sat_u(src_a[i], src_b[i], element_size);
-            }
-            result
-        }
-
-        fn vec256_mul_sat_s(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
-            [0u64; 4]
-        }
-
-        fn vec256_mul_sat_u(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
-            [0u64; 4]
-        }
+// SIMD 函数的 fallback 实现（vm-simd crate 已移除）
+fn vec_add(a: u64, b: u64, element_size: u8) -> u64 {
+    // 简单的逐元素加法实现
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+        result |= (av.wrapping_add(bv) & ((1u64 << lane_bits) - 1)) << shift;
     }
+    result
+}
+
+fn vec_sub(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+        result |= (av.wrapping_sub(bv) & ((1u64 << lane_bits) - 1)) << shift;
+    }
+    result
+}
+
+fn vec_mul(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+        result |= ((av * bv) & ((1u64 << lane_bits) - 1)) << shift;
+    }
+    result
+}
+
+fn vec_add_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+        let bits = lane_bits - 1;
+        let max = (1i64 << bits) - 1;
+        let min = -(1i64 << bits);
+        let sa = av as i64;
+        let sb = bv as i64;
+        let res = sa + sb;
+        let clamped = if res > max {
+            max
+        } else if res < min {
+            min
+        } else {
+            res
+        };
+        result |= (clamped as u64 & ((1u64 << lane_bits) - 1)) << shift;
+    }
+    result
+}
+
+fn vec_add_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+        let res = av.wrapping_add(bv);
+        let clamped = if av.wrapping_add(bv) < av {
+            (1u64 << lane_bits) - 1
+        } else {
+            res
+        };
+        result |= clamped << shift;
+    }
+    result
+}
+
+fn vec_sub_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+        let bits = lane_bits - 1;
+        let max = (1i64 << bits) - 1;
+        let min = -(1i64 << bits);
+        let sa = av as i64;
+        let sb = bv as i64;
+        let res = sa - sb;
+        let clamped = if res > max {
+            max
+        } else if res < min {
+            min
+        } else {
+            res
+        };
+        result |= (clamped as u64 & ((1u64 << lane_bits) - 1)) << shift;
+    }
+    result
+}
+
+fn vec_sub_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+        let clamped = av.saturating_sub(bv);
+        result |= clamped << shift;
+    }
+    result
+}
+
+fn vec256_add_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
+    let mut result = [0u64; 4];
+    for (i, result_item) in result.iter_mut().enumerate() {
+        *result_item = vec_add_sat_s(src_a[i], src_b[i], element_size);
+    }
+    result
+}
+
+fn vec256_add_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
+    let mut result = [0u64; 4];
+    for (i, result_item) in result.iter_mut().enumerate() {
+        *result_item = vec_add_sat_u(src_a[i], src_b[i], element_size);
+    }
+    result
+}
+
+fn vec256_sub_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
+    let mut result = [0u64; 4];
+    for (i, result_item) in result.iter_mut().enumerate() {
+        *result_item = vec_sub_sat_s(src_a[i], src_b[i], element_size);
+    }
+    result
+}
+
+fn vec256_sub_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
+    let mut result = [0u64; 4];
+    for (i, result_item) in result.iter_mut().enumerate() {
+        *result_item = vec_sub_sat_u(src_a[i], src_b[i], element_size);
+    }
+    result
+}
+
+fn vec256_mul_sat_s(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
+    [0u64; 4]
+}
+
+fn vec256_mul_sat_u(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
+    [0u64; 4]
 }
 
 /// 异步设备I/O模块
@@ -798,20 +804,24 @@ impl Interpreter {
     pub fn get_vcpu_state(&self) -> vm_core::VcpuStateContainer {
         vm_core::VcpuStateContainer {
             vcpu_id: 0, // Default to 0 since this is not tracked in the interpreter
-            state: vm_core::VmState::Running,
-            running: false, // Not used in this context
-            regs: vm_core::GuestRegs {
-                pc: self.pc.0,
-                sp: self.regs[2],
-                fp: self.regs[3],
-                gpr: self.regs,
+            lifecycle_state: vm_core::VmState::Running,
+            runtime_state: vm_core::VmRuntimeState {
+                regs: vm_core::GuestRegs {
+                    pc: self.pc.0,
+                    sp: self.regs[2],
+                    fp: self.regs[3],
+                    gpr: self.regs,
+                },
+                memory: vec![], // Not tracked in interpreter
+                pc: self.pc,
             },
+            running: false, // Not used in this context
         }
     }
 
     pub fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
-        self.regs = state.regs.gpr;
-        self.pc = vm_core::GuestAddr(state.regs.pc);
+        self.regs = state.runtime_state.regs.gpr;
+        self.pc = state.runtime_state.pc;
     }
 }
 
@@ -845,20 +855,24 @@ impl ExecutionEngine<IRBlock> for Interpreter {
     fn get_vcpu_state(&self) -> vm_core::VcpuStateContainer {
         vm_core::VcpuStateContainer {
             vcpu_id: 0, // Default to 0 since this is not tracked in the interpreter
-            state: vm_core::VmState::Running,
-            running: false, // Not used in this context
-            regs: vm_core::GuestRegs {
-                pc: self.pc.0,
-                sp: self.regs[2],
-                fp: self.regs[3],
-                gpr: self.regs,
+            lifecycle_state: vm_core::VmState::Running,
+            runtime_state: vm_core::VmRuntimeState {
+                regs: vm_core::GuestRegs {
+                    pc: self.pc.0,
+                    sp: self.regs[2],
+                    fp: self.regs[3],
+                    gpr: self.regs,
+                },
+                memory: vec![], // Not tracked in interpreter
+                pc: self.pc,
             },
+            running: false, // Not used in this context
         }
     }
 
     fn set_vcpu_state(&mut self, state: &vm_core::VcpuStateContainer) {
-        self.regs = state.regs.gpr;
-        self.pc = vm_core::GuestAddr(state.regs.pc);
+        self.regs = state.runtime_state.regs.gpr;
+        self.pc = state.runtime_state.pc;
     }
 
     fn run(&mut self, mmu: &mut dyn MMU, block: &IRBlock) -> ExecResult {
@@ -1210,7 +1224,8 @@ impl ExecutionEngine<IRBlock> for Interpreter {
                 }
 
                 IROp::TlbFlush { vaddr: _ } => {
-                    // Interpreter uses SoftMMU which might not need explicit flush or we can't easily flush it here without MMU API change.
+                    // Interpreter uses SoftMMU which might not need explicit flush or we can't
+                    // easily flush it here without MMU API change.
                     // For now, treat as NOP or maybe we should add a flush method to MMU trait?
                     // Given the current MMU trait doesn't have flush, we'll just count it.
                     count += 1;

@@ -2,8 +2,9 @@
 //!
 //! 使用Criterion框架全面测试JIT编译器的性能指标
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_engine::jit::core::{JITConfig, JITEngine};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 

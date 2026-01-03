@@ -3,6 +3,7 @@
 //! This test suite covers core VM types, traits, and error handling.
 
 use std::sync::RwLock;
+
 use vm_core::{
     AccessType, CoreError, ExecMode, ExecResult, ExecStats, ExecStatus, ExecutionError, Fault,
     GuestAddr, GuestArch, GuestPhysAddr, Instruction, MemoryError, MmioDevice, SyscallContext,
@@ -683,7 +684,7 @@ fn test_guest_addr_underflow() {
 
 #[test]
 fn test_empty_vm_state() {
-    let state = VmState {
+    let state = VmRuntimeState {
         regs: Default::default(),
         memory: vec![],
         pc: GuestAddr(0),
@@ -696,7 +697,7 @@ fn test_empty_vm_state() {
 #[test]
 fn test_large_memory_vm_state() {
     let memory = vec![0u8; 1024 * 1024]; // 1MB
-    let state = VmState {
+    let state = VmRuntimeState {
         regs: Default::default(),
         memory,
         pc: GuestAddr(0x1000),

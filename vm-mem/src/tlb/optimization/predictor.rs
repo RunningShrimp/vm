@@ -3,9 +3,11 @@
 // 本模块实现了基于马尔可夫链的地址预测算法，用于TLB动态预热。
 // 马尔可夫链通过状态转移矩阵来预测下一个可能的状态（访问模式）。
 
-use super::access_pattern::PatternType;
 use std::collections::HashMap;
+
 use vm_core::GuestAddr;
+
+use super::access_pattern::PatternType;
 
 /// 马尔可夫链预测器
 ///

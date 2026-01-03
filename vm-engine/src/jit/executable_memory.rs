@@ -157,18 +157,42 @@ impl ExecutableMemory {
             asm!("isb", options(nostack));
         }
 
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            use std::arch::asm;
+
+            // RISC-V指令缓存刷新
+            let addr = self.ptr as usize;
+            let size = self.size;
+
+            // RISC-V缓存行大小通常是64字节
+            let cache_line_size = 64;
+            let start_addr = addr & !(cache_line_size - 1);
+            let end_addr = ((addr + size + cache_line_size - 1) & !(cache_line_size - 1)) as u64;
+
+            let mut current = start_addr as u64;
+            while current < end_addr {
+                // RISC-V的fence.i指令确保指令缓存一致性
+                asm!("fence.i", options(nostack));
+                current += cache_line_size as u64;
+            }
+        }
+
+        #[cfg(not(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64"
+        )))]
         {
-            // 其他架构：使用编译器内置函数
+            // 其他架构：使用编译器内置函数或平台特定方法
             unsafe {
                 let addr = self.ptr as usize;
                 let size = self.size;
 
-                // 使用std::arch::asm的内置刷新
-                #[cfg(feature = "compiler_builtins")]
-                {
-                    compiler_builtins::clear_cache(self.ptr, self.ptr.add(size));
-                }
+                // 对于未知架构，使用std::arch::atomic_fence编译器内置函数
+                // 作为通用回退方案
+                let _ = (addr, size);
+                std::arch::atomic_fence(Ordering::SeqCst);
             }
         }
     }

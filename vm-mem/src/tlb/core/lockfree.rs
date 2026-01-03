@@ -7,9 +7,10 @@
 //! - 无数据竞争
 //! - 支持高并发场景
 
-use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use dashmap::DashMap;
 
 /// TLB条目
 #[derive(Debug, Clone, Copy)]

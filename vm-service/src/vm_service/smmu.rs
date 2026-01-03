@@ -5,10 +5,9 @@
 
 use std::sync::Arc;
 
-use vm_core::{GuestAddr, VmError, VmResult};
-
 #[cfg(feature = "smmu")]
 use vm_accel::SmmuManager;
+use vm_core::{GuestAddr, VmError, VmResult};
 #[cfg(feature = "smmu")]
 use vm_device::smmu_device::SmmuDeviceManager;
 

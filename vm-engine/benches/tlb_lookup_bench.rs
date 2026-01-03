@@ -2,10 +2,11 @@
 //!
 //! 测试虚拟内存管理中TLB（Translation Lookaside Buffer）的性能
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use rand::Rng;
 
 /// 模拟TLB条目
 #[derive(Debug, Clone)]

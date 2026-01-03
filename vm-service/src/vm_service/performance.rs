@@ -155,7 +155,7 @@ impl PerformanceContext {
         guest_arch: GuestArch,
         trap_handler: Option<TrapHandler>,
         irq_policy: Option<IrqPolicy>,
-        coroutine_scheduler: Option<Arc<Mutex<vm_runtime::CoroutineScheduler>>>,
+        coroutine_scheduler: Option<Arc<Mutex<vm_core::runtime::CoroutineScheduler>>>,
     ) -> ExecutionContext {
         let mut ctx = ExecutionContext::new(guest_arch);
         ctx.run_flag = run_flag;
@@ -199,7 +199,8 @@ impl PerformanceContext {
     pub fn export_hot_snapshot_json(&self) -> Option<String> {
         self.hot_snapshot().map(|(cfg, stats)| {
             format!(
-                "{{\"cold_threshold\":{},\"hot_threshold\":{},\"enable_adaptive\":{},\"execution_count\":{}}}",
+                "{{\"cold_threshold\":{},\"hot_threshold\":{},\"enable_adaptive\":{},\"\
+                 execution_count\":{}}}",
                 cfg.cold_threshold, cfg.hot_threshold, cfg.enable_adaptive, stats.execution_count
             )
         })

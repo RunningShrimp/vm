@@ -2,8 +2,9 @@
 //!
 //! Handles rendering framebuffer data for GUI mode and serial port output for terminal mode.
 
-use serde::{Deserialize, Serialize};
 use std::io::Cursor;
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

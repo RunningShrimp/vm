@@ -10,8 +10,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
-// Temporarily disabled due to file corruption and async/sync mismatch
-// pub mod postgres_event_store;
+// PostgreSQL event store implementation
+pub mod postgres_event_store;
+
+// Temporarily disabled
 // pub mod file_event_store;
 pub mod compatibility;
 
@@ -208,19 +210,15 @@ impl EventStore for InMemoryEventStore {
 }
 
 // Re-export new implementations
-// Temporarily disabled due to file corruption and async/sync mismatch
-// pub use postgres_event_store::{
-//     PostgresEventStore, PostgresEventStoreConfig, PostgresEventStoreBuilder
-// };
+pub use postgres_event_store::{
+    PostgresEventStore, PostgresEventStoreConfig, PostgresEventStoreBuilder
+};
 
 // pub use file_event_store::{
 //     FileEventStore, FileEventStoreConfig, FileEventStoreBuilder
 // };
 
 // Re-export compatibility adapters
-// pub use compatibility::{
-//     PostgresEventStoreAdapter, FileEventStoreAdapter, EnhancedStoredEvent
-// };
-// pub use compatibility::{
-//     FileEventStoreAdapter, EnhancedStoredEvent
-// };
+pub use compatibility::{
+    PostgresEventStoreAdapter, FileEventStoreAdapter, EnhancedStoredEvent
+};

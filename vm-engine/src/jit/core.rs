@@ -3,13 +3,14 @@
 //! 本模块定义了JIT引擎的核心架构，包括编译器、代码缓存、优化器等组件。
 //! 设计目标是提供高性能的JIT编译能力，支持多种架构和优化策略。
 
-use parking_lot::Mutex;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, atomic::AtomicBool};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 use vm_core::{ExecResult, ExecStats, ExecStatus, GuestAddr, MMU, VmError};
 use vm_ir::IRBlock;
 
@@ -18,28 +19,29 @@ cfg_if::cfg_if! {
     if #[cfg(all(target_os = "linux", feature = "std"))] {
         use num_cpus;
 
+        #[allow(dead_code)]
         fn get_cpu_count() -> usize {
             num_cpus::get()
         }
     } else {
+        #[allow(dead_code)]
         fn get_cpu_count() -> usize {
             1 // 默认单线程
         }
     }
 }
 
-pub use crate::jit::compiler::JITCompiler;
-pub use crate::jit::instruction_scheduler::InstructionScheduler;
-pub use crate::jit::optimizer::IROptimizer;
-pub use crate::jit::register_allocator::RegisterAllocator;
-pub use crate::jit::tiered_cache::TieredCodeCache;
-
 // 导入具体实现类型
 use crate::jit::codegen::DefaultCodeGenerator;
 use crate::jit::compiler::DefaultJITCompiler;
+pub use crate::jit::compiler::JITCompiler;
+pub use crate::jit::instruction_scheduler::InstructionScheduler;
 use crate::jit::instruction_scheduler::ListScheduler;
 use crate::jit::optimizer::DefaultIROptimizer;
+pub use crate::jit::optimizer::IROptimizer;
 use crate::jit::register_allocator::LinearScanAllocator;
+pub use crate::jit::register_allocator::RegisterAllocator;
+pub use crate::jit::tiered_cache::TieredCodeCache;
 
 /// JIT引擎配置
 #[derive(Debug, Clone)]
@@ -80,7 +82,7 @@ impl Default for JITConfig {
             hotspot_threshold: 100,
             enable_adaptive_compilation: true,
             register_allocation_strategy: RegisterAllocationStrategy::LinearScan,
-            instruction_scheduling_strategy: InstructionSchedulingStrategy::ListScheduling,
+            instruction_scheduling_strategy: InstructionSchedulingStrategy::List,
             enable_parallel_compilation: true,
             parallel_compilation_threads: get_cpu_count(), // 使用CPU核心数
             compilation_queue_size: 1000,
@@ -104,17 +106,18 @@ pub enum RegisterAllocationStrategy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstructionSchedulingStrategy {
     /// 列表调度
-    ListScheduling,
+    List,
     /// 跟踪调度
-    TraceScheduling,
+    Trace,
     /// 超块调度
-    SuperblockScheduling,
+    Superblock,
     /// 无调度
-    NoScheduling,
+    No,
 }
 
 /// JIT编译结果
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct JITCompilationResult {
     /// 编译后的机器码
     pub code: Vec<u8>,
@@ -128,6 +131,7 @@ pub struct JITCompilationResult {
 
 /// 编译任务
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // JIT编译器基础设施 - 预留用于并行编译优化
 struct CompilationTask {
     /// 任务ID
     task_id: u64,
@@ -169,6 +173,7 @@ impl Eq for CompilationTask {
 
 /// 编译任务结果
 #[derive(Debug)]
+#[allow(dead_code)] // JIT编译器基础设施 - 预留用于并行编译优化
 struct CompilationTaskResult {
     /// 任务ID
     task_id: u64,
@@ -200,6 +205,7 @@ pub struct JITCompilationStats {
 }
 
 /// 并行编译返回类型别名
+#[allow(dead_code)] // JIT编译器基础设施 - 预留用于并行编译优化
 type ParallelCompilationResult = (
     Option<Sender<CompilationTask>>,
     Option<Receiver<CompilationTaskResult>>,
@@ -207,6 +213,7 @@ type ParallelCompilationResult = (
 );
 
 /// 优先级任务队列类型别名
+#[allow(dead_code)] // JIT编译器基础设施 - 预留用于并行编译优化
 type PriorityTaskQueue =
     Arc<Mutex<std::collections::BinaryHeap<(std::cmp::Reverse<u32>, CompilationTask)>>>;
 
@@ -534,7 +541,7 @@ impl JITEngine {
         // 4. 指令调度
         let scheduled_block = if matches!(
             config.instruction_scheduling_strategy,
-            InstructionSchedulingStrategy::NoScheduling
+            InstructionSchedulingStrategy::No
         ) {
             allocated_block
         } else {
@@ -727,7 +734,7 @@ impl JITEngine {
         // 3. 指令调度
         let scheduled_block = if matches!(
             self.config.instruction_scheduling_strategy,
-            InstructionSchedulingStrategy::NoScheduling
+            InstructionSchedulingStrategy::No
         ) {
             allocated_block
         } else {
@@ -952,7 +959,8 @@ impl JITEngine {
     }
 
     // /// 获取硬件加速统计信息
-    // pub fn get_hardware_acceleration_stats(&self) -> Option<crate::hw_acceleration::HardwareAccelerationStats> {
+    // pub fn get_hardware_acceleration_stats(&self) ->
+    // Option<crate::hw_acceleration::HardwareAccelerationStats> {
     //     self.hardware_acceleration_manager.as_ref().map(|manager| manager.get_stats().clone())
     // }
 

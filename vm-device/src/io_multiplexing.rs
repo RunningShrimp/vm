@@ -376,9 +376,9 @@ impl IoEventLoop {
     pub fn diagnostic_report(&self) -> String {
         let stats = self.stats();
         format!(
-            "IoEventLoop: running={}, handlers={}, pending={}, batch_size_avg={:.1}\n  \
-             stats: events={}, reads={}, writes={}, errors={}\n  \
-             throughput={:.0} ops/sec, latency={:.2} us",
+            "IoEventLoop: running={}, handlers={}, pending={}, batch_size_avg={:.1}\n  stats: \
+             events={}, reads={}, writes={}, errors={}\n  throughput={:.0} ops/sec, latency={:.2} \
+             us",
             self.is_running(),
             self.registered_handlers(),
             self.pending_events(),
@@ -491,7 +491,8 @@ impl IoThroughputOptimizer {
         };
 
         format!(
-            "IoThroughputOptimizer: target={} ops/sec, avg_throughput={:.0} ops/sec, adjustments={}",
+            "IoThroughputOptimizer: target={} ops/sec, avg_throughput={:.0} ops/sec, \
+             adjustments={}",
             self.target_throughput,
             avg_throughput,
             self.adjustment_count()

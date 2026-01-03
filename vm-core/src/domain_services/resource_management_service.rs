@@ -46,7 +46,7 @@
 //! ### Basic Resource Allocation
 //!
 //! ```rust
-//! use crate::jit::domain_services::resource_management_service::{
+//! use crate::domain_services::resource_management_service::{
 //!     ResourceManagementDomainService, ResourceAllocationRequest,
 //!     ResourceType, ResourceManagementConfig
 //! };
@@ -217,12 +217,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, OptimizationEvent};
-use crate::jit::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 use crate::{VmError, VmResult};
 
 /// Resource type for management
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResourceType {
     /// CPU resources
     Cpu,
@@ -457,7 +458,7 @@ impl Default for ResourceManagementConfig {
             optimization_budget: ResourceBudget {
                 cpu_budget: 0.3, // 30% of CPU
                 memory_budget: 512 * 1024 * 1024, // 512MB
-                cache_budget: 64 * 1024 * 1024, // 64MB
+                cache_budget: crate::DEFAULT_MEMORY_SIZE as u64, // 64MB
                 allocation_strategy: BudgetAllocationStrategy::Adaptive,
             },
             gc_trigger_threshold: 0.85,
@@ -468,16 +469,15 @@ impl Default for ResourceManagementConfig {
 }
 
 /// Resource Management Domain Service
-/// 
+///
 /// This service encapsulates business logic for resource management
 /// including resource constraint validation, allocation decisions,
 /// performance threshold management, and memory/CPU budget management.
-#[derive(Debug)]
 pub struct ResourceManagementDomainService {
     /// Business rules for resource management
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
     /// Event bus for publishing domain events
-    event_bus: Option<Arc<dyn DomainEventBus>>,
+    event_bus: Option<Arc<DomainEventBus>>,
     /// Configuration for resource management
     config: ResourceManagementConfig,
     /// Current resource constraints
@@ -513,7 +513,7 @@ impl ResourceManagementDomainService {
 
         for (resource_type, constraint) in &self.current_constraints {
             if constraint.is_critical_level() {
-                violated_constraints.push(resource_type.clone());
+                violated_constraints.push(*resource_type);
             }
         }
 
@@ -522,9 +522,10 @@ impl ResourceManagementDomainService {
             let violated_resources: Vec<String> = violated_constraints.iter()
                 .map(|rt| format!("{:?}", rt))
                 .collect();
-            
+
             self.publish_optimization_event(OptimizationEvent::ResourceConstraintViolation {
                 violated_resources,
+                occurred_at: std::time::SystemTime::now(),
             })?;
         }
 
@@ -538,15 +539,14 @@ impl ResourceManagementDomainService {
     ) -> VmResult<ResourceAllocationResult> {
         // Validate business rules
         for rule in &self.business_rules {
-            if let Err(e) = rule.validate_pipeline_config(&self.create_pipeline_config()) {
-                return Err(e);
-            }
+            rule.validate_pipeline_config(&self.create_pipeline_config())?
         }
 
         let constraint = self.current_constraints
             .get_mut(&request.resource_type)
             .ok_or_else(|| VmError::Core(crate::CoreError::InvalidConfig {
                 message: format!("No constraint found for resource type: {:?}", request.resource_type),
+                field: format!("{:?}", request.resource_type),
             }))?;
 
         let available_amount = constraint.max_usage - constraint.current_usage;
@@ -564,7 +564,7 @@ impl ResourceManagementDomainService {
                     message: format!("Failed to get system time: {}", e),
                     module: "resource_management_service".to_string(),
                 }))?;
-            Some(format!("alloc_{}_{}", request.resource_type as u32, timestamp.as_nanos()))
+            Some(format!("alloc_{:?}_{}", request.resource_type, timestamp.as_nanos()))
         } else {
             None
         };
@@ -587,6 +587,7 @@ impl ResourceManagementDomainService {
             requested_amount: request.amount,
             allocated_amount: result.allocated_amount,
             success: result.success,
+            occurred_at: std::time::SystemTime::now(),
         })?;
 
         Ok(result)
@@ -603,6 +604,7 @@ impl ResourceManagementDomainService {
             .get_mut(&resource_type)
             .ok_or_else(|| VmError::Core(crate::CoreError::InvalidConfig {
                 message: format!("No constraint found for resource type: {:?}", resource_type),
+                field: format!("{:?}", resource_type),
             }))?;
 
         // Ensure we don't release more than we've allocated
@@ -614,6 +616,7 @@ impl ResourceManagementDomainService {
             resource_type: format!("{:?}", resource_type),
             released_amount: release_amount,
             allocation_id: allocation_id.to_string(),
+            occurred_at: std::time::SystemTime::now(),
         })?;
 
         Ok(())
@@ -633,7 +636,7 @@ impl ResourceManagementDomainService {
         self.current_constraints
             .iter()
             .map(|(resource_type, constraint)| {
-                (resource_type.clone(), constraint.utilization_ratio())
+                (*resource_type, constraint.utilization_ratio())
             })
             .collect()
     }
@@ -644,27 +647,34 @@ impl ResourceManagementDomainService {
         resource_type: ResourceType,
         current_performance: f64,
     ) -> VmResult<()> {
-        if let Some(threshold) = self.config.performance_thresholds.get_mut(&resource_type) {
-            if threshold.adaptive_thresholding {
+        if let Some(threshold) = self.config.performance_thresholds.get_mut(&resource_type)
+            && threshold.adaptive_thresholding {
                 // Adjust thresholds based on current performance
                 if current_performance < threshold.min_performance {
                     // Performance is below threshold, relax requirements
                     threshold.min_performance *= 0.9;
-                    threshold.max_latency *= 1.1;
+                    let new_latency = threshold.max_latency.as_millis() as f64 * 1.1;
+                    threshold.max_latency = std::time::Duration::from_millis(new_latency as u64);
                 } else if current_performance > threshold.min_performance * 1.2 {
                     // Performance is good, tighten requirements
                     threshold.min_performance *= 1.05;
-                    threshold.max_latency *= 0.95;
+                    let new_latency = threshold.max_latency.as_millis() as f64 * 0.95;
+                    threshold.max_latency = std::time::Duration::from_millis(new_latency as u64);
                 }
+
+                // Clone values before publishing to avoid borrow checker issues
+                let new_min_performance = threshold.min_performance;
+                let new_max_latency = threshold.max_latency;
+                let resource_type_str = format!("{:?}", resource_type);
 
                 // Publish threshold update event
                 self.publish_optimization_event(OptimizationEvent::PerformanceThresholdUpdated {
-                    resource_type: format!("{:?}", resource_type),
-                    new_min_performance: threshold.min_performance,
-                    new_max_latency: threshold.max_latency,
+                    resource_type: resource_type_str,
+                    new_min_performance,
+                    new_max_latency,
+                    occurred_at: std::time::SystemTime::now(),
                 })?;
             }
-        }
 
         Ok(())
     }
@@ -724,25 +734,21 @@ impl ResourceManagementDomainService {
 
     /// Create a pipeline configuration from the resource management config
     fn create_pipeline_config(&self) -> crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
-        crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig {
-            enable_instruction_scheduling: true,
-            enable_loop_optimization: true,
-            enable_constant_folding: true,
-            enable_dead_code_elimination: true,
-            enable_common_subexpression_elimination: true,
-            enable_register_allocation: true,
-            optimization_level: 2,
-            max_inline_size: 50,
-            loop_unroll_factor: 4,
-            enable_vectorization: true,
-        }
+        // Use default x86_64 architecture for both source and target
+        // In a real implementation, these would be determined from the VM configuration
+        let arch = crate::GuestArch::X86_64;
+        crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig::new(
+            arch,
+            arch,
+            2, // optimization level 2
+        )
     }
 
     /// Publish an optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
         if let Some(ref event_bus) = self.event_bus {
             let domain_event = DomainEventEnum::Optimization(event);
-            event_bus.publish(domain_event)?;
+            event_bus.publish(&domain_event)?;
         }
         Ok(())
     }
@@ -751,7 +757,6 @@ impl ResourceManagementDomainService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_resource_constraint_validation() {

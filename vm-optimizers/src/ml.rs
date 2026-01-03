@@ -6,10 +6,11 @@
 //! - 自适应参数调整
 //! - A/B测试框架
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+use parking_lot::RwLock;
 
 /// 编译块特征向量
 #[derive(Clone, Debug, Default)]

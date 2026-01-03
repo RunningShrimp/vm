@@ -4,15 +4,17 @@
 //! VirtioBlock只包含数据，所有业务逻辑由BlockDeviceService处理
 //! 支持异步I/O操作，使用tokio::fs进行非阻塞文件访问
 
-use crate::block::{BlockRequestType, BlockStatus, VirtioBlock};
-use crate::mmu_util::MmuUtil;
 use std::path::Path;
 use std::sync::Arc;
+
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use vm_core::{GuestAddr, MMU, PlatformError, VmError};
+
+use crate::block::{BlockRequestType, BlockStatus, VirtioBlock};
+use crate::mmu_util::MmuUtil;
 
 /// 异步I/O请求队列的容量
 const IO_QUEUE_CAPACITY: usize = 256;

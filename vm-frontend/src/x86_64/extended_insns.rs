@@ -2,8 +2,9 @@
 //!
 //! 添加对 SSE、AVX、BMI 等扩展指令集的支持
 
-use crate::{X86Instruction, X86Mnemonic, X86Operand};
 use vm_core::GuestAddr;
+
+use crate::{X86Instruction, X86Mnemonic, X86Operand};
 
 /// SSE/SSE2 指令
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -37,12 +37,13 @@
 //! accel.run_vcpu(0, &mut mmu)?;
 //! ```
 
-use super::{Accel, AccelError};
 use std::collections::HashMap;
-use vm_core::{GuestRegs, MMU};
 
+use vm_core::{GuestRegs, MMU};
 #[cfg(all(target_os = "windows", feature = "whpx"))]
 use windows::Win32::System::Hypervisor::*;
+
+use super::{Accel, AccelError};
 
 /// WHPX vCPU
 pub struct WhpxVcpu {
@@ -412,8 +413,9 @@ impl Accel for AccelWhpx {
             }
 
             // SAFETY: WHvMapGpaRange is a Windows Hypervisor Platform API function
-            // Preconditions: partition is valid, hva points to valid host memory, gpa and size are properly aligned
-            // Invariants: Maps host memory region into guest physical address space
+            // Preconditions: partition is valid, hva points to valid host memory, gpa and size are
+            // properly aligned Invariants: Maps host memory region into guest physical
+            // address space
             unsafe {
                 WHvMapGpaRange(*partition, hva as *const _, gpa, size, whpx_flags).map_err(
                     |e| AccelError::MapMemoryFailed(format!("WHvMapGpaRange failed: {:?}", e)),
@@ -541,8 +543,9 @@ impl Drop for AccelWhpx {
         #[cfg(all(target_os = "windows", feature = "whpx"))]
         if let Some(partition) = self.partition {
             // SAFETY: WHvDeletePartition is a Windows Hypervisor Platform API function
-            // Preconditions: partition is a valid WHV_PARTITION_HANDLE created by WHvCreatePartition
-            // Invariants: Destroys the partition and releases all associated resources
+            // Preconditions: partition is a valid WHV_PARTITION_HANDLE created by
+            // WHvCreatePartition Invariants: Destroys the partition and releases all
+            // associated resources
             unsafe {
                 let _ = WHvDeletePartition(partition);
             }
@@ -575,8 +578,9 @@ mod tests {
         }
     }
 }
-use crate::event::{AccelEvent, AccelEventSource};
 use std::time::{Duration, Instant};
+
+use crate::event::{AccelEvent, AccelEventSource};
 impl AccelEventSource for AccelWhpx {
     fn poll_event(&mut self) -> Option<AccelEvent> {
         None

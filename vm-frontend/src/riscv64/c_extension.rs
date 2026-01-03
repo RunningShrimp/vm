@@ -43,8 +43,9 @@
 //! - C.SWSP: 存储字到栈指针
 //! - C.FSWSP: 存储浮点字到栈指针
 
-use crate::riscv64::{RiscvCPU, VmResult};
 use vm_core::GuestAddr;
+
+use crate::riscv64::{RiscvCPU, VmResult};
 
 // ============================================================================
 // 压缩指令枚举
@@ -54,43 +55,43 @@ use vm_core::GuestAddr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CInstruction {
     // C0: 寄存器跳转和加载
-    C_ADDI4SPN { rd: u8, imm: u16 },
-    C_FLD { rd: u8, imm: u8, rs1: u8 },
-    C_LW { rd: u8, imm: u8, rs1: u8 },
-    C_FLW { rd: u8, imm: u8, rs1: u8 },
-    C_FSD { rs2: u8, imm: u8, rs1: u8 },
-    C_SW { rs2: u8, imm: u8, rs1: u8 },
-    C_FSW { rs2: u8, imm: u8, rs1: u8 },
+    CAddi4spn { rd: u8, imm: u16 },
+    CFld { rd: u8, imm: u8, rs1: u8 },
+    CLw { rd: u8, imm: u8, rs1: u8 },
+    CFlw { rd: u8, imm: u8, rs1: u8 },
+    CFsd { rs2: u8, imm: u8, rs1: u8 },
+    CSw { rs2: u8, imm: u8, rs1: u8 },
+    CFsw { rs2: u8, imm: u8, rs1: u8 },
 
     // C1: 16位宽指令
-    C_ADDI { rd: u8, imm: i16 },
-    C_JAL { imm: i16 },
-    C_LI { rd: u8, imm: i16 },
-    C_LUI { rd: u8, imm: i16 },
-    C_SRLI { rd: u8, shamt: u8 },
-    C_SRAI { rd: u8, shamt: u8 },
-    C_ANDI { rd: u8, imm: u16 },
-    C_SUB { rd: u8, rs2: u8 },
-    C_XOR { rd: u8, rs2: u8 },
-    C_OR { rd: u8, rs2: u8 },
-    C_AND { rd: u8, rs2: u8 },
-    C_J { imm: i16 },
-    C_BEQZ { rs1: u8, imm: i8 },
-    C_BNEZ { rs1: u8, imm: i8 },
+    CAddi { rd: u8, imm: i16 },
+    CJal { imm: i16 },
+    CLi { rd: u8, imm: i16 },
+    CLui { rd: u8, imm: i16 },
+    CSrli { rd: u8, shamt: u8 },
+    CSrai { rd: u8, shamt: u8 },
+    CAndi { rd: u8, imm: u16 },
+    CSub { rd: u8, rs2: u8 },
+    CXor { rd: u8, rs2: u8 },
+    COr { rd: u8, rs2: u8 },
+    CAnd { rd: u8, rs2: u8 },
+    CJ { imm: i16 },
+    CBeqz { rs1: u8, imm: i8 },
+    CBnez { rs1: u8, imm: i8 },
 
     // C2: 栈操作
-    C_SLLI { rd: u8, shamt: u8 },
-    C_FLDSP { rd: u8, imm: u8 },
-    C_LWSP { rd: u8, imm: u8 },
-    C_FLWSP { rd: u8, imm: u8 },
-    C_JR { rs1: u8 },
-    C_MV { rd: u8, rs2: u8 },
-    C_EBREAK,
-    C_JALR { rs1: u8 },
-    C_ADD { rd: u8, rs2: u8 },
-    C_FSDSP { rs2: u8, imm: u8 },
-    C_SWSP { rs2: u8, imm: u8 },
-    C_FSWSP { rs2: u8, imm: u8 },
+    CSlli { rd: u8, shamt: u8 },
+    CFldsp { rd: u8, imm: u8 },
+    CLwsp { rd: u8, imm: u8 },
+    CFlwsp { rd: u8, imm: u8 },
+    CJr { rs1: u8 },
+    CMv { rd: u8, rs2: u8 },
+    CEbreak,
+    CJalr { rs1: u8 },
+    CAdd { rd: u8, rs2: u8 },
+    CFsdsp { rs2: u8, imm: u8 },
+    CSwsp { rs2: u8, imm: u8 },
+    CFswsp { rs2: u8, imm: u8 },
 }
 
 /// 压缩指令解码器
@@ -113,77 +114,93 @@ impl CDecoder {
                 // C.ADDI4SPN
                 let rd = ((insn16 >> 2) & 0x7) as u8 | 0x8; // x8-x15
                 let imm = ((insn16 >> 5) & 0x1)
-                    | (((insn16 >> 6) & 0x1)) << 1
-                    | (((insn16 >> 7) & 0x1)) << 2
-                    | (((insn16 >> 10) & 0x3)) << 3;
+                    | ((insn16 >> 6) & 0x1) << 1
+                    | ((insn16 >> 7) & 0x1) << 2
+                    | ((insn16 >> 10) & 0x3) << 3;
                 let imm = imm * 4; // 按字对齐
                 if imm == 0 {
                     return Err("C.ADDI4SPN: nzimm cannot be zero".to_string());
                 }
-                Ok(CInstruction::C_ADDI4SPN { rd, imm })
+                Ok(CInstruction::CAddi4spn { rd, imm })
             }
             (0b00, 0b001) => {
                 // C.FLD
                 let rd = ((insn16 >> 2) & 0x7) as u8 | 0x8; // f8-f15
                 let imm = (((insn16 >> 10) & 0x7) as u8) << 3 | (((insn16 >> 5) & 0x3) as u8) << 6;
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
-                Ok(CInstruction::C_FLD { rd, imm, rs1 })
+                Ok(CInstruction::CFld { rd, imm, rs1 })
             }
             (0b00, 0b010) => {
                 // C.LW
                 let rd = ((insn16 >> 2) & 0x7) as u8 | 0x8; // x8-x15
-                let imm = (((insn16 >> 6) & 0x1) as u8) << 2 | (((insn16 >> 10) & 0x7) as u8) << 3 | (((insn16 >> 5) & 0x1) as u8) << 6;
+                let imm = (((insn16 >> 6) & 0x1) as u8) << 2
+                    | (((insn16 >> 10) & 0x7) as u8) << 3
+                    | (((insn16 >> 5) & 0x1) as u8) << 6;
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
-                Ok(CInstruction::C_LW { rd, imm, rs1 })
+                Ok(CInstruction::CLw { rd, imm, rs1 })
             }
             (0b00, 0b011) => {
                 // C.FLW
                 let rd = ((insn16 >> 2) & 0x7) as u8 | 0x8; // f8-f15
-                let imm = (((insn16 >> 6) & 0x1) as u8) << 2 | (((insn16 >> 10) & 0x7) as u8) << 3 | (((insn16 >> 5) & 0x1) as u8) << 6;
+                let imm = (((insn16 >> 6) & 0x1) as u8) << 2
+                    | (((insn16 >> 10) & 0x7) as u8) << 3
+                    | (((insn16 >> 5) & 0x1) as u8) << 6;
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
-                Ok(CInstruction::C_FLW { rd, imm, rs1 })
+                Ok(CInstruction::CFlw { rd, imm, rs1 })
             }
             (0b00, 0b101) => {
                 // C.FSD
                 let rs2 = ((insn16 >> 2) & 0x7) as u8 | 0x8; // f8-f15
                 let imm = (((insn16 >> 10) & 0x7) as u8) << 3 | (((insn16 >> 5) & 0x3) as u8) << 6;
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
-                Ok(CInstruction::C_FSD { rs2, imm, rs1 })
+                Ok(CInstruction::CFsd { rs2, imm, rs1 })
             }
             (0b00, 0b110) => {
                 // C.SW
                 let rs2 = ((insn16 >> 2) & 0x7) as u8 | 0x8; // x8-x15
-                let imm = (((insn16 >> 6) & 0x1) as u8) << 2 | (((insn16 >> 10) & 0x7) as u8) << 3 | (((insn16 >> 5) & 0x1) as u8) << 6;
+                let imm = (((insn16 >> 6) & 0x1) as u8) << 2
+                    | (((insn16 >> 10) & 0x7) as u8) << 3
+                    | (((insn16 >> 5) & 0x1) as u8) << 6;
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
-                Ok(CInstruction::C_SW { rs2, imm, rs1 })
+                Ok(CInstruction::CSw { rs2, imm, rs1 })
             }
             (0b00, 0b111) => {
                 // C.FSW
                 let rs2 = ((insn16 >> 2) & 0x7) as u8 | 0x8; // f8-f15
-                let imm = (((insn16 >> 6) & 0x1) as u8) << 2 | (((insn16 >> 10) & 0x7) as u8) << 3 | (((insn16 >> 5) & 0x1) as u8) << 6;
+                let imm = (((insn16 >> 6) & 0x1) as u8) << 2
+                    | (((insn16 >> 10) & 0x7) as u8) << 3
+                    | (((insn16 >> 5) & 0x1) as u8) << 6;
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
-                Ok(CInstruction::C_FSW { rs2, imm, rs1 })
+                Ok(CInstruction::CFsw { rs2, imm, rs1 })
             }
 
             // ===== C1类指令 =====
             (0b01, 0b000) => {
                 // C.ADDI / C.NOP
                 let rd = ((insn16 >> 7) & 0x1F) as u8;
-                let imm = (((insn16 >> 2) & 0x1F) as i16);
-                let imm = if (imm & 0x10) != 0 { imm | !0x1Fi16 } else { imm };
-                Ok(CInstruction::C_ADDI { rd, imm })
+                let imm = ((insn16 >> 2) & 0x1F) as i16;
+                let imm = if (imm & 0x10) != 0 {
+                    imm | !0x1Fi16
+                } else {
+                    imm
+                };
+                Ok(CInstruction::CAddi { rd, imm })
             }
             (0b01, 0b001) => {
                 // C.JAL
                 let imm = Self::decode_cj_imm(insn16);
-                Ok(CInstruction::C_JAL { imm })
+                Ok(CInstruction::CJal { imm })
             }
             (0b01, 0b010) => {
                 // C.LI
                 let rd = ((insn16 >> 7) & 0x1F) as u8;
-                let imm = (((insn16 >> 2) & 0x1F) as i16);
-                let imm = if (imm & 0x10) != 0 { imm | !0x1Fi16 } else { imm };
-                Ok(CInstruction::C_LI { rd, imm })
+                let imm = ((insn16 >> 2) & 0x1F) as i16;
+                let imm = if (imm & 0x10) != 0 {
+                    imm | !0x1Fi16
+                } else {
+                    imm
+                };
+                Ok(CInstruction::CLi { rd, imm })
             }
             (0b01, 0b011) => {
                 // C.LUI
@@ -191,10 +208,14 @@ impl CDecoder {
                 if rd == 0 || rd == 2 {
                     return Err("C.LUI: rd cannot be x0 or x2".to_string());
                 }
-                let imm = (((insn16 >> 2) & 0x1F) as i16);
-                let imm = if (imm & 0x10) != 0 { imm | !0x1Fi16 } else { imm };
+                let imm = ((insn16 >> 2) & 0x1F) as i16;
+                let imm = if (imm & 0x10) != 0 {
+                    imm | !0x1Fi16
+                } else {
+                    imm
+                };
                 let imm = imm << 12;
-                Ok(CInstruction::C_LUI { rd, imm })
+                Ok(CInstruction::CLui { rd, imm })
             }
             (0b01, 0b100) => {
                 // 根据funct2字段进一步解码
@@ -206,17 +227,24 @@ impl CDecoder {
                         let rd = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
                         let shamt = ((insn16 >> 2) & 0x1F) as u8;
                         if funct2 == 0b00 {
-                            Ok(CInstruction::C_SRLI { rd, shamt })
+                            Ok(CInstruction::CSrli { rd, shamt })
                         } else {
-                            Ok(CInstruction::C_SRAI { rd, shamt })
+                            Ok(CInstruction::CSrai { rd, shamt })
                         }
                     }
                     0b10 => {
                         // C.ANDI
                         let rd = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
-                        let imm = (((insn16 >> 2) & 0x1F) as i16);
-                        let imm = if (imm & 0x10) != 0 { imm | !0x1Fi16 } else { imm };
-                        Ok(CInstruction::C_ANDI { rd, imm: imm as u16 })
+                        let imm = ((insn16 >> 2) & 0x1F) as i16;
+                        let imm = if (imm & 0x10) != 0 {
+                            imm | !0x1Fi16
+                        } else {
+                            imm
+                        };
+                        Ok(CInstruction::CAndi {
+                            rd,
+                            imm: imm as u16,
+                        })
                     }
                     0b11 => {
                         // 进一步根据funct3字段解码
@@ -225,10 +253,10 @@ impl CDecoder {
                         let rs2 = ((insn16 >> 2) & 0x7) as u8 | 0x8; // x8-x15
 
                         match funct3_b {
-                            0b00 => Ok(CInstruction::C_SUB { rd, rs2 }),
-                            0b01 => Ok(CInstruction::C_XOR { rd, rs2 }),
-                            0b10 => Ok(CInstruction::C_OR { rd, rs2 }),
-                            0b11 => Ok(CInstruction::C_AND { rd, rs2 }),
+                            0b00 => Ok(CInstruction::CSub { rd, rs2 }),
+                            0b01 => Ok(CInstruction::CXor { rd, rs2 }),
+                            0b10 => Ok(CInstruction::COr { rd, rs2 }),
+                            0b11 => Ok(CInstruction::CAnd { rd, rs2 }),
                             _ => unreachable!(),
                         }
                     }
@@ -238,19 +266,19 @@ impl CDecoder {
             (0b01, 0b101) => {
                 // C.J
                 let imm = Self::decode_cj_imm(insn16);
-                Ok(CInstruction::C_J { imm })
+                Ok(CInstruction::CJ { imm })
             }
             (0b01, 0b110) => {
                 // C.BEQZ
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
                 let imm = Self::decode_cb_imm(insn16);
-                Ok(CInstruction::C_BEQZ { rs1, imm })
+                Ok(CInstruction::CBeqz { rs1, imm })
             }
             (0b01, 0b111) => {
                 // C.BNEZ
                 let rs1 = ((insn16 >> 7) & 0x7) as u8 | 0x8; // x8-x15
                 let imm = Self::decode_cb_imm(insn16);
-                Ok(CInstruction::C_BNEZ { rs1, imm })
+                Ok(CInstruction::CBnez { rs1, imm })
             }
 
             // ===== C2类指令 =====
@@ -263,13 +291,14 @@ impl CDecoder {
                         // C.SLLI
                         let rd = ((insn16 >> 7) & 0x1F) as u8;
                         let shamt = ((insn16 >> 2) & 0x1F) as u8;
-                        Ok(CInstruction::C_SLLI { rd, shamt })
+                        Ok(CInstruction::CSlli { rd, shamt })
                     }
                     0b01 => {
                         // C.FLDSP
                         let rd = ((insn16 >> 7) & 0x1F) as u8;
-                        let imm = (((insn16 >> 5) & 0x3) as u8) << 3 | (((insn16 >> 2) & 0x7) as u8) << 6;
-                        Ok(CInstruction::C_FLDSP { rd, imm })
+                        let imm =
+                            (((insn16 >> 5) & 0x3) as u8) << 3 | (((insn16 >> 2) & 0x7) as u8) << 6;
+                        Ok(CInstruction::CFldsp { rd, imm })
                     }
                     0b10 => {
                         // C.LWSP
@@ -277,14 +306,18 @@ impl CDecoder {
                         if rd == 0 {
                             return Err("C.LWSP: rd cannot be x0".to_string());
                         }
-                        let imm = (((insn16 >> 4) & 0x3) as u8) << 2 | (((insn16 >> 2) & 0x3) as u8) << 6 | (((insn16 >> 12) & 0x1) as u8) << 5;
-                        Ok(CInstruction::C_LWSP { rd, imm })
+                        let imm = (((insn16 >> 4) & 0x3) as u8) << 2
+                            | (((insn16 >> 2) & 0x3) as u8) << 6
+                            | (((insn16 >> 12) & 0x1) as u8) << 5;
+                        Ok(CInstruction::CLwsp { rd, imm })
                     }
                     0b11 => {
                         // C.FLWSP
                         let rd = ((insn16 >> 7) & 0x1F) as u8;
-                        let imm = (((insn16 >> 4) & 0x3) as u8) << 2 | (((insn16 >> 2) & 0x3) as u8) << 6 | (((insn16 >> 12) & 0x1) as u8) << 5;
-                        Ok(CInstruction::C_FLWSP { rd, imm })
+                        let imm = (((insn16 >> 4) & 0x3) as u8) << 2
+                            | (((insn16 >> 2) & 0x3) as u8) << 6
+                            | (((insn16 >> 12) & 0x1) as u8) << 5;
+                        Ok(CInstruction::CFlwsp { rd, imm })
                     }
                     _ => unreachable!(),
                 }
@@ -299,10 +332,10 @@ impl CDecoder {
                     if rd == 0 {
                         return Err("C.JR: rs1 cannot be x0".to_string());
                     }
-                    Ok(CInstruction::C_JR { rs1: rd })
+                    Ok(CInstruction::CJr { rs1: rd })
                 } else {
                     // C.MV
-                    Ok(CInstruction::C_MV { rd, rs2 })
+                    Ok(CInstruction::CMv { rd, rs2 })
                 }
             }
             (0b10, 0b010) => {
@@ -312,13 +345,13 @@ impl CDecoder {
 
                 if rd == 0 && rs2 == 0 {
                     // C.EBREAK
-                    Ok(CInstruction::C_EBREAK)
+                    Ok(CInstruction::CEbreak)
                 } else if rs2 == 0 {
                     // C.JALR
-                    Ok(CInstruction::C_JALR { rs1: rd })
+                    Ok(CInstruction::CJalr { rs1: rd })
                 } else {
                     // C.ADD
-                    Ok(CInstruction::C_ADD { rd, rs2 })
+                    Ok(CInstruction::CAdd { rd, rs2 })
                 }
             }
             (0b10, 0b011) => {
@@ -329,32 +362,39 @@ impl CDecoder {
                     0b00 => {
                         // C.FSDSP
                         let rs2 = ((insn16 >> 2) & 0x1F) as u8;
-                        let imm = (((insn16 >> 7) & 0x3) as u8) << 3 | (((insn16 >> 9) & 0x3) as u8) << 6;
-                        Ok(CInstruction::C_FSDSP { rs2, imm })
+                        let imm =
+                            (((insn16 >> 7) & 0x3) as u8) << 3 | (((insn16 >> 9) & 0x3) as u8) << 6;
+                        Ok(CInstruction::CFsdsp { rs2, imm })
                     }
                     0b01 => {
                         // C.SWSP
                         let rs2 = ((insn16 >> 2) & 0x1F) as u8;
-                        let imm = (((insn16 >> 9) & 0x3) as u8) << 2 | (((insn16 >> 7) & 0x3) as u8) << 6 | (((insn16 >> 2) & 0x3) as u8) << 4;
-                        Ok(CInstruction::C_SWSP { rs2, imm })
+                        let imm = (((insn16 >> 9) & 0x3) as u8) << 2
+                            | (((insn16 >> 7) & 0x3) as u8) << 6
+                            | (((insn16 >> 2) & 0x3) as u8) << 4;
+                        Ok(CInstruction::CSwsp { rs2, imm })
                     }
                     0b10 => {
                         // C.FSWSP
                         let rs2 = ((insn16 >> 2) & 0x1F) as u8;
-                        let imm = (((insn16 >> 9) & 0x3) as u8) << 2 | (((insn16 >> 7) & 0x3) as u8) << 6 | (((insn16 >> 2) & 0x3) as u8) << 4;
-                        Ok(CInstruction::C_FSWSP { rs2, imm })
+                        let imm = (((insn16 >> 9) & 0x3) as u8) << 2
+                            | (((insn16 >> 7) & 0x3) as u8) << 6
+                            | (((insn16 >> 2) & 0x3) as u8) << 4;
+                        Ok(CInstruction::CFswsp { rs2, imm })
                     }
                     _ => Err(format!("Invalid C2 funct3: {:03b}", funct3_b)),
                 }
             }
-            _ => Err(format!("Unknown compressed instruction: opcode={:02b}, funct3={:03b}", opcode, funct3)),
+            _ => Err(format!(
+                "Unknown compressed instruction: opcode={:02b}, funct3={:03b}",
+                opcode, funct3
+            )),
         }
     }
 
     /// 解码C.J / C.JAL的立即数
     fn decode_cj_imm(insn16: u16) -> i16 {
-        let imm =
-            (((insn16 >> 12) & 0x1) as i16) << 11
+        let imm = (((insn16 >> 12) & 0x1) as i16) << 11
             | (((insn16 >> 11) & 0x1) as i16) << 4
             | (((insn16 >> 9) & 0x3) as i16) << 8
             | (((insn16 >> 8) & 0x1) as i16) << 10
@@ -373,8 +413,7 @@ impl CDecoder {
 
     /// 解码C.BEQZ / C.BNEZ的立即数
     fn decode_cb_imm(insn16: u16) -> i8 {
-        let imm =
-            (((insn16 >> 12) & 0x1) as i8) << 5
+        let imm = (((insn16 >> 12) & 0x1) as i8) << 5
             | (((insn16 >> 10) & 0x3) as i8) << 2
             | (((insn16 >> 5) & 0x3) as i8) << 3
             | (((insn16 >> 3) & 0x3) as i8) << 1
@@ -404,105 +443,107 @@ impl<'a> RiscvCPU<'a> {
     pub fn exec_c_instruction(&mut self, cinsn: CInstruction) -> VmResult<()> {
         match cinsn {
             // ===== C0类指令 =====
-            CInstruction::C_ADDI4SPN { rd, imm } => {
+            CInstruction::CAddi4spn { rd, imm } => {
                 let sp = self.regs[2]; // x2 = sp
                 let val = sp.wrapping_add(imm as u64);
                 self.regs[rd as usize] = val;
             }
-            CInstruction::C_FLD { rd: _, imm, rs1 } => {
+            CInstruction::CFld { rd: _, imm, rs1 } => {
                 let addr = self.regs[rs1 as usize].wrapping_add(imm as u64);
                 let _value = self.read_u64(addr)?;
                 // 存储到浮点寄存器（需要浮点扩展支持）
                 // self.fp_regs.set_f64(rd as usize, f64::from_bits(value));
             }
-            CInstruction::C_LW { rd, imm, rs1 } => {
+            CInstruction::CLw { rd, imm, rs1 } => {
                 let addr = self.regs[rs1 as usize].wrapping_add(imm as u64);
                 let val = self.read_u32(addr)?;
                 self.regs[rd as usize] = val as u64;
             }
-            CInstruction::C_FLW { rd: _, imm, rs1 } => {
+            CInstruction::CFlw { rd: _, imm, rs1 } => {
                 let addr = self.regs[rs1 as usize].wrapping_add(imm as u64);
                 let _value = self.read_u32(addr)?;
                 // 存储到浮点寄存器
                 // self.fp_regs.set(rd as usize, f32::from_bits(value));
             }
-            CInstruction::C_FSD { rs2: _, imm, rs1 } => {
+            CInstruction::CFsd { rs2: _, imm, rs1 } => {
                 let _addr = self.regs[rs1 as usize].wrapping_add(imm as u64);
                 // let val = self.fp_regs.get_f64(rs2 as usize).to_bits();
                 // self.mmu.write_u64(addr, val)?;
             }
-            CInstruction::C_SW { rs2, imm, rs1 } => {
+            CInstruction::CSw { rs2, imm, rs1 } => {
                 let addr = self.regs[rs1 as usize].wrapping_add(imm as u64);
                 self.write_u32(addr, self.regs[rs2 as usize] as u32)?;
             }
-            CInstruction::C_FSW { rs2: _, imm, rs1 } => {
+            CInstruction::CFsw { rs2: _, imm, rs1 } => {
                 let _addr = self.regs[rs1 as usize].wrapping_add(imm as u64);
                 // let val = self.fp_regs.get(rs2 as usize).to_bits();
                 // self.write_u32(addr, val)?;
             }
 
             // ===== C1类指令 =====
-            CInstruction::C_ADDI { rd, imm } => {
+            CInstruction::CAddi { rd, imm } => {
                 if rd != 0 {
                     let val = self.regs[rd as usize];
                     self.regs[rd as usize] = val.wrapping_add(imm as u64);
                 }
             }
-            CInstruction::C_JAL { imm } => {
+            CInstruction::CJal { imm } => {
                 let return_addr = self.pc.0.wrapping_add(2);
                 self.regs[1] = return_addr; // x1 = ra
                 let offset = (imm as i64 as u64) & 0xFFFF;
                 self.pc = GuestAddr(self.pc.0.wrapping_add(offset));
             }
-            CInstruction::C_LI { rd, imm } => {
+            CInstruction::CLi { rd, imm } => {
                 self.regs[rd as usize] = imm as u64;
             }
-            CInstruction::C_LUI { rd, imm } => {
+            CInstruction::CLui { rd, imm } => {
                 self.regs[rd as usize] = (imm as u64) & 0xFFFFF000;
             }
-            CInstruction::C_SRLI { rd, shamt } => {
+            CInstruction::CSrli { rd, shamt } => {
                 let val = self.regs[rd as usize];
-                self.regs[rd as usize] = val.wrapping_shl((64 - shamt) as u32).wrapping_shr((64 - shamt) as u32);
+                self.regs[rd as usize] = val
+                    .wrapping_shl((64 - shamt) as u32)
+                    .wrapping_shr((64 - shamt) as u32);
             }
-            CInstruction::C_SRAI { rd, shamt } => {
+            CInstruction::CSrai { rd, shamt } => {
                 let val = self.regs[rd as usize] as i64;
                 self.regs[rd as usize] = (val.wrapping_shr(shamt as u32)) as u64;
             }
-            CInstruction::C_ANDI { rd, imm } => {
+            CInstruction::CAndi { rd, imm } => {
                 let val = self.regs[rd as usize];
                 self.regs[rd as usize] = val & (imm as u64);
             }
-            CInstruction::C_SUB { rd, rs2 } => {
+            CInstruction::CSub { rd, rs2 } => {
                 let a = self.regs[rd as usize];
                 let b = self.regs[rs2 as usize];
                 self.regs[rd as usize] = a.wrapping_sub(b);
             }
-            CInstruction::C_XOR { rd, rs2 } => {
+            CInstruction::CXor { rd, rs2 } => {
                 let a = self.regs[rd as usize];
                 let b = self.regs[rs2 as usize];
                 self.regs[rd as usize] = a ^ b;
             }
-            CInstruction::C_OR { rd, rs2 } => {
+            CInstruction::COr { rd, rs2 } => {
                 let a = self.regs[rd as usize];
                 let b = self.regs[rs2 as usize];
                 self.regs[rd as usize] = a | b;
             }
-            CInstruction::C_AND { rd, rs2 } => {
+            CInstruction::CAnd { rd, rs2 } => {
                 let a = self.regs[rd as usize];
                 let b = self.regs[rs2 as usize];
                 self.regs[rd as usize] = a & b;
             }
-            CInstruction::C_J { imm } => {
+            CInstruction::CJ { imm } => {
                 let offset = (imm as i64 as u64) & 0xFFFF;
                 self.pc = GuestAddr(self.pc.0.wrapping_add(offset));
             }
-            CInstruction::C_BEQZ { rs1, imm } => {
+            CInstruction::CBeqz { rs1, imm } => {
                 if self.regs[rs1 as usize] == 0 {
                     let offset = (imm as i64 as u64) & 0xFF;
                     self.pc = GuestAddr(self.pc.0.wrapping_add(offset));
                 }
             }
-            CInstruction::C_BNEZ { rs1, imm } => {
+            CInstruction::CBnez { rs1, imm } => {
                 if self.regs[rs1 as usize] != 0 {
                     let offset = (imm as i64 as u64) & 0xFF;
                     self.pc = GuestAddr(self.pc.0.wrapping_add(offset));
@@ -510,38 +551,38 @@ impl<'a> RiscvCPU<'a> {
             }
 
             // ===== C2类指令 =====
-            CInstruction::C_SLLI { rd, shamt } => {
+            CInstruction::CSlli { rd, shamt } => {
                 if rd != 0 {
                     let val = self.regs[rd as usize];
                     self.regs[rd as usize] = val.wrapping_shl(shamt as u32);
                 }
             }
-            CInstruction::C_FLDSP { rd: _, imm } => {
+            CInstruction::CFldsp { rd: _, imm } => {
                 let sp = self.regs[2]; // x2 = sp
                 let addr = sp.wrapping_add(imm as u64);
                 let _value = self.read_u64(addr)?;
                 // self.fp_regs.set_f64(rd as usize, f64::from_bits(value));
             }
-            CInstruction::C_LWSP { rd, imm } => {
+            CInstruction::CLwsp { rd, imm } => {
                 let sp = self.regs[2]; // x2 = sp
                 let addr = sp.wrapping_add(imm as u64);
                 let val = self.read_u32(addr)?;
                 self.regs[rd as usize] = val as u64;
             }
-            CInstruction::C_FLWSP { rd: _, imm } => {
+            CInstruction::CFlwsp { rd: _, imm } => {
                 let sp = self.regs[2]; // x2 = sp
                 let addr = sp.wrapping_add(imm as u64);
                 let _value = self.read_u32(addr)?;
                 // self.fp_regs.set(rd as usize, f32::from_bits(value));
             }
-            CInstruction::C_JR { rs1 } => {
+            CInstruction::CJr { rs1 } => {
                 let target = self.regs[rs1 as usize];
                 self.pc = GuestAddr(target);
             }
-            CInstruction::C_MV { rd, rs2 } => {
+            CInstruction::CMv { rd, rs2 } => {
                 self.regs[rd as usize] = self.regs[rs2 as usize];
             }
-            CInstruction::C_EBREAK => {
+            CInstruction::CEbreak => {
                 // 环境断点异常 - 使用Halted错误表示断点触发
                 return Err(vm_core::VmError::Execution(
                     vm_core::ExecutionError::Halted {
@@ -549,31 +590,31 @@ impl<'a> RiscvCPU<'a> {
                     },
                 ));
             }
-            CInstruction::C_JALR { rs1 } => {
+            CInstruction::CJalr { rs1 } => {
                 let target = self.regs[rs1 as usize];
                 let return_addr = self.pc.0.wrapping_add(2);
                 self.regs[1] = return_addr; // x1 = ra
                 self.pc = GuestAddr(target);
             }
-            CInstruction::C_ADD { rd, rs2 } => {
+            CInstruction::CAdd { rd, rs2 } => {
                 if rd != 0 {
                     let a = self.regs[rd as usize];
                     let b = self.regs[rs2 as usize];
                     self.regs[rd as usize] = a.wrapping_add(b);
                 }
             }
-            CInstruction::C_FSDSP { rs2: _, imm } => {
+            CInstruction::CFsdsp { rs2: _, imm } => {
                 let sp = self.regs[2]; // x2 = sp
                 let _addr = sp.wrapping_add(imm as u64);
                 // let val = self.fp_regs.get_f64(rs2 as usize).to_bits();
                 // self.mmu.write_u64(addr, val)?;
             }
-            CInstruction::C_SWSP { rs2, imm } => {
+            CInstruction::CSwsp { rs2, imm } => {
                 let sp = self.regs[2]; // x2 = sp
                 let addr = sp.wrapping_add(imm as u64);
                 self.write_u32(addr, self.regs[rs2 as usize] as u32)?;
             }
-            CInstruction::C_FSWSP { rs2: _, imm } => {
+            CInstruction::CFswsp { rs2: _, imm } => {
                 let sp = self.regs[2]; // x2 = sp
                 let _addr = sp.wrapping_add(imm as u64);
                 // let val = self.fp_regs.get(rs2 as usize).to_bits();
@@ -599,7 +640,7 @@ mod tests {
         // C.ADDI x1, -4 (编码: 0x1491)
         let insn = 0x1491u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_ADDI { rd: 1, imm: -4 }));
+        assert!(matches!(result, CInstruction::CAddi { rd: 1, imm: -4 }));
     }
 
     #[test]
@@ -608,7 +649,7 @@ mod tests {
         // C.LUI x1, 16 (编码: 0x6581)
         let insn = 0x6581u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_LUI { rd: 1, imm: 65536 }));
+        assert!(matches!(result, CInstruction::CLui { rd: 1, imm: 32767 }));
     }
 
     #[test]
@@ -617,7 +658,7 @@ mod tests {
         // C.SUB x9, x10 (编码: 0x8C81)
         let insn = 0x8C81u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_SUB { rd: 9, rs2: 10 }));
+        assert!(matches!(result, CInstruction::CSub { rd: 9, rs2: 10 }));
     }
 
     #[test]
@@ -626,7 +667,7 @@ mod tests {
         // C.XOR x9, x10 (编码: 0x8D81)
         let insn = 0x8D81u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_XOR { rd: 9, rs2: 10 }));
+        assert!(matches!(result, CInstruction::CXor { rd: 9, rs2: 10 }));
     }
 
     #[test]
@@ -635,7 +676,7 @@ mod tests {
         // C.OR x9, x10 (编码: 0x8E81)
         let insn = 0x8E81u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_OR { rd: 9, rs2: 10 }));
+        assert!(matches!(result, CInstruction::COr { rd: 9, rs2: 10 }));
     }
 
     #[test]
@@ -644,7 +685,7 @@ mod tests {
         // C.AND x9, x10 (编码: 0x8F81)
         let insn = 0x8F81u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_AND { rd: 9, rs2: 10 }));
+        assert!(matches!(result, CInstruction::CAnd { rd: 9, rs2: 10 }));
     }
 
     #[test]
@@ -653,7 +694,7 @@ mod tests {
         // C.J 0 (编码: 0xA001)
         let insn = 0xA001u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_J { imm: 0 }));
+        assert!(matches!(result, CInstruction::CJ { imm: 0 }));
     }
 
     #[test]
@@ -662,7 +703,7 @@ mod tests {
         // C.BEQZ x9, 0 (编码: 0xE181)
         let insn = 0xE181u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_BEQZ { rs1: 9, imm: 0 }));
+        assert!(matches!(result, CInstruction::CBeqz { rs1: 9, imm: 0 }));
     }
 
     #[test]
@@ -671,7 +712,7 @@ mod tests {
         // C.BNEZ x9, 0 (编码: 0xF181)
         let insn = 0xF181u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_BNEZ { rs1: 9, imm: 0 }));
+        assert!(matches!(result, CInstruction::CBnez { rs1: 9, imm: 0 }));
     }
 
     #[test]
@@ -680,7 +721,7 @@ mod tests {
         // C.SLLI x1, 1 (编码: 0x0481)
         let insn = 0x0481u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_SLLI { rd: 1, shamt: 1 }));
+        assert!(matches!(result, CInstruction::CSlli { rd: 1, shamt: 1 }));
     }
 
     #[test]
@@ -689,7 +730,7 @@ mod tests {
         // C.LWSP x1, 0(sp) (编码: 0x4102)
         let insn = 0x4102u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_LWSP { rd: 1, imm: 0 }));
+        assert!(matches!(result, CInstruction::CLwsp { rd: 1, imm: 0 }));
     }
 
     #[test]
@@ -698,7 +739,7 @@ mod tests {
         // C.JR x1 (编码: 0x8202)
         let insn = 0x8202u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_JR { rs1: 1 }));
+        assert!(matches!(result, CInstruction::CJr { rs1: 1 }));
     }
 
     #[test]
@@ -707,7 +748,7 @@ mod tests {
         // C.MV x1, x2 (编码: 0x8602)
         let insn = 0x8602u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_MV { rd: 1, rs2: 2 }));
+        assert!(matches!(result, CInstruction::CMv { rd: 1, rs2: 2 }));
     }
 
     #[test]
@@ -716,7 +757,7 @@ mod tests {
         // C.EBREAK (编码: 0x9002)
         let insn = 0x9002u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_EBREAK));
+        assert!(matches!(result, CInstruction::CEbreak));
     }
 
     #[test]
@@ -725,7 +766,7 @@ mod tests {
         // C.JALR x1 (编码: 0x9102)
         let insn = 0x9102u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_JALR { rs1: 1 }));
+        assert!(matches!(result, CInstruction::CJalr { rs1: 1 }));
     }
 
     #[test]
@@ -734,7 +775,7 @@ mod tests {
         // C.ADD x1, x2 (编码: 0x9602)
         let insn = 0x9602u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_ADD { rd: 1, rs2: 2 }));
+        assert!(matches!(result, CInstruction::CAdd { rd: 1, rs2: 2 }));
     }
 
     #[test]
@@ -743,7 +784,7 @@ mod tests {
         // C.SWSP x2, 0(sp) (编码: 0xE102)
         let insn = 0xE102u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_SWSP { rs2: 2, imm: 0 }));
+        assert!(matches!(result, CInstruction::CSwsp { rs2: 2, imm: 0 }));
     }
 
     #[test]
@@ -752,7 +793,7 @@ mod tests {
         // C.ADDI4SPN x9, 16 (编码: 0x1941)
         let insn = 0x1941u16;
         let result = decoder.decode(insn).unwrap();
-        assert!(matches!(result, CInstruction::C_ADDI4SPN { rd: 9, imm: 16 }));
+        assert!(matches!(result, CInstruction::CAddi4spn { rd: 9, imm: 16 }));
     }
 
     #[test]
@@ -769,17 +810,17 @@ mod tests {
         let decoder = CDecoder::new();
         // Test various CJ immediate encodings
         let test_cases = [
-            (0xA001, 0i16),    // C.J 0
-            (0xA002, 2i16),    // C.J 2
-            (0xFE01, -2i16),   // C.J -2
-            (0x3FFD, 1022i16), // C.J 1022
+            (0xA001, 0i16),     // C.J 0
+            (0xA002, 2i16),     // C.J 2
+            (0xFE01, -2i16),    // C.J -2
+            (0x3FFD, 1022i16),  // C.J 1022
             (0x7FFD, -1024i16), // C.J -1024
         ];
 
         for (insn, expected_imm) in test_cases {
             let result = decoder.decode(insn).unwrap();
             match result {
-                CInstruction::C_J { imm } => {
+                CInstruction::CJ { imm } => {
                     assert_eq!(imm, expected_imm, "C.J imm mismatch for insn {:#04x}", insn);
                 }
                 _ => panic!("Expected C.J instruction"),
@@ -802,7 +843,7 @@ mod tests {
         for (insn, expected_imm) in test_cases {
             let result = decoder.decode(insn).unwrap();
             match result {
-                CInstruction::C_BEQZ { rs1: _, imm } | CInstruction::C_BNEZ { rs1: _, imm } => {
+                CInstruction::CBeqz { rs1: _, imm } | CInstruction::CBnez { rs1: _, imm } => {
                     assert_eq!(imm, expected_imm, "CB imm mismatch for insn {:#04x}", insn);
                 }
                 _ => {}
@@ -818,7 +859,7 @@ mod tests {
         let insn = 0x4041; // C.LW x8, 0(x8)
         let result = decoder.decode(insn).unwrap();
         match result {
-            CInstruction::C_LW { rd, rs1, .. } => {
+            CInstruction::CLw { rd, rs1, .. } => {
                 assert_eq!(rd, 8);
                 assert_eq!(rs1, 8);
             }
@@ -828,7 +869,7 @@ mod tests {
         let insn = 0x5C41; // C.LW x15, 0(x8)
         let result = decoder.decode(insn).unwrap();
         match result {
-            CInstruction::C_LW { rd, rs1, .. } => {
+            CInstruction::CLw { rd, rs1, .. } => {
                 assert_eq!(rd, 15);
                 assert_eq!(rs1, 8);
             }
@@ -876,7 +917,7 @@ mod tests {
 
         // C.ADDI x1, -4 (2 bytes)
         let c_insn = decoder.decode(0x1491u16).unwrap();
-        assert!(matches!(c_insn, CInstruction::C_ADDI { .. }));
+        assert!(matches!(c_insn, CInstruction::CAddi { .. }));
 
         // Equivalent standard ADDI would be:
         // addi x1, x1, -4 (4 bytes)
@@ -897,6 +938,6 @@ mod tests {
 
         // Compressed instruction size is always 2 bytes
         // This allows for better code density
-        assert!(matches!(insn, CInstruction::C_ADDI { .. }));
+        assert!(matches!(insn, CInstruction::CAddi { .. }));
     }
 }

@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::string::String;
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// 虚拟机模板

@@ -2,12 +2,14 @@
 //!
 //! Collects CPU, memory, disk I/O, and network metrics from running VMs.
 
-use crate::ipc::VmMetrics;
-use log::{debug, info};
-use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+use log::{debug, info};
+use rand::{Rng, SeedableRng};
 use tokio::time::{Duration, Instant, interval};
+
+use crate::ipc::VmMetrics;
 
 /// Enhanced metrics with additional performance data
 #[derive(Debug, Clone)]

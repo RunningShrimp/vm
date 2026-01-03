@@ -1,5 +1,6 @@
-use crate::runtime::{RuntimeController, RuntimeEvent, RuntimeEventListener};
 use vm_accel::event::{AccelEvent, AccelEventSource};
+
+use crate::runtime::{RuntimeController, RuntimeEvent, RuntimeEventListener};
 
 pub struct RuntimeService<L: RuntimeEventListener, E: AccelEventSource> {
     controller: RuntimeController,

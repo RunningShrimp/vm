@@ -18,7 +18,11 @@ impl Decoder for UnifiedDecoder {
     type Instruction = vm_ir::IROp;
     type Block = IRBlock;
 
-    fn decode_insn(&mut self, _mmu: &dyn MMU, _pc: GuestAddr) -> VmResult<Self::Instruction> {
+    fn decode_insn(
+        &mut self,
+        _mmu: &mut (dyn MMU + 'static),
+        _pc: GuestAddr,
+    ) -> VmResult<Self::Instruction> {
         // Single instruction decoding is not commonly used
         // Use decode() for block decoding instead
         Err(VmError::Core(vm_core::CoreError::Internal {
@@ -27,7 +31,7 @@ impl Decoder for UnifiedDecoder {
         }))
     }
 
-    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Block> {
+    fn decode(&mut self, mmu: &mut (dyn MMU + 'static), pc: GuestAddr) -> VmResult<Self::Block> {
         match self {
             UnifiedDecoder::Riscv64(decoder) => decoder.decode(mmu, pc),
             UnifiedDecoder::Arm64(decoder) => decoder.decode(mmu, pc),

@@ -2,7 +2,9 @@
 //!
 //! Tests for RISC-V instruction decoder and IR generation
 
-use vm_core::{GuestAddr, MMU, VmError};
+use std::any::Any;
+use vm_core::{AccessType, Fault, GuestAddr, GuestPhysAddr, VmError};
+use vm_core::{AddressTranslator, MemoryAccess, MmioManager, MmuAsAny, MMU};
 
 /// Simple test MMU implementation
 struct TestMMU {
@@ -19,13 +21,60 @@ impl TestMMU {
     fn write_insn(&mut self, addr: GuestAddr, data: u64) {
         self.memory.insert(addr.0, data);
     }
-}
 
-impl MMU for TestMMU {
+    /// 辅助方法：从指定地址获取指令
     fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, VmError> {
         Ok(*self.memory.get(&pc.0).unwrap_or(&0))
     }
 }
+
+impl AddressTranslator for TestMMU {
+    fn translate(&self, _va: GuestAddr, _access: AccessType) -> Result<GuestPhysAddr, Fault> {
+        // 简单实现：直接返回相同的地址（恒等映射）
+        Ok(GuestPhysAddr(_va.0))
+    }
+}
+
+impl MemoryAccess for TestMMU {
+    fn read(&self, pa: GuestPhysAddr, size: u8) -> Result<u64, VmError> {
+        match size {
+            1 => Ok((*self.memory.get(&pa.0).unwrap_or(&0) & 0xff) as u64),
+            2 => Ok((*self.memory.get(&pa.0).unwrap_or(&0) & 0xffff) as u64),
+            4 => Ok((*self.memory.get(&pa.0).unwrap_or(&0) & 0xffff_ffff) as u64),
+            8 => Ok(*self.memory.get(&pa.0).unwrap_or(&0)),
+            _ => Err(VmError::MemoryError(vm_core::MemoryError::InvalidAddress(pa))),
+        }
+    }
+
+    fn write(&mut self, pa: GuestPhysAddr, value: u64, size: u8) -> Result<(), VmError> {
+        match size {
+            1 => self.memory.insert(pa.0, value & 0xff),
+            2 => self.memory.insert(pa.0, value & 0xffff),
+            4 => self.memory.insert(pa.0, value & 0xffff_ffff),
+            8 => self.memory.insert(pa.0, value),
+            _ => return Err(VmError::MemoryError(vm_core::MemoryError::InvalidAddress(pa))),
+        };
+        Ok(())
+    }
+}
+
+impl MmioManager for TestMMU {
+    fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn vm_core::MmioDevice>) {
+        // 简单实现：不做任何操作
+    }
+}
+
+impl MmuAsAny for TestMMU {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+// 由于 MMU 是标记 trait，只要实现了所有子 trait，就会自动实现 MMU
 
 #[cfg(test)]
 mod instruction_tests {

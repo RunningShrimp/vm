@@ -6,11 +6,13 @@
 //! - GraphColoring：图着色分配（高级）
 //! - Hybrid：混合策略（默认）
 
-use crate::jit::compiler::CompiledIRBlock;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+
 use vm_core::VmError;
 use vm_ir::{IROp, RegId};
+
+use crate::jit::compiler::CompiledIRBlock;
 
 /// 寄存器分配器接口
 pub trait RegisterAllocator: Send + Sync {
@@ -268,6 +270,7 @@ pub struct OptimizedAllocationStats {
     /// 溢出次数
     pub spill_count: AtomicU64,
     /// 重命名次数
+    #[allow(dead_code)] // JIT基础设施 - 预留用于寄存器重命名优化
     pub rename_count: AtomicU64,
     /// 图着色次数
     pub coloring_attempts: AtomicU64,
@@ -319,6 +322,7 @@ struct InterferenceNode {
 
 /// 寄存器类
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)] // JIT基础设施 - 预留用于未来多架构寄存器分配优化
 pub enum RegisterClass {
     /// 通用寄存器
     General,
@@ -332,6 +336,7 @@ pub enum RegisterClass {
 
 /// 寄存器信息
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // JIT基础设施 - 预留用于未来寄存器分配优化
 pub struct RegisterInfo {
     /// 寄存器名称
     pub name: String,
@@ -349,6 +354,7 @@ pub struct RegisterInfo {
 
 /// 活跃区间
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // JIT基础设施 - 预留用于活跃区间分析优化
 pub struct LiveRange {
     /// 开始位置
     pub start: usize,
@@ -369,6 +375,7 @@ impl LiveRange {
 }
 
 /// 线性扫描寄存器分配器
+#[allow(dead_code)] // JIT基础设施 - 预留用于寄存器分配策略优化
 pub struct LinearScanAllocator {
     /// 分配器名称
     name: String,
@@ -414,9 +421,10 @@ impl LinearScanAllocator {
                 name: reg_names[i].to_string(),
                 class: RegisterClass::General,
                 size: 64,
-                caller_saved: i < 6 || (8..=11).contains(&i), // RAX,RCX,RDX,RBX,RSI,RDI,R8-R11是调用者保存
-                argument: i < 6,                              // 前6个是参数寄存器
-                return_value: i == 0,                         // RAX是返回值寄存器
+                caller_saved: i < 6 || (8..=11).contains(&i), /* RAX,RCX,RDX,RBX,RSI,RDI,
+                                                               * R8-R11是调用者保存 */
+                argument: i < 6,      // 前6个是参数寄存器
+                return_value: i == 0, // RAX是返回值寄存器
             });
         }
         physical_registers.insert(RegisterClass::General, general_regs);

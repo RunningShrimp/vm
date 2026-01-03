@@ -2,9 +2,10 @@
 //!
 //! 提供通用的前端代码生成功能，减少不同架构前端之间的重复代码。
 
-use crate::{CodegenConfig, InstructionSet, InstructionSpec};
 use vm_core::GuestAddr;
 use vm_ir::IRBlock;
+
+use crate::{CodegenConfig, InstructionSet, InstructionSpec};
 
 /// 通用指令结构
 #[derive(Debug, Clone)]

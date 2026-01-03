@@ -13,12 +13,14 @@
 
 - [快速开始](#快速开始)
 - [开发环境设置](#开发环境设置)
+- [质量标准速览](#质量标准速览)
 - [代码提交指南](#代码提交指南)
 - [代码风格](#代码风格)
 - [测试要求](#测试要求)
 - [文档要求](#文档要求)
 - [Pull Request 流程](#pull-request-流程)
 - [发布流程](#发布流程)
+- [附录：质量标准详细说明](#附录质量标准详细说明)
 
 ---
 
@@ -92,6 +94,55 @@ cargo build --release
 # 构建特定包
 cargo build --package vm-core
 ```
+
+---
+
+## 质量标准速览
+
+本项目实施严格的质量门控体系。在提交代码前，请确保以下所有检查项都通过：
+
+### 必须通过的质量门（Required）
+
+| 检查项 | 工具 | 命令 | 要求 |
+|--------|------|------|------|
+| **代码格式化** | rustfmt | `cargo fmt --all -- --check` | 100% 符合格式规范 |
+| **Clippy 检查** | clippy | `cargo clippy --workspace --all-features --all-targets -- -D warnings` | 零警告 |
+| **编译检查** | cargo | `cargo build --workspace --all-features` | 无错误无警告 |
+| **测试套件** | cargo test | `cargo test --workspace --all-features` | 所有测试通过 |
+| **代码覆盖率** | llvm-cov | `cargo llvm-cov --workspace --all-features` | 最低 50% |
+| **文档构建** | cargo doc | `cargo doc --no-deps --workspace --all-features` | 无错误无断链 |
+
+### 本地快速检查
+
+在提交前，请运行以下命令：
+
+```bash
+# 1. 格式化代码
+cargo fmt
+
+# 2. 运行 Clippy（修复警告）
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+
+# 3. 运行测试
+cargo test --workspace --all-features
+
+# 4. 检查覆盖率（需要先安装 cargo-llvm-cov）
+cargo llvm-cov --workspace --all-features --summary
+
+# 5. 构建文档
+cargo doc --no-deps --workspace --all-features
+```
+
+### CI/CD 自动检查
+
+所有代码在合并前必须通过 CI/CD 管道的以下质量门：
+
+1. **quality-gates.yml** - 主要质量强制检查
+2. **ci.yml** - 全面 CI 管道
+3. **code-quality.yml** - 额外质量检查
+4. **coverage.yml** - 覆盖率报告
+
+详细的质量标准请参考：[QUALITY_STANDARDS.md](../QUALITY_STANDARDS.md)
 
 ---
 
@@ -490,6 +541,126 @@ pub trait JITCompiler {
 - GitHub Issues: 报告 Bug 或请求功能
 - GitHub Discussions: 一般讨论
 - Discord/Slack: 实时聊天（如有）
+
+---
+
+## 附录：质量标准详细说明
+
+本文档提供了质量标准的快速参考。有关完整详细说明，请参阅：
+
+- [QUALITY_STANDARDS.md](../QUALITY_STANDARDS.md) - 完整质量标准文档
+- [CI_CD_GUIDE.md](../CI_CD_GUIDE.md) - CI/CD 管道详细指南
+
+### 质量门控工作流
+
+项目使用以下 GitHub Actions 工作流来强制执行质量标准：
+
+#### 1. quality-gates.yml（主要质量门）
+- **触发条件**：Push/PR 到 master/main/develop 分支
+- **必须通过的检查**：
+  - ✅ 代码格式化（rustfmt）
+  - ✅ Clippy 检查（严格模式）
+  - ✅ 多平台编译（Linux/macOS/Windows）
+  - ✅ 完整测试套件
+  - ✅ 文档构建
+  - ✅ 代码覆盖率（最低 50%）
+- **可选检查**：
+  - 安全审计（警告）
+  - Unsafe 代码审计（信息）
+  - 依赖分析（信息）
+
+#### 2. ci.yml（全面 CI）
+- 多平台测试矩阵
+- Rust 版本测试（stable + MSRV）
+- 所有功能组合测试
+
+#### 3. code-quality.yml（代码质量）
+- 文档覆盖率检查
+- 代码复杂度分析
+- 重复依赖检测
+- 构建时间测量
+
+#### 4. coverage.yml（覆盖率报告）
+- 使用 cargo-llvm-cov 生成详细覆盖率报告
+- 上传到 Codecov 进行趋势跟踪
+- PR 中自动评论覆盖率变化
+
+### 质量指标趋势
+
+CI 自动跟踪以下指标的趋势：
+
+- 📊 测试覆盖率变化
+- 🔍 Clippy 警告数量
+- ⏱️ 构建时间
+- 📦 依赖数量
+- ⚠️ Unsafe 代码行数
+- 🐛 测试失败率
+
+### 故障排除
+
+#### 常见问题
+
+**Q: CI 中格式化检查失败，但我本地运行 `cargo fmt` 后仍然失败？**
+
+A: 确保使用 `--all` 标志：
+```bash
+cargo fmt --all
+git add -A
+git commit -m "fix: format code"
+```
+
+**Q: Clippy 检查失败，如何快速修复？**
+
+A: 使用自动修复功能：
+```bash
+cargo clippy --workspace --all-features --all-targets -- --fix
+```
+
+**Q: 代码覆盖率不足 50%，怎么办？**
+
+A:
+1. 查看覆盖率报告识别未覆盖区域
+2. 为关键路径添加测试
+3. 使用 `#[cfg(test)]` 模块添加单元测试
+4. 使用 `proptest` 进行属性测试
+
+**Q: 文档构建失败，提示 broken links？**
+
+A:
+1. 检查文档中的链接格式
+2. 确保所有公共 API 都正确引用
+3. 使用完整路径引用：`crate::module::Item`
+
+### 质量改进建议
+
+如果你想帮助改进项目的质量标准：
+
+1. **提高覆盖率阈值**
+   - 在 issue 中讨论当前阈值是否合理
+   - 提供数据支持（如关键路径覆盖率已经很高）
+   - 创建 PR 更新 `quality-gates.yml` 中的阈值
+
+2. **添加新的 Clippy 规则**
+   - 评估新规则的收益
+   - 在项目中试验
+   - 更新 `.clippy.toml` 配置
+
+3. **改进 CI/CD 效率**
+   - 识别瓶颈
+   - 提出缓存策略改进
+   - 优化并行化
+
+4. **增强测试策略**
+   - 添加模糊测试
+   - 添加属性测试
+   - 改进集成测试
+
+### 相关文档
+
+- [CONTRIBUTOR_CI_CD_HANDBOOK.md](../CONTRIBUTOR_CI_CD_HANDBOOK.md) - 贡献者 CI/CD 手册
+- [CODE_REVIEW_GUIDE.md](../CODE_REVIEW_GUIDE.md) - 代码审查指南
+- [DEVELOPER_SETUP.md](../DEVELOPER_SETUP.md) - 开发环境设置
+- [TESTING_GUIDE.md](../ADVANCED_TESTING_GUIDE.md) - 高级测试指南
 
 ---
 

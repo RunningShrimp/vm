@@ -72,7 +72,7 @@ impl VfioDevice {
         let addr_str = self.address.to_string();
         let device_path = format!("/sys/bus/pci/devices/{}", addr_str);
 
-        //1. 解绑当前驱动
+        // 1. 解绑当前驱动
         let driver_path = PathBuf::from(&device_path).join("driver");
         if driver_path.exists() {
             let unbind_path = driver_path.join("unbind");
@@ -81,7 +81,7 @@ impl VfioDevice {
             }
         }
 
-        //2. 绑定到 vfio-pci
+        // 2. 绑定到 vfio-pci
         let new_id_path = "/sys/bus/pci/drivers/vfio-pci/new_id";
         if Path::new(new_id_path).exists() {
             let id_str = format!("{:04x} {:04x}", self.info.vendor_id, self.info.device_id);

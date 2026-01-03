@@ -3,10 +3,11 @@ use vm_core::AddressTranslator;
 //!
 //! 测试多级TLB和并发TLB的性能表现
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_core::{AccessType, MMU};
 use vm_mem::{MmuOptimizationStrategy, SoftMmu, UnifiedMmu, UnifiedMmuConfig};
 

@@ -1,8 +1,9 @@
 //! TLB 管理器实现 - 从 SoftMmu 中分离出来
 
-use lru::LruCache;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+
+use lru::LruCache;
 use vm_core::{AccessType, GuestAddr, TlbEntry};
 
 /// TLB 管理器 trait
@@ -149,8 +150,9 @@ impl TlbManager for StandardTlbManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::GuestPhysAddr;
+
+    use super::*;
 
     #[test]
     fn test_tlb_lookup() {

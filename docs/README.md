@@ -8,6 +8,8 @@ This directory contains comprehensive documentation about the VM project, includ
 - [Project README](../README.md) - Project overview and getting started
 - [CHANGELOG.md](../CHANGELOG.md) - Version history and changes
 - [BENCHMARKING.md](./BENCHMARKING.md) - Automated performance benchmarking system
+- [JIT Full Feature Migration Guide](./JIT_FULL_MIGRATION_GUIDE.md) - Guide for using the unified jit-full feature
+- [Crate Merge Plan C Report](../crate_merge_plan_c_report.md) - Implementation report for feature unification
 
 ### 📚 Key Documentation
 - [API Documentation](./api/) - API usage examples and configuration
@@ -69,6 +71,68 @@ docs/
     ├── Implementation plans
     └ Milestone reports
 ```
+
+---
+
+## JIT Feature System
+
+### Overview (2026-01-03)
+
+The VM project now provides a unified JIT experience through the `jit-full` feature in `vm-engine`. This feature consolidates `vm-engine-jit`'s advanced functionality into a single, easy-to-use API.
+
+### Available Features
+
+**vm-engine Features**:
+- `jit` - Basic JIT compilation (always available)
+- `jit-full` - Complete JIT engine with advanced features (requires vm-engine-jit)
+- `all-engines` - Both interpreter and basic JIT
+- `all-engines-full` - Both interpreter and full JIT
+
+### Key Benefits
+
+✅ **Unified API** - Import all JIT types from `vm_engine` instead of multiple crates
+✅ **Simplified Dependencies** - One dependency instead of two
+✅ **Backward Compatible** - Existing code continues to work
+✅ **Optional** - Only pay compilation cost for features you use
+
+### Quick Start
+
+```toml
+# Cargo.toml
+[dependencies]
+vm-engine = { path = "../vm-engine", features = ["jit-full"] }
+```
+
+```rust
+use vm_engine::{
+    JITCompiler,        // Basic JIT
+    TieredCompiler,     // Advanced: tiered compilation
+    AotCache,          // Advanced: AOT caching
+    MLModel,           // Advanced: ML-guided optimization
+    BlockChainer,      // Advanced: block chaining optimization
+};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let jit = JITCompiler::new(Default::default());
+    let tiered = TieredCompiler::new()?;
+    // ...
+    Ok(())
+}
+```
+
+### Documentation
+
+- **Migration Guide**: [JIT_FULL_MIGRATION_GUIDE.md](./JIT_FULL_MIGRATION_GUIDE.md) - Complete migration guide
+- **Implementation Report**: [crate_merge_plan_c_report.md](../crate_merge_plan_c_report.md) - Technical details
+- **Example Code**: [examples/jit_full_example.rs](../examples/jit_full_example.rs) - Usage examples
+
+### Migration Paths
+
+1. **New Projects**: Use `jit-full` from the start
+2. **Existing Projects**: Gradually migrate with full backward compatibility
+3. **Legacy Support**: Continue using separate crates if preferred
+
+See the [Migration Guide](./JIT_FULL_MIGRATION_GUIDE.md) for detailed instructions.
 
 ---
 

@@ -8,8 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::jit::domain_services::events::{DomainEventBus, DomainEventEnum, PageTableEvent};
-use crate::{AccessType, GuestPhysAddr, GuestAddr, VmError, VmResult};
+use crate::domain_services::events::{DomainEventEnum, PageTableEvent};
+use crate::domain_event_bus::DomainEventBus;
+use crate::{AccessType, GuestPhysAddr, GuestAddr, VmResult};
 
 /// Page table level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -221,7 +222,7 @@ impl PageTableWalkerDomainService {
     /// Invalidate cache entry
     pub fn invalidate_cache_entry(&mut self, va: GuestAddr) {
         if self.translation_cache.remove(&va).is_some() {
-            self.publish_event(PageTableEvent::CacheInvalidated { va });
+            self.publish_event(PageTableEvent::CacheInvalidated { va: va.0 });
         }
     }
 
@@ -241,15 +242,14 @@ impl PageTableWalkerDomainService {
         if let Some(cached) = self.translation_cache.get(&va) {
             self.statistics.cache_hits += 1;
 
-            if let WalkResult::Success { flags, .. } = cached {
-                if !flags.can_access(access_type, is_user) {
+            if let WalkResult::Success { flags, .. } = cached
+                && !flags.can_access(access_type, is_user) {
                     return Ok(WalkResult::AccessViolation {
                         va,
                         access_type,
                         required_flags: *flags,
                     });
                 }
-            }
 
             return Ok(cached.clone());
         }
@@ -264,13 +264,19 @@ impl PageTableWalkerDomainService {
                 self.cache_result(va, &result);
             }
             WalkResult::NotPresent { .. } => {
-                self.publish_event(PageTableEvent::PageFault { va, access_type });
+                self.publish_event(PageTableEvent::PageFault {
+                    va: va.0,
+                    access_type: crate::domain_services::events::AccessType::Read,
+                });
             }
             WalkResult::AccessViolation { .. } => {
-                self.publish_event(PageTableEvent::AccessViolation { va, access_type });
+                self.publish_event(PageTableEvent::AccessViolation {
+                    va: va.0,
+                    access_type: crate::domain_services::events::AccessType::Read,
+                });
             }
             WalkResult::InvalidEntry { .. } => {
-                self.publish_event(PageTableEvent::InvalidEntry { va });
+                self.publish_event(PageTableEvent::InvalidEntry { va: va.0 });
             }
         }
 
@@ -288,11 +294,11 @@ impl PageTableWalkerDomainService {
     ) -> VmResult<WalkResult> {
         let mut current_addr = self.root_table_addr;
         let mut current_level = PageTableLevel::L0;
-        let mut levels_traversed = 0;
+        let mut _levels_traversed = 0usize; // Reserved for future statistics/debugging
 
         for level in 0..self.num_levels {
             current_level = PageTableLevel::from_index(level);
-            levels_traversed += 1;
+            _levels_traversed = level + 1; // Track levels for future use
 
             let entry = self.read_pte(current_addr, level, va)?;
 
@@ -330,7 +336,7 @@ impl PageTableWalkerDomainService {
         })
     }
 
-    fn read_pte(&self, table_addr: GuestPhysAddr, level: usize, va: GuestAddr) -> VmResult<PageTableEntry> {
+    fn read_pte(&self, _table_addr: GuestPhysAddr, level: usize, va: GuestAddr) -> VmResult<PageTableEntry> {
         let vpn = self.extract_vpn(level, va);
         let index = vpn as u64 % self.entries_per_table;
 
@@ -382,9 +388,7 @@ impl PageTableWalkerDomainService {
     }
 
     fn publish_event(&self, event: PageTableEvent) {
-        if let Ok(bus) = self.event_bus.lock() {
-            let _ = bus.publish(DomainEventEnum::PageTable(event));
-        }
+        let _ = self.event_bus.publish(&DomainEventEnum::PageTable(event));
     }
 }
 

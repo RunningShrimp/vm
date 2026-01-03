@@ -16,11 +16,12 @@
 //! - `ConcurrentTlbManager` (tlb_concurrent.rs): 适用于高并发场景，使用无锁数据结构
 //! - `AsyncTlbAdapter` (vm-core/tlb_async.rs): 适用于异步场景，支持异步批量操作
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crossbeam::utils::Backoff;
 use dashmap::DashMap;
 use parking_lot::RwLock as ParkingRwLock;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr, TlbManager};
 
 /// 并发TLB条目
@@ -415,7 +416,8 @@ impl LockFreeTlb {
                         AccessType::Read => 1 << 1,
                         AccessType::Write => 1 << 2,
                         AccessType::Execute => 1 << 3,
-                        AccessType::Atomic => (1 << 1) | (1 << 2), // Atomic operations need both R and W bits
+                        AccessType::Atomic => (1 << 1) | (1 << 2), /* Atomic operations need both
+                                                                    * R and W bits */
                     };
                     if (flags & required) != 0 {
                         return Some((ppn, flags));
@@ -704,9 +706,10 @@ impl TlbManager for ConcurrentTlbManagerAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Arc;
     use std::thread;
+
+    use super::*;
 
     #[test]
     #[ignore] // Issue: Fix concurrent TLB test timing issues - race conditions need synchronization fixes

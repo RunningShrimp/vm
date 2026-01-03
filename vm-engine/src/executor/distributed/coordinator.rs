@@ -3,12 +3,14 @@
 //! This module provides the main VM coordinator that manages VM discovery,
 //! task distribution, and fault tolerance.
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+
 use crate::executor::distributed::architecture::DistributedArchitectureConfig;
 use crate::executor::distributed::discovery::{VmDiscovery, VmInfo};
 use crate::executor::distributed::protocol::{TaskId, TaskInfo, TaskStatus, TaskType, VmMessage};
 use crate::executor::distributed::scheduler::TaskScheduler;
-use parking_lot::Mutex;
-use std::sync::Arc;
 
 /// VM Coordinator
 pub struct VmCoordinator {
@@ -104,10 +106,7 @@ impl VmCoordinator {
 
     /// Round robin VM selection
     async fn select_round_robin(&self, active_vms: &[VmInfo]) -> VmInfo {
-        let mut index = self
-            .next_vm_index
-            .lock()
-            .expect("Next VM index mutex should not be poisoned");
+        let mut index = self.next_vm_index.lock();
         let selected = active_vms[*index % active_vms.len()].clone();
         *index += 1;
         selected

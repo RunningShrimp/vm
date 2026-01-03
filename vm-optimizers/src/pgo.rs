@@ -6,10 +6,11 @@
 //! - AOT编译驱动
 //! - 性能优化反馈
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+use parking_lot::RwLock;
 
 /// 块执行Profile信息
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

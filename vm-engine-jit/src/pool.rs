@@ -34,7 +34,7 @@ impl JitPool {
                     Some(block) => {
                         let code_ptr = jit.compile(&block);
                         // 存储到异步缓存
-                        cache_clone.write().await.insert(block.start_pc, code_ptr);
+                        cache_clone.write().await.insert(block.start_pc.0, code_ptr);
                     }
                     None => break,
                 }

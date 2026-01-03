@@ -2,11 +2,10 @@
 //!
 //! 测试自适应垃圾回收调优的功能和性能
 
-use vm_optimizers::gc_adaptive::{
-    AdaptiveGCTuner, AdaptiveGCConfig, GCPerformanceMetrics, GCProblem, TuningAction,
-};
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
+
+use vm_gc::{AdaptiveGCConfig, AdaptiveGCTuner, GCPerformanceMetrics, GCProblem, TuningAction};
 
 // ============================================================================
 // GCPerformanceMetrics测试
@@ -227,14 +226,20 @@ fn test_gc_performance_metrics_is_not_low_throughput() {
 #[test]
 fn test_gc_problem_display() {
     assert_eq!(format!("{}", GCProblem::None), "None");
-    assert_eq!(format!("{}", GCProblem::HighFragmentation), "HighFragmentation");
+    assert_eq!(
+        format!("{}", GCProblem::HighFragmentation),
+        "HighFragmentation"
+    );
     assert_eq!(format!("{}", GCProblem::LongPauseTime), "LongPauseTime");
     assert_eq!(format!("{}", GCProblem::LowThroughput), "LowThroughput");
     assert_eq!(
         format!("{}", GCProblem::HighMemoryPressure),
         "HighMemoryPressure"
     );
-    assert_eq!(format!("{}", GCProblem::FrequentPromotion), "FrequentPromotion");
+    assert_eq!(
+        format!("{}", GCProblem::FrequentPromotion),
+        "FrequentPromotion"
+    );
     assert_eq!(format!("{}", GCProblem::OOMRisk), "OOMRisk");
 }
 
@@ -265,8 +270,8 @@ fn test_adaptive_gc_config_default() {
 fn test_adaptive_gc_config_custom() {
     let config = AdaptiveGCConfig {
         heap_size: 2 * 1024 * 1024 * 1024, // 2GB
-        nursery_ratio: 0.3, // 30%
-        gc_threshold: 0.7, // 70%
+        nursery_ratio: 0.3,                // 30%
+        gc_threshold: 0.7,                 // 70%
         work_quota: 200,
         min_work_quota: 20,
         max_work_quota: 2000,

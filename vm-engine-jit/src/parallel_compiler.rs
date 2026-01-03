@@ -14,12 +14,12 @@ use crate::compiler_backend::{CompilerBackend, CompilerError, CompilerStats};
 use vm_ir::IRBlock;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// 并行JIT编译器
 pub struct ParallelJITCompiler {
-    /// 编译器后端
-    backend: Box<dyn CompilerBackend>,
+    /// 编译器后端（使用Arc<Mutex<>>以支持并行访问）
+    backend: Arc<Mutex<Box<dyn CompilerBackend>>>,
     /// 统计信息
     stats: Arc<Mutex<CompilerStats>>,
     /// 线程池
@@ -69,7 +69,7 @@ impl ParallelJITCompiler {
             .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap());
 
         Self {
-            backend,
+            backend: Arc::new(Mutex::new(backend)),
             stats: Arc::new(Mutex::new(CompilerStats::new())),
             pool,
             time_budget_ns: config.time_budget_ns,
@@ -91,17 +91,7 @@ impl ParallelJITCompiler {
             .unwrap();
 
         Self {
-            backend,
-            stats: Arc::new(Mutex::new(CompilerStats::new())),
-            pool,
-            ..Self::from_config_parts(backend, pool, config)
-        }
-    }
-
-    /// 从组件部分创建（内部辅助函数）
-    fn from_config_parts(backend: Box<dyn CompilerBackend>, pool: rayon::ThreadPool, config: ParallelCompileConfig) -> Self {
-        Self {
-            backend,
+            backend: Arc::new(Mutex::new(backend)),
             stats: Arc::new(Mutex::new(CompilerStats::new())),
             pool,
             time_budget_ns: config.time_budget_ns,
@@ -112,7 +102,7 @@ impl ParallelJITCompiler {
     /// 并行编译多个IR块（带时间预算）
     pub fn compile_blocks(&mut self, blocks: &[IRBlock]) -> Vec<Result<Vec<u8>, CompilerError>> {
         let start_time = Instant::now();
-        let backend = &mut self.backend;
+        let backend = Arc::clone(&self.backend);
         let stats = Arc::clone(&self.stats);
         let time_budget = self.time_budget_ns;
 
@@ -120,7 +110,7 @@ impl ParallelJITCompiler {
             .par_iter()
             .map(|block| {
                 // 检查时间预算
-                let elapsed = start_time.elapsed().as_nanos();
+                let elapsed = start_time.elapsed().as_nanos() as u64;
                 if elapsed > time_budget {
                     return Err(CompilerError::CompilationFailed(
                         "Time budget exceeded".to_string()
@@ -128,12 +118,12 @@ impl ParallelJITCompiler {
                 }
 
                 let compile_start = Instant::now();
-                let result = backend.compile(block);
+                let result = backend.lock().unwrap().compile(block);
 
                 // 更新统计信息
                 if let Ok(ref code) = result {
                     let compile_time = compile_start.elapsed().as_nanos() as u64;
-                    stats.lock().update_compile(compile_time, code.len());
+                    stats.lock().unwrap().update_compile(compile_time, code.len());
                 }
 
                 result
@@ -143,18 +133,18 @@ impl ParallelJITCompiler {
 
     /// 并行编译多个IR块（忽略时间预算，用于批处理）
     pub fn compile_blocks_unbounded(&mut self, blocks: &[IRBlock]) -> Vec<Result<Vec<u8>, CompilerError>> {
-        let backend = &mut self.backend;
+        let backend = Arc::clone(&self.backend);
         let stats = Arc::clone(&self.stats);
 
         blocks
             .par_iter()
             .map(|block| {
-                let start_time = std::time::Instant::now();
-                let result = backend.compile(block);
+                let start_time = Instant::now();
+                let result = backend.lock().unwrap().compile(block);
 
                 if let Ok(ref code) = result {
                     let compile_time = start_time.elapsed().as_nanos() as u64;
-                    stats.lock().update_compile(compile_time, code.len());
+                    stats.lock().unwrap().update_compile(compile_time, code.len());
                 }
 
                 result
@@ -169,11 +159,31 @@ impl ParallelJITCompiler {
         // 按块大小分组
         let chunks = self.group_by_size(blocks);
 
+        // 准备backend和stats的Arc克隆
+        let backend = Arc::clone(&self.backend);
+        let stats = Arc::clone(&self.stats);
+
         // 在自定义线程池中编译
         self.pool.install(|| {
             chunks
                 .into_par_iter()
-                .map(|chunk| self.compile_chunk(chunk))
+                .map(|chunk| {
+                    chunk
+                        .into_iter()
+                        .flat_map(|block| {
+                            let start_time = Instant::now();
+                            let result = backend.lock().unwrap().compile(&block);
+
+                            if let Ok(ref code) = result {
+                                let compile_time = start_time.elapsed().as_nanos() as u64;
+                                stats.lock().unwrap().update_compile(compile_time, code.len());
+                            }
+
+                            result
+                        })
+                        .flatten()
+                        .collect::<Vec<u8>>()
+                })
                 .collect()
         })
     }
@@ -228,49 +238,28 @@ impl ParallelJITCompiler {
         chunks
     }
 
-    /// 编译一个chunk（包含多个块）
-    fn compile_chunk(&mut self, chunk: Vec<IRBlock>) -> Vec<u8> {
-        let backend = &mut self.backend;
-        let stats = Arc::clone(&self.stats);
-
-        chunk
-            .into_iter()
-            .flat_map(|block| {
-                let start_time = std::time::Instant::now();
-                let result = backend.compile(&block);
-
-                if let Ok(ref code) = result {
-                    let compile_time = start_time.elapsed().as_nanos() as u64;
-                    stats.lock().update_compile(compile_time, code.len());
-                }
-
-                result
-            })
-            .collect()
-    }
-
     /// 获取统计信息
     pub fn get_stats(&self) -> CompilerStats {
-        self.stats.lock().clone()
+        self.stats.lock().unwrap().clone()
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        *self.stats.lock() = CompilerStats::new();
+        *self.stats.lock().unwrap() = CompilerStats::new();
     }
 
     /// 获取编译性能指标
     pub fn get_performance_metrics(&self) -> ParallelCompileMetrics {
-        let stats = self.stats.lock();
+        let stats = self.stats.lock().unwrap();
         ParallelCompileMetrics {
             total_blocks: stats.compiled_blocks,
             total_time_ns: stats.total_compile_time_ns,
             avg_block_size: if stats.compiled_blocks > 0 {
-                stats.total_code_size / stats.compiled_blocks
+                (stats.generated_code_size / stats.compiled_blocks as u64) as usize
             } else {
                 0
             },
-            total_code_size: stats.total_code_size,
+            total_code_size: stats.generated_code_size as usize,
         }
     }
 
@@ -294,26 +283,28 @@ impl ParallelJITCompiler {
         // 创建简单的预热块
         let warmup_blocks = vec![
             IRBlock {
-                name: "warmup_add".to_string(),
+                start_pc: vm_core::GuestAddr(0x1000),
                 ops: vec![
-                    vm_ir::IROp::IntAdd {
-                        dest: vm_ir::Value::Register(1),
-                        lhs: vm_ir::Value::Register(0),
-                        rhs: vm_ir::Value::Immediate(1),
+                    vm_ir::IROp::BinaryOp {
+                        op: vm_ir::BinaryOperator::Add,
+                        dest: 1,
+                        src1: vm_ir::Operand::Register(0),
+                        src2: vm_ir::Operand::Immediate(1),
                     },
                 ],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                term: vm_ir::Terminator::Ret,
             },
             IRBlock {
-                name: "warmup_mul".to_string(),
+                start_pc: vm_core::GuestAddr(0x2000),
                 ops: vec![
-                    vm_ir::IROp::IntMul {
-                        dest: vm_ir::Value::Register(2),
-                        lhs: vm_ir::Value::Register(1),
-                        rhs: vm_ir::Value::Immediate(2),
+                    vm_ir::IROp::BinaryOp {
+                        op: vm_ir::BinaryOperator::Mul,
+                        dest: 2,
+                        src1: vm_ir::Operand::Register(1),
+                        src2: vm_ir::Operand::Immediate(2),
                     },
                 ],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                term: vm_ir::Terminator::Ret,
             },
         ];
 
@@ -350,14 +341,18 @@ mod tests {
         // 创建测试块
         let blocks = vec![
             IRBlock {
-                name: "test_block_1".to_string(),
-                ops: vec![],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                start_pc: vm_core::GuestAddr(0x1000),
+                ops: vec![
+                    vm_ir::IROp::MovImm { dst: 0, imm: 42 }, // 添加一个操作
+                ],
+                term: vm_ir::Terminator::Ret,
             },
             IRBlock {
-                name: "test_block_2".to_string(),
-                ops: vec![],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                start_pc: vm_core::GuestAddr(0x2000),
+                ops: vec![
+                    vm_ir::IROp::MovImm { dst: 0, imm: 100 }, // 添加一个操作
+                ],
+                term: vm_ir::Terminator::Ret,
             },
         ];
 
@@ -397,9 +392,9 @@ mod tests {
         // 创建测试块
         let blocks = vec![
             IRBlock {
-                name: "perf_test_1".to_string(),
+                start_pc: vm_core::GuestAddr(0x1000),
                 ops: vec![],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                term: vm_ir::Terminator::Ret,
             },
         ];
 
@@ -435,9 +430,9 @@ mod tests {
         // 创建测试块
         let blocks = vec![
             IRBlock {
-                name: "timeout_test".to_string(),
+                start_pc: vm_core::GuestAddr(0x1000),
                 ops: vec![],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                term: vm_ir::Terminator::Ret,
             },
         ];
 
@@ -459,26 +454,28 @@ mod tests {
         // 创建不同大小的块
         let blocks = vec![
             IRBlock {
-                name: "small_block".to_string(),
+                start_pc: vm_core::GuestAddr(0x1000),
                 ops: vec![],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                term: vm_ir::Terminator::Ret,
             },
             IRBlock {
-                name: "large_block".to_string(),
+                start_pc: vm_core::GuestAddr(0x2000),
                 ops: vec![
-                    vm_ir::IROp::IntAdd {
-                        dest: vm_ir::Value::Register(1),
-                        lhs: vm_ir::Value::Register(0),
-                        rhs: vm_ir::Value::Immediate(1),
-                    };
-                    for _ in 0..50 { /* 添加更多操作 */ }
-                    vm_ir::IROp::IntAdd {
-                        dest: vm_ir::Value::Register(2),
-                        lhs: vm_ir::Value::Register(1),
-                        rhs: vm_ir::Value::Immediate(1),
-                    };
+                    vm_ir::IROp::BinaryOp {
+                        op: vm_ir::BinaryOperator::Add,
+                        dest: 1,
+                        src1: vm_ir::Operand::Register(0),
+                        src2: vm_ir::Operand::Immediate(1),
+                    },
+                    // 添加更多操作
+                    vm_ir::IROp::BinaryOp {
+                        op: vm_ir::BinaryOperator::Add,
+                        dest: 2,
+                        src1: vm_ir::Operand::Register(1),
+                        src2: vm_ir::Operand::Immediate(1),
+                    },
                 ],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                term: vm_ir::Terminator::Ret,
             },
         ];
 
@@ -497,9 +494,9 @@ mod tests {
         // 创建测试块
         let blocks = vec![
             IRBlock {
-                name: "unbounded_test".to_string(),
+                start_pc: vm_core::GuestAddr(0x1000),
                 ops: vec![],
-                terminator: vm_ir::Terminator::Ret { value: None },
+                term: vm_ir::Terminator::Ret,
             },
         ];
 

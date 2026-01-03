@@ -1,12 +1,8 @@
-#![allow(unused_variables)]
-#![allow(dead_code)]
-
 //! 软件 TLB (Translation Lookaside Buffer)
-//!
-//!
+use std::collections::{HashMap, VecDeque};
+
 use crate::GuestAddr;
 use crate::mmu::{PageTableFlags, PageWalkResult};
-use std::collections::{HashMap, VecDeque};
 
 /// TLB 条目
 #[derive(Debug, Clone)]
@@ -91,15 +87,19 @@ pub struct SoftwareTlb {
     entries: HashMap<(GuestAddr, u16), TlbEntry>,
     /// LRU 队列，存储键以实现高效的 LRU 替换
     lru_queue: VecDeque<(GuestAddr, u16)>,
-    /// 时钟算法的时钟指针
+    /// 时钟算法的时钟指针 (reserved for clock replacement policy)
+    #[allow(dead_code)]
     clock_hand: usize,
     /// 当前容量
     capacity: usize,
     /// 最大容量
+    #[allow(dead_code)]
     max_capacity: usize,
     /// 替换策略
+    #[allow(dead_code)]
     policy: TlbReplacePolicy,
     /// 配置
+    #[allow(dead_code)]
     config: TlbConfig,
     /// 全局访问计数
     global_access: u64,
@@ -193,13 +193,6 @@ impl SoftwareTlb {
             global_timestamp: 0,
             stats: TlbStats::default(),
         }
-    }
-
-    /// 快速哈希函数，提高查找效率
-    fn fast_hash(gva: GuestAddr, asid: u16) -> u64 {
-        // 使用简单的哈希组合
-        let hash = gva.0.wrapping_mul(31) ^ (asid as u64);
-        hash.wrapping_mul(0x9e3779b9) // 黄金比例常数
     }
 
     fn update_lru(&mut self, key: &(GuestAddr, u16)) {

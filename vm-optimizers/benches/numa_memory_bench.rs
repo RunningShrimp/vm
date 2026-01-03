@@ -9,9 +9,10 @@
 //! - Page table traversal
 //! - Memory access patterns
 
+use std::time::Duration;
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use rand;
-use std::time::Duration;
 use vm_optimizers::memory::{
     AsyncPrefetchingTlb, MemoryOptimizer, NumaAllocator, NumaConfig, ParallelPageTable,
 };

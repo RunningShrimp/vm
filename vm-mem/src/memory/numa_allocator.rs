@@ -23,21 +23,21 @@
 //! ### 基本使用
 //!
 //! ```rust
-//! use vm_mem::{NumaAllocator, NumaAllocPolicy, NumaNodeInfo};
+//! use vm_mem::{NumaAllocPolicy, NumaAllocator, NumaNodeInfo};
 //!
 //! // 创建NUMA节点信息
 //! let nodes = vec![
 //!     NumaNodeInfo {
 //!         node_id: 0,
-//!         total_memory: 8 * 1024 * 1024 * 1024, // 8GB
+//!         total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
 //!         available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-//!         cpu_mask: 0xFF, // CPU 0-7
+//!         cpu_mask: 0xFF,                           // CPU 0-7
 //!     },
 //!     NumaNodeInfo {
 //!         node_id: 1,
-//!         total_memory: 8 * 1024 * 1024 * 1024, // 8GB
+//!         total_memory: 8 * 1024 * 1024 * 1024,     // 8GB
 //!         available_memory: 7 * 1024 * 1024 * 1024, // 7GB
-//!         cpu_mask: 0xFF00, // CPU 8-15
+//!         cpu_mask: 0xFF00,                         // CPU 8-15
 //!     },
 //! ];
 //!
@@ -57,7 +57,7 @@
 //! ### 全局NUMA分配器
 //!
 //! ```rust
-//! use vm_mem::{init_global_numa_allocator, NumaAllocPolicy, GlobalNumaAllocator};
+//! use vm_mem::{GlobalNumaAllocator, NumaAllocPolicy, init_global_numa_allocator};
 //!
 //! // 设置全局NUMA分配器
 //! init_global_numa_allocator(NumaAllocPolicy::Local)?;
@@ -69,15 +69,28 @@
 //! // 使用内存...
 //!
 //! // 释放内存
-//! unsafe { std::alloc::dealloc(ptr, layout) };
+//! //! # Safety
+//! //!
+//! //! 调用者必须确保：
+//! //! - `layout` 符合 Rust allocator API 规范
+//! //! - `layout.size() > 0` 且是合理的分配大小
+//! //! - `layout.align()` 是 2 的幂次
+//! //! - 返回的指针必须通过 `std::alloc::dealloc` 释放
+//! //!
+//! //! # 维护者必须确保：
+//! //! - 使用 `Layout::from_size_align_unchecked` 时确保参数有效
+//! //! - 检查返回的指针是否为 null
+//! //! - 修改时验证内存对齐和大小约束
+//! //! unsafe { std::alloc::dealloc(ptr, layout) };
 //! ```
 //!
 //! ### 多线程NUMA分配
 //!
 //! ```rust
-//! use vm_mem::{NumaAllocator, NumaAllocPolicy, NumaNodeInfo};
 //! use std::sync::Arc;
 //! use std::thread;
+//!
+//! use vm_mem::{NumaAllocPolicy, NumaAllocator, NumaNodeInfo};
 //!
 //! // 创建共享分配器
 //! let nodes = vec![
@@ -118,8 +131,18 @@
 //!
 //! // 打印统计信息
 //! let stats = allocator.stats();
-//! println!("本地分配: {}", stats.local_allocs.load(std::sync::atomic::Ordering::Relaxed));
-//! println!("远程分配: {}", stats.remote_allocs.load(std::sync::atomic::Ordering::Relaxed));
+//! println!(
+//!     "本地分配: {}",
+//!     stats
+//!         .local_allocs
+//!         .load(std::sync::atomic::Ordering::Relaxed)
+//! );
+//! println!(
+//!     "远程分配: {}",
+//!     stats
+//!         .remote_allocs
+//!         .load(std::sync::atomic::Ordering::Relaxed)
+//! );
 //! ```
 //!
 //! 标识: 服务接口
@@ -200,6 +223,18 @@ impl NumaAllocator {
     /// 获取当前线程所在的 NUMA 节点
     #[cfg(target_os = "linux")]
     pub fn current_node() -> Option<usize> {
+        /// # Safety
+        ///
+        /// 调用者必须确保：
+        /// - 系统支持 NUMA API（libc 中可用）
+        /// - `libc::sched_getcpu()` 返回的 CPU ID 在有效范围内
+        /// - `libc::numa_node_of_cpu()` 接收有效的 CPU ID
+        ///
+        /// # 维护者必须确保：
+        /// - 仅在 Linux 平台调用此函数（由 `#[cfg(target_os = "linux")]` 保证）
+        /// - 正确处理错误返回值（-1）
+        /// - 检查 NUMA API 可用性（通过 `numa_available()`）
+        /// - 修改时验证在不同 NUMA 配置下的兼容性
         unsafe {
             let node = libc::numa_node_of_cpu(libc::sched_getcpu());
             if node >= 0 { Some(node as usize) } else { None }
@@ -276,6 +311,21 @@ impl NumaAllocator {
             return Err(format!("Invalid NUMA node: {}", node_id));
         }
 
+        /// # Safety
+        ///
+        /// 调用者必须确保：
+        /// - `node_id` 是有效的 NUMA 节点 ID（已通过检查确保 < self.nodes.len()）
+        /// - `size` 不为零且在可分配范围内
+        /// - `nodemask` 结构已正确初始化为零
+        /// - 返回的指针必须通过对应的 `libc::numa_free` 释放
+        /// - 在指针生命周期内，NUMA 节点配置保持稳定
+        ///
+        /// # 维护者必须确保：
+        /// - 仅在支持 NUMA 的 Linux 系统上调用（由 `#[cfg(target_os = "linux")]` 保证）
+        /// - `nodemask_zero` 正确初始化 nodemask 结构
+        /// - `nodemask_set` 设置的节点 ID 在有效范围内
+        /// - 检查 `numa_alloc_onnode` 返回的指针是否为 null
+        /// - 修改时验证内存实际分配在指定 NUMA 节点上
         unsafe {
             // 创建 nodemask
             let mut nodemask = std::mem::zeroed::<libc::nodemask_t>();
@@ -541,10 +591,11 @@ pub fn global_numa_stats() -> Option<&'static NumaAllocStats> {
 /// # Examples
 ///
 /// ```rust
-/// use vm_mem::{init_global_numa_allocator, NumaAllocPolicy};
+/// use vm_mem::{NumaAllocPolicy, init_global_numa_allocator};
 ///
 /// // 初始化全局NUMA分配器，使用本地分配策略
-/// init_global_numa_allocator(NumaAllocPolicy::Local).expect("Failed to initialize NUMA allocator");
+/// init_global_numa_allocator(NumaAllocPolicy::Local)
+///     .expect("Failed to initialize NUMA allocator");
 ///
 /// // 现在可以使用全局分配器进行内存分配
 /// // 实际使用时需要通过#[global_allocator]属性设置
@@ -722,8 +773,9 @@ mod tests {
 /// 性能基准测试模块
 #[cfg(test)]
 mod benchmarks {
-    use super::*;
     use std::time::Instant;
+
+    use super::*;
 
     /// 性能基准测试配置
     #[derive(Debug)]

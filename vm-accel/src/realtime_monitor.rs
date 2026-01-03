@@ -6,10 +6,11 @@
 //! - 预测性告警
 //! - 性能指标采集
 
-use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
+
+use parking_lot::RwLock;
 
 /// 性能指标
 #[derive(Debug, Clone)]
@@ -265,18 +266,10 @@ impl PredictiveAlert {
         let anomaly_count = self.jitter_detector.get_anomaly_count();
 
         format!(
-            "Realtime Performance Report:\n\
-             =================================\n\
-             Min Latency:     {} us\n\
-             Avg Latency:     {:.2} us\n\
-             P50 Latency:     {} us\n\
-             P99 Latency:     {} us\n\
-             P99.9 Latency:   {} us\n\
-             Max Latency:     {} us\n\
-             Jitter:          {} us\n\
-             Throughput:      {:.2} Kops/s\n\
-             Anomalies:       {}\n\
-             Samples:         {}",
+            "Realtime Performance Report:\n=================================\nMin Latency:     {} \
+             us\nAvg Latency:     {:.2} us\nP50 Latency:     {} us\nP99 Latency:     {} us\nP99.9 \
+             Latency:   {} us\nMax Latency:     {} us\nJitter:          {} us\nThroughput:      \
+             {:.2} Kops/s\nAnomalies:       {}\nSamples:         {}",
             metrics.min_latency_us,
             metrics.avg_latency_us,
             metrics.p50_latency_us,

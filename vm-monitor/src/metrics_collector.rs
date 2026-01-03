@@ -2,13 +2,14 @@
 //!
 //! 负责收集和聚合虚拟机系统的性能指标
 
-use chrono::{DateTime, Utc};
-use metrics::{counter, gauge, histogram};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
+
+use chrono::{DateTime, Utc};
+use metrics::{counter, gauge, histogram};
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use vm_core::GuestAddr;
 
@@ -380,7 +381,7 @@ pub struct MetricsCollector {
 
     // 执行时间详细统计（用于百分位数计算）
     execution_time_samples: Arc<RwLock<Vec<u64>>>,
-    
+
     // 系统集成配置（用于动态获取TLB容量、GC统计等）
     tlb_capacity: Arc<RwLock<usize>>,
     objects_collected: Arc<AtomicU64>,
@@ -447,7 +448,7 @@ impl MetricsCollector {
             gc_time_samples: Arc::new(RwLock::new(Vec::new())),
 
             execution_time_samples: Arc::new(RwLock::new(Vec::new())),
-            
+
             // 系统集成配置
             tlb_capacity: Arc::new(RwLock::new(4096)), // 默认TLB容量
             objects_collected: Arc::new(AtomicU64::new(0)),
@@ -884,59 +885,6 @@ impl MetricsCollector {
     /// 更新编译缓存大小
     pub fn update_compilation_cache_size(&self, size: usize) {
         self.compilation_cache_size.store(size, Ordering::Relaxed);
-    }
-    
-    // ========== 系统集成配置方法 ==========
-    
-    /// 设置TLB容量（从TLB系统获取）
-    pub async fn set_tlb_capacity(&self, capacity: usize) {
-        let mut cap = self.tlb_capacity.write().await;
-        *cap = capacity;
-    }
-    
-    /// 记录GC回收的对象数
-    pub fn record_objects_collected(&self, count: u64) {
-        self.objects_collected.fetch_add(count, Ordering::Relaxed);
-    }
-    
-    /// 记录页面错误
-    pub fn record_page_fault(&self) {
-        self.page_faults.fetch_add(1, Ordering::Relaxed);
-    }
-    
-    /// 批量记录页面错误
-    pub fn record_page_faults(&self, count: u64) {
-        self.page_faults.fetch_add(count, Ordering::Relaxed);
-    }
-    
-    /// 设置最大vCPU数量（从系统配置获取）
-    pub async fn set_max_vcpu_count(&self, count: usize) {
-        let mut max_vcpus = self.max_vcpu_count.write().await;
-        *max_vcpus = count;
-    }
-    
-    /// 设置负载均衡策略（从系统获取）
-    pub async fn set_load_balancing_policy(&self, policy: String) {
-        let mut lb_policy = self.load_balancing_policy.write().await;
-        *lb_policy = policy;
-    }
-    
-    /// 配置系统集成参数（一次性设置多个）
-    pub async fn configure_system_integration(
-        &self,
-        tlb_capacity: Option<usize>,
-        max_vcpu_count: Option<usize>,
-        load_balancing_policy: Option<String>,
-    ) {
-        if let Some(cap) = tlb_capacity {
-            self.set_tlb_capacity(cap).await;
-        }
-        if let Some(count) = max_vcpu_count {
-            self.set_max_vcpu_count(count).await;
-        }
-        if let Some(policy) = load_balancing_policy {
-            self.set_load_balancing_policy(policy).await;
-        }
     }
 
     // 私有辅助方法
@@ -1398,7 +1346,7 @@ impl Clone for MetricsCollector {
             gc_time_samples: self.gc_time_samples.clone(),
 
             execution_time_samples: self.execution_time_samples.clone(),
-            
+
             // 系统集成配置
             tlb_capacity: self.tlb_capacity.clone(),
             objects_collected: self.objects_collected.clone(),

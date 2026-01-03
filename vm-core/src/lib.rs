@@ -893,8 +893,7 @@ impl<B: 'static> VirtualMachine<B> {
 }
 
 /// VCPU状态容器
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VcpuStateContainer {
     /// VCPU ID
     pub vcpu_id: usize,
@@ -905,7 +904,6 @@ pub struct VcpuStateContainer {
     /// CPU寄存器状态
     pub regs: crate::GuestRegs,
 }
-
 
 pub use regs::GuestRegs;
 

@@ -7,12 +7,13 @@
 //! - Model size and memory usage
 //! - Feature importance analysis
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_engine_jit::ml_model_enhanced::{
-    ExecutionFeaturesEnhanced, InstMixFeatures, CompilationHistory,
+    CompilationHistory, ExecutionFeaturesEnhanced, InstMixFeatures,
 };
-use vm_engine_jit::ml_random_forest::{RandomForestModel, CompilationDecision};
+use vm_engine_jit::ml_random_forest::{CompilationDecision, RandomForestModel};
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 // Test parameters
@@ -57,7 +58,11 @@ fn create_test_block(size: usize, _complexity: f64) -> IRBlock {
 }
 
 /// Create test features with specific execution counts
-fn create_test_features(block_size: usize, exec_count: u64, complexity: f64) -> ExecutionFeaturesEnhanced {
+fn create_test_features(
+    block_size: usize,
+    exec_count: u64,
+    complexity: f64,
+) -> ExecutionFeaturesEnhanced {
     let branch_count = (block_size as f64 * complexity * 0.2) as usize;
     let memory_access_count = (block_size as f64 * complexity * 0.3) as usize;
 
@@ -99,9 +104,9 @@ fn bench_ml_prediction_accuracy(c: &mut Criterion) {
     let test_data: Vec<_> = BLOCK_SIZES
         .iter()
         .flat_map(|&size| {
-            EXECUTION_COUNTS.iter().map(move |&exec_count| {
-                create_test_features(size, exec_count, 0.7)
-            })
+            EXECUTION_COUNTS
+                .iter()
+                .map(move |&exec_count| create_test_features(size, exec_count, 0.7))
         })
         .collect();
 
@@ -155,17 +160,13 @@ fn bench_ml_prediction_latency(c: &mut Criterion) {
 
     // Test different feature complexities
     for &size in [10, 50, 100, 500].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("predict", size),
-            &size,
-            |b, &size| {
-                let features = create_test_features(size, 1000, 0.5);
+        group.bench_with_input(BenchmarkId::new("predict", size), &size, |b, &size| {
+            let features = create_test_features(size, 1000, 0.5);
 
-                b.iter(|| {
-                    black_box(model.predict(black_box(&features)));
-                });
-            },
-        );
+            b.iter(|| {
+                black_box(model.predict(black_box(&features)));
+            });
+        });
     }
 
     group.finish();

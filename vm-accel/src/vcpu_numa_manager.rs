@@ -2,11 +2,12 @@
 //!
 //! Combines vCPU affinity management with NUMA memory allocation for optimal performance
 
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
 use crate::vcpu_affinity::{
     CPUTopology, NUMAAwareAllocator, VCPUAffinityManager, VCPUThreadConfig,
 };
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 
 /// Combined vCPU and NUMA manager
 ///

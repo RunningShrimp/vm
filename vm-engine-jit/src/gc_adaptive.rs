@@ -244,8 +244,8 @@ impl PromotionThresholdAdjuster {
         let current_threshold = self.current_threshold.load(Ordering::Relaxed);
         let promoted_objects: u64 = dist
             .iter()
-            .filter(|&(&count, _)| count >= current_threshold)
-            .map(|&(_, &num)| num)
+            .filter(|(count, _)| **count >= current_threshold)
+            .map(|(_, num)| *num)
             .sum();
 
         let current_promotion_ratio = promoted_objects as f64 / total_objects as f64;

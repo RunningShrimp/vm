@@ -2,14 +2,13 @@
 //!
 //! 测试A/B测试框架的功能
 
+use std::time::SystemTime;
+
 use vm_engine_jit::ml_ab_testing::{
-    ABTestConfig, ABTestManager, ModelComparison, ModelPerformanceStats,
-    PerformanceRecord,
+    ABTestConfig, ABTestManager, ModelComparison, ModelPerformanceStats, PerformanceRecord,
 };
 use vm_engine_jit::ml_model_enhanced::{ExecutionFeaturesEnhanced, InstMixFeatures};
 use vm_engine_jit::ml_random_forest::{CompilationDecision, RandomForestModel};
-use std::sync::Arc;
-use std::time::SystemTime;
 
 // ============================================================================
 // 辅助函数
@@ -50,6 +49,7 @@ fn create_test_features(execution_count: u64) -> ExecutionFeaturesEnhanced {
 }
 
 /// 创建测试模型A（LinearRegression模拟）
+#[allow(dead_code)]
 struct MockModelA {
     name: String,
 }
@@ -72,6 +72,7 @@ impl MockModelA {
 }
 
 /// 创建测试模型B（RandomForest）
+#[allow(dead_code)]
 struct MockModelB {
     rf: RandomForestModel,
     name: String,
@@ -225,7 +226,7 @@ fn test_ab_test_manager_traffic_split() {
         traffic_split: 0.5,
         ..Default::default()
     };
-    let manager = ABTestManager::new(config);
+    let mut manager = ABTestManager::new(config);
 
     manager.register_model("ModelA".to_string());
     manager.register_model("ModelB".to_string());

@@ -2,10 +2,12 @@
 //!
 //! 提供内存设备功能，支持内存热插拔和内存区域管理
 
-use crate::virtio::{Queue, VirtioDevice};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
 use vm_core::{MMU, MemoryError, VmError, VmResult};
+
+use crate::virtio::{Queue, VirtioDevice};
 
 /// 内存区域类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -336,8 +338,9 @@ impl VirtioMemoryMmio {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vm_core::{AddressTranslator, GuestAddr, MemoryAccess, MmioManager, MmuAsAny, VmError};
+
+    use super::*;
 
     struct MockMmu {
         memory: HashMap<u64, u8>,

@@ -3,9 +3,13 @@
 //! This module provides unified register management across different architectures,
 //! including register mapping, allocation, and lifecycle management.
 
-use crate::encoding::{Architecture, RegId};
 use std::collections::{HashMap, HashSet};
+
 use thiserror::Error;
+use vm_core::VmError;
+use vm_core::error::CoreError;
+
+use crate::encoding::{Architecture, RegId};
 
 /// Errors that can occur during register management
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -24,6 +28,52 @@ pub enum RegisterError {
     UnsupportedRegisterClass(RegisterClass, Architecture),
     #[error("Register conflict: {0}")]
     RegisterConflict(String),
+}
+
+impl From<RegisterError> for VmError {
+    fn from(err: RegisterError) -> Self {
+        match err {
+            RegisterError::InvalidRegister(reg_id) => VmError::Core(CoreError::InvalidParameter {
+                name: "register_id".to_string(),
+                value: reg_id.to_string(),
+                message: "Invalid register ID".to_string(),
+            }),
+            RegisterError::RegisterNotFound(reg_id) => VmError::Core(CoreError::InvalidParameter {
+                name: "register_id".to_string(),
+                value: reg_id.to_string(),
+                message: "Register not found in register set".to_string(),
+            }),
+            RegisterError::RegisterAlreadyAllocated(reg_id) => {
+                VmError::Core(CoreError::InvalidState {
+                    message: format!("Register {} is already allocated", reg_id),
+                    current: "allocated".to_string(),
+                    expected: "free".to_string(),
+                })
+            }
+            RegisterError::NoAvailableRegisters(class) => {
+                VmError::Core(CoreError::ResourceExhausted {
+                    resource: format!("registers in class {:?}", class),
+                    current: 0,
+                    limit: 0,
+                })
+            }
+            RegisterError::InvalidMapping(from, to) => VmError::Core(CoreError::InvalidParameter {
+                name: "register_mapping".to_string(),
+                value: format!("{} -> {}", from, to),
+                message: "Invalid register mapping".to_string(),
+            }),
+            RegisterError::UnsupportedRegisterClass(class, arch) => {
+                VmError::Core(CoreError::NotSupported {
+                    feature: format!("Register class {:?} for architecture {:?}", class, arch),
+                    module: "vm-cross-arch-support::register".to_string(),
+                })
+            }
+            RegisterError::RegisterConflict(msg) => VmError::Core(CoreError::Internal {
+                message: format!("Register conflict: {}", msg),
+                module: "vm-cross-arch-support::register".to_string(),
+            }),
+        }
+    }
 }
 
 /// Register classes for categorizing registers
@@ -650,5 +700,46 @@ mod tests {
         allocator.free(reg1).unwrap();
         let reg3 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
         assert_eq!(reg1, reg3);
+    }
+
+    #[test]
+    fn test_register_error_to_vm_error_conversion() {
+        use vm_core::VmError;
+
+        // Test InvalidRegister conversion
+        let err = RegisterError::InvalidRegister(RegId(99));
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test RegisterNotFound conversion
+        let err = RegisterError::RegisterNotFound(RegId(99));
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test RegisterAlreadyAllocated conversion
+        let err = RegisterError::RegisterAlreadyAllocated(RegId(5));
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test NoAvailableRegisters conversion
+        let err = RegisterError::NoAvailableRegisters(RegisterClass::GeneralPurpose);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test InvalidMapping conversion
+        let err = RegisterError::InvalidMapping(RegId(1), RegId(2));
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test UnsupportedRegisterClass conversion
+        let err =
+            RegisterError::UnsupportedRegisterClass(RegisterClass::Vector, Architecture::X86_64);
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
+
+        // Test RegisterConflict conversion
+        let err = RegisterError::RegisterConflict("register already in use".to_string());
+        let vm_err: VmError = err.into();
+        assert!(matches!(vm_err, VmError::Core(_)));
     }
 }

@@ -2,10 +2,10 @@
 //!
 //! 覆盖边界条件、错误处理等场景
 
-use vm_core::{GuestAddr, VmError, VmConfig, VmLifecycleState};
-use vm_service::snapshot_manager::SnapshotManager;
-use vm_service::execution_service::ExecutionService;
+use vm_core::{GuestAddr, VmConfig, VmError, VmLifecycleState};
 use vm_service::device_service::DeviceService;
+use vm_service::execution_service::ExecutionService;
+use vm_service::snapshot_manager::SnapshotManager;
 
 // ============================================================================
 // 错误处理测试（40个测试）
@@ -64,7 +64,9 @@ mod error_handling_tests {
     #[tokio::test]
     async fn test_device_service_attach_invalid_device() {
         let service = DeviceService::new();
-        let result = service.attach_device("invalid_device_type", "test_device").await;
+        let result = service
+            .attach_device("invalid_device_type", "test_device")
+            .await;
         assert!(result.is_err());
     }
 
@@ -344,13 +346,7 @@ mod error_handling_tests {
         let manager = SnapshotManager::new("test".to_string()).await;
 
         // 测试包含数字的快照名称
-        let names_with_numbers = vec![
-            "snapshot123",
-            "123snapshot",
-            "snap123shot",
-            "0",
-            "999",
-        ];
+        let names_with_numbers = vec!["snapshot123", "123snapshot", "snap123shot", "0", "999"];
 
         for name in names_with_numbers {
             let result = manager.create_snapshot(name).await;
@@ -363,16 +359,15 @@ mod error_handling_tests {
         let manager = SnapshotManager::new("test".to_string()).await;
 
         // 测试包含下划线的快照名称
-        let names_with_underscores = vec![
-            "snapshot_test",
-            "_snapshot",
-            "snapshot_",
-            "__test__",
-        ];
+        let names_with_underscores = vec!["snapshot_test", "_snapshot", "snapshot_", "__test__"];
 
         for name in names_with_underscores {
             let result = manager.create_snapshot(name).await;
-            assert!(result.is_ok(), "Should accept underscores in name: {}", name);
+            assert!(
+                result.is_ok(),
+                "Should accept underscores in name: {}",
+                name
+            );
         }
     }
 
@@ -381,12 +376,7 @@ mod error_handling_tests {
         let manager = SnapshotManager::new("test".to_string()).await;
 
         // 测试包含连字符的快照名称
-        let names_with_dashes = vec![
-            "snapshot-test",
-            "-snapshot",
-            "snapshot-",
-            "--test--",
-        ];
+        let names_with_dashes = vec!["snapshot-test", "-snapshot", "snapshot-", "--test--"];
 
         for name in names_with_dashes {
             let result = manager.create_snapshot(name).await;
@@ -400,7 +390,10 @@ mod error_handling_tests {
         let service = DeviceService::new();
 
         // 附加设备
-        service.attach_device("serial", "test_serial").await.unwrap();
+        service
+            .attach_device("serial", "test_serial")
+            .await
+            .unwrap();
 
         // 分离设备
         service.detach_device("test_serial").await.unwrap();

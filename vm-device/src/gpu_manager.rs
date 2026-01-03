@@ -7,12 +7,13 @@ pub mod mdev;
 pub mod passthrough;
 pub mod wgpu_backend;
 
-use crate::gpu_virt::GpuBackend as GpuBackendTrait;
 pub use mdev::{GpuMdev, MdevConfig, MdevType};
 pub use passthrough::{GpuInfo, GpuPassthrough, GpuVendor};
 use thiserror::Error;
 use vm_core::{PlatformError, VmError};
 pub use wgpu_backend::{GpuStats, WgpuBackend};
+
+use crate::gpu_virt::GpuBackend as GpuBackendTrait;
 
 /// GPU 模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -359,7 +360,8 @@ impl UnifiedGpuManager {
                 GpuBackend::Wgpu(wgpu) => {
                     let stats = GpuBackendTrait::get_stats(wgpu);
                     Some(format!(
-                        "WGPU Virtual GPU\nCommand buffers: {}\nRender passes: {}\nCompute passes: {}\nTextures: {}\nBuffers: {}\nMemory: {} MB",
+                        "WGPU Virtual GPU\nCommand buffers: {}\nRender passes: {}\nCompute \
+                         passes: {}\nTextures: {}\nBuffers: {}\nMemory: {} MB",
                         stats.command_buffer_count,
                         stats.render_pass_count,
                         stats.compute_pass_count,

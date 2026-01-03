@@ -2,9 +2,10 @@
 //!
 //! 实现每种 ISA 的指令语义，生成对应的 LLVM IR 代码。
 
+use vm_core::{CoreError, VmError};
+
 use crate::lift::decoder::{ISA, Instruction, OperandType};
 use crate::lift::{LiftResult, LiftingContext};
-use vm_core::{CoreError, VmError};
 
 /// 指令语义 Trait
 pub trait Semantics {

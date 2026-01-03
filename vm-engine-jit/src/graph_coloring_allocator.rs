@@ -359,7 +359,7 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
                         colored.insert(reg, color);
                         allocations.insert(
                             reg,
-                            RegisterAllocation::Register(color as u32),
+                            RegisterAllocation::Register { reg: color as u8 },
                         );
                         break;
                     }
@@ -375,7 +375,7 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
             let offset = self.next_spill_offset;
             self.next_spill_offset -= 8;
             self.spilled_regs.insert(reg, offset);
-            allocations.insert(reg, RegisterAllocation::Stack(offset));
+            allocations.insert(reg, RegisterAllocation::Stack { offset });
         }
 
         // 应用合并映射到最终分配
@@ -390,10 +390,16 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
 
     fn get_stats(&self) -> RegisterAllocatorStats {
         RegisterAllocatorStats {
-            total_allocations: self.reg_lifetimes.len() as u64,
-            spills: self.spilled_regs.len() as u64,
-            physical_regs_used: self.config.available_registers as u32,
-            avg_allocation_time_ns: 0, // TODO: track allocation time
+            total_allocations: self.reg_lifetimes.len(),
+            spills: self.spilled_regs.len(),
+            physical_regs_used: self.config.available_registers,
+            // 注意：当前未追踪分配时间
+            // 如需追踪，可以在 `allocate_registers()` 方法中添加：
+            // let start = Instant::now();
+            // ... 分配逻辑 ...
+            // let duration = start.elapsed();
+            // avg_allocation_time_ns: duration.as_nanos() as f64
+            avg_allocation_time_ns: 0.0,
         }
     }
 }
@@ -485,7 +491,7 @@ mod tests {
         
         // 检查统计信息
         let stats = allocator.get_stats();
-        assert_eq!(stats.algorithm_used, "graph_coloring");
+        assert!(stats.total_allocations > 0);
     }
 
     #[test]
@@ -519,7 +525,7 @@ mod tests {
 
         // 应该有一些寄存器被spill
         let stats = allocator.get_stats();
-        assert!(stats.spill_count > 0 || allocations.len() > 0);
+        assert!(stats.spills > 0 || allocations.len() > 0);
     }
 
     #[test]

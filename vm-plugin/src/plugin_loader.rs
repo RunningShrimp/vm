@@ -137,30 +137,84 @@ pub struct LoaderStats {
 pub enum LoadError {
     #[error("Plugin not found: {0}")]
     PluginNotFound(String),
-    
+
     #[error("Library load error: {0}")]
     LibraryLoadError(String),
-    
+
     #[error("Symbol not found: {0}")]
     SymbolNotFoundError(String),
-    
+
     #[error("Version mismatch: {0}")]
     VersionMismatch(String),
-    
+
     #[error("Security check failed: {0}")]
     SecurityCheckFailed(String),
-    
+
     #[error("Factory creation failed: {0}")]
     FactoryCreationFailed(String),
-    
+
     #[error("Plugin creation failed: {0}")]
     PluginCreationFailed(String),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
+}
+
+/// Conversion from LoadError to unified VmError
+impl From<LoadError> for VmError {
+    fn from(err: LoadError) -> Self {
+        match err {
+            LoadError::PluginNotFound(msg) => {
+                VmError::Core(CoreError::ResourceNotAvailable(format!("plugin: {}", msg)))
+            }
+            LoadError::LibraryLoadError(msg) => {
+                VmError::Core(CoreError::Internal {
+                    message: format!("Library load error: {}", msg),
+                    module: "plugin_loader".to_string(),
+                })
+            }
+            LoadError::SymbolNotFoundError(msg) => {
+                VmError::Core(CoreError::InvalidParameter {
+                    name: "symbol".to_string(),
+                    value: msg.clone(),
+                    message: format!("Symbol not found: {}", msg),
+                })
+            }
+            LoadError::VersionMismatch(msg) => {
+                VmError::Core(CoreError::InvalidConfig {
+                    message: msg,
+                    field: "version".to_string(),
+                })
+            }
+            LoadError::SecurityCheckFailed(msg) => {
+                VmError::Core(CoreError::PermissionDenied(format!("Security check: {}", msg)))
+            }
+            LoadError::FactoryCreationFailed(msg) => {
+                VmError::Core(CoreError::Internal {
+                    message: format!("Factory creation failed: {}", msg),
+                    module: "plugin_loader".to_string(),
+                })
+            }
+            LoadError::PluginCreationFailed(msg) => {
+                VmError::Core(CoreError::Internal {
+                    message: format!("Plugin creation failed: {}", msg),
+                    module: "plugin_loader".to_string(),
+                })
+            }
+            LoadError::IoError(io_err) => {
+                VmError::Io(io_err.to_string())
+            }
+            LoadError::SerializationError serde_err => {
+                VmError::Core(CoreError::Config {
+                    message: serde_err.to_string(),
+                    path: Some("plugin_metadata".to_string()),
+                })
+            }
+        }
+    }
 }
 
 impl PluginLoader {

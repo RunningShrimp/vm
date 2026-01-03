@@ -574,8 +574,9 @@ mod coroutine_tests {
 
 #[cfg(test)]
 mod vcpu_tests {
-    use super::*;
     use std::collections::VecDeque;
+
+    use super::*;
 
     /// 测试41: VCPU基本创建
     #[test]

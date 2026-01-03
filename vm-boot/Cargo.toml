@@ -8,8 +8,7 @@ vm-core = { path = "../vm-core" }
 vm-mem = { path = "../vm-mem" }
 vm-device = { path = "../vm-device" }
 vm-accel = { path = "../vm-accel" }
-vm-optimizers = { path = "../vm-optimizers" }
-vm-runtime = { path = "../vm-runtime" }
+vm-gc = { path = "../vm-gc" }
 log = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }

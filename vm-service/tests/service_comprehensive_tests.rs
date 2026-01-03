@@ -2,13 +2,14 @@
 //!
 //! 覆盖快照管理、执行服务、设备服务、配置管理等核心功能。
 
-use vm_core::{GuestAddr, VmError, VmConfig, VmLifecycleState};
-use vm_service::snapshot_manager::SnapshotManager;
-use vm_service::execution_service::ExecutionService;
-use vm_service::device_service::DeviceService;
-use vm_service::config_manager::ConfigManager;
 use std::sync::Arc;
+
 use tokio::sync::Mutex;
+use vm_core::{GuestAddr, VmConfig, VmError, VmLifecycleState};
+use vm_service::config_manager::ConfigManager;
+use vm_service::device_service::DeviceService;
+use vm_service::execution_service::ExecutionService;
+use vm_service::snapshot_manager::SnapshotManager;
 
 // ============================================================================
 // 快照管理器测试（30个测试）
@@ -74,7 +75,9 @@ mod snapshot_tests {
         let manager = SnapshotManager::new("test".to_string()).await;
 
         manager.create_snapshot("export_test").await.unwrap();
-        let result = manager.export_snapshot("export_test", "/tmp/test.snap").await;
+        let result = manager
+            .export_snapshot("export_test", "/tmp/test.snap")
+            .await;
 
         assert!(result.is_ok());
     }
@@ -85,10 +88,15 @@ mod snapshot_tests {
 
         // 先导出
         manager.create_snapshot("import_test").await.unwrap();
-        manager.export_snapshot("import_test", "/tmp/test.snap").await.unwrap();
+        manager
+            .export_snapshot("import_test", "/tmp/test.snap")
+            .await
+            .unwrap();
 
         // 再导入
-        let result = manager.import_snapshot("import_test", "/tmp/test.snap").await;
+        let result = manager
+            .import_snapshot("import_test", "/tmp/test.snap")
+            .await;
         assert!(result.is_ok());
     }
 
@@ -139,7 +147,10 @@ mod snapshot_tests {
 
         // 创建多个快照
         for i in 0..15 {
-            manager.create_snapshot(&format!("snap_{}", i)).await.unwrap();
+            manager
+                .create_snapshot(&format!("snap_{}", i))
+                .await
+                .unwrap();
         }
 
         // 自动清理应该保留最新的10个
@@ -182,7 +193,10 @@ mod snapshot_tests {
         let manager = SnapshotManager::new("test".to_string()).await;
 
         manager.create_snapshot("base").await.unwrap();
-        manager.create_incremental_snapshot("base", "inc1").await.unwrap();
+        manager
+            .create_incremental_snapshot("base", "inc1")
+            .await
+            .unwrap();
 
         let result = manager.merge_snapshots("base", "inc1", "merged").await;
         assert!(result.is_ok());
@@ -214,7 +228,10 @@ mod snapshot_tests {
         let manager = SnapshotManager::new("test".to_string()).await;
 
         manager.create_snapshot("decrypt_test").await.unwrap();
-        manager.encrypt_snapshot("decrypt_test", "password").await.unwrap();
+        manager
+            .encrypt_snapshot("decrypt_test", "password")
+            .await
+            .unwrap();
         let result = manager.decrypt_snapshot("decrypt_test", "password").await;
 
         assert!(result.is_ok());
@@ -323,13 +340,9 @@ mod snapshot_tests {
         let manager1 = Arc::clone(&manager);
         let manager2 = Arc::clone(&manager);
 
-        let task1 = tokio::spawn(async move {
-            manager1.create_snapshot("concurrent1").await
-        });
+        let task1 = tokio::spawn(async move { manager1.create_snapshot("concurrent1").await });
 
-        let task2 = tokio::spawn(async move {
-            manager2.create_snapshot("concurrent2").await
-        });
+        let task2 = tokio::spawn(async move { manager2.create_snapshot("concurrent2").await });
 
         let (result1, result2) = tokio::join!(task1, task2);
         assert!(result1.unwrap().is_ok());
@@ -362,7 +375,10 @@ mod snapshot_tests {
 
         // 创建一些旧快照
         for i in 0..5 {
-            manager.create_snapshot(&format!("old_{}", i)).await.unwrap();
+            manager
+                .create_snapshot(&format!("old_{}", i))
+                .await
+                .unwrap();
         }
 
         let result = manager.run_gc().await;
@@ -611,7 +627,7 @@ mod execution_tests {
         service.start().await.unwrap();
 
         service.pause().await.unwrap();
-        let result = service.continue().await;
+        let result = service.r#continue().await;
 
         assert!(result.is_ok());
     }

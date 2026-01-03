@@ -10,6 +10,24 @@ vm-mem = { path = "../vm-mem", optional = true }
 vm-accel = { path = "../vm-accel", optional = true }
 
 [features]
-default = []
-# All architectures enabled (recommended)
-all = ["vm-mem", "vm-accel"]
+default = ["riscv64"]
+
+# Single architecture features
+x86_64 = []
+arm64 = ["vm-accel"]  # ARM64 needs vm-accel for CPU detection
+riscv64 = []
+
+# RISC-V extensions
+riscv-m = ["riscv64"]
+riscv-f = ["riscv64"]
+riscv-d = ["riscv64"]
+riscv-c = ["riscv64"]
+riscv-a = ["riscv64"]
+
+# Multi-architecture combinations
+all = ["x86_64", "arm64", "riscv64"]
+all-extensions = ["all", "riscv-m", "riscv-f", "riscv-d", "riscv-c", "riscv-a"]
+
+# Dependencies
+vm-mem = ["dep:vm-mem"]
+vm-accel = ["dep:vm-accel"]

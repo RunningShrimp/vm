@@ -2,8 +2,9 @@
 //!
 //! This module defines the message format for communication between VMs and the coordinator.
 
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+
+use serde::{Deserialize, Serialize};
 
 /// Unique identifier for VM instances
 pub type VmId = String;

@@ -18,17 +18,19 @@ cfg_if::cfg_if! {
     }
 }
 
-#[cfg(feature = "async")]
-use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+#[cfg(feature = "async")]
+use std::time::Duration;
 use std::time::Instant;
-// TODO: vm_monitor 模块暂时禁用，需要实现或从 vm-monitor 包导入
-// use vm_monitor::PerformanceMonitor;
 
-/// 简化的性能监控器（替代 vm_monitor）
+use serde::{Deserialize, Serialize};
+
+// 注意：这里使用简化的PerformanceMonitor实现而不是vm_monitor包
+// 原因：避免循环依赖，vm-monitor已经在此模块中内联实现
+// 如需使用完整的vm-monitor功能，应重构模块依赖关系
+
+/// 简化的性能监控器（内联实现，避免循环依赖）
 #[derive(Debug, Clone)]
 pub struct PerformanceMonitor {
     pub metrics: HashMap<String, f64>,
@@ -290,6 +292,7 @@ impl Default for OptimizationState {
     }
 }
 
+#[allow(dead_code)] // Reserved for future adaptive optimization features
 impl AdaptiveOptimizer {
     /// 创建新的自适应优化器
     pub fn new(
@@ -313,8 +316,9 @@ impl AdaptiveOptimizer {
     /// 运行自适应优化循环
     #[cfg(feature = "async")]
     pub async fn run_optimization_loop(&mut self) {
-        let mut interval =
-            tokio::time::interval(Duration::from_secs(self._config.adjustment_interval_seconds));
+        let mut interval = tokio::time::interval(Duration::from_secs(
+            self._config.adjustment_interval_seconds,
+        ));
 
         loop {
             interval.tick().await;
@@ -362,7 +366,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 分析当前性能
-    fn _analyze_performance(&self) -> PerformanceAnalysis {
+    fn analyze_performance(&self) -> PerformanceAnalysis {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -423,7 +427,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别工作负载模式
-    fn _identify_workload_pattern(&self, metrics: &HashMap<String, f64>) -> WorkloadPattern {
+    fn identify_workload_pattern(&self, metrics: &HashMap<String, f64>) -> WorkloadPattern {
         let cpu_usage = metrics.get("cpu_usage").copied().unwrap_or(0.0);
         let memory_usage = metrics.get("memory_usage").copied().unwrap_or(0.0);
         let jit_compile_time = metrics.get("jit_compile_time").copied().unwrap_or(0.0);
@@ -441,7 +445,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别性能瓶颈
-    fn _identify_bottlenecks(&self, metrics: &HashMap<String, f64>) -> Vec<String> {
+    fn identify_bottlenecks(&self, metrics: &HashMap<String, f64>) -> Vec<String> {
         let mut bottlenecks = Vec::new();
 
         if let Some(cpu_usage) = metrics.get("cpu_usage")
@@ -472,7 +476,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 识别优化机会
-    fn _identify_optimization_opportunities(
+    fn identify_optimization_opportunities(
         &self,
         metrics: &HashMap<String, f64>,
         workload_pattern: &WorkloadPattern,
@@ -517,7 +521,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 生成优化建议
-    fn _generate_recommendations(
+    fn generate_recommendations(
         &self,
         analysis: &PerformanceAnalysis,
     ) -> Vec<OptimizationRecommendation> {
@@ -595,7 +599,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 判断是否应该应用建议
-    fn _should_apply_recommendation(&self, recommendation: &OptimizationRecommendation) -> bool {
+    fn should_apply_recommendation(&self, recommendation: &OptimizationRecommendation) -> bool {
         // 检查置信度和优先级
         if recommendation.confidence < 0.6 || matches!(recommendation.priority, Priority::Low) {
             return false;
@@ -617,7 +621,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 应用优化建议
-    async fn _apply_recommendation(&mut self, recommendation: OptimizationRecommendation) {
+    async fn apply_recommendation(&mut self, recommendation: OptimizationRecommendation) {
         println!(
             "Applying optimization recommendation: {}",
             recommendation.description
@@ -658,7 +662,7 @@ impl AdaptiveOptimizer {
     }
 
     /// 清理过期建议
-    fn _cleanup_expired_recommendations(&mut self) {
+    fn cleanup_expired_recommendations(&mut self) {
         // 简单的清理策略：保留最近的建议
         if self.active_recommendations.len() > 10 {
             let keys_to_remove: Vec<String> = self
@@ -813,8 +817,9 @@ impl Default for PerformanceHistorySummary {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Arc;
+
+    use super::*;
 
     #[test]
     fn test_adaptive_optimizer_creation() {
