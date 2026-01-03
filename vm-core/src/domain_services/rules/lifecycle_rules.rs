@@ -124,7 +124,7 @@ mod tests {
     use super::*;
     use crate::{GuestArch, VmConfig};
 
-    fn create_test_aggregate(state: VmState) -> VirtualMachineAggregate {
+    fn create_test_aggregate(state: VmLifecycleState) -> VirtualMachineAggregate {
         let config = VmConfig {
             guest_arch: GuestArch::Riscv64,
             memory_size: crate::DEFAULT_MEMORY_SIZE,

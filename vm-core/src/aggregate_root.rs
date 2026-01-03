@@ -6,7 +6,7 @@
 
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, VmConfigSnapshot, VmLifecycleEvent};
-use crate::{VmConfig, VmLifecycleState, VmResult, VmState};
+use crate::{VmConfig, VmLifecycleState, VmResult};
 use std::sync::Arc;
 
 /// 聚合根trait
@@ -139,7 +139,7 @@ impl VirtualMachineAggregate {
         let mut aggregate = Self {
             vm_id: vm_id.clone(),
             config: config.clone(),
-            state: VmState::Created,
+            state: VmLifecycleState::Created,
             event_bus: None,
             uncommitted_events: Vec::new(),
             version: 0,

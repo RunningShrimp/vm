@@ -327,10 +327,10 @@ mod tests {
     use crate::{GuestArch, VmConfig, VmError};
 
     fn create_test_aggregate() -> VirtualMachineAggregate {
-        create_test_aggregate_with_state(VmState::Created)
+        create_test_aggregate_with_state(VmLifecycleState::Created)
     }
 
-    fn create_test_aggregate_with_state(state: VmState) -> VirtualMachineAggregate {
+    fn create_test_aggregate_with_state(state: VmLifecycleState) -> VirtualMachineAggregate {
         let config = VmConfig {
             guest_arch: GuestArch::Riscv64,
             memory_size: crate::DEFAULT_MEMORY_SIZE,
@@ -356,7 +356,7 @@ mod tests {
 
         // Start the VM
         assert!(service.start_vm(&mut aggregate).is_ok());
-        assert_eq!(aggregate.state(), VmState::Running);
+        assert_eq!(aggregate.state(), VmLifecycleState::Running);
 
         // Should have state change and start events
         let events = aggregate.uncommitted_events();
@@ -376,7 +376,7 @@ mod tests {
 
         // Pause the VM
         assert!(service.pause_vm(&mut aggregate).is_ok());
-        assert_eq!(aggregate.state(), VmState::Paused);
+        assert_eq!(aggregate.state(), VmLifecycleState::Paused);
 
         // Should have state change and pause events
         let events = aggregate.uncommitted_events();
@@ -399,7 +399,7 @@ mod tests {
 
         // Resume the VM
         assert!(service.resume_vm(&mut aggregate).is_ok());
-        assert_eq!(aggregate.state(), VmState::Running);
+        assert_eq!(aggregate.state(), VmLifecycleState::Running);
 
         // Should have state change and resume events
         let events = aggregate.uncommitted_events();
@@ -423,7 +423,7 @@ mod tests {
                 .stop_vm(&mut aggregate, "Test stop".to_string())
                 .is_ok()
         );
-        assert_eq!(aggregate.state(), VmState::Stopped);
+        assert_eq!(aggregate.state(), VmLifecycleState::Stopped);
 
         // Should have state change and stop events
         let events = aggregate.uncommitted_events();
@@ -443,7 +443,7 @@ mod tests {
 
         // Try to start again (should fail)
         assert!(service.start_vm(&mut aggregate).is_err());
-        assert_eq!(aggregate.state(), VmState::Running);
+        assert_eq!(aggregate.state(), VmLifecycleState::Running);
 
         // Should have no new events
         let events = aggregate.uncommitted_events();
@@ -460,7 +460,7 @@ mod tests {
 
         // Try to pause without starting (should fail)
         assert!(service.pause_vm(&mut aggregate).is_err());
-        assert_eq!(aggregate.state(), VmState::Created);
+        assert_eq!(aggregate.state(), VmLifecycleState::Created);
 
         // Should have no new events
         let events = aggregate.uncommitted_events();
@@ -477,7 +477,7 @@ mod tests {
 
         // Try to resume without pausing (should fail)
         assert!(service.resume_vm(&mut aggregate).is_err());
-        assert_eq!(aggregate.state(), VmState::Created);
+        assert_eq!(aggregate.state(), VmLifecycleState::Created);
 
         // Should have no new events
         let events = aggregate.uncommitted_events();
@@ -518,7 +518,7 @@ mod tests {
 
         // Start the VM
         assert!(service.start_vm(&mut aggregate).is_ok());
-        assert_eq!(aggregate.state(), VmState::Running);
+        assert_eq!(aggregate.state(), VmLifecycleState::Running);
 
         // Should have state change and start events
         let events = aggregate.uncommitted_events();
