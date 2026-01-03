@@ -1,6 +1,44 @@
-//! ROCm (AMD GPU) 加速支持
+//! # ROCm (AMD GPU) 加速支持 (WIP)
 //!
 //! 提供 AMD GPU 的 ROCm 加速功能，包括设备管理、内存操作和计算执行。
+//!
+//! ## 当前状态
+//!
+//! - **开发状态**: 🚧 Work In Progress
+//! - **功能完整性**: ~10%（仅API stubs）
+//! - **生产就绪**: ❌ 不推荐用于生产环境
+//!
+//! ## 已实现功能
+//!
+//! - ✅ 基础API接口定义
+//! - ✅ 设备信息结构体
+//! - ✅ 内存管理接口
+//! - ✅ 流管理接口
+//!
+//! ## 待实现功能
+//!
+//! - ⏳ 实际的ROCm设备初始化
+//! - ⏳ HIP API实现
+//! - ⏳ 内存操作实现
+//! - ⏳ 流同步实现
+//!
+//! ## 依赖项
+//!
+//! - `hip-rs`: HIP API绑定
+//! - ROCm SDK
+//! - AMDGPU驱动
+//!
+//! ## 相关Issue
+//!
+//! - 跟踪: #待创建（ROCm完整实现）
+//!
+//! ## 贡献指南
+//!
+//! 如果您有AMD GPU和ROCm开发经验并希望帮助实现此模块，请：
+//! 1. 确保有AMD GPU和ROCm环境
+//! 2. 参考AMD ROCm/HIP文档
+//! 3. 联系维护者review
+//! 4. 提交PR并包含测试用例
 
 use std::ptr;
 
@@ -29,7 +67,17 @@ impl RocmStream {
     pub fn new() -> Result<Self, PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // TODO: 使用实际 ROCm API 创建流
+            // #[cfg(feature = "rocm")]
+            // WIP: 使用实际 ROCm API 创建流
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 依赖: hip-rs驱动绑定（需要维护者支持）
+            // 优先级: P2（平台特定功能）
+            //
+            // 实现要点:
+            // - 使用hipStreamCreate API创建流
+            // - 处理错误情况
+            // - 管理流的生命周期
             log::warn!("ROCm stream creation not yet implemented");
             Ok(Self {
                 stream: ptr::NonNull::dangling(),
@@ -49,7 +97,16 @@ impl RocmStream {
     pub fn synchronize(&self) -> Result<(), PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // TODO: 实际的 ROCm 流同步
+            // #[cfg(feature = "rocm")]
+            // WIP: 实现实际的 ROCm 流同步
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 优先级: P1（功能完整性）
+            //
+            // 实现要点:
+            // - 使用hipStreamSynchronize API
+            // - 处理同步错误
+            // - 支持流等待事件
             log::warn!("ROCm stream synchronization not yet implemented");
         }
 
@@ -84,8 +141,18 @@ impl RocmAccelerator {
 
         #[cfg(feature = "rocm")]
         {
-            // TODO: 使用实际 ROCm API 初始化设备
+            // #[cfg(feature = "rocm")]
+            // WIP: 使用实际 ROCm API 初始化设备
             // 例如使用 HIP (Heterogeneous-Compute Interface for Portability)
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 依赖: hip-rs驱动绑定（需要维护者支持）
+            // 优先级: P2（平台特定功能）
+            //
+            // 实现要点:
+            // - 使用hipInit初始化HIP
+            // - 使用hipDeviceGet获取设备
+            // - 收集设备信息（名称、架构、内存等）
             log::warn!("ROCm device initialization not yet implemented");
 
             Ok(Self {
@@ -114,7 +181,16 @@ impl RocmAccelerator {
     pub fn malloc(&self, size: usize) -> Result<RocmDevicePtr, PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // TODO: 使用 hipMalloc 分配内存
+            // #[cfg(feature = "rocm")]
+            // WIP: 使用 hipMalloc 分配内存
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 优先级: P1（功能完整性）
+            //
+            // 实现要点:
+            // - 使用hipMalloc分配GPU内存
+            // - 处理内存不足错误
+            // - 支持对齐分配
             log::warn!("ROCm malloc not yet implemented");
         }
 
@@ -130,7 +206,16 @@ impl RocmAccelerator {
     pub fn free(&self, _d_ptr: RocmDevicePtr) -> Result<(), PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // TODO: 使用 hipFree 释放内存
+            // #[cfg(feature = "rocm")]
+            // WIP: 使用 hipFree 释放内存
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 优先级: P1（功能完整性）
+            //
+            // 实现要点:
+            // - 使用hipFree释放GPU内存
+            // - 处理无效指针错误
+            // - 支持批量释放
             log::warn!("ROCm free not yet implemented");
         }
 
@@ -150,7 +235,16 @@ impl RocmAccelerator {
     ) -> Result<(), PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // TODO: 使用 hipMemcpyHtoDAsync
+            // #[cfg(feature = "rocm")]
+            // WIP: 使用 hipMemcpyHtoDAsync
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 优先级: P1（功能完整性）
+            //
+            // 实现要点:
+            // - 使用hipMemcpyHtoDAsync异步传输
+            // - 处理传输错误
+            // - 支持流优先级
             log::warn!("ROCm async memcpy H2D not yet implemented");
         }
 
@@ -170,7 +264,16 @@ impl RocmAccelerator {
     ) -> Result<(), PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // TODO: 使用 hipMemcpyDtoHAsync
+            // #[cfg(feature = "rocm")]
+            // WIP: 使用 hipMemcpyDtoHAsync
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 优先级: P1（功能完整性）
+            //
+            // 实现要点:
+            // - 使用hipMemcpyDtoHAsync异步传输
+            // - 处理传输错误
+            // - 支持流优先级
             log::warn!("ROCm async memcpy D2H not yet implemented");
         }
 
@@ -186,7 +289,16 @@ impl RocmAccelerator {
     pub fn memcpy_sync(&self, dst: RocmDevicePtr, src: &[u8]) -> Result<(), PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // TODO: 使用 hipMemcpy
+            // #[cfg(feature = "rocm")]
+            // WIP: 使用 hipMemcpy
+            //
+            // 当前状态: API stub已定义，等待完整实现
+            // 优先级: P1（功能完整性）
+            //
+            // 实现要点:
+            // - 使用hipMemcpy同步传输
+            // - 支持多种传输方向
+            // - 处理传输错误
             log::warn!("ROCm sync memcpy not yet implemented");
         }
 

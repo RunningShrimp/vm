@@ -1,4 +1,4 @@
-//! SoC (System on Chip) 特性优化
+//! # SoC (System on Chip) 特性优化 (WIP)
 //!
 //! 针对 ARM SoC 的特殊优化，包括：
 //! - DynamIQ 调度
@@ -6,6 +6,51 @@
 //! - 移动设备功耗优化
 //! - 大页内存优化
 //! - NUMA 感知分配
+//!
+//! ## 当前状态
+//!
+//! - **开发状态**: 🚧 Work In Progress
+//! - **功能完整性**: ~30%（基础架构已实现）
+//! - **生产就绪**: ⚠️ 仅推荐用于开发环境
+//!
+//! ## 已实现功能
+//!
+//! - ✅ SoC厂商和集群配置
+//! - ✅ 基础优化策略
+//! - ✅ 亲和性推荐
+//! - ✅ 功耗级别设置
+//!
+//! ## 待实现功能
+//!
+//! - ⏳ 实际的DynamIQ调度
+//! - ⏳ big.LITTLE调度实现
+//! - ⏳ 大页内存配置
+//! - ⏳ NUMA分配优化
+//!
+//! ## 支持的SoC
+//!
+//! - Qualcomm Snapdragon
+//! - HiSilicon Kirin
+//! - MediaTek Dimensity
+//! - Apple A系列/M系列
+//!
+//! ## 依赖项
+//!
+//! - Linux内核接口
+//! - ARM性能监控单元
+//! - 系统调用支持
+//!
+//! ## 相关Issue
+//!
+//! - 跟踪: #待创建（SoC优化完整实现）
+//!
+//! ## 贡献指南
+//!
+//! 如果您有ARM SoC开发经验并希望帮助实现此模块，请：
+//! 1. 确保有ARM SoC开发环境
+//! 2. 参考ARM DynamIQ文档
+//! 3. 联系维护者review
+//! 4. 提交PR并包含测试用例
 
 use std::collections::HashMap;
 
@@ -141,7 +186,16 @@ impl SocOptimizer {
     fn enable_dynamiq_scheduling(&self) -> Result<(), SocError> {
         log::info!("Enabling ARM DynamIQ scheduling");
         
-        // TODO: 实际的 DynamIQ 调度配置
+        // WIP: 实际的 DynamIQ 调度配置
+        //
+        // 当前状态: API stub已定义，等待完整实现
+        // 依赖: ARM DynamIQ API（需要维护者支持）
+        // 优先级: P1（功能完整性）
+        //
+        // 实现要点:
+        // - 使用ARM DynamIQ调度API
+        // - 配置CPU集群
+        // - 动态频率调整
         Ok(())
     }
 
@@ -149,7 +203,16 @@ impl SocOptimizer {
     fn enable_big_little_scheduling(&self) -> Result<(), SocError> {
         log::info!("Enabling big.LITTLE scheduling");
         
-        // TODO: 实际的 big.LITTLE 调度配置
+        // WIP: 实际的 big.LITTLE 调度配置
+        //
+        // 当前状态: API stub已定义，等待完整实现
+        // 依赖: ARM big.LITTLE调度API
+        // 优先级: P1（功能完整性）
+        //
+        // 实现要点:
+        // - 检测P-Core和E-Core
+        // - 配置任务迁移策略
+        // - 性能/功耗平衡
         Ok(())
     }
 
@@ -157,7 +220,15 @@ impl SocOptimizer {
     fn enable_huge_pages(&self) -> Result<(), SocError> {
         log::info!("Enabling huge pages (2MB)");
         
-        // TODO: 实际的大页配置
+        // WIP: 实际的大页配置
+        //
+        // 当前状态: API stub已定义，等待完整实现
+        // 优先级: P2（性能优化）
+        //
+        // 实现要点:
+        // - 配置2MB/1GB大页
+        // - 处理大页分配失败
+        // - 大页内存管理
         Ok(())
     }
 
@@ -165,7 +236,16 @@ impl SocOptimizer {
     fn enable_numa_allocation(&self) -> Result<(), SocError> {
         log::info!("Enabling NUMA-aware allocation");
         
-        // TODO: 实际的 NUMA 配置
+        // WIP: 实际的 NUMA 配置
+        //
+        // 当前状态: API stub已定义，等待完整实现
+        // 依赖: NUMA系统调用
+        // 优先级: P2（性能优化）
+        //
+        // 实现要点:
+        // - 检测NUMA节点
+        // - 配置内存亲和性
+        // - 优化跨节点访问
         Ok(())
     }
 
@@ -204,7 +284,16 @@ impl SocOptimizer {
         self.config.power_saving_level = level;
         log::info!("Set power saving level to {}", level);
 
-        // TODO: 实际的功耗级别设置
+        // WIP: 实际的功耗级别设置
+        //
+        // 当前状态: 仅参数验证，等待完整实现
+        // 依赖: CPU性能管理API
+        // 优先级: P1（功耗管理）
+        //
+        // 实现要点:
+        // - 设置CPU频率上限
+        // - 调整电压和频率
+        // - 监控功耗状态
         Ok(())
     }
 }

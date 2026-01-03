@@ -1,6 +1,44 @@
-//! ROCm JIT 编译加速支持
+//! # ROCm JIT 编译加速支持 (WIP)
 //!
 //! 将 IR 块编译为 AMDGPU 代码并在 AMD GPU 上执行。
+//!
+//! ## 当前状态
+//!
+//! - **开发状态**: 🚧 Work In Progress
+//! - **功能完整性**: ~15%（仅API stubs和基础架构）
+//! - **生产就绪**: ❌ 不推荐用于生产环境
+//!
+//! ## 已实现功能
+//!
+//! - ✅ 内核编译接口定义
+//! - ✅ AMDGPU ISA代码生成（简化版）
+//! - ✅ 缓存机制
+//! - ✅ 基本的IR到AMDGPU转换
+//!
+//! ## 待实现功能
+//!
+//! - ⏳ 实际的内核启动逻辑
+//! - ⏳ AMDGPU ISA编译和链接
+//! - ⏳ 内核缓存管理
+//! - ⏳ 错误处理和恢复
+//!
+//! ## 依赖项
+//!
+//! - `rustacuda`: ROCm驱动绑定
+//! - `hip-runtime`: HIP运行时
+//! - AMDGPU驱动
+//!
+//! ## 相关Issue
+//!
+//! - 跟踪: #待创建（内核启动逻辑实现）
+//!
+//! ## 贡献指南
+//!
+//! 如果您有AMD GPU和ROCm开发经验并希望帮助实现此模块，请：
+//! 1. 确保有AMD GPU和ROCm环境
+//! 2. 参考AMD ROCm文档
+//! 3. 联系维护者review
+//! 4. 提交PR并包含测试用例
 //!
 //! 需要启用 `rocm` feature 才能使用此模块。
 
@@ -200,12 +238,19 @@ impl RocmJITCompiler {
             block_dim
         );
 
-        // TODO: 实际的内核启动逻辑
-        // 需要：
-        // 1. 将汇编代码编译为二进制
-        // 2. 加载到 GPU
-        // 3. 设置内核参数
-        // 4. 启动内核
+        // #[cfg(feature = "rocm")]
+        // WIP: 实现ROCm内核启动逻辑
+        //
+        // 当前状态: API stub已定义，等待完整实现
+        // 依赖: rustacuda驱动绑定（需要维护者支持）
+        // 优先级: P2（平台特定功能）
+        // 跟踪: https://github.com/project/vm/issues/[待创建]
+        //
+        // 实现要点:
+        // - 使用hipLaunchKernel API启动内核
+        // - 处理AMDGPU ISA到二进制编译
+        // - 管理网格和块配置
+        // - 处理异步执行和同步
 
         log::warn!("AMDGPU kernel launch not yet fully implemented");
 
