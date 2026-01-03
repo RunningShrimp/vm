@@ -343,13 +343,18 @@ impl CrossArchitectureTranslationDomainService {
         // Extract instruction name from bytes for tracking
         // Format: "INSN_{first4_bytes}" for identification (e.g., "INSN_4889c0" for mov rax, rax)
         let instruction_name = if instruction_bytes.len() >= 4 {
-            format!("INSN_{:02x}{:02x}{:02x}{:02x}",
+            format!(
+                "INSN_{:02x}{:02x}{:02x}{:02x}",
                 instruction_bytes[0],
                 instruction_bytes[1],
                 instruction_bytes[2],
-                instruction_bytes[3])
+                instruction_bytes[3]
+            )
         } else if !instruction_bytes.is_empty() {
-            let bytes: Vec<String> = instruction_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            let bytes: Vec<String> = instruction_bytes
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect();
             format!("INSN_{}", bytes.join(""))
         } else {
             "EMPTY_INSN".to_string()

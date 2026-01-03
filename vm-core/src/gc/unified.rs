@@ -10,7 +10,7 @@
 //! 4. **低延迟**: 暂停时间 <1ms
 //! 5. **高吞吐**: 吞吐量提升20%+
 
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{Layout, alloc, dealloc};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -153,7 +153,7 @@ impl Default for GcConfig {
     fn default() -> Self {
         Self {
             heap_size: 256 * 1024 * 1024, // 256 MB
-            target_pause_time_ms: 1,        // 1ms
+            target_pause_time_ms: 1,      // 1ms
             enable_concurrent: true,
             enable_incremental: true,
             adaptive_threshold: 0.8,
@@ -203,8 +203,8 @@ impl UnifiedGarbageCollector {
         }
 
         // 创建内存布局
-        let layout = Layout::from_size_align(size, 8)
-            .map_err(|_| GcError::InvalidAllocation { size })?;
+        let layout =
+            Layout::from_size_align(size, 8).map_err(|_| GcError::InvalidAllocation { size })?;
 
         let mut stats = self.stats.lock();
 
@@ -255,8 +255,8 @@ impl UnifiedGarbageCollector {
         }
 
         // 创建内存布局
-        let layout = Layout::from_size_align(size, 8)
-            .map_err(|_| GcError::InvalidAllocation { size })?;
+        let layout =
+            Layout::from_size_align(size, 8).map_err(|_| GcError::InvalidAllocation { size })?;
 
         // 执行释放
         unsafe { dealloc(ptr, layout) };
@@ -479,7 +479,10 @@ mod tests {
 
         let ptr = result.unwrap();
         // 关键验证：指针不应为null
-        assert!(!ptr.is_null(), "allocate() should return a valid pointer, not null!");
+        assert!(
+            !ptr.is_null(),
+            "allocate() should return a valid pointer, not null!"
+        );
 
         // 验证指针可以被安全写入
         unsafe {

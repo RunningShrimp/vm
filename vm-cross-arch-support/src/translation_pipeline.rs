@@ -163,7 +163,11 @@ pub enum TranslationError {
     #[error("Register mapping failed")]
     RegisterMappingFailed,
     #[error("register not found in mapping: {reg:?} from {from:?} to {to:?}")]
-    RegisterNotFound { reg: RegId, from: CacheArch, to: CacheArch },
+    RegisterNotFound {
+        reg: RegId,
+        from: CacheArch,
+        to: CacheArch,
+    },
     #[error("immediate value {imm} out of range for {target_bits}-bit target")]
     ImmediateOutOfRange { imm: u64, target_bits: u8 },
     #[error("translation failed: {0}")]
@@ -349,7 +353,8 @@ impl CrossArchTranslationPipeline {
         let start = std::time::Instant::now();
 
         // 使用rayon实现并行翻译
-        let translated = self.translate_parallel_batch(instructions.to_vec(), src_arch, dst_arch)?;
+        let translated =
+            self.translate_parallel_batch(instructions.to_vec(), src_arch, dst_arch)?;
 
         let duration = start.elapsed();
         self.stats
@@ -448,7 +453,8 @@ impl CrossArchTranslationPipeline {
         }
 
         // 翻译操作码
-        let dst_opcode = Self::translate_opcode_static(src_arch, dst_arch, src_insn.opcode, pattern)?;
+        let dst_opcode =
+            Self::translate_opcode_static(src_arch, dst_arch, src_insn.opcode, pattern)?;
 
         // 翻译操作数
         let dst_operands = Self::translate_operands_static(src_arch, dst_arch, &src_insn.operands)?;
@@ -498,11 +504,11 @@ impl CrossArchTranslationPipeline {
 
         // 示例映射：NOP指令 (0x90 on x86_64)
         mapping.insert((0x90, CacheArch::X86_64, CacheArch::Riscv64), 0x00000013); // RISC-V NOP
-        mapping.insert((0x90, CacheArch::X86_64, CacheArch::ARM64), 0xD503201F);   // ARM64 NOP
+        mapping.insert((0x90, CacheArch::X86_64, CacheArch::ARM64), 0xD503201F); // ARM64 NOP
 
         // 示例映射：MOV指令 (0x89 on x86_64)
         mapping.insert((0x89, CacheArch::X86_64, CacheArch::Riscv64), 0x00001013); // RISC-V MV
-        mapping.insert((0x89, CacheArch::X86_64, CacheArch::ARM64), 0x2A0003E0);   // ARM64 MOV (simplified)
+        mapping.insert((0x89, CacheArch::X86_64, CacheArch::ARM64), 0x2A0003E0); // ARM64 MOV (simplified)
 
         // 更多映射...
 
@@ -523,30 +529,34 @@ impl CrossArchTranslationPipeline {
             match operand {
                 Operand::Register(reg_idx) => {
                     // 寄存器映射
-                    let mapped_reg = Self::map_register(src_arch, dst_arch, *reg_idx)
-                        .ok_or(TranslationError::RegisterNotFound {
+                    let mapped_reg = Self::map_register(src_arch, dst_arch, *reg_idx).ok_or(
+                        TranslationError::RegisterNotFound {
                             reg: Self::reg_id_from_u8(src_arch, *reg_idx),
                             from: src_arch,
                             to: dst_arch,
-                        })?;
+                        },
+                    )?;
                     translated.push(Operand::Register(mapped_reg));
                 }
 
                 Operand::Immediate(imm) => {
                     // 立即数通常不变，但可能需要调整大小
-                    let adjusted_imm = Self::adjust_immediate_size(*imm as u64, src_arch, dst_arch)?;
+                    let adjusted_imm =
+                        Self::adjust_immediate_size(*imm as u64, src_arch, dst_arch)?;
                     translated.push(Operand::Immediate(adjusted_imm as i64));
                 }
 
                 Operand::Memory { base, offset, size } => {
                     // 内存地址需要重定位
-                    let new_base = Self::map_register(src_arch, dst_arch, *base)
-                        .ok_or(TranslationError::RegisterNotFound {
+                    let new_base = Self::map_register(src_arch, dst_arch, *base).ok_or(
+                        TranslationError::RegisterNotFound {
                             reg: Self::reg_id_from_u8(src_arch, *base),
                             from: src_arch,
                             to: dst_arch,
-                        })?;
-                    let new_offset = Self::relocate_address(*offset as u64, src_arch, dst_arch)? as i64;
+                        },
+                    )?;
+                    let new_offset =
+                        Self::relocate_address(*offset as u64, src_arch, dst_arch)? as i64;
                     translated.push(Operand::Memory {
                         base: new_base,
                         offset: new_offset,
@@ -589,17 +599,18 @@ impl CrossArchTranslationPipeline {
     }
 
     /// 调整立即数大小
-    fn adjust_immediate_size(imm: u64, _from: CacheArch, to: CacheArch) -> Result<u64, TranslationError> {
+    fn adjust_immediate_size(
+        imm: u64,
+        _from: CacheArch,
+        to: CacheArch,
+    ) -> Result<u64, TranslationError> {
         // 检查目标架构的立即数大小限制
         let target_bits = Self::get_immediate_bits(to)?;
         let mask = (1u64 << target_bits) - 1;
 
         // 确保值在目标范围内
         if imm > mask {
-            return Err(TranslationError::ImmediateOutOfRange {
-                imm,
-                target_bits
-            });
+            return Err(TranslationError::ImmediateOutOfRange { imm, target_bits });
         }
 
         Ok(imm & mask)
@@ -608,14 +619,18 @@ impl CrossArchTranslationPipeline {
     /// 获取立即数位数
     fn get_immediate_bits(arch: CacheArch) -> Result<u8, TranslationError> {
         match arch {
-            CacheArch::X86_64 => Ok(32), // x86_64通常使用32位立即数
-            CacheArch::ARM64 => Ok(32), // ARM64通常使用32位立即数
+            CacheArch::X86_64 => Ok(32),  // x86_64通常使用32位立即数
+            CacheArch::ARM64 => Ok(32),   // ARM64通常使用32位立即数
             CacheArch::Riscv64 => Ok(32), // RISC-V通常使用32位立即数
         }
     }
 
     /// 重定位地址
-    fn relocate_address(addr: u64, from: CacheArch, to: CacheArch) -> Result<u64, TranslationError> {
+    fn relocate_address(
+        addr: u64,
+        from: CacheArch,
+        to: CacheArch,
+    ) -> Result<u64, TranslationError> {
         // 根据架构的地址空间差异进行重定位
         match (from, to) {
             (CacheArch::X86_64, CacheArch::ARM64) => {
@@ -623,9 +638,7 @@ impl CrossArchTranslationPipeline {
                 // 目前简单返回，实际可能需要更复杂的处理
                 Ok(addr)
             }
-            (CacheArch::ARM64, CacheArch::X86_64) => {
-                Ok(addr)
-            }
+            (CacheArch::ARM64, CacheArch::X86_64) => Ok(addr),
             _ => Ok(addr),
         }
     }

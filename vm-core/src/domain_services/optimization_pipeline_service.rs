@@ -206,7 +206,8 @@ impl OptimizationPipelineDomainService {
                     // Publish stage completed event
                     // Track memory usage: estimate based on current IR size
                     // In production, this would query system memory usage or use a memory tracker
-                    let estimated_memory_mb = ((current_ir.len() as f64) / (1024.0 * 1024.0)) as f32;
+                    let estimated_memory_mb =
+                        ((current_ir.len() as f64) / (1024.0 * 1024.0)) as f32;
                     self.publish_optimization_event(OptimizationEvent::StageCompleted {
                         stage_name: stage.name().to_string(),
                         execution_time_ms: start_time.elapsed().as_millis() as u64,

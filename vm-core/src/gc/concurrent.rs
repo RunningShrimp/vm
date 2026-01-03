@@ -513,7 +513,9 @@ impl ConcurrentGC {
         let marked_count = self.stats.total_objects_marked.load(Ordering::Relaxed);
         // 简化假设：回收了部分未标记的对象（这里使用占位值）
         // 完整实现应该基于实际堆扫描结果
-        self.stats.total_objects_reclaimed.fetch_add(marked_count / 2, Ordering::Relaxed);
+        self.stats
+            .total_objects_reclaimed
+            .fetch_add(marked_count / 2, Ordering::Relaxed);
 
         let sweep_time = sweep_start.elapsed();
         self.stats
@@ -533,8 +535,8 @@ impl ConcurrentGC {
         Ok(GCCollectionStats {
             duration_ms: total_time.as_millis() as u64,
             reclaimed_objects: reclaimed_count as u64, // 从统计信息中读取
-            bytes_reclaimed: 0,   // 简化实现：未追踪实际回收字节数
-            promoted_objects: 0,  // 简化实现：未追踪实际提升数
+            bytes_reclaimed: 0,                        // 简化实现：未追踪实际回收字节数
+            promoted_objects: 0,                       // 简化实现：未追踪实际提升数
         })
     }
 

@@ -120,8 +120,10 @@ impl RegisterAllocationDomainService {
         // Use IR hash as identifier for the function being allocated
         let function_name = if ir.len() >= 8 {
             // Create a unique identifier from first 8 bytes of IR
-            format!("fn_{:02x}{:02x}{:02x}{:02x}_{:02x}{:02x}{:02x}{:02x}",
-                ir[0], ir[1], ir[2], ir[3], ir[4], ir[5], ir[6], ir[7])
+            format!(
+                "fn_{:02x}{:02x}{:02x}{:02x}_{:02x}{:02x}{:02x}{:02x}",
+                ir[0], ir[1], ir[2], ir[3], ir[4], ir[5], ir[6], ir[7]
+            )
         } else if !ir.is_empty() {
             let bytes: Vec<String> = ir.iter().map(|b| format!("{:02x}", b)).collect();
             format!("fn_{}", bytes.join(""))

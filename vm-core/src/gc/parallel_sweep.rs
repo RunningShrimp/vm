@@ -456,7 +456,9 @@ impl ParallelSweeper {
             }
 
             if start.elapsed() > timeout {
-                return Err(GCError::GCFailed("Parallel sweep timeout - queues not empty".into()));
+                return Err(GCError::GCFailed(
+                    "Parallel sweep timeout - queues not empty".into(),
+                ));
             }
 
             thread::sleep(Duration::from_millis(5));
@@ -482,7 +484,9 @@ impl ParallelSweeper {
             }
 
             if start.elapsed() > timeout {
-                return Err(GCError::GCFailed("Parallel sweep timeout - task completion".into()));
+                return Err(GCError::GCFailed(
+                    "Parallel sweep timeout - task completion".into(),
+                ));
             }
 
             thread::sleep(Duration::from_millis(10));
@@ -721,7 +725,11 @@ mod tests {
         let _stats = sweeper.get_stats();
         // 验证统计信息 - 至少应该处理了绝大部分对象（允许1个误差）
         let swept = sweeper.stats.total_objects_swept();
-        assert!(swept >= 49, "Expected at least 49 objects swept, got {}", swept);
+        assert!(
+            swept >= 49,
+            "Expected at least 49 objects swept, got {}",
+            swept
+        );
 
         sweeper.shutdown();
     }
