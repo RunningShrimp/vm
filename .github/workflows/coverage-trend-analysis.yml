@@ -1,0 +1,375 @@
+name: Coverage Trend Analysis
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+  # 每周一下午6点运行
+  schedule:
+    - cron: '0 18 * * 1'
+
+jobs:
+  # ============================================================================
+  # 覆盖率生成
+  # ============================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Generate coverage data
+        run: |
+          echo "## Code Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在生成覆盖率数据..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 生成覆盖率
+          cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+
+          # 生成HTML报告
+          cargo llvm-cov --workspace --all-features --html --output-dir coverage-html
+
+          # 生成摘要
+          cargo llvm-cov --workspace --all-features --summary --output-file /tmp/coverage-summary.txt
+
+          echo "✅ 覆盖率报告生成完成" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Parse coverage summary
+        run: |
+          echo "### Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 解析覆盖率摘要
+          if [ -f "/tmp/coverage-summary.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/coverage-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Extract coverage percentage
+        run: |
+          # 提取总覆盖率百分比
+          if [ -f "/tmp/coverage-summary.txt" ]; then
+            COVERAGE=$(grep -oP '\d+\.\d+%' /tmp/coverage-summary.txt | head -1 | tr -d '%')
+
+            echo "**Total Coverage**: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # 保存到环境变量供后续使用
+            echo "COVERAGE=${COVERAGE}" >> $GITHUB_ENV
+
+            # 评估覆盖率水平
+            if [ $(echo "$COVERAGE > 80" | bc -l) -eq 1 ]; then
+              echo "✅ 覆盖率优秀 (>80%)" >> $GITHUB_STEP_SUMMARY
+            elif [ $(echo "$COVERAGE > 60" | bc -l) -eq 1 ]; then
+              echo "📊 覆盖率良好 (>60%)" >> $GITHUB_STEP_SUMMARY
+            elif [ $(echo "$COVERAGE > 40" | bc -l) -eq 1 ]; then
+              echo "⚠️ 覆盖率一般 (>40%)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ 覆盖率较低 (<40%)" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Per-crate coverage
+        run: |
+          echo "### Per-Crate Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Crate | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|----------|" >> $GITHUB_STEP_SUMMARY
+
+          # 为每个主要crate生成覆盖率
+          for crate in vm-core vm-mem vm-engine vm-frontend vm-device; do
+            if [ -d "$crate" ]; then
+              echo "正在分析 $crate..." >&2
+
+              # 清理之前的覆盖率数据
+              cargo llvm-cov clean --workspace
+
+              # 生成单个crate的覆盖率
+              if cargo llvm-cov --package "$crate" --all-features --summary-only 2>&1 | tee /tmp/crate-coverage.txt; then
+                CRATE_COVERAGE=$(grep -oP '\d+\.\d+%' /tmp/crate-coverage.txt | head -1 | tr -d '%' || echo "0.00")
+                printf "| %-15s | %6s%% |\n" "$crate" "$CRATE_COVERAGE" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "| $crate | N/A |" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage to artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            lcov.info
+            coverage-html/
+          retention-days: 30
+
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ============================================================================
+  # 覆盖率趋势分析
+  # ============================================================================
+  trends:
+    name: Coverage Trend Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    needs: coverage
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Analyze coverage trends
+        run: |
+          echo "## Coverage Trend Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Recent Commits" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | Message | Date |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|------|" >> $GITHUB_STEP_SUMMARY
+
+          git log --pretty=format:"| %h | %s | %ar |" -10 >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Current Coverage**: ${{ needs.coverage.outputs.coverage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 注意：实际的覆盖率趋势需要从历史artifacts或Codecov API中读取
+          echo "**Trend tracking**:" >> $GITHUB_STEP_SUMMARY
+          echo "- 当前显示最近的提交历史" >> $GITHUB_STEP_SUMMARY
+          echo "- 实际覆盖率趋势需要从Codecov或历史artifacts中提取" >> $GITHUB_STEP_SUMMARY
+          echo "- 建议使用Codecov API或GitHub API存储和比较覆盖率" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for coverage regression
+        run: |
+          echo "### Coverage Regression Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 与baseline比较（如果存在）
+          if [ -f ".github/baselines/coverage.txt" ]; then
+            BASELINE=$(cat .github/baselines/coverage.txt)
+            CURRENT=${{ needs.coverage.outputs.coverage }}
+
+            echo "**Baseline coverage**: ${BASELINE}%" >> $GITHUB_STEP_SUMMARY
+            echo "**Current coverage**: ${CURRENT}%" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # 计算变化
+            CHANGE=$(echo "$CURRENT - $BASELINE" | bc -l)
+
+            if [ $(echo "$CHANGE < -5" | bc -l) -eq 1 ]; then
+              echo "❌ 覆盖率下降超过5%！需要审查。" >> $GITHUB_STEP_SUMMARY
+            elif [ $(echo "$CHANGE < -2" | bc -l) -eq 1 ]; then
+              echo "⚠️ 覆盖率下降超过2%，建议检查。" >> $GITHUB_STEP_SUMMARY
+            elif [ $(echo "$CHANGE > 2" | bc -l) -eq 1 ]; then
+              echo "✅ 覆盖率提升超过2%！" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ 覆盖率保持稳定" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "未找到覆盖率baseline" >> $GITHUB_STEP_SUMMARY
+            echo "建议：创建覆盖率baseline" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 未覆盖代码分析
+  # ============================================================================
+  uncovered:
+    name: Uncovered Code Analysis
+    runs-on: ubuntu-latest
+    needs: coverage
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Find uncovered code
+        run: |
+          echo "## Uncovered Code Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在分析未覆盖的代码..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 生成未覆盖区域的报告
+          cargo llvm-cov --workspace --all-features --json --output-path /tmp/coverage.json
+
+          # 解析JSON并提取未覆盖的区域（简化版）
+          echo "### Most Uncovered Files" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 使用cargo-llvm-cov的--text-report选项
+          cargo llvm-cov --workspace --all-features --text-report --output-file /tmp/coverage-text.txt
+
+          # 提取覆盖率最低的文件
+          if [ -f "/tmp/coverage-text.txt" ]; then
+            echo "| File | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
+
+            # 提取覆盖率低于50%的文件
+            grep -E "^\s+[\d.]+%" /tmp/coverage-text.txt | \
+              awk '{print $1, $2}' | \
+              grep -E "^\d+\.\d+%" | \
+              awk -F'%' '$1 < 50 {print $2, $1"%"}' | \
+              head -20 | \
+              awk '{printf "| %-50s | %6s |\n", $1, $2}' >> $GITHUB_STEP_SUMMARY || echo "No files found"
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Coverage recommendations
+        run: |
+          echo "### Coverage Improvement Recommendations" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Priority areas for testing**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Core business logic (vm-core)" >> $GITHUB_STEP_SUMMARY
+          echo "- Memory management (vm-mem)" >> $GITHUB_STEP_SUMMARY
+          echo "- Execution engine (vm-engine)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Test strategies**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Add unit tests for uncovered functions" >> $GITHUB_STEP_SUMMARY
+          echo "- Add integration tests for cross-crate functionality" >> $GITHUB_STEP_SUMMARY
+          echo "- Use property-based testing (proptest)" >> $GITHUB_STEP_SUMMARY
+          echo "- Add edge case and error handling tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Tools**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Use \`cargo llvm-cov --open\` to view detailed coverage" >> $GITHUB_STEP_SUMMARY
+          echo "- Use \`cargo test --no-fail-fast\` to run all tests" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider mutation testing with \`cargo mutants\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 覆盖率目标追踪
+  # ============================================================================
+  goals:
+    name: Coverage Goals Tracking
+    runs-on: ubuntu-latest
+    needs: coverage
+
+    steps:
+      - name: Track coverage goals
+        run: |
+          echo "## Coverage Goals Tracking" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          CURRENT=${{ needs.coverage.outputs.coverage }}
+
+          echo "### Coverage Goals" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Goal | Target | Current | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|---------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # 定义目标
+          if [ $(echo "$CURRENT >= 80" | bc -l) -eq 1 ]; then
+            echo "| Overall | 80% | ${CURRENT}% | ✅ |" >> $GITHUB_STEP_SUMMARY
+          else
+            REMAINING=$(echo "80 - $CURRENT" | bc -l)
+            echo "| Overall | 80% | ${CURRENT}% | ⚠️ (${REMAINING}% to go) |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Milestone Progress" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 进度条
+          TOTAL=80
+          FILLED=$(echo "$CURRENT * 20 / $TOTAL" | bc)
+          EMPTY=$((20 - FILLED))
+
+          printf "Progress: [" >> $GITHUB_STEP_SUMMARY
+          for ((i=0; i<FILLED; i++)); do printf "█"; done >> $GITHUB_STEP_SUMMARY
+          for ((i=0; i<EMPTY; i++)); do printf "░"; done >> $GITHUB_STEP_SUMMARY
+          printf "] ${CURRENT}%%\n" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Next steps to reach 80%**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Focus on vm-core (core functionality)" >> $GITHUB_STEP_SUMMARY
+          echo "- Add tests for vm-mem (critical path)" >> $GITHUB_STEP_SUMMARY
+          echo "- Increase edge case coverage" >> $GITHUB_STEP_SUMMARY
+          echo "- Add integration tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 汇总
+  # ============================================================================
+  summary:
+    name: Coverage Summary
+    runs-on: ubuntu-latest
+    needs: [coverage, trends, uncovered, goals]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Coverage Trend Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Analysis | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage Generation | ${{ needs.coverage.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trend Analysis | ${{ needs.trends.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Uncovered Code Analysis | ${{ needs.uncovered.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Goals Tracking | ${{ needs.goals.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Key Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Current coverage: ${{ needs.coverage.outputs.coverage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "- Trend analysis: Enabled" >> $GITHUB_STEP_SUMMARY
+          echo "- Regression detection: Active" >> $GITHUB_STEP_SUMMARY
+          echo "- Goals tracking: In progress" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Next steps**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Review uncovered code analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- Add tests for low-coverage areas" >> $GITHUB_STEP_SUMMARY
+          echo "- Monitor coverage trends over time" >> $GITHUB_STEP_SUMMARY
+          echo "- Update coverage baseline when target is reached" >> $GITHUB_STEP_SUMMARY

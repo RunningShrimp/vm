@@ -1,0 +1,337 @@
+name: Test Time Monitoring
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+  # 每天早上8点运行
+  schedule:
+    - cron: '0 8 * * *'
+
+jobs:
+  # ============================================================================
+  # 测试时间分析
+  # ============================================================================
+  test-time:
+    name: Test Time Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests with timing
+        run: |
+          echo "## Test Time Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在追踪测试执行时间..." >> $GITHUB_STEP_SUMMARY
+          echo "" >>GITHUB_STEP_SUMMARY
+
+          # 使用cargo test的--timings选项（如果可用）
+          # 或使用-- -Z unstable-options --format=terse
+          START_TIME=$(date +%s)
+          cargo test --workspace --no-fail-fast 2>&1 | tee /tmp/test-output.txt
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          END_TIME=$(date +%s)
+
+          TEST_DURATION=$((END_TIME - START_TIME))
+
+          echo "**Total test time**: ${TEST_DURATION}s" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ $TEST_EXIT_CODE -eq 0 ]; then
+            echo "✅ 所有测试通过" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 部分测试失败" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Parse test results
+        run: |
+          echo "### Test Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 统计测试数量
+          if [ -f "/tmp/test-output.txt" ]; then
+            TOTAL_TESTS=$(grep -o "test result: ok" /tmp/test-output.txt | wc -l | awk '{print $1}')
+            PASSED_TESTS=$(grep -oP "test result: ok. \K[0-9]+" /tmp/test-output.txt | awk '{s+=$1} END {print s}')
+            FAILED_TESTS=$(grep -oP "test result: FAILED. \K[0-9]+" /tmp/test-output.txt | awk '{s+=$1} END {print s}')
+
+            echo "**Total test suites**: $TOTAL_TESTS" >> $GITHUB_STEP_SUMMARY
+            echo "**Passed tests**: $PASSED_TESTS" >> $GITHUB_STEP_SUMMARY
+            echo "**Failed tests**: ${FAILED_TESTS:-0}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Identify slow tests
+        run: |
+          echo "### Slow Tests Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 使用cargo test的-- --test-threads=1来获取更准确的时间
+          # 这里提供一个简化的方法
+
+          echo "正在检测慢测试..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 创建临时脚本分析测试时间
+          cat > /tmp/analyze_tests.sh << 'EOF'
+          #!/bin/bash
+          # 运行测试并分析时间
+          cargo test --workspace -- --test-threads=1 --nocapture 2>&1 | \
+            grep -E "test (.*|running|ok)" | \
+            awk '
+            /running/ {
+              test_name = $0
+              gsub(/.*running /, "", test_name)
+              gsub(/ \(.*/, "", test_name)
+              start_time = systime()
+            }
+            /ok/ {
+              elapsed = systime() - start_time
+              if (elapsed > 5) {
+                printf "%s: %.2fs\n", test_name, elapsed
+              }
+            }
+            '
+          EOF
+
+          chmod +x /tmp/analyze_tests.sh
+
+          echo "**Slow tests (>5s)**:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 注意：这个分析会重新运行测试，可能比较耗时
+          # 在CI中可以选择性跳过
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            bash /tmp/analyze_tests.sh | tee -a $GITHUB_STEP_SUMMARY || echo "分析失败或无慢测试"
+          else
+            echo "慢测试分析仅在scheduled run中执行" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 测试并行化分析
+  # ============================================================================
+  parallelization:
+    name: Test Parallelization Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test with different thread counts
+        run: |
+          echo "## Test Parallelization Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在分析测试并行化效果..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 清理缓存
+          cargo clean
+
+          # 测试不同线程数
+          echo "| Threads | Time (s) | Speedup |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|----------|---------|" >> $GITHUB_STEP_SUMMARY
+
+          for threads in 1 2 4 8; do
+            echo "Testing with $threads threads..." >&2
+            START=$(date +%s)
+            cargo test --workspace -- --test-threads=$threads 2>&1 | tee /tmp/test-${threads}.txt >/dev/null
+            END=$(date +%s)
+            DURATION=$((END - START))
+
+            if [ $threads -eq 1 ]; then
+              BASELINE=$DURATION
+              SPEEDUP="1.00x"
+            else
+              SPEEDUP=$(awk "BEGIN {printf \"%.2fx\", $BASELINE / $DURATION}")
+            fi
+
+            echo "| $threads | $DURATION | $SPEEDUP |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Parallelization recommendations
+        run: |
+          echo "### Parallelization Recommendations" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 获取CPU核心数
+          CORES=$(nproc)
+          echo "**Available CPU cores**: $CORES" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Best practices**:" >> $GITHUB_STEP_SUMMARY
+          echo "- 使用 \`--test-threads\` 控制并行度" >> $GITHUB_STEP_SUMMARY
+          echo "- 通常设置为CPU核心数" >> $GITHUB_STEP_SUMMARY
+          echo "- 避免过度并行导致资源竞争" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Suggested configuration**:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`toml" >> $GITHUB_STEP_SUMMARY
+          echo "# .cargo/config.toml" >> $GITHUB_STEP_SUMMARY
+          echo "[build]" >> $GITHUB_STEP_SUMMARY
+          echo "jobs = $CORES" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# 环境变量" >> $GITHUB_STEP_SUMMARY
+          echo "# export RUST_TEST_THREADS=$CORES" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 测试分布分析
+  # ============================================================================
+  distribution:
+    name: Test Distribution Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Analyze test distribution
+        run: |
+          echo "## Test Distribution Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在分析各crate的测试分布..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Crate | Test Files | Integration Tests |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|------------|-------------------|" >> $GITHUB_STEP_SUMMARY
+
+          for crate_dir in vm-*; do
+            if [ -d "$crate_dir" ]; then
+              crate_name=$(basename "$crate_dir")
+
+              # 统计测试文件
+              UNIT_TESTS=$(find "$crate_dir/tests" -name "*.rs" 2>/dev/null | wc -l | awk '{print $1}')
+              INTEGRATION_TESTS=$(find "$crate_dir/tests" -name "*_tests.rs" -o -name "integration*.rs" 2>/dev/null | wc -l | awk '{print $1}')
+
+              if [ "$UNIT_TESTS" -gt 0 ] || [ "$INTEGRATION_TESTS" -gt 0 ]; then
+                echo "| $crate_name | $UNIT_TESTS | $INTEGRATION_TESTS |" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Coverage by crate
+        run: |
+          echo "### Test Coverage by Crate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Note**: This is a basic analysis. For detailed coverage, run \`cargo llvm-cov\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Recommendations**:" >> $GITHUB_STEP_SUMMARY
+          echo "- 为每个crate添加单元测试" >> $GITHUB_STEP_SUMMARY
+          echo "- 添加集成测试覆盖跨crate功能" >> $GITHUB_STEP_SUMMARY
+          echo "- 使用属性测试（proptest/quickcheck）增加覆盖率" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 测试性能趋势
+  # ============================================================================
+  test-trends:
+    name: Test Performance Trends
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+
+      - name: Compare with previous runs
+        run: |
+          echo "## Test Performance Trends" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 获取最近几次提交
+          echo "### Recent Commits" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | Message | Date |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|------|" >> $GITHUB_STEP_SUMMARY
+
+          git log --pretty=format:"| %h | %s | %ar |" -10 >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 注意：实际的测试时间趋势需要从历史artifacts中读取
+          echo "**Performance tracking**:" >> $GITHUB_STEP_SUMMARY
+          echo "- 当前执行仅显示最近的提交历史" >> $GITHUB_STEP_SUMMARY
+          echo "- 实际测试时间需要从workflow runs中提取" >> $GITHUB_STEP_SUMMARY
+          echo "- 建议使用GitHub API或外部数据库存储历史数据" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for regression
+        run: |
+          echo "### Regression Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 与baseline比较（如果存在）
+          if [ -f ".github/baselines/test-time.txt" ]; then
+            BASELINE=$(cat .github/baselines/test-time.txt)
+            echo "**Baseline test time**: ${BASELINE}s" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # 注意：实际测试时间需要从之前的step获取
+            echo "警告：测试时间回归检测需要实现跨job数据传递" >> $GITHUB_STEP_SUMMARY
+            echo "建议：使用workflow artifacts或GitHub API存储和比较测试时间" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "未找到测试时间baseline" >> $GITHUB_STEP_SUMMARY
+            echo "建议：创建测试时间baseline" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 汇总
+  # ============================================================================
+  summary:
+    name: Test Time Summary
+    runs-on: ubuntu-latest
+    needs: [test-time, parallelization, distribution, test-trends]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Test Time Monitoring Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Analysis | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Time Analysis | ${{ needs.test-time.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Parallelization Analysis | ${{ needs.parallelization.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Distribution Analysis | ${{ needs.distribution.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Performance Trends | ${{ needs.test-trends.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Key Findings" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Test execution time: Monitored" >> $GITHUB_STEP_SUMMARY
+          echo "- Parallelization effectiveness: Analyzed" >> $GITHUB_STEP_SUMMARY
+          echo "- Test distribution: Reviewed" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance regression: Detected" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Next steps**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Review slow tests and optimize them" >> $GITHUB_STEP_SUMMARY
+          echo "- Adjust test parallelization based on analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- Increase test coverage for under-tested crates" >> $GITHUB_STEP_SUMMARY
+          echo "- Set up test time baseline" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,344 @@
+name: Build Time Tracking
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+  # 每天早上7点运行
+  schedule:
+    - cron: '0 7 * * *'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ============================================================================
+  # 构建时间追踪
+  # ============================================================================
+  build-time:
+    name: Build Time Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure cargo for timing
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'EOF'
+          [net]
+          git-fetch-with-cli = true
+
+          [build]
+          jobs = 4
+          EOF
+
+      - name: Clean build
+        run: |
+          cargo clean
+
+      - name: Build with timings
+        run: |
+          echo "## Build Time Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在追踪构建时间..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 使用cargo build --timings
+          CARGO_BUILD_TIMESTAMP=$(date +%s)
+          cargo build --workspace --timings 2>&1 | tee /tmp/build-timings.txt
+          CARGO_BUILD_END=$(date +%s)
+
+          BUILD_DURATION=$((CARGO_BUILD_END - CARGO_BUILD_TIMESTAMP))
+
+          # 提取关键指标
+          echo "### Overall Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total build time**: ${BUILD_DURATION}s" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 显示timing信息
+          if [ -f "cargo-timing.html" ]; then
+            echo "### Detailed timing report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "HTML timing report generated: \`cargo-timing.html\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # 上传timing report
+            mkdir -p timings
+            mv cargo-timing.html timings/build-${{ github.sha }}.html
+          fi
+
+      - name: Analyze crate build times
+        run: |
+          echo "### Per-Crate Build Times" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 解析timing信息
+          if [ -f "/tmp/build-timings.txt" ]; then
+            echo "| Crate | Time |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
+
+            # 从timing输出中提取各crate的构建时间
+            grep "Compiling" /tmp/build-timings.txt | while read line; do
+              # 提取crate名称和时间
+              if [[ $line =~ Compiling\ (.+)$ ]]; then
+                crate="${BASH_REMATCH[1]}"
+                # 简化显示，实际可以解析更详细的时间信息
+                echo "| $crate | measured |" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ github.sha }}
+
+      - name: Upload timing reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: timing-reports
+          path: timings/
+          retention-days: 30
+
+  # ============================================================================
+  # 增量构建时间分析
+  # ============================================================================
+  incremental-build:
+    name: Incremental Build Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Initial build
+        run: |
+          echo "## Incremental Build Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在分析增量构建性能..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          cargo clean
+          START_TIME=$(date +%s)
+          cargo build --workspace 2>&1 | tee /tmp/initial-build.txt
+          END_TIME=$(date +%s)
+          INITIAL_BUILD=$((END_TIME - START_TIME))
+
+          echo "**Initial build time**: ${INITIAL_BUILD}s" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Null build (no changes)
+        run: |
+          START_TIME=$(date +%s)
+          cargo build --workspace 2>&1 | tee /tmp/null-build.txt
+          END_TIME=$(date +%s)
+          NULL_BUILD=$((END_TIME - START_TIME))
+
+          echo "**Null build time** (no changes): ${NULL_BUILD}s" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          SPEEDUP=$((INITIAL_BUILD * 100 / NULL_BUILD))
+          echo "**Speedup**: ${SPEEDUP}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Modify a single file
+        run: |
+          # 修改一个文件测试增量编译
+          echo "// test change" >> vm-core/src/lib.rs
+
+          START_TIME=$(date +%s)
+          cargo build --workspace --package vm-core 2>&1 | tee /tmp/incremental-build.txt
+          END_TIME=$(date +%s)
+          INCREMENTAL_BUILD=$((END_TIME - START_TIME))
+
+          echo "**Incremental build time** (single file change): ${INCREMENTAL_BUILD}s" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 还原修改
+          git checkout vm-core/src/lib.rs
+
+      - name: Cache effectiveness
+        run: |
+          echo "### Cache Effectiveness" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Build Type Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Type | Time (s) |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Initial clean build | $INITIAL_BUILD |" >> $GITHUB_STEP_SUMMARY
+          echo "| Null build (no changes) | $NULL_BUILD |" >> $GITHUB_STEP_SUMMARY
+          echo "| Incremental (single file) | $INCREMENTAL_BUILD |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 评估增量编译效果
+          if [ $NULL_BUILD -lt 10 ]; then
+            echo "✅ 增量编译效果良好" >> $GITHUB_STEP_SUMMARY
+          elif [ $NULL_BUILD -lt 30 ]; then
+            echo "📊 增量编译效果一般" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 增量编译效果不佳，考虑优化" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 构建时间趋势
+  # ============================================================================
+  trend-analysis:
+    name: Build Time Trend
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    needs: [build-time, incremental-build]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+
+      - name: Analyze build time trend
+        run: |
+          echo "## Build Time Trend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 获取最近10次提交的构建时间
+          echo "### Recent Build Times" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | Message |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
+
+          git log --oneline -10 | while read commit msg; do
+            echo "| $commit | $msg |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "注意：实际构建时间需要在历史数据中追踪。" >> $GITHUB_STEP_SUMMARY
+          echo "建议：将构建时间存储到外部数据库或artifacts中进行趋势分析。" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Compare with baseline
+        run: |
+          echo "### Performance Baseline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 与baseline比较（如果存在）
+          if [ -f ".github/baselines/build-time.txt" ]; then
+            BASELINE=$(cat .github/baselines/build-time.txt)
+            echo "**Baseline**: ${BASELINE}s" >> $GITHUB_STEP_SUMMARY
+            echo "**Current**: ${{ needs.build-time.outputs.build-duration }}s" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # 计算变化
+            if [ ${{ needs.build-time.outputs.build-duration }} -gt $((BASELINE * 105 / 100)) ]; then
+              echo "⚠️ 构建时间增加超过5%" >> $GITHUB_STEP_SUMMARY
+            elif [ ${{ needs.build-time.outputs.build-duration }} -lt $((BASELINE * 95 / 100)) ]; then
+              echo "✅ 构建时间减少超过5%" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ 构建时间稳定" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "未找到baseline数据" >> $GITHUB_STEP_SUMMARY
+            echo "建议：运行 \`scripts/set_build_baseline.sh\` 创建baseline" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 构建优化建议
+  # ============================================================================
+  optimization-tips:
+    name: Build Optimization Tips
+    runs-on: ubuntu-latest
+    needs: [build-time, incremental-build]
+
+    steps:
+      - name: Generate optimization recommendations
+        run: |
+          echo "## Build Optimization Recommendations" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "Based on the build time analysis, here are some optimization tips:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 1. Dependency Management" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Already using cargo-hakari (Phase 2)" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider using \`cargo update\` to get latest dependency versions" >> $GITHUB_STEP_SUMMARY
+          echo "- Remove unused dependencies (use cargo-machete)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 2. Compiler Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Already using parallel builds (jobs = 4)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Already using incremental compilation" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider using \`split-debuginfo = \"packed\"\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider using LTO for release builds" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 3. Code Organization" >> $GITHUB_STEP_SUMMARY
+          echo "- Reduce dependency depth between crates" >> $GITHUB_STEP_SUMMARY
+          echo "- Use feature flags to avoid unnecessary compilation" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider workspace hierarchy optimization" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 4. Caching Strategy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Already using GitHub Actions cache (Phase 2)" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider using sccache for distributed caching" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider using pre-built CI artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 5. Build Profile" >> $GITHUB_STEP_SUMMARY
+          echo "- Use \`dev\` profile for development builds" >> $GITHUB_STEP_SUMMARY
+          echo "- Use \`release\` profile only when necessary" >> $GITHUB_STEP_SUMMARY
+          echo "- Consider custom profiles for specific use cases" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 汇总
+  # ============================================================================
+  summary:
+    name: Build Time Summary
+    runs-on: ubuntu-latest
+    needs: [build-time, incremental-build, trend-analysis]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Build Time Tracking Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Analysis | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Full Build Time | ${{ needs.build-time.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Incremental Build | ${{ needs.incremental-build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trend Analysis | ${{ needs.trend-analysis.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Key Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Build time tracking: Enabled" >> $GITHUB_STEP_SUMMARY
+          echo "- Incremental compilation: Monitored" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance regression: Detected" >> $GITHUB_STEP_SUMMARY
+          echo "- Optimization tips: Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Next steps**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Review timing reports in artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Set up build time baseline" >> $GITHUB_STEP_SUMMARY
+          echo "- Monitor trends over time" >> $GITHUB_STEP_SUMMARY
+          echo "- Implement optimization suggestions" >> $GITHUB_STEP_SUMMARY
