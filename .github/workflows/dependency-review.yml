@@ -1,0 +1,132 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ============================================================================
+  # 依赖审查
+  # ============================================================================
+  review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          # 许可证白名单
+          allow-licenses: [
+            "MIT",
+            "Apache-2.0",
+            "BSD-2-Clause",
+            "BSD-3-Clause",
+            "ISC",
+            "Unicode-DFS-2016",
+            "CC0-1.0",
+            "0BSD"
+          ]
+
+          # 许可证黑名单（阻止这些许可证）
+          deny-licenses: [
+            "GPL-2.0",
+            "GPL-3.0",
+            "AGPL-3.0",
+            "LGPL-2.0",
+            "LGPL-3.0"
+          ]
+
+          # 配置文件
+          config-file: .github/dependency-review-config.yml
+
+          # 创建失败摘要
+          fail-on-severity: high
+
+          # 显示所有依赖信息
+          verbose: true
+
+      - name: Generate dependency report
+        if: always()
+        run: |
+          echo "## Dependency Review Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### License Policy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Allowed licenses**:" >> $GITHUB_STEP_SUMMARY
+          echo "- MIT" >> $GITHUB_STEP_SUMMARY
+          echo "- Apache-2.0" >> $GITHUB_STEP_SUMMARY
+          echo "- BSD-2-Clause" >> $GITHUB_STEP_SUMMARY
+          echo "- BSD-3-Clause" >> $GITHUB_STEP_SUMMARY
+          echo "- ISC" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Denied licenses**:" >> $GITHUB_STEP_SUMMARY
+          echo "- GPL-2.0" >> $GITHUB_STEP_SUMMARY
+          echo "- GPL-3.0" >> $GITHUB_STEP_SUMMARY
+          echo "- AGPL-3.0" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ **Result**: All dependencies comply with license policy" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Result**: License violations detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please review the dependency review step above for details." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 依赖变化汇总
+  # ============================================================================
+  summary:
+    name: Dependency Change Summary
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate dependency diff
+        run: |
+          echo "## Dependency Changes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 比较Cargo.lock的变化
+          if git diff origin/${{ github.base_ref }}...HEAD -- Cargo.lock > /tmp/lock-diff.txt; then
+            if [ -s /tmp/lock-diff.txt ]; then
+              echo "### Cargo.lock Changes" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo '```diff' >> $GITHUB_STEP_SUMMARY
+              cat /tmp/lock-diff.txt | head -200 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            else
+              echo "No changes in Cargo.lock" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No Cargo.lock changes detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 统计依赖数量
+          echo "### Dependency Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          TOTAL_DEPS=$(cargo tree | wc -l | awk '{print $1}')
+          echo "- **Total dependencies**: $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
+
+          DIRECT_DEPS=$(cargo tree --depth 1 | wc -l | awk '{print $1}')
+          echo "- **Direct dependencies**: $DIRECT_DEPS" >> $GITHUB_STEP_SUMMARY
+
+          TRANSITIVE_DEPS=$((TOTAL_DEPS - DIRECT_DEPS))
+          echo "- **Transitive dependencies**: $TRANSITIVE_DEPS" >> $GITHUB_STEP_SUMMARY

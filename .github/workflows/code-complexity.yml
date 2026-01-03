@@ -1,0 +1,260 @@
+name: Code Complexity Check
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+  # 每周日凌晨3点运行
+  schedule:
+    - cron: '0 3 * * 0'
+
+jobs:
+  # ============================================================================
+  # 代码复杂度检查
+  # ============================================================================
+  complexity:
+    name: Code Complexity Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install cargo-complexity
+        run: cargo install cargo-complexity
+
+      - name: Run complexity analysis
+        run: |
+          echo "## Code Complexity Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在分析代码复杂度..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 创建临时文件保存结果
+          mkdir -p /tmp/complexity
+
+          # 分析主要crates的复杂度
+          for crate in vm-core vm-mem vm-engine vm-frontend; do
+            if [ -f "$crate/Cargo.toml" ]; then
+              echo "### $crate" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+
+              if cargo complexity --package $crate --limit 20 2>&1 | tee "/tmp/complexity/${crate}.txt"; then
+                echo "✅ 复杂度检查通过" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "⚠️ 发现高复杂度函数" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                cat "/tmp/complexity/${crate}.txt" | head -50 >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+              fi
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Generate complexity trend
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          echo "### Complexity Trends" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 统计各crate的平均复杂度
+          echo "| Crate | Avg Complexity | Max Complexity |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|----------------|----------------|" >> $GITHUB_STEP_SUMMARY
+
+          for crate in vm-core vm-mem vm-engine vm-frontend; do
+            if [ -f "/tmp/complexity/${crate}.txt" ]; then
+              # 提取复杂度统计（简化版）
+              AVG=$(grep -oP 'Average complexity: \K[0-9]+' "/tmp/complexity/${crate}.txt" || echo "N/A")
+              MAX=$(grep -oP 'Max complexity: \K[0-9]+' "/tmp/complexity/${crate}.txt" || echo "N/A")
+              echo "| $crate | $AVG | $MAX |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 函数长度检查
+  # ============================================================================
+  function-length:
+    name: Function Length Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check long functions
+        run: |
+          echo "## Function Length Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在检查函数长度..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 查找超过100行的函数
+          echo "### Functions > 100 lines" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          LONG_FUNCS=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" -exec awk '
+            /^fn / {
+              fname = $0
+              gsub(/^fn /, "", fname)
+              gsub(/\(.*/, "", fname)
+              start = NR
+            }
+            /^}$/ && start > 0 {
+              len = NR - start
+              if (len > 100) {
+                print FILENAME ":" FNR ":" fname " - " len " lines"
+              }
+              start = 0
+            }
+          ' {} \;)
+
+          if [ -n "$LONG_FUNCS" ]; then
+            echo "$LONG_FUNCS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ 建议重构这些长函数" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ 没有发现超长函数" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 嵌套深度检查
+  # ============================================================================
+  nesting-depth:
+    name: Nesting Depth Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check nesting depth
+        run: |
+          echo "## Nesting Depth Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在检查嵌套深度..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 查找嵌套深度超过4的代码块
+          echo "### Deep nesting detected (>4 levels)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          DEEP_NESTING=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" -exec awk '
+            BEGIN { depth = 0; max_depth = 0; file = "" }
+            /^[[:space:]]*}/ { depth-- }
+            {
+              match($0, /^[[:space:]]*/, spaces)
+              current_depth = length(spaces) / 2
+              if (current_depth > max_depth) {
+                max_depth = current_depth
+                line = FNR
+                file = FILENAME
+              }
+            }
+            END {
+              if (max_depth > 4) {
+                print file ":" line " - depth " max_depth
+              }
+            }
+          ' {} \;)
+
+          if [ -n "$DEEP_NESTING" ]; then
+            echo "$DEEP_NESTING" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ 建议重构以减少嵌套深度" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ 嵌套深度在合理范围内" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 认知复杂度检查
+  # ============================================================================
+  cognitive-complexity:
+    name: Cognitive Complexity Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check cognitive complexity
+        run: |
+          echo "## Cognitive Complexity" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在分析认知复杂度..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 统计代码中的控制流语句
+          echo "### Control Flow Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Statement | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+
+          for kw in if match for while loop unsafe async; do
+            COUNT=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" -exec grep -c "\\b$kw\\b" {} \; | awk '{s+=$1} END {print s}')
+            echo "| $kw | $COUNT |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "认知复杂度基于控制流的嵌套和跳转。过多的控制流会使代码难以理解。" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 复杂度趋势汇总
+  # ============================================================================
+  summary:
+    name: Complexity Summary
+    runs-on: ubuntu-latest
+    needs: [complexity, function-length, nesting-depth, cognitive-complexity]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Code Complexity Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Cyclomatic Complexity | ${{ needs.complexity.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Function Length | ${{ needs.function-length.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Nesting Depth | ${{ needs.nesting-depth.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cognitive Complexity | ${{ needs.cognitive-complexity.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 总体评估
+          if [ "${{ needs.complexity.result }}" == "success" ] && \
+             [ "${{ needs.function-length.result }}" == "success" ] && \
+             [ "${{ needs.nesting-depth.result }}" == "success" ]; then
+            echo "✅ **Overall**: Code complexity is healthy" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Overall**: Some complexity issues detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Recommendations**:" >> $GITHUB_STEP_SUMMARY
+            echo "- 重构高复杂度函数" >> $GITHUB_STEP_SUMMARY
+            echo "- 拆分长函数为更小的单元" >> $GITHUB_STEP_SUMMARY
+            echo "- 减少嵌套深度" >> $GITHUB_STEP_SUMMARY
+            echo "- 简化控制流" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Thresholds**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Cyclomatic complexity: < 20" >> $GITHUB_STEP_SUMMARY
+          echo "- Function length: < 100 lines" >> $GITHUB_STEP_SUMMARY
+          echo "- Nesting depth: < 5 levels" >> $GITHUB_STEP_SUMMARY

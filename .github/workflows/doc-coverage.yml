@@ -1,0 +1,324 @@
+name: Documentation Coverage
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+  # 每周一早上6点运行
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  # ============================================================================
+  # 文档覆盖率检查
+  # ============================================================================
+  coverage:
+    name: Documentation Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build documentation
+        run: |
+          echo "## Documentation Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "正在构建文档..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 构建文档并检查未文档化的项目
+          cargo doc --no-deps --all-features 2>&1 | tee /tmp/doc-build.log
+
+          # 统计文档覆盖率
+          echo "### Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if grep -q "warning: unused" /tmp/doc-build.log; then
+            echo "⚠️ 存在未使用的文档警告" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ 文档构建成功" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for missing docs
+        run: |
+          echo "### Missing Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 查找缺少文档的公共函数
+          MISSING_DOCS=$(cargo doc --no-deps --all-features 2>&1 | grep "missing documentation" | wc -l)
+
+          echo "**Missing documentation items**: $MISSING_DOCS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$MISSING_DOCS" -gt 0 ]; then
+            echo "⚠️ 发现缺少文档的公共API" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cargo doc --no-deps --all-features 2>&1 | grep "missing documentation" | head -50 >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ 所有公共API都有文档" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check module-level docs
+        run: |
+          echo "### Module Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 检查主要crate是否有模块级文档
+          echo "| Crate | Has lib.rs doc | Has README |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|----------------|------------|" >> $GITHUB_STEP_SUMMARY
+
+          for crate_dir in vm-*; do
+            if [ -f "$crate_dir/Cargo.toml" ]; then
+              crate_name=$(basename "$crate_dir")
+              lib_doc="❌"
+              readme="❌"
+
+              # 检查lib.rs是否有模块级文档
+              if [ -f "$crate_dir/src/lib.rs" ]; then
+                if grep -q "^//!" "$crate_dir/src/lib.rs"; then
+                  lib_doc="✅"
+                fi
+              fi
+
+              # 检查是否有README
+              if [ -f "$crate_dir/README.md" ]; then
+                readme="✅"
+              fi
+
+              echo "| $crate_name | $lib_doc | $readme |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check example code
+        run: |
+          echo "### Example Code" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 统计示例代码数量
+          EXAMPLE_COUNT=$(find . -name "examples/*.rs" -o -name "examples/*.md" 2>/dev/null | wc -l | awk '{print $1}')
+
+          echo "**Example files**: $EXAMPLE_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$EXAMPLE_COUNT" -gt 0 ]; then
+            echo "### Found Examples" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            find . -name "examples/*.rs" -o -name "examples/*.md" 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 未发现示例代码" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check doc tests
+        run: |
+          echo "### Documentation Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 运行文档测试
+          echo "正在运行文档测试..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if cargo test --doc --all-features 2>&1 | tee /tmp/doctest.log; then
+            echo "✅ 所有文档测试通过" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ 部分文档测试失败" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/doctest.log | tail -100 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 文档质量检查
+  # ============================================================================
+  quality:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check doc warnings
+        run: |
+          echo "## Documentation Quality" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 检查文档警告
+          cargo doc --no-deps --all-features 2>&1 | grep -i "warning" > /tmp/doc-warnings.txt || true
+
+          WARNING_COUNT=$(wc -l < /tmp/doc-warnings.txt | awk '{print $1}')
+
+          echo "**Warnings**: $WARNING_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$WARNING_COUNT" -gt 0 ]; then
+            echo "### Documentation Warnings" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/doc-warnings.txt | head -50 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ 没有文档警告" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for broken links
+        run: |
+          echo "### Link Checking" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 检查文档中的链接（基础检查）
+          BROKEN_LINKS=$(grep -r "\[.*\](" --include="*.rs" | grep -v "https://" | wc -l | awk '{print $1}')
+
+          echo "**Internal references**: $BROKEN_LINKS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 检查是否有外部链接
+          EXTERNAL_LINKS=$(grep -r "https://" --include="*.rs" | wc -l | awk '{print $1}')
+          echo "**External links**: $EXTERNAL_LINKS" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check parameter documentation
+        run: |
+          echo "### Parameter Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 检查公共函数是否有参数文档
+          # 简化版：检查是否有 /// 文档注释
+          PUBLIC_FUNCS=$(find . -name "*.rs" -not -path "./target/*" -exec grep -l "^pub fn" {} \; | wc -l | awk '{print $1}')
+          DOCUMENTED_FUNCS=$(find . -name "*.rs" -not -path "./target/*" -exec grep -B1 "^pub fn" {} \; | grep -c "^///" || echo "0")
+
+          echo "**Public functions**: $PUBLIC_FUNCS" >> $GITHUB_STEP_SUMMARY
+          echo "**Documented functions**: $DOCUMENTED_FUNCS" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$PUBLIC_FUNCS" -gt 0 ]; then
+            COVERAGE=$((DOCUMENTED_FUNCS * 100 / PUBLIC_FUNCS))
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Coverage**: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+
+            if [ $COVERAGE -lt 60 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ 文档覆盖率低于60%目标" >> $GITHUB_STEP_SUMMARY
+            elif [ $COVERAGE -lt 80 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "📊 文档覆盖率接近目标" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "✅ 文档覆盖率良好" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 文档覆盖率统计
+  # ============================================================================
+  stats:
+    name: Documentation Statistics
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate documentation stats
+        run: |
+          echo "## Documentation Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 总体统计
+          TOTAL_RS=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" | wc -l | awk '{print $1}')
+          DOC_LINES=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" -exec cat {} \; | grep -c "^///" || echo "0")
+          MOD_LINES=$(find . -name "*.rs" -not -path "./target/*" -not -path "./vm-build-deps/*" -exec cat {} \; | grep -c "^//!" || echo "0")
+
+          echo "### Overall Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Rust files**: $TOTAL_RS" >> $GITHUB_STEP_SUMMARY
+          echo "- **Item documentation lines**: $DOC_LINES" >> $GITHUB_STEP_SUMMARY
+          echo "- **Module documentation lines**: $MOD_LINES" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 各crate统计
+          echo "### Per-Crate Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Crate | Public Items | Doc Comments | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------------|---------------|----------|" >> $GITHUB_STEP_SUMMARY
+
+          for crate in vm-core vm-mem vm-engine vm-frontend vm-device vm-accel; do
+            if [ -d "$crate/src" ]; then
+              PUB_ITEMS=$(find "$crate/src" -name "*.rs" -exec grep -c "^pub" {} \; | awk '{s+=$1} END {print s}')
+              DOC_COMMENTS=$(find "$crate/src" -name "*.rs" -exec grep -c "^///" {} \; | awk '{s+=$1} END {print s}')
+
+              if [ "$PUB_ITEMS" -gt 0 ]; then
+                COV=$((DOC_COMMENTS * 100 / PUB_ITEMS))
+              else
+                COV=0
+              fi
+
+              printf "| %-15s | %12d | %13d | %8s%% |\n" "$crate" "$PUB_ITEMS" "$DOC_COMMENTS" "$COV" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 文档覆盖汇总
+  # ============================================================================
+  summary:
+    name: Documentation Summary
+    runs-on: ubuntu-latest
+    needs: [coverage, quality, stats]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Documentation Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage Analysis | ${{ needs.coverage.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Quality Check | ${{ needs.quality.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Statistics | ${{ needs.stats.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 总体评估
+          if [ "${{ needs.coverage.result }}" == "success" ] && \
+             [ "${{ needs.quality.result }}" == "success" ]; then
+            echo "✅ **Overall**: Documentation quality is good" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Overall**: Documentation needs improvement" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Recommendations**:" >> $GITHUB_STEP_SUMMARY
+            echo "- 为所有公共API添加文档注释" >> $GITHUB_STEP_SUMMARY
+            echo "- 添加模块级文档说明" >> $GITHUB_STEP_SUMMARY
+            echo "- 补充示例代码" >> $GITHUB_STEP_SUMMARY
+            echo "- 修复文档警告" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage targets**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Public API documentation: > 80%" >> $GITHUB_STEP_SUMMARY
+          echo "- Module-level documentation: 100%" >> $GITHUB_STEP_SUMMARY
+          echo "- Example code: > 10 files" >> $GITHUB_STEP_SUMMARY

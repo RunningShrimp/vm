@@ -1,0 +1,55 @@
+# Dependency Review Configuration
+# https://github.com/actions/dependency-review-action
+
+# 允许的许可证
+allow-licenses:
+  - MIT
+  - Apache-2.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - Unicode-DFS-2016
+  - CC0-1.0
+  - 0BSD
+
+# 阻止的许可证（强Copyleft）
+deny-licenses:
+  - GPL-2.0
+  - GPL-3.0
+  - AGPL-3.0
+  - LGPL-2.0
+  - LGPL-3.0
+  - MPL-2.0-no-copyleft-exception
+
+# 许可证异常
+license-exceptions:
+  # 允许某些特定包使用例外许可证
+  # 例如：OpenSSL例外
+  - OpenSSL
+
+# 阻止特定的依赖包
+deny:
+  # 示例：阻止已知有安全漏洞的包
+  - package: "openssl-sys"
+    # 0.9.0版本之前存在漏洞
+    version-range: "< 0.9.0"
+
+  - package: "hyper"
+    # 0.14版本之前存在安全问题
+    version-range: "< 0.14.0"
+
+# 代码所有者验证（可选）
+# require-explanation:
+#   # 如果依赖不是由维护者添加的，需要解释
+#   by-author: "author"
+
+# 依赖更新策略
+# 只允许主要依赖的补丁版本更新
+# deny-package-allow-list: []
+
+# 配置注释
+# 本配置文件确保：
+# 1. 所有依赖符合宽松许可证（MIT/Apache/BSD）
+# 2. 阻止Copyleft许可证（GPL/AGPL/LGPL）
+# 3. 阻止已知有安全漏洞的包版本
+# 4. 确保依赖链的安全性
