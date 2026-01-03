@@ -615,7 +615,7 @@ pub type VmResult<T> = Result<T, VmError>;
 /// # 示例
 /// ```ignore
 /// let mut decoder = X86Decoder::new();
-/// let insn = decoder.decode_insn(&mmu, GuestAddr(0x1000))?;
+/// let insn = decoder.decode_insn(&mut mmu, GuestAddr(0x1000))?;
 /// ```
 pub trait Decoder {
     /// 指令类型关联类型
@@ -629,12 +629,13 @@ pub trait Decoder {
     /// 从指定地址解码一条指令，返回对应的指令表示。
     ///
     /// # 参数
-    /// - `mmu`: MMU引用，用于读取虚拟内存中的指令
+    /// - `mmu`: MMU可变引用，用于读取虚拟内存中的指令
+    ///         （需要可变性因为translate可能更新TLB）
     /// - `pc`: 程序计数器，指向要解码的指令地址
     ///
     /// # 返回
     /// 解码后的指令对象
-    fn decode_insn(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Instruction>;
+    fn decode_insn(&mut self, mmu: &mut dyn MMU, pc: GuestAddr) -> VmResult<Self::Instruction>;
 
     /// 解码指令块
     ///
@@ -642,12 +643,13 @@ pub trait Decoder {
     /// 基本块是指只有一个入口和一个出口的指令序列。
     ///
     /// # 参数
-    /// - `mmu`: MMU引用，用于读取虚拟内存中的指令
+    /// - `mmu`: MMU可变引用，用于读取虚拟内存中的指令
+    ///         （需要可变性因为translate可能更新TLB）
     /// - `pc`: 程序计数器，指向基本块起始地址
     ///
     /// # 返回
     /// 解码后的基本块对象
-    fn decode(&mut self, mmu: &dyn MMU, pc: GuestAddr) -> VmResult<Self::Block>;
+    fn decode(&mut self, mmu: &mut dyn MMU, pc: GuestAddr) -> VmResult<Self::Block>;
 }
 
 /// 指令结构

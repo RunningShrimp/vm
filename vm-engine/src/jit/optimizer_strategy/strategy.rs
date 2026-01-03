@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use vm_core::{OptimizationStrategy, OptimizationType, VmError, VmResult};
+use vm_core::domain::{OptimizationStrategy, OptimizationType};
+use vm_core::{VmError, VmResult};
 use vm_ir::IRBlock;
 
 use crate::jit::optimizer::{DefaultIROptimizer, IROptimizer};
