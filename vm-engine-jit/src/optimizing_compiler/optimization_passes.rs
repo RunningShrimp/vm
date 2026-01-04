@@ -27,9 +27,7 @@ pub struct OptimizationPassManager {
 impl OptimizationPassManager {
     /// 创建新的优化Pass管理器
     pub fn new() -> Self {
-        Self {
-            passes: Vec::new(),
-        }
+        Self { passes: Vec::new() }
     }
 
     /// 添加优化Pass

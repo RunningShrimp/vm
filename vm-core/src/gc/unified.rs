@@ -439,8 +439,10 @@ mod tests {
 
     #[test]
     fn test_out_of_memory() {
-        let mut config = GcConfig::default();
-        config.heap_size = 1024; // 很小的堆
+        let config = GcConfig {
+            heap_size: 1024, // 很小的堆
+            ..Default::default()
+        };
 
         let gc = UnifiedGarbageCollector::new(config);
 

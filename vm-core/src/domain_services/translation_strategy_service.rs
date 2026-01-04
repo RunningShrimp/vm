@@ -40,7 +40,15 @@ impl TranslationStrategyDomainService {
             event_bus: None,
         }
     }
+}
 
+impl Default for TranslationStrategyDomainService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TranslationStrategyDomainService {
     /// Create a new translation strategy domain service with custom rules
     pub fn with_rules(business_rules: Vec<Box<dyn TranslationBusinessRule>>) -> Self {
         Self {

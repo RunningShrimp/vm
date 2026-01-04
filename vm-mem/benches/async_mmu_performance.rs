@@ -1,11 +1,10 @@
-//! 异步MMU性能基准测试
-use vm_core::AddressTranslator;
-//!
-//! 测试异步MMU操作的延迟和吞吐量
-
+///
+/// 测试异步MMU操作的延迟和吞吐量
 // Use std::hint::black_box instead of criterion's deprecated version
 use std::hint::black_box;
 use std::sync::Arc;
+/// 异步MMU性能基准测试
+use vm_core::AddressTranslator;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use tokio::runtime::Runtime;

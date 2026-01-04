@@ -13,11 +13,7 @@ use parking_lot::Mutex;
 #[cfg(feature = "async")]
 use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, MMU, VmError};
 #[cfg(feature = "async")]
-use vm_ir::IRBlock;
-#[cfg(feature = "async")]
-use vm_ir::Terminator;
-#[cfg(test)]
-use vm_ir::Terminator;
+use vm_ir::{IRBlock, Terminator};
 
 #[cfg(feature = "async")]
 use crate::interpreter::Interpreter;

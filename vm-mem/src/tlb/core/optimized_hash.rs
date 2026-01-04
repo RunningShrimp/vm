@@ -21,7 +21,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
+use vm_core::{AccessType, GuestAddr};
 
 /// TLB entry in packed format (64-bit)
 #[derive(Debug)]
@@ -399,7 +399,7 @@ mod tests {
 
         // Each ASID should get different translation
         let result0 = tlb.translate(gva, 0, AccessType::Read);
-        let result1 = tlb.translate(gva, 1, AccessType::Read);
+        let _result1 = tlb.translate(gva, 1, AccessType::Read);
 
         assert_eq!(result0.unwrap().0, GuestAddr(0x2000));
         // The second insert will have evicted the first due to direct mapping

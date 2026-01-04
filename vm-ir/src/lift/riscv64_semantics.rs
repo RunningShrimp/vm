@@ -62,22 +62,46 @@ impl Riscv64Semantics {
     pub fn lift(&self, instruction: &Instruction, _ctx: &mut LiftingContext) -> LiftResult<String> {
         // 占位符实现 - 实际语义提升逻辑待实现
         match instruction.mnemonic.as_str() {
-            "add" => Ok(format!("add i64 {}, {}, {}",
-                instruction.operands.first().map_or_else(|| "dst".to_string(), |o| format!("{}", o)),
-                instruction.operands.get(1).map_or_else(|| "src1".to_string(), |o| format!("{}", o)),
-                instruction.operands.get(2).map_or_else(|| "src2".to_string(), |o| format!("{}", o)),
+            "add" => Ok(format!(
+                "add i64 {}, {}, {}",
+                instruction
+                    .operands
+                    .first()
+                    .map_or_else(|| "dst".to_string(), |o| format!("{}", o)),
+                instruction
+                    .operands
+                    .get(1)
+                    .map_or_else(|| "src1".to_string(), |o| format!("{}", o)),
+                instruction
+                    .operands
+                    .get(2)
+                    .map_or_else(|| "src2".to_string(), |o| format!("{}", o)),
             )),
-            "sub" => Ok(format!("sub i64 {}, {}, {}",
-                instruction.operands.first().map_or_else(|| "dst".to_string(), |o| format!("{}", o)),
-                instruction.operands.get(1).map_or_else(|| "src1".to_string(), |o| format!("{}", o)),
-                instruction.operands.get(2).map_or_else(|| "src2".to_string(), |o| format!("{}", o)),
+            "sub" => Ok(format!(
+                "sub i64 {}, {}, {}",
+                instruction
+                    .operands
+                    .first()
+                    .map_or_else(|| "dst".to_string(), |o| format!("{}", o)),
+                instruction
+                    .operands
+                    .get(1)
+                    .map_or_else(|| "src1".to_string(), |o| format!("{}", o)),
+                instruction
+                    .operands
+                    .get(2)
+                    .map_or_else(|| "src2".to_string(), |o| format!("{}", o)),
             )),
             _ => Ok(format!("// RISC-V instruction: {}", instruction.mnemonic)),
         }
     }
 
     /// 批量提升指令块
-    pub fn lift_block(&self, instructions: &[Instruction], ctx: &mut LiftingContext) -> LiftResult<Vec<String>> {
+    pub fn lift_block(
+        &self,
+        instructions: &[Instruction],
+        ctx: &mut LiftingContext,
+    ) -> LiftResult<Vec<String>> {
         instructions
             .iter()
             .map(|insn| self.lift(insn, ctx))
@@ -122,7 +146,7 @@ mod tests {
     #[test]
     fn test_lift_add_instruction() {
         let semantics = Riscv64Semantics::new();
-        let mut ctx = LiftingContext::new(crate::lift::decoder::ISA::Riscv64);
+        let mut ctx = LiftingContext::new(crate::lift::decoder::ISA::RISCV64);
 
         let instruction = Instruction {
             mnemonic: "add".to_string(),
@@ -134,6 +158,10 @@ mod tests {
             length: 4,
             implicit_reads: Vec::new(),
             implicit_writes: Vec::new(),
+            is_branch: false,
+            is_syscall: false,
+            is_memory_op: false,
+            bytes: vec![0x33, 0x02, 0xb0, 0x00], // add x1, x2, x3
         };
 
         let result = semantics.lift(&instruction, &mut ctx);

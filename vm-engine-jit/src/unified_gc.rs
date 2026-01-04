@@ -39,11 +39,11 @@ pub use super::gc_sweeper::GcSweeper;
 
 use crate::gc_adaptive;
 
+use std::alloc::Layout;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
-use std::alloc::Layout;
 
 /// 获取CPU核心数（用于动态调整写屏障分片数）
 fn get_cpu_count() -> usize {
@@ -126,13 +126,13 @@ pub struct UnifiedGcConfig {
 impl Default for UnifiedGcConfig {
     fn default() -> Self {
         Self {
-            mark_quota_us: 500, // 0.5ms - 更细粒度的增量GC
+            mark_quota_us: 500,  // 0.5ms - 更细粒度的增量GC
             sweep_quota_us: 250, // 0.25ms - 更短的清扫暂停
             adaptive_quota: true,
             write_barrier_shards: 0, // 0表示自动计算
             mark_stack_capacity: 10000,
             sweep_batch_size: 50, // 更小的批次大小，减少单次暂停
-            gc_goal: 0.5, // 50%
+            gc_goal: 0.5,         // 50%
             concurrent_marking: true,
             heap_size_limit: 128 * 1024 * 1024, // 128MB 默认
             min_quota_multiplier: 0.25,         // 最小配额为基础配额的25%（更激进的调整）
@@ -145,9 +145,9 @@ impl Default for UnifiedGcConfig {
             enable_adaptive_adjustment: true,   // 启用自适应调整
             allocation_trigger_threshold: 10 * 1024 * 1024, // 10MB/秒
             time_based_trigger_interval_ms: 1000, // 1秒触发一次（默认）
-            enable_time_based_trigger: true, // 启用基于时间的触发
+            enable_time_based_trigger: true,    // 启用基于时间的触发
             enable_numa_aware_allocation: true, // 启用NUMA感知分配
-            enable_load_aware_trigger: true, // 启用系统负载感知的GC触发
+            enable_load_aware_trigger: true,    // 启用系统负载感知的GC触发
             enable_memory_pressure_trigger: true, // 启用内存压力感知的GC触发
         }
     }
@@ -183,11 +183,13 @@ impl LockFreeMarkStack {
         let current_size = self.size.load(Ordering::Relaxed);
 
         if current_size as usize >= self.max_capacity {
-            return Err(vm_core::VmError::Core(vm_core::CoreError::ResourceExhausted {
-                resource: "mark_stack".to_string(),
-                current: current_size,
-                limit: self.max_capacity as u64,
-            }));
+            return Err(vm_core::VmError::Core(
+                vm_core::CoreError::ResourceExhausted {
+                    resource: "mark_stack".to_string(),
+                    current: current_size,
+                    limit: self.max_capacity as u64,
+                },
+            ));
         }
 
         // 原子性地增加大小
@@ -318,7 +320,7 @@ impl CardTable {
         // 确保card_size是2的幂
         let card_size = card_size.next_power_of_two();
         let card_size_shift = card_size.trailing_zeros();
-        
+
         let card_count = (heap_size as usize + card_size - 1) / card_size;
         let bitmap_size = (card_count + 7) / 8; // 每个bit表示一个card
 
@@ -343,7 +345,7 @@ impl CardTable {
         // 快速路径：计算card索引（使用位移代替除法）
         let offset = (addr - self.heap_start) as usize;
         let card_index = offset >> self.card_size_shift;
-        
+
         if card_index < self.card_count {
             let byte_index = card_index / 8;
             let bit_index = card_index % 8;
@@ -353,12 +355,12 @@ impl CardTable {
             // 使用Relaxed ordering，因为card marking不需要严格的同步
             let card_byte = &self.cards[byte_index];
             let mut current = card_byte.load(Ordering::Relaxed);
-            
+
             // 如果bit已经设置，直接返回（避免不必要的原子操作）
             if (current & bit_mask) != 0 {
                 return;
             }
-            
+
             // 使用compare-and-swap循环设置bit
             loop {
                 let new_value = current | bit_mask;
@@ -420,7 +422,7 @@ impl CardTable {
     /// 扫描标记的card，找出其中的对象
     ///
     /// 返回：card中可能包含跨代引用的对象地址列表
-    /// 
+    ///
     /// 实现策略：
     /// 1. 遍历所有标记的card
     /// 2. 对于每个card，按对象对齐扫描地址范围
@@ -434,7 +436,7 @@ impl CardTable {
                 // 实现完整的card扫描逻辑：
                 // 按8字节（指针大小）对齐扫描，寻找可能的对象引用
                 let aligned_start = (start_addr + 7) & !7; // 8字节对齐
-                
+
                 // 扫描card范围内的所有可能对象位置
                 // 假设对象头在8字节对齐的位置
                 let mut addr = aligned_start;
@@ -443,7 +445,7 @@ impl CardTable {
                     // 实际实现中，这里需要检查该地址是否是有效对象
                     // 这里我们按保守策略，将所有对齐位置都视为可能的对象
                     objects.push(addr);
-                    
+
                     // 移动到下一个可能的对象位置
                     // 使用16字节作为最小对象大小（包含对象头）
                     addr += 16;
@@ -453,16 +455,16 @@ impl CardTable {
 
         objects
     }
-    
+
     /// 扫描标记的card，带有对象验证回调
     ///
     /// 参数：
     /// - `is_valid_object`: 验证地址是否是有效对象的回调函数
-    /// 
+    ///
     /// 返回：card中经过验证的对象地址列表
-    pub fn scan_marked_cards_with_validation<F>(&self, is_valid_object: F) -> Vec<u64> 
+    pub fn scan_marked_cards_with_validation<F>(&self, is_valid_object: F) -> Vec<u64>
     where
-        F: Fn(u64) -> bool
+        F: Fn(u64) -> bool,
     {
         let marked_cards = self.get_marked_cards();
         let mut objects = Vec::with_capacity(marked_cards.len());
@@ -470,7 +472,7 @@ impl CardTable {
         for card_index in marked_cards {
             if let Some((start_addr, end_addr)) = self.get_card_address_range(card_index) {
                 let aligned_start = (start_addr + 7) & !7;
-                
+
                 let mut addr = aligned_start;
                 while addr < end_addr {
                     // 使用回调验证是否是有效对象
@@ -497,15 +499,15 @@ impl CardTable {
     pub fn is_card_marked(&self, addr: u64) -> bool {
         let offset = (addr - self.heap_start) as usize;
         let card_index = offset >> self.card_size_shift;
-        
+
         if card_index >= self.card_count {
             return false;
         }
-        
+
         let byte_index = card_index / 8;
         let bit_index = card_index % 8;
         let bit_mask = 1u8 << bit_index;
-        
+
         let byte = self.cards[byte_index].load(Ordering::Acquire);
         (byte & bit_mask) != 0
     }
@@ -962,13 +964,18 @@ impl AdaptiveQuotaManager {
                 // 如果当前暂停超过1ms，立即减少配额
                 let new_mark_quota = (self.base_mark_quota_us as f64 * 0.5).max(100.0) as u64;
                 let new_sweep_quota = (self.base_sweep_quota_us as f64 * 0.5).max(50.0) as u64;
-                self.current_mark_quota_us.store(new_mark_quota, Ordering::Relaxed);
-                self.current_sweep_quota_us.store(new_sweep_quota, Ordering::Relaxed);
-            } else if current_pause_us < 500 { // 如果暂停时间很短，可以稍微增加配额
+                self.current_mark_quota_us
+                    .store(new_mark_quota, Ordering::Relaxed);
+                self.current_sweep_quota_us
+                    .store(new_sweep_quota, Ordering::Relaxed);
+            } else if current_pause_us < 500 {
+                // 如果暂停时间很短，可以稍微增加配额
                 let new_mark_quota = (self.base_mark_quota_us as f64 * 1.1).min(800.0) as u64;
                 let new_sweep_quota = (self.base_sweep_quota_us as f64 * 1.1).min(400.0) as u64;
-                self.current_mark_quota_us.store(new_mark_quota, Ordering::Relaxed);
-                self.current_sweep_quota_us.store(new_sweep_quota, Ordering::Relaxed);
+                self.current_mark_quota_us
+                    .store(new_mark_quota, Ordering::Relaxed);
+                self.current_sweep_quota_us
+                    .store(new_sweep_quota, Ordering::Relaxed);
             }
             return;
         }
@@ -1207,28 +1214,32 @@ impl UnifiedGC {
                             0
                         }
                     };
-                    
+
                     if node_count > 0 {
                         // 创建节点信息列表
                         let mut nodes = Vec::new();
                         for i in 0..node_count {
                             let total_mem = unsafe {
                                 let mut size = 0u64;
-                                if libc::numa_node_size64(i as i32, &mut size as *mut u64 as *mut i64) == 0 {
+                                if libc::numa_node_size64(
+                                    i as i32,
+                                    &mut size as *mut u64 as *mut i64,
+                                ) == 0
+                                {
                                     size
                                 } else {
                                     0
                                 }
                             };
-                            
+
                             nodes.push(vm_mem::numa_allocator::NumaNodeInfo {
                                 node_id: i,
                                 total_memory: total_mem,
                                 available_memory: total_mem, // 简化：假设全部可用
-                                cpu_mask: 0, // 简化：不跟踪CPU掩码
+                                cpu_mask: 0,                 // 简化：不跟踪CPU掩码
                             });
                         }
-                        
+
                         if !nodes.is_empty() {
                             Some(Arc::new(vm_mem::numa_allocator::NumaAllocator::new(
                                 nodes,
@@ -1317,33 +1328,33 @@ impl UnifiedGC {
         }
 
         // 实现完整的对象晋升逻辑：
-        
+
         // 步骤1：估算对象大小
         // 使用固定大小估算（实际实现应从对象头获取）
         let estimated_object_size = 64u64; // 假设平均对象大小为64字节
-        
+
         // 步骤2：计算老年代中的新地址
         // 老年代从young_gen_start + young_gen_size开始
         let old_gen_start = self.young_gen_start + self.young_gen_size;
-        
+
         // 计算在年轻代中的偏移
         let young_gen_offset = addr.saturating_sub(self.young_gen_start);
-        
+
         // 新地址：老年代起始 + 偏移（保持相对位置）
         // 实际实现应使用空闲列表分配
         let new_addr = old_gen_start + young_gen_offset;
-        
+
         // 步骤3：记录地址映射（用于后续引用更新）
         // 这里假设有一个全局的地址映射表
         // 实际实现需要在GC周期中维护forwarding指针
-        
+
         // 步骤4：更新存活计数（晋升后重置计数）
         {
             let mut survival = self.object_survival_count.write().unwrap();
             survival.remove(&addr);
             survival.insert(new_addr, 0);
         }
-        
+
         // 步骤5：如果启用了card marking，标记包含新对象的card
         // 新对象可能包含指向年轻代的引用
         {
@@ -1352,14 +1363,16 @@ impl UnifiedGC {
                 card_table.mark_card(new_addr);
             }
         }
-        
+
         // 步骤6：更新GC统计
         self.stats.promoted_objects.fetch_add(1, Ordering::Relaxed);
-        self.stats.promoted_bytes.fetch_add(estimated_object_size, Ordering::Relaxed);
+        self.stats
+            .promoted_bytes
+            .fetch_add(estimated_object_size, Ordering::Relaxed);
 
         Ok(new_addr)
     }
-    
+
     /// 晋升对象到老年代（带对象大小参数）
     ///
     /// 当已知对象大小时使用此方法，避免大小估算
@@ -1401,7 +1414,9 @@ impl UnifiedGC {
         }
 
         self.stats.promoted_objects.fetch_add(1, Ordering::Relaxed);
-        self.stats.promoted_bytes.fetch_add(object_size, Ordering::Relaxed);
+        self.stats
+            .promoted_bytes
+            .fetch_add(object_size, Ordering::Relaxed);
 
         Ok(new_addr)
     }
@@ -1611,11 +1626,13 @@ impl UnifiedGC {
                         })?;
                         let ptr = std::alloc::alloc(layout);
                         if ptr.is_null() {
-                            Err(vm_core::VmError::Core(vm_core::CoreError::ResourceExhausted {
-                                resource: "memory".to_string(),
-                                current: 0,
-                                limit: 0,
-                            }))
+                            Err(vm_core::VmError::Core(
+                                vm_core::CoreError::ResourceExhausted {
+                                    resource: "memory".to_string(),
+                                    current: 0,
+                                    limit: 0,
+                                },
+                            ))
                         } else {
                             Ok(ptr)
                         }
@@ -1633,11 +1650,13 @@ impl UnifiedGC {
                 })?;
                 let ptr = std::alloc::alloc(layout);
                 if ptr.is_null() {
-                    Err(vm_core::VmError::Core(vm_core::CoreError::ResourceExhausted {
-                        resource: "memory".to_string(),
-                        current: 0,
-                        limit: 0,
-                    }))
+                    Err(vm_core::VmError::Core(
+                        vm_core::CoreError::ResourceExhausted {
+                            resource: "memory".to_string(),
+                            current: 0,
+                            limit: 0,
+                        },
+                    ))
                 } else {
                     Ok(ptr)
                 }
@@ -1680,7 +1699,7 @@ impl UnifiedGC {
     /// 返回：GC周期开始时间（用于后续计算总暂停时间）
     pub fn start_gc(&self, _roots: &[u64]) -> Instant {
         let cycle_start = Instant::now();
-        
+
         // 更新上次GC时间
         {
             let mut last_gc = self.last_gc_time.lock().unwrap();
@@ -1741,20 +1760,25 @@ impl UnifiedGC {
                         // 遍历对象的引用字段（使用启发式方法）
                         // 假设对象内的每8字节可能是一个引用
                         let object_size = 64u64; // 估算的对象大小
-                        
+
                         for offset in (0..object_size).step_by(8) {
                             let potential_ref = obj_addr + offset;
-                            
+
                             // 检查该引用是否指向年轻代
                             if self.get_generation(potential_ref) == Generation::Young {
                                 // 将年轻代对象加入标记栈
-                                if !self.marked_set.read().expect("lock").contains(&potential_ref) {
+                                if !self
+                                    .marked_set
+                                    .read()
+                                    .expect("lock")
+                                    .contains(&potential_ref)
+                                {
                                     let _ = self.mark_stack.push(potential_ref);
                                     marked_count += 1;
                                 }
                             }
                         }
-                        
+
                         // 同时将老年代对象本身加入标记栈（确保完整遍历）
                         if !self.marked_set.read().expect("lock").contains(&obj_addr) {
                             let _ = self.mark_stack.push(obj_addr);
@@ -2114,13 +2138,13 @@ mod tests {
         config.enable_generational = true;
         config.young_gen_ratio = 0.3;
         config.heap_size_limit = 1000;
-        
+
         let gc = UnifiedGC::new(config);
-        
+
         // 测试年轻代地址
         let young_addr = gc.young_gen_start + 100;
         assert_eq!(gc.get_generation(young_addr), Generation::Young);
-        
+
         // 测试老年代地址
         let old_addr = gc.young_gen_start + gc.young_gen_size + 100;
         assert_eq!(gc.get_generation(old_addr), Generation::Old);
@@ -2131,18 +2155,18 @@ mod tests {
         let mut config = UnifiedGcConfig::default();
         config.enable_generational = true;
         config.promotion_threshold = 3;
-        
+
         let gc = UnifiedGC::new(config);
         let young_addr = gc.young_gen_start + 100;
-        
+
         // 初始不应该晋升
         assert!(!gc.should_promote(young_addr));
-        
+
         // 记录存活3次
         for _ in 0..3 {
             gc.record_survival(young_addr);
         }
-        
+
         // 现在应该可以晋升
         assert!(gc.should_promote(young_addr));
     }
@@ -2152,17 +2176,17 @@ mod tests {
         let heap_start = 0x10000;
         let heap_size = 1024 * 1024; // 1MB
         let card_size = 512;
-        
+
         let card_table = CardTable::new(heap_start, heap_size, card_size);
-        
+
         // 标记一个card
         let test_addr = heap_start + 1000;
         card_table.mark_card(test_addr);
-        
+
         // 检查card是否被标记
         let marked_cards = card_table.get_marked_cards();
         assert!(!marked_cards.is_empty());
-        
+
         // 清除所有card
         card_table.clear_all_cards();
         let marked_cards_after_clear = card_table.get_marked_cards();
@@ -2174,9 +2198,9 @@ mod tests {
         let heap_start = 0x10000;
         let heap_size = 1024 * 1024;
         let card_size = 512;
-        
+
         let card_table = CardTable::new(heap_start, heap_size, card_size);
-        
+
         // 测试card地址范围
         let card_index = 5;
         if let Some((start, end)) = card_table.get_card_address_range(card_index) {
@@ -2190,21 +2214,21 @@ mod tests {
         let mut config = UnifiedGcConfig::default();
         config.enable_generational = true;
         config.promotion_threshold = 2;
-        
+
         let gc = UnifiedGC::new(config);
-        
+
         // 创建一些年轻代根对象
         let roots = vec![gc.young_gen_start + 100, gc.young_gen_start + 200];
-        
+
         // 记录存活次数
         for &root in &roots {
             gc.record_survival(root);
             gc.record_survival(root);
         }
-        
+
         // 执行Minor GC
         let promoted = gc.minor_gc(&roots);
-        
+
         // 应该有一些对象被晋升
         assert!(promoted >= 0);
     }
@@ -2237,7 +2261,7 @@ mod tests {
     #[test]
     fn test_write_barrier() {
         let gc = UnifiedGC::default();
-        let cycle_start = gc.start_gc(&[1]);
+        let _cycle_start = gc.start_gc(&[1]);
 
         // 调用写屏障
         gc.write_barrier(1, 2);
@@ -2266,7 +2290,7 @@ mod tests {
     fn test_unified_gc_creation() {
         let config = UnifiedGcConfig::default();
         let gc = UnifiedGC::new(config);
-        
+
         assert_eq!(gc.phase(), GCPhase::Idle);
     }
 
@@ -2277,10 +2301,10 @@ mod tests {
             ..Default::default()
         };
         let gc = UnifiedGC::new(config);
-        
+
         // 初始状态不应该触发GC
         assert!(!gc.should_trigger_gc());
-        
+
         // 更新堆使用量超过阈值
         gc.update_heap_usage(900);
         // 注意：should_trigger_gc的实现可能基于其他条件
@@ -2290,7 +2314,7 @@ mod tests {
     fn test_unified_gc_empty_roots() {
         let gc = UnifiedGC::default();
         let cycle_start = gc.start_gc(&[]);
-        
+
         // 即使没有根对象，GC也应该能启动
         assert_eq!(gc.phase(), GCPhase::Marking);
         gc.finish_gc(cycle_start);
@@ -2300,10 +2324,10 @@ mod tests {
     fn test_unified_gc_write_barrier() {
         let gc = UnifiedGC::default();
         let initial_calls = gc.stats().write_barrier_calls.load(Ordering::Relaxed);
-        
+
         gc.write_barrier(1, 2);
         gc.write_barrier(2, 3);
-        
+
         let new_calls = gc.stats().write_barrier_calls.load(Ordering::Relaxed);
         assert!(new_calls >= initial_calls + 2);
     }
@@ -2311,7 +2335,7 @@ mod tests {
     #[test]
     fn test_unified_gc_get_stats() {
         let gc = UnifiedGC::default();
-        let stats = gc.stats();
+        let _stats = gc.stats();
 
         assert_eq!(gc.phase(), GCPhase::Idle);
         assert_eq!(gc.get_heap_used(), 0);
@@ -2396,8 +2420,11 @@ mod tests {
         let pause_time = start_time.elapsed();
 
         // 验证暂停时间不超过1ms
-        assert!(pause_time < Duration::from_millis(1),
-                "GC pause time exceeded 1ms: {:?}", pause_time);
+        assert!(
+            pause_time < Duration::from_millis(1),
+            "GC pause time exceeded 1ms: {:?}",
+            pause_time
+        );
         assert!(marked_count >= 0);
 
         // 如果标记未完成，执行更多增量步骤
@@ -2407,8 +2434,11 @@ mod tests {
                 let (complete, count) = gc.incremental_mark();
                 let pause_time = start_time.elapsed();
 
-                assert!(pause_time < Duration::from_millis(1),
-                        "GC pause time exceeded 1ms in incremental step: {:?}", pause_time);
+                assert!(
+                    pause_time < Duration::from_millis(1),
+                    "GC pause time exceeded 1ms in incremental step: {:?}",
+                    pause_time
+                );
                 assert!(count >= 0);
 
                 if complete {
@@ -2421,12 +2451,15 @@ mod tests {
 
         // 执行增量清扫，测量暂停时间
         let start_time = std::time::Instant::now();
-        let (is_complete, freed_count) = gc.incremental_sweep();
+        let (_is_complete, freed_count) = gc.incremental_sweep();
         let pause_time = start_time.elapsed();
 
         // 验证暂停时间不超过1ms
-        assert!(pause_time < Duration::from_millis(1),
-                "GC sweep pause time exceeded 1ms: {:?}", pause_time);
+        assert!(
+            pause_time < Duration::from_millis(1),
+            "GC sweep pause time exceeded 1ms: {:?}",
+            pause_time
+        );
         assert!(freed_count >= 0);
 
         gc.finish_gc(cycle_start);

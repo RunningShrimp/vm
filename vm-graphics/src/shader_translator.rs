@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 /// 着色器语言
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ShaderLanguage {
     HLSL,  // DirectX
     GLSL,  // OpenGL
@@ -38,7 +38,7 @@ pub struct Shader {
 pub struct ShaderTranslator {
     /// 翻译缓存
     cache: HashMap<(String, ShaderLanguage, ShaderLanguage), String>,
-    
+
     /// 翻译统计
     stats: TranslatorStats,
 }
@@ -93,18 +93,10 @@ impl ShaderTranslator {
 
         // 执行翻译
         let translated = match (shader.language, target_language) {
-            (ShaderLanguage::HLSL, ShaderLanguage::GLSL) => {
-                self.hlsl_to_glsl(&shader.source)?
-            }
-            (ShaderLanguage::GLSL, ShaderLanguage::MSL) => {
-                self.glsl_to_msl(&shader.source)?
-            }
-            (ShaderLanguage::HLSL, ShaderLanguage::SPIRV) => {
-                self.hlsl_to_spirv(&shader.source)?
-            }
-            (ShaderLanguage::GLSL, ShaderLanguage::SPIRV) => {
-                self.glsl_to_spirv(&shader.source)?
-            }
+            (ShaderLanguage::HLSL, ShaderLanguage::GLSL) => self.hlsl_to_glsl(&shader.source)?,
+            (ShaderLanguage::GLSL, ShaderLanguage::MSL) => self.glsl_to_msl(&shader.source)?,
+            (ShaderLanguage::HLSL, ShaderLanguage::SPIRV) => self.hlsl_to_spirv(&shader.source)?,
+            (ShaderLanguage::GLSL, ShaderLanguage::SPIRV) => self.glsl_to_spirv(&shader.source)?,
             _ => {
                 return Err(ShaderError::UnsupportedTranslation {
                     from: shader.language,
@@ -159,7 +151,7 @@ impl ShaderTranslator {
     fn hlsl_to_spirv(&self, hlsl: &str) -> Result<String, ShaderError> {
         // 需要使用 glslang 或 SPIRV-Cross
         log::warn!("HLSL → SPIR-V translation requires external compiler");
-        
+
         // 临时返回占位符
         Ok(format!("// SPIR-V would be here\n{}", hlsl))
     }
@@ -167,7 +159,7 @@ impl ShaderTranslator {
     /// GLSL → SPIR-V 翻译
     fn glsl_to_spirv(&self, glsl: &str) -> Result<String, ShaderError> {
         log::warn!("GLSL → SPIR-V translation requires external compiler");
-        
+
         Ok(format!("// SPIR-V would be here\n{}", glsl))
     }
 
@@ -217,17 +209,19 @@ mod tests {
     #[test]
     fn test_hlsl_to_glsl() {
         let mut translator = ShaderTranslator::new();
-        
+
         let shader = Shader {
             name: "test_shader".to_string(),
             language: ShaderLanguage::HLSL,
             stage: ShaderStage::Fragment,
-            source: "float4 main(float2 pos : POSITION) : SV_Position { return float4(pos, 0, 1); }".to_string(),
+            source:
+                "float4 main(float2 pos : POSITION) : SV_Position { return float4(pos, 0, 1); }"
+                    .to_string(),
         };
-        
+
         let result = translator.translate(&shader, ShaderLanguage::GLSL);
         assert!(result.is_ok());
-        
+
         let translated = result.unwrap();
         assert!(translated.source.contains("vec4"));
         assert!(translated.source.contains("vec2"));
@@ -236,17 +230,17 @@ mod tests {
     #[test]
     fn test_glsl_to_msl() {
         let mut translator = ShaderTranslator::new();
-        
+
         let shader = Shader {
             name: "test_shader".to_string(),
             language: ShaderLanguage::GLSL,
             stage: ShaderStage::Vertex,
             source: "void main() { vec4 color = vec4(1.0); }".to_string(),
         };
-        
+
         let result = translator.translate(&shader, ShaderLanguage::MSL);
         assert!(result.is_ok());
-        
+
         let translated = result.unwrap();
         assert!(translated.source.contains("float4"));
     }
@@ -254,18 +248,18 @@ mod tests {
     #[test]
     fn test_translation_caching() {
         let mut translator = ShaderTranslator::new();
-        
+
         let shader = Shader {
             name: "cached_shader".to_string(),
             language: ShaderLanguage::HLSL,
             stage: ShaderStage::Fragment,
             source: "float4 main() { return float4(1, 0, 0, 1); }".to_string(),
         };
-        
+
         // 第一次翻译
         let _ = translator.translate(&shader, ShaderLanguage::GLSL).unwrap();
         assert_eq!(translator.stats.cache_misses, 1);
-        
+
         // 第二次翻译（应该命中缓存）
         let _ = translator.translate(&shader, ShaderLanguage::GLSL).unwrap();
         assert_eq!(translator.stats.cache_hits, 1);
@@ -274,14 +268,14 @@ mod tests {
     #[test]
     fn test_unsupported_translation() {
         let mut translator = ShaderTranslator::new();
-        
+
         let shader = Shader {
             name: "test".to_string(),
             language: ShaderLanguage::SPIRV,
             stage: ShaderStage::Compute,
             source: "// SPIR-V".to_string(),
         };
-        
+
         let result = translator.translate(&shader, ShaderLanguage::HLSL);
         assert!(result.is_err());
     }

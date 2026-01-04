@@ -1,10 +1,9 @@
-//! 内存操作性能基准测试
-use vm_core::AddressTranslator;
-//!
-//! 测试物理内存管理器的读写吞吐量
-
+///
+/// 测试物理内存管理器的读写吞吐量
 // Use std::hint::black_box instead of criterion's deprecated version
 use std::hint::black_box;
+/// 内存操作性能基准测试
+use vm_core::AddressTranslator;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use vm_core::mmu_traits::MemoryAccess;
@@ -60,8 +59,13 @@ fn bench_memory_write_throughput(c: &mut Criterion) {
 fn bench_bulk_memory_read(c: &mut Criterion) {
     let mut group = c.benchmark_group("bulk_memory_read");
 
-    let mem = PhysicalMemory::new(1024 * 1024 * 1024, false);
+    let mut mem = PhysicalMemory::new(1024 * 1024 * 1024, false);
     let test_addr = vm_core::GuestAddr(0x1000);
+
+    // 预先写入测试数据
+    for i in 0..(65536 / 8) {
+        let _ = mem.write(test_addr + i * 8, 0xABCD1234567890EF_u64, 8);
+    }
 
     for size in [256, 1024, 4096, 16384, 65536].iter() {
         group.throughput(Throughput::Bytes(*size as u64));

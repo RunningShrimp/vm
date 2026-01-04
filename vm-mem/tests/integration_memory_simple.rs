@@ -1,7 +1,7 @@
 //! 简化的集成测试 - 测试核心功能
 //! 使用当前API
 
-use vm_core::{GuestAddr, GuestPhysAddr, MemoryAccess, VmError};
+use vm_core::{GuestAddr, MemoryAccess};
 use vm_mem::{
     UnifiedMmu, UnifiedMmuConfig,
     optimization::unified::{MemoryManagerFactory, MemoryPool, PhysicalMemoryManager},
@@ -53,7 +53,7 @@ fn test_memory_pool_basic() {
     pool.deallocate(addr1).unwrap();
 
     // 测试重新分配
-    let addr3 = pool.allocate(512).unwrap();
+    let _addr3 = pool.allocate(512).unwrap();
     // addr3应该重用addr1或使用新地址
 }
 

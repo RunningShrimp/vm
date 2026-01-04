@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_cache_basic() {
-        let mut cache = CodeCache::new(10);
+        let cache = CodeCache::new(10);
         assert!(cache.is_empty());
         assert_eq!(cache.len(), 0);
     }

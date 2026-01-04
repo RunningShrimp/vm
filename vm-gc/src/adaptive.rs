@@ -670,7 +670,7 @@ mod tests {
     #[test]
     fn test_record_metrics() {
         let config = AdaptiveGCConfig::default();
-        let tuner = AdaptiveGCTuner::new(config);
+        let mut tuner = AdaptiveGCTuner::new(config);
 
         let metrics = create_test_metrics();
         tuner.record_metrics(metrics.clone());

@@ -5,22 +5,23 @@
 //! ## 当前状态
 //!
 //! - **开发状态**: 🚧 Work In Progress
-//! - **功能完整性**: ~10%（仅API stubs）
-//! - **生产就绪**: ❌ 不推荐用于生产环境
+//! - **功能完整性**: ~30%（内存管理已实现）
+//! - **生产就绪**: ⚠️ 仅推荐用于开发环境
 //!
 //! ## 已实现功能
 //!
 //! - ✅ 基础API接口定义
 //! - ✅ 设备信息结构体
-//! - ✅ 内存管理接口
+//! - ✅ 内存管理 (hipMalloc/hipFree)
+//! - ✅ HIP FFI声明
 //! - ✅ 流管理接口
 //!
 //! ## 待实现功能
 //!
 //! - ⏳ 实际的ROCm设备初始化
-//! - ⏳ HIP API实现
-//! - ⏳ 内存操作实现
+//! - ⏳ 内存拷贝操作
 //! - ⏳ 流同步实现
+//! - ⏳ Kernel执行
 //!
 //! ## 依赖项
 //!
@@ -40,9 +41,85 @@
 //! 3. 联系维护者review
 //! 4. 提交PR并包含测试用例
 
+use std::os::raw::{c_char, c_int, c_uint, c_void};
 use std::ptr;
 
 use super::{PassthroughError, PciAddress};
+
+// HIP Error codes
+pub const HIP_SUCCESS: c_int = 0;
+pub const HIP_ERROR_OUT_OF_MEMORY: c_int = 2;
+pub const HIP_ERROR_INVALID_VALUE: c_int = 11;
+pub const HIP_ERROR_INVALID_DEVICE: c_int = 101;
+
+// Memory copy kinds
+pub const HIP_MEMCPY_HOST_TO_DEVICE: c_uint = 1;
+pub const HIP_MEMCPY_DEVICE_TO_HOST: c_uint = 2;
+
+// FFI declarations for HIP API
+#[cfg(feature = "rocm")]
+extern "C" {
+    /// Initialize HIP
+    fn hipInit(flags: c_uint) -> c_int;
+
+    /// Get device
+    fn hipDeviceGet(device: *mut *mut c_void, device_id: c_int) -> c_int;
+
+    /// Get device name
+    fn hipDeviceGetName(name: *mut c_char, len: c_int, device: *mut c_void) -> c_int;
+
+    /// Get device total memory
+    fn hipDeviceGetInfo(
+        info: *mut c_void,
+        info_size: c_int,
+        device: *mut c_void,
+        attr: c_int,
+    ) -> c_int;
+
+    /// Get device attribute
+    fn hipDeviceGetAttribute(pi: *mut c_int, attr: c_int, device: *mut c_void) -> c_int;
+
+    /// Get total memory
+    fn hipMemGetInfo(free: *mut usize, total: *mut usize) -> c_int;
+
+    /// Allocate device memory
+    fn hipMalloc(ptr: *mut *mut c_void, size: usize) -> c_int;
+
+    /// Free device memory
+    fn hipFree(ptr: *mut c_void) -> c_int;
+
+    /// Create a stream
+    fn hipStreamCreate(stream: *mut *mut c_void) -> c_int;
+
+    /// Destroy a stream
+    fn hipStreamDestroy(stream: *mut c_void) -> c_int;
+
+    /// Synchronize a stream
+    fn hipStreamSynchronize(stream: *mut c_void) -> c_int;
+
+    /// Copy memory from host to device asynchronously
+    fn hipMemcpyHtoDAsync(
+        dst: *mut c_void,
+        src: *const c_void,
+        size: usize,
+        stream: *mut c_void,
+    ) -> c_int;
+
+    /// Copy memory from device to host asynchronously
+    fn hipMemcpyDtoHAsync(
+        dst: *mut c_void,
+        src: *const c_void,
+        size: usize,
+        stream: *mut c_void,
+    ) -> c_int;
+
+    /// Copy memory synchronously
+    fn hipMemcpy(dst: *mut c_void, src: *const c_void, size: usize, kind: c_uint) -> c_int;
+}
+
+// Device attributes
+#[cfg(feature = "rocm")]
+pub const HIP_DEVICE_ATTRIBUTE_TOTAL_MEM: c_int = 7;
 
 /// ROCm 设备指针
 #[derive(Debug, Clone, Copy)]
@@ -181,42 +258,78 @@ impl RocmAccelerator {
     pub fn malloc(&self, size: usize) -> Result<RocmDevicePtr, PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // #[cfg(feature = "rocm")]
-            // WIP: 使用 hipMalloc 分配内存
-            //
-            // 当前状态: API stub已定义，等待完整实现
-            // 优先级: P1（功能完整性）
-            //
-            // 实现要点:
-            // - 使用hipMalloc分配GPU内存
-            // - 处理内存不足错误
-            // - 支持对齐分配
-            log::warn!("ROCm malloc not yet implemented");
+            use std::ffi::c_void;
+
+            log::trace!("Allocating {} bytes on ROCm device", size);
+
+            let mut d_ptr = ptr::null_mut::<c_void>();
+            unsafe {
+                let result = hipMalloc(&mut d_ptr, size);
+                if result != HIP_SUCCESS {
+                    let error_msg = match result {
+                        HIP_ERROR_OUT_OF_MEMORY => {
+                            format!("ROCm out of memory: failed to allocate {} bytes", size)
+                        }
+                        HIP_ERROR_INVALID_VALUE => {
+                            format!("ROCm invalid allocation size: {}", size)
+                        }
+                        _ => format!("ROCm malloc failed with error code: {}", result),
+                    };
+                    log::error!("{}", error_msg);
+                    return Err(PassthroughError::DriverBindingFailed(error_msg));
+                }
+            }
+
+            log::trace!("Successfully allocated {} bytes at {:?}", size, d_ptr);
+
+            Ok(RocmDevicePtr {
+                ptr: d_ptr as u64,
+                size,
+            })
         }
 
         #[cfg(not(feature = "rocm"))]
         {
             log::trace!("Mock ROCm malloc: {} bytes", size);
+            Ok(RocmDevicePtr { ptr: 0, size })
         }
-
-        Ok(RocmDevicePtr { ptr: 0, size })
     }
 
     /// 释放 GPU 内存
-    pub fn free(&self, _d_ptr: RocmDevicePtr) -> Result<(), PassthroughError> {
+    pub fn free(&self, d_ptr: RocmDevicePtr) -> Result<(), PassthroughError> {
         #[cfg(feature = "rocm")]
         {
-            // #[cfg(feature = "rocm")]
-            // WIP: 使用 hipFree 释放内存
-            //
-            // 当前状态: API stub已定义，等待完整实现
-            // 优先级: P1（功能完整性）
-            //
-            // 实现要点:
-            // - 使用hipFree释放GPU内存
-            // - 处理无效指针错误
-            // - 支持批量释放
-            log::warn!("ROCm free not yet implemented");
+            use std::ffi::c_void;
+
+            log::trace!(
+                "Freeing {} bytes at {:?} on ROCm device",
+                d_ptr.size,
+                d_ptr.ptr as *mut c_void
+            );
+
+            if d_ptr.ptr == 0 {
+                log::warn!("Attempted to free null pointer");
+                return Ok(());
+            }
+
+            unsafe {
+                let result = hipFree(d_ptr.ptr as *mut c_void);
+                if result != HIP_SUCCESS {
+                    let error_msg = match result {
+                        HIP_ERROR_INVALID_VALUE => {
+                            format!("ROCm invalid pointer: {:?}", d_ptr.ptr as *mut c_void)
+                        }
+                        _ => format!("ROCm free failed with error code: {}", result),
+                    };
+                    log::error!("{}", error_msg);
+                    return Err(PassthroughError::DriverBindingFailed(error_msg));
+                }
+            }
+
+            log::trace!(
+                "Successfully freed memory at {:?}",
+                d_ptr.ptr as *mut c_void
+            );
         }
 
         #[cfg(not(feature = "rocm"))]

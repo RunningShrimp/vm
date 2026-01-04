@@ -2,7 +2,7 @@
 //!
 //! Updated to use unified_mmu_v2::HybridMMU
 
-use vm_core::{AccessType, GuestAddr, VmError};
+use vm_core::GuestAddr;
 use vm_mem::unified_mmu_v2::{HybridMMU, UnifiedMMU, UnifiedMmuConfigV2};
 
 /// Create a test MMU with v2 API
@@ -13,7 +13,7 @@ fn create_test_mmu() -> HybridMMU {
 
 #[test]
 fn test_mmu_initialization() {
-    let mmu = create_test_mmu();
+    let _mmu = create_test_mmu();
     // MMU created successfully - basic sanity check
     assert!(true);
 }
@@ -76,7 +76,7 @@ fn test_error_handling() {
 
     // Try to read/write beyond allocated memory
     let large_addr = GuestAddr(0xFFFFFFFFFFFFFFF0u64);
-    let write_result = mmu.write(large_addr, 0x42, 1);
+    let _write_result = mmu.write(large_addr, 0x42, 1);
     // Should either fail or handle gracefully
     // (depends on MMU implementation)
 }

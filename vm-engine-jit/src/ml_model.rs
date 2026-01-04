@@ -4,11 +4,11 @@
 
 use crate::ml_guided_jit::{CompilationDecision, ExecutionFeatures};
 use crate::pgo::{BlockProfile, ProfileData};
-use vm_core::GuestAddr;
-use vm_ir::{IRBlock, IROp, Terminator};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use vm_core::GuestAddr;
+use vm_ir::{IRBlock, IROp, Terminator};
 
 /// ML模型接口
 pub trait MLModel: Send + Sync {
@@ -16,13 +16,20 @@ pub trait MLModel: Send + Sync {
     fn predict(&self, features: &ExecutionFeatures) -> CompilationDecision;
 
     /// 更新模型（在线学习）
-    fn update(&mut self, features: &ExecutionFeatures, actual_decision: CompilationDecision, performance: f64);
+    fn update(
+        &mut self,
+        features: &ExecutionFeatures,
+        actual_decision: CompilationDecision,
+        performance: f64,
+    );
 
     /// 保存模型
     fn save(&self, path: &str) -> Result<(), String>;
 
     /// 加载模型（静态方法，不能通过 dyn 调用）
-    fn load(path: &str) -> Result<Box<dyn MLModel>, String> where Self: Sized;
+    fn load(path: &str) -> Result<Box<dyn MLModel>, String>
+    where
+        Self: Sized;
 
     /// 获取模型统计信息
     ///
@@ -132,7 +139,7 @@ impl LinearRegressionModel {
 
         ModelStatistics {
             training_samples: self.training_samples,
-            avg_performance: avg_performance,
+            avg_performance,
             weights: self.weights.clone(),
         }
     }
@@ -155,7 +162,12 @@ impl MLModel for LinearRegressionModel {
         Self::score_to_decision(score)
     }
 
-    fn update(&mut self, features: &ExecutionFeatures, actual_decision: CompilationDecision, performance: f64) {
+    fn update(
+        &mut self,
+        features: &ExecutionFeatures,
+        actual_decision: CompilationDecision,
+        performance: f64,
+    ) {
         let feature_vector = Self::extract_features(features);
         let predicted_score = self.compute_score(&feature_vector);
         let target_score = Self::decision_to_target_score(actual_decision);
@@ -186,8 +198,7 @@ impl MLModel for LinearRegressionModel {
 
         let json = serde_json::to_string_pretty(&model_data)
             .map_err(|e| format!("Failed to serialize model: {}", e))?;
-        std::fs::write(path, json)
-            .map_err(|e| format!("Failed to write model file: {}", e))?;
+        std::fs::write(path, json).map_err(|e| format!("Failed to write model file: {}", e))?;
         Ok(())
     }
 
@@ -241,10 +252,7 @@ impl FeatureExtractor {
                 IROp::Load { .. } | IROp::Store { .. } => {
                     memory_access_count += 1;
                 }
-                IROp::Beq { .. }
-                | IROp::Bne { .. }
-                | IROp::Blt { .. }
-                | IROp::Bge { .. } => {
+                IROp::Beq { .. } | IROp::Bne { .. } | IROp::Blt { .. } | IROp::Bge { .. } => {
                     branch_count += 1;
                 }
                 _ => {}
@@ -264,19 +272,22 @@ impl FeatureExtractor {
             block.ops.len(),
             branch_count,
             memory_access_count,
-            0,      // execution_count - 初始为0
-            0.0,    // cache_hit_rate - 初始为0.0
-            0.0,    // avg_block_time_us - 初始为0.0
+            0,   // execution_count - 初始为0
+            0.0, // cache_hit_rate - 初始为0.0
+            0.0, // avg_block_time_us - 初始为0.0
         )
     }
 
     /// 从PGO Profile数据提取特征
-    pub fn extract_from_pgo_profile(pc: GuestAddr, profile: &ProfileData) -> Option<ExecutionFeatures> {
+    pub fn extract_from_pgo_profile(
+        pc: GuestAddr,
+        profile: &ProfileData,
+    ) -> Option<ExecutionFeatures> {
         if let Some(block_profile) = profile.block_profiles.get(&(pc.0 as usize)) {
             Some(ExecutionFeatures {
-                block_size: 0, // 需要从其他地方获取
-                instr_count: 0, // 需要从其他地方获取
-                branch_count: 0, // 需要从其他地方获取
+                block_size: 0,          // 需要从其他地方获取
+                instr_count: 0,         // 需要从其他地方获取
+                branch_count: 0,        // 需要从其他地方获取
                 memory_access_count: 0, // 需要从其他地方获取
                 execution_count: block_profile.execution_count,
                 avg_block_time_us: (block_profile.avg_duration_ns as f64) / 1000.0,
@@ -290,9 +301,9 @@ impl FeatureExtractor {
     /// 从BlockProfile提取特征
     pub fn extract_from_block_profile(block_profile: &BlockProfile) -> ExecutionFeatures {
         ExecutionFeatures {
-            block_size: 0, // 需要从其他地方获取
-            instr_count: 0, // 需要从其他地方获取
-            branch_count: 0, // 需要从其他地方获取
+            block_size: 0,          // 需要从其他地方获取
+            instr_count: 0,         // 需要从其他地方获取
+            branch_count: 0,        // 需要从其他地方获取
             memory_access_count: 0, // 需要从其他地方获取
             execution_count: block_profile.execution_count,
             avg_block_time_us: (block_profile.avg_duration_ns as f64) / 1000.0,
@@ -373,7 +384,8 @@ impl OnlineLearner {
 
         // 清理旧样本（保留最近1000个）
         if self.training_buffer.len() > 1000 {
-            self.training_buffer.drain(0..self.training_buffer.len() - 1000);
+            self.training_buffer
+                .drain(0..self.training_buffer.len() - 1000);
         }
 
         self.last_update_time = Instant::now();
@@ -509,19 +521,18 @@ mod tests {
         let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
 
         // 初始预测
-        let initial_decision = model.predict(&features);
+        let _initial_decision = model.predict(&features);
 
         // 更新模型
         model.update(&features, CompilationDecision::OptimizedJit, 1.5);
 
         // 再次预测（应该更接近OptimizedJit）
-        let updated_decision = model.predict(&features);
+        let _updated_decision = model.predict(&features);
         // 注意：由于学习率较小，可能需要多次更新才能看到明显变化
     }
 
     #[test]
     fn test_feature_extractor() {
-
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
             ops: vec![
@@ -532,7 +543,11 @@ mod tests {
                     size: 8,
                     flags: vm_ir::MemFlags::default(),
                 },
-                IROp::Add { dst: 1, src1: 1, src2: 3 },
+                IROp::Add {
+                    dst: 1,
+                    src1: 1,
+                    src2: 3,
+                },
                 IROp::Store {
                     src: 1,
                     base: 2,
@@ -614,7 +629,7 @@ mod tests {
     #[test]
     fn test_model_statistics_through_trait() {
         let model = LinearRegressionModel::new(0.01);
-        let features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
+        let _features = ExecutionFeatures::new(100, 20, 2, 5, 10, 0.8, 50.0);
 
         // 通过trait引用测试
         let trait_model: &dyn MLModel = &model;
@@ -731,4 +746,3 @@ mod tests {
         assert_eq!(stats.weights[5], 0.07); // cache_hit_rate
     }
 }
-

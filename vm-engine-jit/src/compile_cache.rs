@@ -3,10 +3,10 @@
 //! 缓存编译后的代码，避免重复编译相同的IR块。
 
 use crate::compiler_backend::CompilerError;
-use vm_ir::IRBlock;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use vm_ir::IRBlock;
 
 /// 编译缓存
 pub struct CompileCache {
@@ -33,25 +33,29 @@ impl CompileCache {
             misses: 0,
         }
     }
-    
+
     /// 获取或编译代码
-    pub fn get_or_compile<F>(&mut self, block: &IRBlock, compile_fn: F) -> Result<Vec<u8>, CompilerError>
+    pub fn get_or_compile<F>(
+        &mut self,
+        block: &IRBlock,
+        compile_fn: F,
+    ) -> Result<Vec<u8>, CompilerError>
     where
         F: FnOnce(&IRBlock) -> Result<Vec<u8>, CompilerError>,
     {
         let hash = self.calculate_hash(block);
-        
+
         if let Some(code) = self.cache.get(&hash) {
             self.hits += 1;
             return Ok(code.clone());
         }
-        
+
         self.misses += 1;
         let code = compile_fn(block)?;
         self.insert(hash, code.clone());
         Ok(code)
     }
-    
+
     /// 插入缓存
     pub fn insert(&mut self, hash: u64, code: Vec<u8>) {
         // 检查缓存是否已满
@@ -63,7 +67,7 @@ impl CompileCache {
         self.cache.insert(hash, code);
         self.current_size += code_len;
     }
-    
+
     /// 计算IR块的哈希值
     fn calculate_hash(&self, block: &IRBlock) -> u64 {
         let mut hasher = DefaultHasher::new();
@@ -82,25 +86,30 @@ impl CompileCache {
 
         hasher.finish()
     }
-    
+
     /// 使用LRU策略驱逐缓存项
     fn evict_lru(&mut self) {
         // 简化实现：清除一半缓存
-        let keys_to_remove: Vec<u64> = self.cache.keys().take(self.cache.len() / 2).cloned().collect();
-        
+        let keys_to_remove: Vec<u64> = self
+            .cache
+            .keys()
+            .take(self.cache.len() / 2)
+            .cloned()
+            .collect();
+
         for key in keys_to_remove {
             if let Some(code) = self.cache.remove(&key) {
                 self.current_size -= code.len();
             }
         }
     }
-    
+
     /// 清空缓存
     pub fn clear(&mut self) {
         self.cache.clear();
         self.current_size = 0;
     }
-    
+
     /// 获取缓存命中率
     pub fn hit_rate(&self) -> f64 {
         let total = self.hits + self.misses;
@@ -110,7 +119,7 @@ impl CompileCache {
             self.hits as f64 / total as f64
         }
     }
-    
+
     /// 获取缓存统计信息
     pub fn get_stats(&self) -> CacheStats {
         CacheStats {
@@ -186,7 +195,7 @@ impl CacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_compile_cache() {
         let mut cache = CompileCache::new(1024);
@@ -215,5 +224,3 @@ mod tests {
         assert_eq!(stats.hit_rate, 0.5);
     }
 }
-
-

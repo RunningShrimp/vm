@@ -1,0 +1,698 @@
+/* ========================================
+   分子组件 (Molecules)
+   由原子组件组成的简单功能单元
+   ======================================== */
+
+/* ========================================
+   表单组分子
+   ======================================== */
+
+.mol-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.mol-form-group--inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+}
+
+.mol-form-group--inline .atom-label {
+    margin-bottom: 0;
+    min-width: 120px;
+}
+
+.mol-form-group--horizontal {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.mol-form-group__label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.mol-form-group__hint {
+    font-size: 0.75rem;
+    color: var(--text-tertiary, #9ca3af);
+    margin-top: 0.25rem;
+}
+
+.mol-form-group__error {
+    font-size: 0.875rem;
+    color: var(--danger-color, #ef4444);
+    margin-top: 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.mol-form-group__error::before {
+    content: "⚠";
+    font-size: 1rem;
+}
+
+/* ========================================
+   搜索栏分子
+   ======================================== */
+
+.mol-search-bar {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    width: 100%;
+    max-width: 600px;
+}
+
+.mol-search-bar__input {
+    flex: 1;
+}
+
+.mol-search-bar__button {
+    flex-shrink: 0;
+}
+
+.mol-search-bar--compact {
+    max-width: 400px;
+}
+
+.mol-search-bar--full {
+    max-width: 100%;
+}
+
+/* ========================================
+   工具栏分子
+   ======================================== */
+
+.mol-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-primary, #ffffff);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.mol-toolbar__left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+}
+
+.mol-toolbar__right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+
+.mol-toolbar__title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0;
+}
+
+.mol-toolbar__description {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+}
+
+.mol-toolbar--vertical {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.mol-toolbar--vertical .mol-toolbar__left,
+.mol-toolbar--vertical .mol-toolbar__right {
+    width: 100%;
+    justify-content: center;
+}
+
+/* ========================================
+   统计卡片分子
+   ======================================== */
+
+.mol-stat-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    transition: all 0.2s ease;
+}
+
+.mol-stat-card:hover {
+    box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+    transform: translateY(-2px);
+}
+
+.mol-stat-card__icon {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary, #f9fafb);
+    border-radius: var(--radius-md, 8px);
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.mol-stat-card__content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.mol-stat-card__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary, #111827);
+    line-height: 1.2;
+}
+
+.mol-stat-card__label {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+    font-weight: 500;
+}
+
+.mol-stat-card__trend {
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.mol-stat-card__trend--up {
+    color: var(--success-color, #10b981);
+}
+
+.mol-stat-card__trend--down {
+    color: var(--danger-color, #ef4444);
+}
+
+.mol-stat-card__trend--neutral {
+    color: var(--text-tertiary, #9ca3af);
+}
+
+/* ========================================
+   指标显示分子
+   ======================================== */
+
+.mol-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mol-metric__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.mol-metric__label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary, #6b7280);
+}
+
+.mol-metric__value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+}
+
+.mol-metric__progress {
+    width: 100%;
+}
+
+.mol-metric--horizontal {
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+}
+
+.mol-metric--horizontal .mol-metric__progress {
+    flex: 1;
+}
+
+.mol-metric--compact {
+    gap: 0.25rem;
+}
+
+.mol-metric--compact .mol-metric__label {
+    font-size: 0.75rem;
+}
+
+.mol-metric--compact .mol-metric__value {
+    font-size: 0.875rem;
+}
+
+/* ========================================
+   面包屑分子
+   ======================================== */
+
+.mol-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+}
+
+.mol-breadcrumb__item {
+    display: flex;
+    align-items: center;
+    color: var(--text-secondary, #6b7280);
+    font-size: 0.875rem;
+}
+
+.mol-breadcrumb__item--active {
+    color: var(--text-primary, #111827);
+    font-weight: 500;
+}
+
+.mol-breadcrumb__item:not(:last-child)::after {
+    content: "/";
+    margin-left: 0.5rem;
+    color: var(--text-tertiary, #9ca3af);
+}
+
+.mol-breadcrumb__link {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.mol-breadcrumb__link:hover {
+    color: var(--primary-color, #6366f1);
+}
+
+/* ========================================
+   分页分子
+   ======================================== */
+
+.mol-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem;
+}
+
+.mol-pagination__info {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0 1rem;
+}
+
+.mol-pagination__button {
+    min-width: 36px;
+    height: 36px;
+    padding: 0 0.75rem;
+}
+
+.mol-pagination__button--active {
+    background: var(--primary-color, #6366f1);
+    color: white;
+    border-color: var(--primary-color, #6366f1);
+}
+
+/* ========================================
+   标签页分子
+   ======================================== */
+
+.mol-tabs {
+    display: flex;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: 0 1rem;
+}
+
+.mol-tabs__item {
+    padding: 0.75rem 1rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary, #6b7280);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.mol-tabs__item:hover {
+    color: var(--primary-color, #6366f1);
+}
+
+.mol-tabs__item--active {
+    color: var(--primary-color, #6366f1);
+    border-bottom-color: var(--primary-color, #6366f1);
+}
+
+.mol-tabs--vertical {
+    flex-direction: column;
+    border-bottom: none;
+    border-right: 1px solid var(--border-color, #e5e7eb);
+    padding: 1rem 0;
+}
+
+.mol-tabs--vertical .mol-tabs__item {
+    border-bottom: none;
+    border-right: 2px solid transparent;
+    padding: 0.75rem 1rem;
+    text-align: left;
+}
+
+.mol-tabs--vertical .mol-tabs__item--active {
+    border-right-color: var(--primary-color, #6366f1);
+}
+
+/* ========================================
+   下拉菜单分子
+   ======================================== */
+
+.mol-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.mol-dropdown__menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 0.5rem;
+    min-width: 200px;
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+    z-index: 1000;
+    display: none;
+}
+
+.mol-dropdown--open .mol-dropdown__menu {
+    display: block;
+}
+
+.mol-dropdown__item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    color: var(--text-primary, #111827);
+    font-size: 0.9375rem;
+    text-decoration: none;
+    transition: background 0.2s ease;
+}
+
+.mol-dropdown__item:hover {
+    background: var(--bg-secondary, #f9fafb);
+}
+
+.mol-dropdown__item--danger {
+    color: var(--danger-color, #ef4444);
+}
+
+.mol-dropdown__divider {
+    height: 1px;
+    background: var(--border-color, #e5e7eb);
+    margin: 0.25rem 0;
+}
+
+/* ========================================
+   开关分子
+   ======================================== */
+
+.mol-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+}
+
+.mol-switch__input {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: var(--bg-tertiary, #f3f4f6);
+    border-radius: 12px;
+    border: 2px solid var(--border-color, #e5e7eb);
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.mol-switch__input::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.mol-switch__input:checked {
+    background: var(--primary-color, #6366f1);
+    border-color: var(--primary-color, #6366f1);
+}
+
+.mol-switch__input:checked::after {
+    left: calc(100% - 18px);
+}
+
+.mol-switch__label {
+    font-size: 0.9375rem;
+    color: var(--text-primary, #111827);
+}
+
+/* ========================================
+   复选框组分子
+   ======================================== */
+
+.mol-checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mol-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+}
+
+.mol-checkbox-item__input {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-color, #e5e7eb);
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.mol-checkbox-item__label {
+    font-size: 0.9375rem;
+    color: var(--text-primary, #111827);
+}
+
+/* ========================================
+   单选框组分子
+   ======================================== */
+
+.mol-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mol-radio-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+}
+
+.mol-radio-item__input {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-color, #e5e7eb);
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.mol-radio-item__label {
+    font-size: 0.9375rem;
+    color: var(--text-primary, #111827);
+}
+
+/* ========================================
+   提示框分子
+   ======================================== */
+
+.mol-alert {
+    display: flex;
+    align-items: start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: var(--radius-md, 8px);
+    border: 1px solid transparent;
+}
+
+.mol-alert__icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.mol-alert__content {
+    flex: 1;
+}
+
+.mol-alert__title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem 0;
+}
+
+.mol-alert__message {
+    font-size: 0.875rem;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.mol-alert--info {
+    background: #dbeafe;
+    border-color: #93c5fd;
+    color: #1e40af;
+}
+
+.mol-alert--success {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+    color: #065f46;
+}
+
+.mol-alert--warning {
+    background: #fef3c7;
+    border-color: #fcd34d;
+    color: #92400e;
+}
+
+.mol-alert--danger {
+    background: #fee2e2;
+    border-color: #fca5a5;
+    color: #991b1b;
+}
+
+/* ========================================
+   工具提示分子
+   ======================================== */
+
+.mol-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.mol-tooltip__content {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--text-primary, #111827);
+    color: white;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    border-radius: var(--radius-sm, 6px);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+    z-index: 1000;
+}
+
+.mol-tooltip:hover .mol-tooltip__content {
+    opacity: 1;
+    visibility: visible;
+}
+
+.mol-tooltip--top .mol-tooltip__content {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.mol-tooltip--bottom .mol-tooltip__content {
+    top: 100%;
+    bottom: auto;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.mol-tooltip--left .mol-tooltip__content {
+    top: 50%;
+    bottom: auto;
+    left: 0;
+    right: auto;
+    transform: translateY(-50%);
+}
+
+.mol-tooltip--right .mol-tooltip__content {
+    top: 50%;
+    bottom: auto;
+    left: 100%;
+    right: auto;
+    transform: translateY(-50%);
+}
+
+/* ========================================
+   头像组分子
+   ======================================== */
+
+.mol-avatar-group {
+    display: flex;
+    align-items: center;
+}
+
+.mol-avatar-group__avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid white;
+    margin-left: -8px;
+    background: var(--primary-color, #6366f1);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.mol-avatar-group__avatar:first-child {
+    margin-left: 0;
+}
+
+.mol-avatar-group__more {
+    background: var(--bg-tertiary, #f3f4f6);
+    color: var(--text-secondary, #6b7280);
+}

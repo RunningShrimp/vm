@@ -6,6 +6,6 @@ pub mod dxvk;
 pub mod input_mapper;
 pub mod shader_translator;
 
-pub use dxvk::{DxvkTranslator, DxCommand, DxvkError, DxvkStats};
-pub use input_mapper::{InputMapper, HostInput, InputPreset, VmInputDevice, VmInputCode};
-pub use shader_translator::{Shader, ShaderLanguage, ShaderStage, ShaderTranslator, ShaderError};
+pub use dxvk::{DxCommand, DxvkError, DxvkStats, DxvkTranslator};
+pub use input_mapper::{HostInput, InputMapper, InputPreset, VmInputCode, VmInputDevice};
+pub use shader_translator::{Shader, ShaderError, ShaderLanguage, ShaderStage, ShaderTranslator};

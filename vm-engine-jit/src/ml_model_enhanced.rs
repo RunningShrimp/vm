@@ -2,8 +2,8 @@
 //!
 //! 为JIT编译决策提供增强的特征工程支持。
 
-use vm_ir::IRBlock;
 use std::collections::{HashMap, HashSet};
+use vm_ir::IRBlock;
 use vm_ir::{GuestAddr, RegId};
 
 /// 分支信息
@@ -237,35 +237,34 @@ impl FeatureExtractorEnhanced {
     fn analyze_instruction_mix(&self, block: &IRBlock) -> InstMixFeatures {
         let mut arithmetic = 0usize;
         let mut memory = 0usize;
-        let mut branch = 0usize;
+        let branch = 0usize;
         let mut vector = 0usize;
-        let mut float = 0usize;
-        let mut call = 0usize;
+        let float = 0usize;
+        let call = 0usize;
 
         for op in &block.ops {
             match op {
                 // 算术指令
-                vm_ir::IROp::Add { .. } |
-                vm_ir::IROp::Sub { .. } |
-                vm_ir::IROp::Mul { .. } |
-                vm_ir::IROp::Div { .. } |
-                vm_ir::IROp::Rem { .. } |
-                vm_ir::IROp::And { .. } |
-                vm_ir::IROp::Or { .. } |
-                vm_ir::IROp::Xor { .. } |
-                vm_ir::IROp::Not { .. } |
-                vm_ir::IROp::Sll { .. } |
-                vm_ir::IROp::Srl { .. } |
-                vm_ir::IROp::Sra { .. } => arithmetic += 1,
+                vm_ir::IROp::Add { .. }
+                | vm_ir::IROp::Sub { .. }
+                | vm_ir::IROp::Mul { .. }
+                | vm_ir::IROp::Div { .. }
+                | vm_ir::IROp::Rem { .. }
+                | vm_ir::IROp::And { .. }
+                | vm_ir::IROp::Or { .. }
+                | vm_ir::IROp::Xor { .. }
+                | vm_ir::IROp::Not { .. }
+                | vm_ir::IROp::Sll { .. }
+                | vm_ir::IROp::Srl { .. }
+                | vm_ir::IROp::Sra { .. } => arithmetic += 1,
 
                 // 内存指令
-                vm_ir::IROp::LoadExt { .. } |
-                vm_ir::IROp::StoreExt { .. } => memory += 1,
+                vm_ir::IROp::LoadExt { .. } | vm_ir::IROp::StoreExt { .. } => memory += 1,
 
                 // 向量指令
-                vm_ir::IROp::VecAdd { .. } |
-                vm_ir::IROp::VecSub { .. } |
-                vm_ir::IROp::VecMul { .. } => vector += 1,
+                vm_ir::IROp::VecAdd { .. }
+                | vm_ir::IROp::VecSub { .. }
+                | vm_ir::IROp::VecMul { .. } => vector += 1,
 
                 _ => {}
             }
@@ -343,7 +342,11 @@ impl FeatureExtractorEnhanced {
         // 检查IROp中的分支指令
         for insn in &block.ops {
             match insn {
-                vm_ir::IROp::Beq { src1: _, src2: _, target } => {
+                vm_ir::IROp::Beq {
+                    src1: _,
+                    src2: _,
+                    target,
+                } => {
                     branches.push(BranchInfo {
                         kind: BranchKind::Conditional,
                         target: Some(*target),
@@ -352,7 +355,11 @@ impl FeatureExtractorEnhanced {
                     });
                 }
 
-                vm_ir::IROp::Bne { src1: _, src2: _, target } => {
+                vm_ir::IROp::Bne {
+                    src1: _,
+                    src2: _,
+                    target,
+                } => {
                     branches.push(BranchInfo {
                         kind: BranchKind::Conditional,
                         target: Some(*target),
@@ -361,7 +368,11 @@ impl FeatureExtractorEnhanced {
                     });
                 }
 
-                vm_ir::IROp::Blt { src1: _, src2: _, target } => {
+                vm_ir::IROp::Blt {
+                    src1: _,
+                    src2: _,
+                    target,
+                } => {
                     branches.push(BranchInfo {
                         kind: BranchKind::Conditional,
                         target: Some(*target),
@@ -370,7 +381,11 @@ impl FeatureExtractorEnhanced {
                     });
                 }
 
-                vm_ir::IROp::Bge { src1: _, src2: _, target } => {
+                vm_ir::IROp::Bge {
+                    src1: _,
+                    src2: _,
+                    target,
+                } => {
                     branches.push(BranchInfo {
                         kind: BranchKind::Conditional,
                         target: Some(*target),
@@ -379,7 +394,11 @@ impl FeatureExtractorEnhanced {
                     });
                 }
 
-                vm_ir::IROp::Bltu { src1: _, src2: _, target } => {
+                vm_ir::IROp::Bltu {
+                    src1: _,
+                    src2: _,
+                    target,
+                } => {
                     branches.push(BranchInfo {
                         kind: BranchKind::Conditional,
                         target: Some(*target),
@@ -388,7 +407,11 @@ impl FeatureExtractorEnhanced {
                     });
                 }
 
-                vm_ir::IROp::Bgeu { src1: _, src2: _, target } => {
+                vm_ir::IROp::Bgeu {
+                    src1: _,
+                    src2: _,
+                    target,
+                } => {
                     branches.push(BranchInfo {
                         kind: BranchKind::Conditional,
                         target: Some(*target),
@@ -413,11 +436,15 @@ impl FeatureExtractorEnhanced {
                     });
                 }
 
-                vm_ir::IROp::CondBranch { condition: _, target: _, link: _ } => {
+                vm_ir::IROp::CondBranch {
+                    condition: _,
+                    target: _,
+                    link: _,
+                } => {
                     // 条件分支，目标可能是动态的
                     branches.push(BranchInfo {
                         kind: BranchKind::Conditional,
-                        target: None,  // 动态目标
+                        target: None, // 动态目标
                         fallthrough: None,
                         condition: None,
                     });
@@ -440,7 +467,11 @@ impl FeatureExtractorEnhanced {
                 });
             }
 
-            vm_ir::Terminator::CondJmp { cond, target_true, target_false } => {
+            vm_ir::Terminator::CondJmp {
+                cond,
+                target_true,
+                target_false,
+            } => {
                 branches.push(BranchInfo {
                     kind: BranchKind::Conditional,
                     target: Some(*target_true),
@@ -459,7 +490,7 @@ impl FeatureExtractorEnhanced {
             vm_ir::Terminator::JmpReg { base: _, offset: _ } => {
                 branches.push(BranchInfo {
                     kind: BranchKind::Indirect,
-                    target: None,  // 动态目标
+                    target: None, // 动态目标
                     fallthrough: None,
                     condition: None,
                 });
@@ -493,11 +524,7 @@ impl FeatureExtractorEnhanced {
 
     /// 统计分支指令数
     fn count_branches(&self, block: &IRBlock) -> usize {
-        block
-            .ops
-            .iter()
-            .filter(|op| self.is_branch(op))
-            .count()
+        block.ops.iter().filter(|op| self.is_branch(op)).count()
     }
 
     /// 统计内存访问数
@@ -505,7 +532,12 @@ impl FeatureExtractorEnhanced {
         block
             .ops
             .iter()
-            .filter(|op| matches!(op, vm_ir::IROp::LoadExt { .. } | vm_ir::IROp::StoreExt { .. }))
+            .filter(|op| {
+                matches!(
+                    op,
+                    vm_ir::IROp::LoadExt { .. } | vm_ir::IROp::StoreExt { .. }
+                )
+            })
             .count()
     }
 
@@ -541,7 +573,11 @@ impl FeatureExtractorEnhanced {
                 }
             }
 
-            vm_ir::Terminator::CondJmp { target_true, target_false, .. } => {
+            vm_ir::Terminator::CondJmp {
+                target_true,
+                target_false,
+                ..
+            } => {
                 if target_true >= &block.start_pc || target_false >= &block.start_pc {
                     // 可能是回边
                     let mut targets = Vec::new();
@@ -683,7 +719,9 @@ impl FeatureExtractorEnhanced {
             // 收集内存访问地址
             match op {
                 // 加载操作
-                vm_ir::IROp::Load { base, offset, size, .. } => {
+                vm_ir::IROp::Load {
+                    base, offset, size, ..
+                } => {
                     memory_accesses.push((base, offset, *size));
                 }
                 vm_ir::IROp::LoadExt { addr, size, .. } => {
@@ -693,7 +731,9 @@ impl FeatureExtractorEnhanced {
                 }
 
                 // 存储操作
-                vm_ir::IROp::Store { base, offset, size, .. } => {
+                vm_ir::IROp::Store {
+                    base, offset, size, ..
+                } => {
                     memory_accesses.push((base, offset, *size));
                 }
                 vm_ir::IROp::StoreExt { addr, size, .. } => {
@@ -703,19 +743,23 @@ impl FeatureExtractorEnhanced {
                 }
 
                 // 浮点加载/存储
-                vm_ir::IROp::Fload { base, offset, size, .. } => {
+                vm_ir::IROp::Fload {
+                    base, offset, size, ..
+                } => {
                     memory_accesses.push((base, offset, *size));
                 }
-                vm_ir::IROp::Fstore { base, offset, size, .. } => {
+                vm_ir::IROp::Fstore {
+                    base, offset, size, ..
+                } => {
                     memory_accesses.push((base, offset, *size));
                 }
 
                 // 原子操作
-                vm_ir::IROp::AtomicRMW { base, .. } |
-                vm_ir::IROp::AtomicRMWOrder { base, .. } |
-                vm_ir::IROp::AtomicCmpXchg { base, .. } |
-                vm_ir::IROp::AtomicCmpXchgOrder { base, .. } |
-                vm_ir::IROp::AtomicLoadReserve { base, .. } => {
+                vm_ir::IROp::AtomicRMW { base, .. }
+                | vm_ir::IROp::AtomicRMWOrder { base, .. }
+                | vm_ir::IROp::AtomicCmpXchg { base, .. }
+                | vm_ir::IROp::AtomicCmpXchgOrder { base, .. }
+                | vm_ir::IROp::AtomicLoadReserve { base, .. } => {
                     // 原子操作通常涉及同一地址，具有良好的数据局部性
                     memory_accesses.push((base, &0, 8));
                 }
@@ -749,7 +793,7 @@ impl FeatureExtractorEnhanced {
                         // addr1 [-----]
                         // addr2      [-----]
                         if addr1 + size1 as i64 <= addr2 {
-                            0.0  // 无重叠
+                            0.0 // 无重叠
                         } else {
                             // 计算重叠大小
                             let overlap_end = (addr1 + size1 as i64).min(addr2 + size2 as i64);
@@ -760,7 +804,7 @@ impl FeatureExtractorEnhanced {
                         // addr2 [-----]
                         // addr1      [-----]
                         if addr2 + size2 as i64 <= addr1 {
-                            0.0  // 无重叠
+                            0.0 // 无重叠
                         } else {
                             // 计算重叠大小
                             let overlap_end = (addr2 + size2 as i64).min(addr1 + size1 as i64);
@@ -783,7 +827,7 @@ impl FeatureExtractorEnhanced {
         }
 
         if comparison_count == 0 {
-            return 0.8;  // 如果没有可比的访问，局部性较好
+            return 0.8; // 如果没有可比的访问，局部性较好
         }
 
         let avg_spatial_locality = spatial_locality_score / comparison_count as f64;
@@ -816,7 +860,9 @@ impl FeatureExtractorEnhanced {
             // 记录内存访问的顺序信息
             match op {
                 // 加载操作
-                vm_ir::IROp::Load { base, offset, size, .. } => {
+                vm_ir::IROp::Load {
+                    base, offset, size, ..
+                } => {
                     access_sequence.push((base, *offset, *size, true));
                 }
                 vm_ir::IROp::LoadExt { addr, size, .. } => {
@@ -826,7 +872,9 @@ impl FeatureExtractorEnhanced {
                 }
 
                 // 存储操作
-                vm_ir::IROp::Store { base, offset, size, .. } => {
+                vm_ir::IROp::Store {
+                    base, offset, size, ..
+                } => {
                     access_sequence.push((base, *offset, *size, false));
                 }
                 vm_ir::IROp::StoreExt { addr, size, .. } => {
@@ -836,19 +884,23 @@ impl FeatureExtractorEnhanced {
                 }
 
                 // 浮点加载/存储
-                vm_ir::IROp::Fload { base, offset, size, .. } => {
+                vm_ir::IROp::Fload {
+                    base, offset, size, ..
+                } => {
                     access_sequence.push((base, *offset, *size, true));
                 }
-                vm_ir::IROp::Fstore { base, offset, size, .. } => {
+                vm_ir::IROp::Fstore {
+                    base, offset, size, ..
+                } => {
                     access_sequence.push((base, *offset, *size, false));
                 }
 
                 // 原子操作
-                vm_ir::IROp::AtomicRMW { base, .. } |
-                vm_ir::IROp::AtomicRMWOrder { base, .. } |
-                vm_ir::IROp::AtomicCmpXchg { base, .. } |
-                vm_ir::IROp::AtomicCmpXchgOrder { base, .. } |
-                vm_ir::IROp::AtomicLoadReserve { base, .. } => {
+                vm_ir::IROp::AtomicRMW { base, .. }
+                | vm_ir::IROp::AtomicRMWOrder { base, .. }
+                | vm_ir::IROp::AtomicCmpXchg { base, .. }
+                | vm_ir::IROp::AtomicCmpXchgOrder { base, .. }
+                | vm_ir::IROp::AtomicLoadReserve { base, .. } => {
                     access_sequence.push((base, 0, 8, true)); // 视为加载
                 }
 
@@ -885,24 +937,20 @@ impl FeatureExtractorEnhanced {
 
                     // 实际距离越接近期望值，顺序性越好
                     let proximity_score = if actual_distance == 0 {
-                        1.0  // 完美的顺序访问
+                        1.0 // 完美的顺序访问
                     } else {
                         1.0 - (actual_distance as f64 / (expected_next as f64)).min(1.0_f64)
                     };
 
                     // 同类型操作（加载->加载 或 存储->存储）得分更高
-                    let type_match_score = if is_load1 == is_load2 {
-                        1.0
-                    } else {
-                        0.5
-                    };
+                    let type_match_score = if is_load1 == is_load2 { 1.0 } else { 0.5 };
 
                     sequential_score += proximity_score * type_match_score;
                     comparison_count += 1;
                 } else if distance < 0 {
                     // 向后访问，降低顺序性得分
                     let backward_score = 1.0 - (distance.abs() as f64 / 128.0).min(1.0_f64);
-                    sequential_score += backward_score * 0.3;  // 向后访问得分较低
+                    sequential_score += backward_score * 0.3; // 向后访问得分较低
                     comparison_count += 1;
                 } else {
                     // 向前跳跃访问
@@ -957,7 +1005,7 @@ impl FeatureExtractorEnhanced {
         }
 
         let avg_density = range_distribution / 4.0;
-        let density_score = (avg_density / 10.0).min(1.0_f64);  // 归一化
+        let density_score = (avg_density / 10.0).min(1.0_f64); // 归一化
 
         // 综合评分：顺序访问得分 + 密集程度得分
         let final_score = (avg_sequential_score * 0.7 + density_score * 0.3).min(1.0_f64);
@@ -985,12 +1033,12 @@ impl FeatureExtractorEnhanced {
         for op in &block.ops {
             // 从IROp中提取寄存器
             match op {
-                vm_ir::IROp::Add { dst, src1, src2 } |
-                vm_ir::IROp::Sub { dst, src1, src2 } |
-                vm_ir::IROp::Mul { dst, src1, src2 } |
-                vm_ir::IROp::And { dst, src1, src2 } |
-                vm_ir::IROp::Or { dst, src1, src2 } |
-                vm_ir::IROp::Xor { dst, src1, src2 } => {
+                vm_ir::IROp::Add { dst, src1, src2 }
+                | vm_ir::IROp::Sub { dst, src1, src2 }
+                | vm_ir::IROp::Mul { dst, src1, src2 }
+                | vm_ir::IROp::And { dst, src1, src2 }
+                | vm_ir::IROp::Or { dst, src1, src2 }
+                | vm_ir::IROp::Xor { dst, src1, src2 } => {
                     used_regs.insert(*dst);
                     used_regs.insert(*src1);
                     used_regs.insert(*src2);
@@ -1016,8 +1064,7 @@ impl FeatureExtractorEnhanced {
                         used_regs.insert(*reg);
                     }
                 }
-                vm_ir::IROp::Mov { dst, src } |
-                vm_ir::IROp::Not { dst, src } => {
+                vm_ir::IROp::Mov { dst, src } | vm_ir::IROp::Not { dst, src } => {
                     used_regs.insert(*dst);
                     used_regs.insert(*src);
                 }
@@ -1047,17 +1094,11 @@ impl FeatureExtractorEnhanced {
             let heat = records.len() as f64 / self.history_window as f64;
 
             // 代码稳定性：基于执行时间的一致性
-            let times: Vec<f64> = records
-                .iter()
-                .map(|r| r.execution_time_ns as f64)
-                .collect();
+            let times: Vec<f64> = records.iter().map(|r| r.execution_time_ns as f64).collect();
 
             let mean = times.iter().sum::<f64>() / times.len() as f64;
-            let variance = times
-                .iter()
-                .map(|&t| (t - mean).powi(2))
-                .sum::<f64>()
-                / times.len() as f64;
+            let variance =
+                times.iter().map(|&t| (t - mean).powi(2)).sum::<f64>() / times.len() as f64;
 
             let stability = 1.0 / (1.0 + variance.sqrt() / mean);
 
@@ -1081,8 +1122,8 @@ impl FeatureExtractorEnhanced {
 
     /// 计算块哈希
     fn hash_block(&self, block: &IRBlock) -> u64 {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
 
@@ -1098,7 +1139,12 @@ impl FeatureExtractorEnhanced {
     }
 
     /// 记录执行（用于更新历史）
-    pub fn record_execution(&mut self, block_hash: u64, execution_time_ns: u64, memory_accesses: Vec<(u64, u8)>) {
+    pub fn record_execution(
+        &mut self,
+        block_hash: u64,
+        execution_time_ns: u64,
+        memory_accesses: Vec<(u64, u8)>,
+    ) {
         let record = ExecutionRecord {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1108,7 +1154,10 @@ impl FeatureExtractorEnhanced {
             memory_accesses,
         };
 
-        let history = self.execution_history.entry(block_hash).or_insert_with(Vec::new);
+        let history = self
+            .execution_history
+            .entry(block_hash)
+            .or_insert_with(Vec::new);
         history.push(record);
 
         // 限制历史大小

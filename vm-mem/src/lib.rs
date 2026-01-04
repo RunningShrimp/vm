@@ -701,6 +701,51 @@ impl MemoryAccess for PhysicalMemory {
         self.total_size
     }
 
+    fn read_bulk(&self, pa: GuestAddr, buf: &mut [u8]) -> Result<(), VmError> {
+        // Check for MMIO regions first
+        let mmio_regions = self.mmio_regions.read();
+        for region in mmio_regions.iter() {
+            let region_end = region.base.0 + region.size;
+            let req_end = pa.0 + buf.len() as u64;
+            if pa.0 < region_end && req_end > region.base.0 {
+                // For MMIO regions, read byte by byte
+                let device = region.device.read();
+                for (i, byte) in buf.iter_mut().enumerate() {
+                    let offset = pa.0 - region.base.0 + i as u64;
+                    let result = device.read(offset, 1)?;
+                    *byte = result as u8;
+                }
+                return Ok(());
+            }
+        }
+        drop(mmio_regions);
+
+        // For regular memory, use efficient bulk read
+        self.read_buf(pa.0 as usize, buf)
+    }
+
+    fn write_bulk(&mut self, pa: GuestAddr, buf: &[u8]) -> Result<(), VmError> {
+        // Check for MMIO regions first
+        let mmio_regions = self.mmio_regions.read();
+        for region in mmio_regions.iter() {
+            let region_end = region.base.0 + region.size;
+            let req_end = pa.0 + buf.len() as u64;
+            if pa.0 < region_end && req_end > region.base.0 {
+                // For MMIO regions, write byte by byte
+                let mut device = region.device.write();
+                for (i, &byte) in buf.iter().enumerate() {
+                    let offset = pa.0 - region.base.0 + i as u64;
+                    device.write(offset, byte as u64, 1)?;
+                }
+                return Ok(());
+            }
+        }
+        drop(mmio_regions);
+
+        // For regular memory, use efficient bulk write
+        self.write_buf(pa.0 as usize, buf)
+    }
+
     fn dump_memory(&self) -> Vec<u8> {
         let mut dump = Vec::with_capacity(self.total_size);
         for shard in &self.shards {

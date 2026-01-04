@@ -1,11 +1,10 @@
-//! TLB刷新策略高级优化基准测试
-use vm_core::AddressTranslator;
-//!
-//! 比较基础刷新策略与高级优化策略的性能差异
-
+///
+/// 比较基础刷新策略与高级优化策略的性能差异
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+/// TLB刷新策略高级优化基准测试
+use vm_core::AddressTranslator;
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_core::{AccessType, MMU};

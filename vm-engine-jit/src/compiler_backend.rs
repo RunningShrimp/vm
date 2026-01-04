@@ -4,8 +4,8 @@
 
 #![allow(unexpected_cfgs)]
 
-use vm_ir::IRBlock;
 use std::fmt;
+use vm_ir::IRBlock;
 
 /// 编译器错误类型
 #[derive(Debug, Clone)]
@@ -80,21 +80,25 @@ pub enum CompilerBackendType {
 pub trait CompilerBackend: Send + Sync {
     /// 编译IR块到机器码
     fn compile(&mut self, block: &IRBlock) -> Result<Vec<u8>, CompilerError>;
-    
+
     /// 获取后端名称
     fn name(&self) -> &str;
-    
+
     /// 获取支持的特性
     fn supported_features(&self) -> Vec<CompilerFeature>;
-    
+
     /// 应用优化
-    fn optimize(&mut self, block: &mut IRBlock, level: OptimizationLevel) -> Result<(), CompilerError>;
-    
+    fn optimize(
+        &mut self,
+        block: &mut IRBlock,
+        level: OptimizationLevel,
+    ) -> Result<(), CompilerError>;
+
     /// 检查是否支持特定特性
     fn supports_feature(&self, feature: &CompilerFeature) -> bool {
         self.supported_features().contains(feature)
     }
-    
+
     /// 获取后端类型
     fn backend_type(&self) -> CompilerBackendType;
 }
@@ -119,23 +123,23 @@ impl CompilerStats {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// 更新编译统计
     pub fn update_compile(&mut self, compile_time_ns: u64, code_size: usize) {
         self.compiled_blocks += 1;
         self.total_compile_time_ns += compile_time_ns;
         self.generated_code_size += code_size as u64;
-        
+
         if self.compiled_blocks > 0 {
             self.avg_compile_time_ns = self.total_compile_time_ns / self.compiled_blocks;
         }
     }
-    
+
     /// 更新优化统计
     pub fn update_optimization(&mut self, passes: u64) {
         self.optimization_passes += passes;
     }
-    
+
     /// 生成统计报告
     pub fn report(&self) -> String {
         format!(
@@ -154,5 +158,3 @@ impl CompilerStats {
         )
     }
 }
-
-

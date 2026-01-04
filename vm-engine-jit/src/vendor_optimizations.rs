@@ -26,8 +26,8 @@
 //! 3. **调度优化** - 针对特定微架构优化指令调度
 //! 4. **缓存优化** - 针对CPU缓存层次结构优化
 
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// CPU厂商
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -95,23 +95,23 @@ pub enum CpuFeature {
     NEON,
     SVE,
     SVE2,
-    PMULL,       // Polynomial Multiply Long
-    SHA1,        // SHA1 hash instructions
-    SHA2,        // SHA2 hash instructions
+    PMULL, // Polynomial Multiply Long
+    SHA1,  // SHA1 hash instructions
+    SHA2,  // SHA2 hash instructions
 
     // 其他特性
-    AES,         // AES-NI指令集
-    PCLMULQDQ,   // 进位乘法
-    POPCNT,      // 人口计数
-    BMI1,        // 位操作指令集1
-    BMI2,        // 位操作指令集2
-    RTM,         // 事务内存
-    TSX,         // 事务同步扩展
+    AES,       // AES-NI指令集
+    PCLMULQDQ, // 进位乘法
+    POPCNT,    // 人口计数
+    BMI1,      // 位操作指令集1
+    BMI2,      // 位操作指令集2
+    RTM,       // 事务内存
+    TSX,       // 事务同步扩展
 
     // 缓存特性
-    LargePage2MB,    // 2MB大页
-    LargePage1GB,    // 1GB大页
-    Prefetch,        // 硬件预取
+    LargePage2MB, // 2MB大页
+    LargePage1GB, // 1GB大页
+    Prefetch,     // 硬件预取
 
     Unknown(String),
 }
@@ -228,16 +228,28 @@ impl VendorOptimizationStrategy {
         if feature_info.map(|f| f.has_sse2()).unwrap_or(false) {
             features.push(CpuFeature::SSE2);
         }
-        if extended_function_info.map(|f| f.has_sse3()).unwrap_or(false) {
+        if extended_function_info
+            .map(|f| f.has_sse3())
+            .unwrap_or(false)
+        {
             features.push(CpuFeature::SSE3);
         }
-        if extended_function_info.map(|f| f.has_ssse3()).unwrap_or(false) {
+        if extended_function_info
+            .map(|f| f.has_ssse3())
+            .unwrap_or(false)
+        {
             features.push(CpuFeature::SSSE3);
         }
-        if extended_function_info.map(|f| f.has_sse41()).unwrap_or(false) {
+        if extended_function_info
+            .map(|f| f.has_sse41())
+            .unwrap_or(false)
+        {
             features.push(CpuFeature::SSE4_1);
         }
-        if extended_function_info.map(|f| f.has_sse42()).unwrap_or(false) {
+        if extended_function_info
+            .map(|f| f.has_sse42())
+            .unwrap_or(false)
+        {
             features.push(CpuFeature::SSE4_2);
         }
 
@@ -245,33 +257,56 @@ impl VendorOptimizationStrategy {
         if extended_function_info.map(|f| f.has_avx()).unwrap_or(false) {
             features.push(CpuFeature::AVX);
         }
-        if extended_function_info.map(|f| f.has_avx2()).unwrap_or(false) {
+        if extended_function_info
+            .map(|f| f.has_avx2())
+            .unwrap_or(false)
+        {
             features.push(CpuFeature::AVX2);
         }
 
         // AVX-512检测（需要检查多个bit）
-        let has_avx512f = extended_function_info.map(|f| f.has_avx512f()).unwrap_or(false);
-        let has_avx512dq = extended_function_info.map(|f| f.has_avx512dq()).unwrap_or(false);
-        let has_avx512bw = extended_function_info.map(|f| f.has_avx512bw()).unwrap_or(false);
-        let has_avx512vl = extended_function_info.map(|f| f.has_avx512vl()).unwrap_or(false);
-        let has_avx512cd = extended_function_info.map(|f| f.has_avx512cd()).unwrap_or(false);
+        let has_avx512f = extended_function_info
+            .map(|f| f.has_avx512f())
+            .unwrap_or(false);
+        let has_avx512dq = extended_function_info
+            .map(|f| f.has_avx512dq())
+            .unwrap_or(false);
+        let has_avx512bw = extended_function_info
+            .map(|f| f.has_avx512bw())
+            .unwrap_or(false);
+        let has_avx512vl = extended_function_info
+            .map(|f| f.has_avx512vl())
+            .unwrap_or(false);
+        let has_avx512cd = extended_function_info
+            .map(|f| f.has_avx512cd())
+            .unwrap_or(false);
 
-        if has_avx512f { features.push(CpuFeature::AVX512F); }
-        if has_avx512dq { features.push(CpuFeature::AVX512DQ); }
-        if has_avx512bw { features.push(CpuFeature::AVX512BW); }
-        if has_avx512vl { features.push(CpuFeature::AVX512VL); }
-        if has_avx512cd { features.push(CpuFeature::AVX512CD); }
+        if has_avx512f {
+            features.push(CpuFeature::AVX512F);
+        }
+        if has_avx512dq {
+            features.push(CpuFeature::AVX512DQ);
+        }
+        if has_avx512bw {
+            features.push(CpuFeature::AVX512BW);
+        }
+        if has_avx512vl {
+            features.push(CpuFeature::AVX512VL);
+        }
+        if has_avx512cd {
+            features.push(CpuFeature::AVX512CD);
+        }
 
         // 获取缓存信息
-        let l1_cache = cpuid.get_cache_info().and_then(|mut iter| {
-            iter.find(|c| c.level() == 1 && c.is_valid())
-        });
-        let l2_cache = cpuid.get_cache_info().and_then(|mut iter| {
-            iter.find(|c| c.level() == 2 && c.is_valid())
-        });
-        let l3_cache = cpuid.get_cache_info().and_then(|mut iter| {
-            iter.find(|c| c.level() == 3 && c.is_valid())
-        });
+        let l1_cache = cpuid
+            .get_cache_info()
+            .and_then(|mut iter| iter.find(|c| c.level() == 1 && c.is_valid()));
+        let l2_cache = cpuid
+            .get_cache_info()
+            .and_then(|mut iter| iter.find(|c| c.level() == 2 && c.is_valid()));
+        let l3_cache = cpuid
+            .get_cache_info()
+            .and_then(|mut iter| iter.find(|c| c.level() == 3 && c.is_valid()));
 
         // 根据厂商选择优化策略
         match vendor {
@@ -279,11 +314,23 @@ impl VendorOptimizationStrategy {
                 vendor: CpuVendor::Intel,
                 microarchitecture: CpuMicroarchitecture::IntelSkylake,
                 features,
-                cache_line_size: 64,  // x86_64标准缓存行大小
-                l1_cache_size: l1_cache.map(|c| c.associativity() as usize * c.sets() as usize * c.line_size() as usize).unwrap_or(32 * 1024),
-                l2_cache_size: l2_cache.map(|c| c.associativity() as usize * c.sets() as usize * c.line_size() as usize).unwrap_or(256 * 1024),
-                l3_cache_size: l3_cache.map(|c| c.associativity() as usize * c.sets() as usize * c.line_size() as usize).unwrap_or(8 * 1024 * 1024),
-                supports_smt: num_cpus::get() > num_cpus::get_physical(),  // 检测超线程
+                cache_line_size: 64, // x86_64标准缓存行大小
+                l1_cache_size: l1_cache
+                    .map(|c| {
+                        c.associativity() as usize * c.sets() as usize * c.line_size() as usize
+                    })
+                    .unwrap_or(32 * 1024),
+                l2_cache_size: l2_cache
+                    .map(|c| {
+                        c.associativity() as usize * c.sets() as usize * c.line_size() as usize
+                    })
+                    .unwrap_or(256 * 1024),
+                l3_cache_size: l3_cache
+                    .map(|c| {
+                        c.associativity() as usize * c.sets() as usize * c.line_size() as usize
+                    })
+                    .unwrap_or(8 * 1024 * 1024),
+                supports_smt: num_cpus::get() > num_cpus::get_physical(), // 检测超线程
                 physical_cores: num_cpus::get_physical(),
                 logical_cores: num_cpus::get(),
             },
@@ -293,10 +340,22 @@ impl VendorOptimizationStrategy {
                 microarchitecture: CpuMicroarchitecture::AmdZen3,
                 features,
                 cache_line_size: 64,
-                l1_cache_size: l1_cache.map(|c| c.associativity() as usize * c.sets() as usize * c.line_size() as usize).unwrap_or(32 * 1024),
-                l2_cache_size: l2_cache.map(|c| c.associativity() as usize * c.sets() as usize * c.line_size() as usize).unwrap_or(512 * 1024),
-                l3_cache_size: l3_cache.map(|c| c.associativity() as usize * c.sets() as usize * c.line_size() as usize).unwrap_or(16 * 1024 * 1024),
-                supports_smt: num_cpus::get() > num_cpus::get_physical(),  // 检测SMT
+                l1_cache_size: l1_cache
+                    .map(|c| {
+                        c.associativity() as usize * c.sets() as usize * c.line_size() as usize
+                    })
+                    .unwrap_or(32 * 1024),
+                l2_cache_size: l2_cache
+                    .map(|c| {
+                        c.associativity() as usize * c.sets() as usize * c.line_size() as usize
+                    })
+                    .unwrap_or(512 * 1024),
+                l3_cache_size: l3_cache
+                    .map(|c| {
+                        c.associativity() as usize * c.sets() as usize * c.line_size() as usize
+                    })
+                    .unwrap_or(16 * 1024 * 1024),
+                supports_smt: num_cpus::get() > num_cpus::get_physical(), // 检测SMT
                 physical_cores: num_cpus::get_physical(),
                 logical_cores: num_cpus::get(),
             },
@@ -315,10 +374,12 @@ impl VendorOptimizationStrategy {
         // 这里使用简化版本，通过环境变量或默认值
 
         // ARM NEON几乎是所有ARM64 CPU的标准特性
-        let mut features = vec![CpuFeature::NEON];
+        let features = vec![CpuFeature::NEON];
 
         // 尝试从/sys/devices/system/cpu/cpu0/regs/identification/midr_el1读取
-        if let Ok(midr) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1") {
+        if let Ok(midr) =
+            std::fs::read_to_string("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1")
+        {
             let midr_value = u32::from_str_radix(midr.trim(), 16).unwrap_or(0);
 
             // 解析MIDR寄存器
@@ -326,15 +387,15 @@ impl VendorOptimizationStrategy {
             let part_num = (midr_value >> 4) & 0xFFF;
 
             let vendor = match implementer {
-                0x41 => CpuVendor::ARM,  // ARM
-                0x42 => CpuVendor::ARM,  // Broadcom (ARM licensed)
-                0x43 => CpuVendor::ARM,  // Cavium (ARM licensed)
-                0x44 => CpuVendor::ARM,  // DEC (ARM licensed)
-                0x4E => CpuVendor::ARM,  // NVIDIA (ARM licensed)
-                0x50 => CpuVendor::ARM,  // AP&M (ARM licensed)
-                0x51 => CpuVendor::ARM,  // Qualcomm (ARM licensed)
-                0x56 => CpuVendor::ARM,  // Marvell (ARM licensed)
-                0x69 => CpuVendor::ARM,  // Intel (ARM licensed)
+                0x41 => CpuVendor::ARM, // ARM
+                0x42 => CpuVendor::ARM, // Broadcom (ARM licensed)
+                0x43 => CpuVendor::ARM, // Cavium (ARM licensed)
+                0x44 => CpuVendor::ARM, // DEC (ARM licensed)
+                0x4E => CpuVendor::ARM, // NVIDIA (ARM licensed)
+                0x50 => CpuVendor::ARM, // AP&M (ARM licensed)
+                0x51 => CpuVendor::ARM, // Qualcomm (ARM licensed)
+                0x56 => CpuVendor::ARM, // Marvell (ARM licensed)
+                0x69 => CpuVendor::ARM, // Intel (ARM licensed)
                 _ => CpuVendor::Unknown,
             };
 
@@ -359,11 +420,11 @@ impl VendorOptimizationStrategy {
                 vendor,
                 microarchitecture: microarch,
                 features,
-                cache_line_size: 64,  // ARM64标准缓存行大小
-                l1_cache_size: 64 * 1024,  // ARM典型的L1大小
+                cache_line_size: 64,      // ARM64标准缓存行大小
+                l1_cache_size: 64 * 1024, // ARM典型的L1大小
                 l2_cache_size: 512 * 1024,
                 l3_cache_size: 4 * 1024 * 1024,
-                supports_smt: false,  // ARM通常没有SMT
+                supports_smt: false, // ARM通常没有SMT
                 physical_cores: num_cpus::get_physical(),
                 logical_cores: num_cpus::get(),
             }
@@ -501,9 +562,9 @@ impl VendorOptimizationStrategy {
             features: vec![
                 CpuFeature::NEON,
                 CpuFeature::AES,
-                CpuFeature::PMULL,  // 通过Unknown添加
-                CpuFeature::SHA1,   // 通过Unknown添加
-                CpuFeature::SHA2,   // 通过Unknown添加
+                CpuFeature::PMULL, // 通过Unknown添加
+                CpuFeature::SHA1,  // 通过Unknown添加
+                CpuFeature::SHA2,  // 通过Unknown添加
                 CpuFeature::LargePage2MB,
             ],
             cache_line_size: 64,
@@ -604,10 +665,7 @@ impl Default for VendorOptimizationStrategy {
         Self {
             vendor: CpuVendor::Unknown,
             microarchitecture: CpuMicroarchitecture::Unknown,
-            features: vec![
-                CpuFeature::SSE2,
-                CpuFeature::SSE3,
-            ],
+            features: vec![CpuFeature::SSE2, CpuFeature::SSE3],
             cache_line_size: 64,
             l1_cache_size: 32,
             l2_cache_size: 256,

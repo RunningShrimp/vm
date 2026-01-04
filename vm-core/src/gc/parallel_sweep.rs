@@ -316,7 +316,7 @@ impl ParallelSweeper {
         }
 
         // 验证地址对齐（至少8字节对齐）
-        if addr % 8 != 0 {
+        if !addr.is_multiple_of(8) {
             return false;
         }
 
@@ -357,7 +357,7 @@ impl ParallelSweeper {
         }
 
         // 验证地址对齐和范围（与check_object_mark一致）
-        if addr % 8 != 0 || addr > 0x7fffffffffff {
+        if !addr.is_multiple_of(8) || addr > 0x7fffffffffff {
             return;
         }
 
@@ -387,7 +387,7 @@ impl ParallelSweeper {
         }
 
         // 验证地址对齐和范围
-        if addr % 8 != 0 || addr > 0x7fffffffffff {
+        if !addr.is_multiple_of(8) || addr > 0x7fffffffffff {
             return 128; // 返回安全的默认值
         }
 
@@ -696,7 +696,6 @@ mod tests {
         }
 
         // If we get here without crashing, the test passes
-        assert!(true);
     }
 
     #[test]

@@ -5,8 +5,7 @@
 use std::sync::{Arc, RwLock};
 
 use vm_core::{
-    AccessType, AddressTranslator, Fault, GuestAddr, GuestPhysAddr, MMU, MemoryAccess, MmioDevice,
-    VmError,
+    AccessType, AddressTranslator, GuestAddr, GuestPhysAddr, MemoryAccess, MmioDevice, VmError,
 };
 use vm_mem::{
     PAGE_SHIFT, PAGE_SIZE, PTE_SIZE, PTES_PER_PAGE, PageTableBuilder, PagingMode, SoftMmu,
@@ -491,7 +490,7 @@ fn test_set_paging_mode_flushes_tlb() {
 
     // Change paging mode should flush TLB
     mmu.set_paging_mode(PagingMode::Bare);
-    let (hits, misses) = mmu.tlb_stats();
+    let (hits, _misses) = mmu.tlb_stats();
     assert_eq!(hits, 0); // TLB was flushed
 }
 
@@ -623,7 +622,7 @@ impl TestDevice {
 }
 
 impl MmioDevice for TestDevice {
-    fn read(&self, offset: u64, size: u8) -> VmResult<u64> {
+    fn read(&self, offset: u64, _size: u8) -> VmResult<u64> {
         let reg_idx = (offset / 8) as usize;
         let regs = self.registers.read().unwrap();
         Ok(regs[reg_idx])
@@ -679,7 +678,7 @@ fn test_pte_flags() {
 
 #[test]
 fn test_zero_size_access() {
-    let mut mmu = SoftMmu::new(1024 * 1024, false);
+    let _mmu = SoftMmu::new(1024 * 1024, false);
 
     // Access with size 0 should handle gracefully
     // (The implementation might reject this, but it shouldn't crash)

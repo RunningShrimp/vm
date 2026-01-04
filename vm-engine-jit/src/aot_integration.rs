@@ -55,14 +55,12 @@ pub fn init_aot_loader(cache_path: Option<&str>) -> Result<AotLoader, AotError> 
 /// 检查AOT配置的有效性，确保所有参数都在合理范围内。
 pub fn validate_aot_config(config: &AotConfig) -> Result<(), AotError> {
     if config.cache_size == 0 {
-        return Err(AotError::InvalidConfig(
-            "cache_size must be > 0".into()
-        ));
+        return Err(AotError::InvalidConfig("cache_size must be > 0".into()));
     }
 
     if config.optimization_level > 3 {
         return Err(AotError::InvalidConfig(
-            "optimization_level must be <= 3".into()
+            "optimization_level must be <= 3".into(),
         ));
     }
 

@@ -400,7 +400,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_syscall_result() {
+    fn test_syscall_result_success() {
         let result = SyscallResult::Success(42);
         match result {
             SyscallResult::Success(n) => assert_eq!(n, 42),
@@ -409,14 +409,111 @@ mod tests {
     }
 
     #[test]
-    fn test_syscall_arch() {
+    fn test_syscall_result_error() {
+        let result = SyscallResult::Error(-1);
+        match result {
+            SyscallResult::Error(e) => assert_eq!(e, -1),
+            _ => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_syscall_result_block() {
+        let result = SyscallResult::Block;
+        match result {
+            SyscallResult::Block => (), // OK
+            _ => panic!("Expected block"),
+        }
+    }
+
+    #[test]
+    fn test_syscall_result_exit() {
+        let result = SyscallResult::Exit(0);
+        match result {
+            SyscallResult::Exit(code) => assert_eq!(code, 0),
+            _ => panic!("Expected exit"),
+        }
+    }
+
+    #[test]
+    fn test_file_handle_stdin() {
+        let handle = FileHandle::Stdin;
+        match handle {
+            FileHandle::Stdin => (), // OK
+            _ => panic!("Expected stdin"),
+        }
+    }
+
+    #[test]
+    fn test_file_handle_stdout() {
+        let handle = FileHandle::Stdout;
+        match handle {
+            FileHandle::Stdout => (), // OK
+            _ => panic!("Expected stdout"),
+        }
+    }
+
+    #[test]
+    fn test_file_handle_stderr() {
+        let handle = FileHandle::Stderr;
+        match handle {
+            FileHandle::Stderr => (), // OK
+            _ => panic!("Expected stderr"),
+        }
+    }
+
+    #[test]
+    fn test_file_descriptor() {
+        let fd = FileDescriptor {
+            handle: FileHandle::Stdin,
+            path: "/dev/stdin".to_string(),
+            flags: 0,
+        };
+
+        assert_eq!(fd.path, "/dev/stdin");
+        assert_eq!(fd.flags, 0);
+    }
+
+    #[test]
+    fn test_syscall_arch_x86_64() {
+        let arch = SyscallArch::X86_64;
+        assert_eq!(arch, SyscallArch::X86_64);
+    }
+
+    #[test]
+    fn test_syscall_arch_riscv64() {
         let arch = SyscallArch::Riscv64;
         assert_eq!(arch, SyscallArch::Riscv64);
+    }
+
+    #[test]
+    fn test_syscall_arch_aarch64() {
+        let arch = SyscallArch::Aarch64;
+        assert_eq!(arch, SyscallArch::Aarch64);
     }
 
     #[test]
     fn test_syscall_handler_new() {
         let handler = SyscallHandler::new();
         assert_eq!(handler.fd_table.len(), 3);
+    }
+
+    #[test]
+    fn test_syscall_handler_default() {
+        let handler = SyscallHandler::default();
+        assert_eq!(handler.fd_table.len(), 3);
+    }
+
+    #[test]
+    fn test_file_descriptor_clones() {
+        let fd1 = FileDescriptor {
+            handle: FileHandle::Stdin,
+            path: "/dev/stdin".to_string(),
+            flags: 0,
+        };
+
+        let fd2 = fd1.clone();
+        assert_eq!(fd1.path, fd2.path);
+        assert_eq!(fd1.flags, fd2.flags);
     }
 }

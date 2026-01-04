@@ -1,0 +1,444 @@
+/* ========================================
+   原子组件 (Atoms)
+   最小的UI组件单元
+   ======================================== */
+
+/* ========================================
+   按钮原子
+   ======================================== */
+
+.atom-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md, 8px);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    line-height: 1.5;
+}
+
+.atom-btn:focus {
+    outline: 2px solid var(--primary-color, #6366f1);
+    outline-offset: 2px;
+}
+
+.atom-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 按钮变体 */
+.atom-btn--primary {
+    background: var(--primary-color, #6366f1);
+    color: white;
+}
+
+.atom-btn--primary:hover:not(:disabled) {
+    background: var(--primary-hover, #4f46e5);
+}
+
+.atom-btn--secondary {
+    background: var(--bg-secondary, #f9fafb);
+    color: var(--text-primary, #111827);
+    border-color: var(--border-color, #e5e7eb);
+}
+
+.atom-btn--secondary:hover:not(:disabled) {
+    background: var(--bg-tertiary, #f3f4f6);
+}
+
+.atom-btn--success {
+    background: var(--success-color, #10b981);
+    color: white;
+}
+
+.atom-btn--success:hover:not(:disabled) {
+    background: #059669;
+}
+
+.atom-btn--warning {
+    background: var(--warning-color, #f59e0b);
+    color: white;
+}
+
+.atom-btn--warning:hover:not(:disabled) {
+    background: #d97706;
+}
+
+.atom-btn--danger {
+    background: var(--danger-color, #ef4444);
+    color: white;
+}
+
+.atom-btn--danger:hover:not(:disabled) {
+    background: #dc2626;
+}
+
+/* 按钮大小 */
+.atom-btn--sm {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+.atom-btn--lg {
+    padding: 0.875rem 1.5rem;
+    font-size: 1rem;
+}
+
+/* 图标按钮 */
+.atom-btn-icon {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    background: var(--bg-secondary, #f9fafb);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.atom-btn-icon:hover {
+    background: var(--bg-tertiary, #f3f4f6);
+    transform: translateY(-1px);
+}
+
+/* ========================================
+   输入框原子
+   ======================================== */
+
+.atom-input {
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    font-size: 0.9375rem;
+    color: var(--text-primary, #111827);
+    background: var(--bg-primary, #ffffff);
+    transition: all 0.2s ease;
+    font-family: inherit;
+    line-height: 1.5;
+}
+
+.atom-input::placeholder {
+    color: var(--text-tertiary, #9ca3af);
+}
+
+.atom-input:focus {
+    outline: none;
+    border-color: var(--primary-color, #6366f1);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.atom-input:disabled {
+    background: var(--bg-secondary, #f9fafb);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* 输入框变体 */
+.atom-input--search {
+    padding-left: 2.5rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: left 0.75rem center;
+}
+
+/* ========================================
+   标签原子
+   ======================================== */
+
+.atom-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary, #111827);
+}
+
+.atom-label--required::after {
+    content: " *";
+    color: var(--danger-color, #ef4444);
+}
+
+/* ========================================
+   徽章原子
+   ======================================== */
+
+.atom-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.atom-badge--primary {
+    background: var(--primary-color, #6366f1);
+    color: white;
+}
+
+.atom-badge--success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.atom-badge--warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.atom-badge--danger {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.atom-badge--gray {
+    background: var(--bg-tertiary, #f3f4f6);
+    color: var(--text-secondary, #6b7280);
+}
+
+/* ========================================
+   卡片原子
+   ======================================== */
+
+.atom-card {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
+    transition: all 0.2s ease;
+}
+
+.atom-card:hover {
+    box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+}
+
+.atom-card--interactive {
+    cursor: pointer;
+}
+
+.atom-card--interactive:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary-color, #6366f1);
+}
+
+/* ========================================
+   图标原子
+   ======================================== */
+
+.atom-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.atom-icon--sm {
+    font-size: 1rem;
+}
+
+.atom-icon--md {
+    font-size: 1.25rem;
+}
+
+.atom-icon--lg {
+    font-size: 1.5rem;
+}
+
+.atom-icon--xl {
+    font-size: 2rem;
+}
+
+.atom-icon--2xl {
+    font-size: 2.5rem;
+}
+
+/* ========================================
+   文本原子
+   ======================================== */
+
+.atom-text {
+    margin: 0;
+}
+
+.atom-text--h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.atom-text--h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.atom-text--h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.atom-text--body {
+    font-size: 0.9375rem;
+    line-height: 1.5;
+}
+
+.atom-text--small {
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.atom-text--muted {
+    color: var(--text-secondary, #6b7280);
+}
+
+/* ========================================
+   状态指示器原子
+   ======================================== */
+
+.atom-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.atom-status::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.atom-status--running {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.atom-status--running::before {
+    background: #10b981;
+}
+
+.atom-status--stopped {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.atom-status--stopped::before {
+    background: #ef4444;
+}
+
+.atom-status--paused {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.atom-status--paused::before {
+    background: #f59e0b;
+}
+
+/* ========================================
+   进度条原子
+   ======================================== */
+
+.atom-progress {
+    width: 100%;
+    height: 8px;
+    background: var(--bg-tertiary, #f3f4f6);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.atom-progress-bar {
+    height: 100%;
+    background: var(--primary-color, #6366f1);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+/* ========================================
+   加载器原子
+   ======================================== */
+
+.atom-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border-color, #e5e7eb);
+    border-top-color: var(--primary-color, #6366f1);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ========================================
+   工具类原子
+   ======================================== */
+
+.atom-flex {
+    display: flex;
+}
+
+.atom-flex--center {
+    align-items: center;
+    justify-content: center;
+}
+
+.atom-flex--between {
+    justify-content: space-between;
+}
+
+.atom-flex--column {
+    flex-direction: column;
+}
+
+.atom-grid {
+    display: grid;
+}
+
+.atom-gap--sm {
+    gap: 0.5rem;
+}
+
+.atom-gap--md {
+    gap: 1rem;
+}
+
+.atom-gap--lg {
+    gap: 1.5rem;
+}
+
+.atom-padding {
+    padding: 1rem;
+}
+
+.atom-margin {
+    margin: 1rem;
+}
+
+.atom-hidden {
+    display: none;
+}

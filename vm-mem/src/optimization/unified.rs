@@ -435,7 +435,7 @@ mod tests {
         pool.deallocate(addr1).unwrap();
 
         // 释放后可以重新分配
-        let addr3 = pool.allocate(512).unwrap();
+        let _addr3 = pool.allocate(512).unwrap();
         // addr3应该重用addr1或新的地址
     }
 
@@ -523,16 +523,21 @@ mod tests {
         let test_mem = TestMemoryManager::new();
         let addr = GuestAddr(0x1000);
 
-        // 测试不同大小的读取
+        // 测试不同大小的读取 - 应该返回地址的低位
         let size_1 = test_mem.read_batch(&[addr], 1).unwrap()[0];
         let size_2 = test_mem.read_batch(&[addr], 2).unwrap()[0];
         let size_4 = test_mem.read_batch(&[addr], 4).unwrap()[0];
         let size_8 = test_mem.read_batch(&[addr], 8).unwrap()[0];
 
-        assert_eq!(size_1, 1);
-        assert_eq!(size_2, 2);
-        assert_eq!(size_4, 4);
-        assert_eq!(size_8, 8);
+        // 0x1000 = 4096 = 0x1000
+        // size=1: 0x1000 & 0xFF = 0x00
+        // size=2: 0x1000 & 0xFFFF = 0x1000 (4096)
+        // size=4: 0x1000 & 0xFFFFFFFF = 0x1000 (4096)
+        // size=8: 0x1000 & 0xFFFFFFFFFFFFFFFF = 0x1000 (4096)
+        assert_eq!(size_1, 0x00);
+        assert_eq!(size_2, 0x1000);
+        assert_eq!(size_4, 0x1000);
+        assert_eq!(size_8, 0x1000);
     }
 
     #[test]
@@ -575,7 +580,7 @@ mod tests {
         let addrs = vec![GuestAddr(0x1000), GuestAddr(0x1008), GuestAddr(0x1010)];
 
         // 先读取初始值
-        let initial = test_mem.read_batch(&addrs, 8).unwrap();
+        let _initial = test_mem.read_batch(&addrs, 8).unwrap();
 
         // 写入新值
         let write_ops: Vec<(GuestAddr, u64, u8)> = addrs
@@ -889,10 +894,12 @@ impl UnifiedMemoryManager for TestMemoryManager {
     fn read(&self, addr: GuestAddr, size: u8) -> VmResult<u64> {
         // 如果内存中没有这个地址，返回地址的值作为测试数据
         let memory = self.memory.read().unwrap();
-        Ok(memory
-            .get(&addr)
-            .copied()
-            .unwrap_or(addr.0 & ((1u64 << (size * 8)) - 1)))
+        let mask = if size * 8 < 64 {
+            (1u64 << (size * 8)) - 1
+        } else {
+            u64::MAX
+        };
+        Ok(memory.get(&addr).copied().unwrap_or(addr.0 & mask))
     }
 
     fn write(&self, addr: GuestAddr, value: u64, _size: u8) -> VmResult<()> {

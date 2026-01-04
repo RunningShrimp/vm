@@ -180,7 +180,8 @@ impl YoungGenRatioAdjuster {
         // 限制在最小和最大比例之间
         new_ratio = new_ratio.max(self.min_ratio).min(self.max_ratio);
 
-        self.current_ratio.store((new_ratio * 100.0) as u64, Ordering::Relaxed);
+        self.current_ratio
+            .store((new_ratio * 100.0) as u64, Ordering::Relaxed);
     }
 
     /// 获取当前年轻代比例
@@ -262,9 +263,12 @@ impl PromotionThresholdAdjuster {
         }
 
         // 限制在最小和最大阈值之间
-        new_threshold = new_threshold.max(self.min_threshold as i32).min(self.max_threshold as i32);
+        new_threshold = new_threshold
+            .max(self.min_threshold as i32)
+            .min(self.max_threshold as i32);
 
-        self.current_threshold.store(new_threshold as u32, Ordering::Relaxed);
+        self.current_threshold
+            .store(new_threshold as u32, Ordering::Relaxed);
     }
 
     /// 获取当前晋升阈值
@@ -312,8 +316,8 @@ impl GcAdaptiveAdjuster {
             )),
             promotion_adjuster: Arc::new(PromotionThresholdAdjuster::new(
                 initial_promotion_threshold,
-                1,  // 最小阈值1
-                10, // 最大阈值10
+                1,   // 最小阈值1
+                10,  // 最大阈值10
                 0.2, // 目标晋升比例20%
             )),
             last_gc_time: Arc::new(Mutex::new(None)),
@@ -365,7 +369,8 @@ impl GcAdaptiveAdjuster {
 
     /// 记录对象存活次数（用于晋升阈值调整）
     pub fn record_object_survival(&self, survival_count: u32) {
-        self.promotion_adjuster.record_survival_count(survival_count);
+        self.promotion_adjuster
+            .record_survival_count(survival_count);
     }
 
     /// 获取当前年轻代比例
@@ -396,7 +401,7 @@ mod tests {
     #[test]
     fn test_allocation_rate_tracker() {
         let tracker = AllocationRateTracker::new(5);
-        
+
         // 记录一些分配
         tracker.record_allocation(1000);
         tracker.record_allocation(2000);
@@ -416,14 +421,14 @@ mod tests {
         // 记录高存活率（应该增加年轻代比例）
         adjuster.record_survival_rate(0.2);
         adjuster.record_survival_rate(0.25);
-        
+
         let ratio = adjuster.get_ratio();
         assert!(ratio >= 0.3); // 应该增加
 
         // 记录低存活率（应该减少年轻代比例）
         adjuster.record_survival_rate(0.05);
         adjuster.record_survival_rate(0.03);
-        
+
         let ratio2 = adjuster.get_ratio();
         assert!(ratio2 <= ratio); // 应该减少
     }
@@ -453,14 +458,13 @@ mod tests {
         adjuster.record_allocation(200000);
 
         // 检查是否应该触发GC
-        let should_trigger = adjuster.should_trigger_gc(0.6);
+        let _should_trigger = adjuster.should_trigger_gc(0.6);
         // 结果取决于分配速率和时间
 
         // 记录GC完成
         adjuster.record_gc_complete(0.15);
-        
+
         let ratio = adjuster.get_young_gen_ratio();
         assert!(ratio >= 0.1 && ratio <= 0.5);
     }
 }
-

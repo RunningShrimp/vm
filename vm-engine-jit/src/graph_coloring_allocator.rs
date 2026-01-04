@@ -43,10 +43,12 @@
 //! let stats = allocator.get_stats();
 //! ```
 
+use crate::optimizing_compiler::ir_utils;
+use crate::optimizing_compiler::register_allocator::{
+    RegisterAllocation, RegisterAllocatorStats, RegisterAllocatorTrait,
+};
 use std::collections::{HashMap, HashSet};
 use vm_ir::{IROp, RegId};
-use crate::optimizing_compiler::ir_utils;
-use crate::optimizing_compiler::register_allocator::{RegisterAllocatorTrait, RegisterAllocation, RegisterAllocatorStats};
 
 /// 图着色寄存器分配器配置
 #[derive(Debug, Clone)]
@@ -144,7 +146,7 @@ impl GraphColoringAllocator {
     }
 
     /// 简化图（simplify phase）
-    /// 
+    ///
     /// 使用迭代简化算法，移除度数小于k的节点
     fn simplify_graph(&self, graph: &HashMap<RegId, HashSet<RegId>>, k: usize) -> Vec<RegId> {
         let mut worklist = Vec::new();
@@ -156,7 +158,7 @@ impl GraphColoringAllocator {
 
         loop {
             let mut found = false;
-            
+
             // 找到所有度数小于k的节点
             let candidates: Vec<RegId> = degrees
                 .iter()
@@ -185,12 +187,9 @@ impl GraphColoringAllocator {
             if !found {
                 // 如果没有找到度数小于k的节点，选择度数最小的节点（spill候选）
                 if !degrees.is_empty() {
-                    let (min_reg, _) = degrees
-                        .iter()
-                        .min_by_key(|(_, degree)| **degree)
-                        .unwrap();
+                    let (min_reg, _) = degrees.iter().min_by_key(|(_, degree)| **degree).unwrap();
                     let min_reg = *min_reg;
-                    
+
                     if let Some(neighbors) = remaining_graph.remove(&min_reg) {
                         for neighbor in &neighbors {
                             if let Some(degree) = degrees.get_mut(neighbor) {
@@ -205,7 +204,7 @@ impl GraphColoringAllocator {
                         found = true;
                     }
                 }
-                
+
                 if !found {
                     break;
                 }
@@ -216,11 +215,11 @@ impl GraphColoringAllocator {
     }
 
     /// 寄存器合并（coalescing）
-    /// 
+    ///
     /// 如果两个寄存器通过move指令连接，且不冲突，可以合并
     fn coalesce_registers(&self, ops: &[IROp]) -> HashMap<RegId, RegId> {
-        let mut coalesce_map = HashMap::new();
-        
+        let coalesce_map = HashMap::new();
+
         if !self.config.enable_coalescing {
             return coalesce_map;
         }
@@ -239,8 +238,8 @@ impl GraphColoringAllocator {
                 // 检查src和dst是否冲突
                 let src_lifetime = self.reg_lifetimes.get(src);
                 let dst_lifetime = self.reg_lifetimes.get(dst);
-                
-                if let (Some(&(src_start, src_end)), Some(&(dst_start, dst_end))) = 
+
+                if let (Some(&(src_start, src_end)), Some(&(dst_start, dst_end))) =
                     (src_lifetime, dst_lifetime) {
                     // 如果生命周期不重叠，可以合并
                     if src_end < dst_start || dst_end < src_start {
@@ -255,7 +254,7 @@ impl GraphColoringAllocator {
     }
 
     /// 优化spill选择
-    /// 
+    ///
     /// 选择使用频率最低的寄存器进行spill
     fn select_spill_candidate(&self, candidates: &[RegId]) -> Option<RegId> {
         if !self.config.enable_spill_optimization || candidates.is_empty() {
@@ -274,7 +273,7 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
     fn analyze_lifetimes(&mut self, ops: &[IROp]) {
         self.reg_lifetimes.clear();
         self.reg_frequency.clear();
-        
+
         for (idx, op) in ops.iter().enumerate() {
             let read_regs = ir_utils::IrAnalyzer::collect_read_regs(op);
             let written_regs = ir_utils::IrAnalyzer::collect_written_regs(op);
@@ -298,10 +297,10 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
     fn allocate_registers(&mut self, ops: &[IROp]) -> HashMap<RegId, RegisterAllocation> {
         // 1. 寄存器合并（coalescing）
         let coalesce_map = self.coalesce_registers(ops);
-        
+
         // 2. 构建冲突图
         let mut interference_graph = self.build_interference_graph(ops);
-        
+
         // 应用合并映射到冲突图
         for (dst, src) in &coalesce_map {
             // 合并冲突集
@@ -357,10 +356,7 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
                 for &color in &color_candidates {
                     if !used_colors.contains(&color) {
                         colored.insert(reg, color);
-                        allocations.insert(
-                            reg,
-                            RegisterAllocation::Register { reg: color as u8 },
-                        );
+                        allocations.insert(reg, RegisterAllocation::Register { reg: color as u8 });
                         break;
                     }
                 }
@@ -488,7 +484,7 @@ mod tests {
 
         // 应该分配了大部分寄存器
         assert!(allocations.len() > 0);
-        
+
         // 检查统计信息
         let stats = allocator.get_stats();
         assert!(stats.total_allocations > 0);
@@ -565,8 +561,9 @@ mod tests {
         let graph = allocator.build_interference_graph(&ops);
 
         // reg1和reg2应该冲突（生命周期重叠）
-        assert!(graph.get(&1).map(|s| s.contains(&2)).unwrap_or(false) ||
-                graph.get(&2).map(|s| s.contains(&1)).unwrap_or(false));
+        assert!(
+            graph.get(&1).map(|s| s.contains(&2)).unwrap_or(false)
+                || graph.get(&2).map(|s| s.contains(&1)).unwrap_or(false)
+        );
     }
 }
-

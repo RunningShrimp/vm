@@ -43,6 +43,12 @@ impl ArchitectureCompatibilityRule {
     }
 }
 
+impl Default for ArchitectureCompatibilityRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TranslationBusinessRule for ArchitectureCompatibilityRule {
     fn validate_translation_request(
         &self,
@@ -179,6 +185,12 @@ impl PerformanceThresholdRule {
     }
 }
 
+impl Default for PerformanceThresholdRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TranslationBusinessRule for PerformanceThresholdRule {
     fn validate_translation_request(
         &self,
@@ -222,6 +234,12 @@ impl ResourceAvailabilityRule {
     /// Create a new resource availability rule
     pub fn new() -> Self {
         Self
+    }
+}
+
+impl Default for ResourceAvailabilityRule {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

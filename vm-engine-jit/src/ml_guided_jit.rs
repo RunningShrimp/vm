@@ -90,10 +90,11 @@ impl MLGuidedCompiler {
     ) {
         // 占位实现：将PGO数据合并到特征中
         // 实际实现应该进行更复杂的特征工程
-        features.execution_count = features.execution_count.saturating_add(profile.execution_count);
+        features.execution_count = features
+            .execution_count
+            .saturating_add(profile.execution_count);
         features.cache_hit_rate = (features.cache_hit_rate + profile.cache_hit_rate) / 2.0;
-        features.avg_block_time_us =
-            (features.avg_block_time_us + profile.avg_block_time_us) / 2.0;
+        features.avg_block_time_us = (features.avg_block_time_us + profile.avg_block_time_us) / 2.0;
     }
 }
 

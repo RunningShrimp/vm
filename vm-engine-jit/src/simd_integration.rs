@@ -11,16 +11,16 @@
 //!
 //! 这些结构体和函数是为高级SIMD功能预留的接口，当前保留以避免后续API breaking changes。
 
-use vm_core::{VmError, CoreError};
-use vm_ir::IROp;
 use cranelift::prelude::*;
 use cranelift_codegen::ir::{InstBuilder, MemFlags};
-use cranelift_module::{Module, FuncId};
 use cranelift_jit::JITModule;
+use cranelift_module::{FuncId, Module};
 use std::collections::HashMap;
+use vm_core::{CoreError, VmError};
+use vm_ir::IROp;
 
 /// SIMD集成管理器
-/// 
+///
 /// 注意：不保存 JITModule 引用，需要时通过参数传入
 pub struct SimdIntegrationManager {
     /// SIMD函数缓存
@@ -145,14 +145,24 @@ impl SimdIntegrationManager {
     }
 
     /// 获取或创建SIMD函数
-    /// 
+    ///
     /// # 参数
     /// * `module` - JIT模块可变引用，用于创建函数
     /// * `operation` - SIMD操作类型
     /// * `element_size` - 元素大小
     /// * `vector_size` - 向量大小
-    pub fn get_or_create_func(&mut self, module: &mut JITModule, operation: SimdOperation, element_size: u8, vector_size: VectorSize) -> Result<FuncId, VmError> {
-        let key = SimdFuncKey { operation, element_size, vector_size };
+    pub fn get_or_create_func(
+        &mut self,
+        module: &mut JITModule,
+        operation: SimdOperation,
+        element_size: u8,
+        vector_size: VectorSize,
+    ) -> Result<FuncId, VmError> {
+        let key = SimdFuncKey {
+            operation,
+            element_size,
+            vector_size,
+        };
 
         if let Some(&func_id) = self.func_cache.get(&key) {
             return Ok(func_id);
@@ -177,17 +187,23 @@ impl SimdIntegrationManager {
 
         // 对于基本的向量操作（VecAdd, VecSub, VecMul），使用简单的签名
         // 这些函数已经在 simd.rs 中定义，签名是 (u64, u64, u64) -> u64
-        if matches!(operation, SimdOperation::VecAdd | SimdOperation::VecSub | SimdOperation::VecMul) {
+        if matches!(
+            operation,
+            SimdOperation::VecAdd | SimdOperation::VecSub | SimdOperation::VecMul
+        ) {
             sig.params.push(AbiParam::new(types::I64)); // a
             sig.params.push(AbiParam::new(types::I64)); // b
             sig.params.push(AbiParam::new(types::I64)); // element_size
             sig.returns.push(AbiParam::new(types::I64)); // result
             let func_name = self.get_function_name(operation, element_size, vector_size);
-            let func_id = module.declare_function(&func_name, cranelift_module::Linkage::Import, &sig)
-                .map_err(|e| VmError::Core(vm_core::CoreError::Internal {
-                    message: format!("Failed to declare SIMD function: {}", e),
-                    module: "simd_integration".to_string(),
-                }))?;
+            let func_id = module
+                .declare_function(&func_name, cranelift_module::Linkage::Import, &sig)
+                .map_err(|e| {
+                    VmError::Core(vm_core::CoreError::Internal {
+                        message: format!("Failed to declare SIMD function: {}", e),
+                        module: "simd_integration".to_string(),
+                    })
+                })?;
             return Ok(func_id);
         }
 
@@ -240,8 +256,13 @@ impl SimdIntegrationManager {
         }
 
         // 为浮点操作调整签名
-        if matches!(operation, SimdOperation::VecFaddF32 | SimdOperation::VecFsubF32 |
-                           SimdOperation::VecFmulF32 | SimdOperation::VecFdivF32) {
+        if matches!(
+            operation,
+            SimdOperation::VecFaddF32
+                | SimdOperation::VecFsubF32
+                | SimdOperation::VecFmulF32
+                | SimdOperation::VecFdivF32
+        ) {
             // f32 vectors as [f32; 4]
             sig.params.clear();
             sig.returns.clear();
@@ -254,8 +275,13 @@ impl SimdIntegrationManager {
             for _ in 0..4 {
                 sig.returns.push(AbiParam::new(types::F32));
             }
-        } else if matches!(operation, SimdOperation::VecFaddF64 | SimdOperation::VecFsubF64 |
-                                  SimdOperation::VecFmulF64 | SimdOperation::VecFdivF64) {
+        } else if matches!(
+            operation,
+            SimdOperation::VecFaddF64
+                | SimdOperation::VecFsubF64
+                | SimdOperation::VecFmulF64
+                | SimdOperation::VecFdivF64
+        ) {
             // f64 vectors as [f64; 2]
             sig.params.clear();
             sig.returns.clear();
@@ -272,7 +298,8 @@ impl SimdIntegrationManager {
             // FMA: a, b, c -> result
             sig.params.clear();
             sig.returns.clear();
-            for _ in 0..12 { // 3 vectors × 4 elements
+            for _ in 0..12 {
+                // 3 vectors × 4 elements
                 sig.params.push(AbiParam::new(types::F32));
             }
             for _ in 0..4 {
@@ -281,7 +308,8 @@ impl SimdIntegrationManager {
         } else if matches!(operation, SimdOperation::VecFmaF64) {
             sig.params.clear();
             sig.returns.clear();
-            for _ in 0..6 { // 3 vectors × 2 elements
+            for _ in 0..6 {
+                // 3 vectors × 2 elements
                 sig.params.push(AbiParam::new(types::F64));
             }
             for _ in 0..2 {
@@ -290,17 +318,25 @@ impl SimdIntegrationManager {
         }
 
         let func_name = self.get_function_name(operation, element_size, vector_size);
-        let func_id = module.declare_function(&func_name, cranelift_module::Linkage::Import, &sig)
-            .map_err(|e| VmError::Core(vm_core::CoreError::Internal {
-                message: format!("Failed to declare SIMD function: {}", e),
-                module: "simd_integration".to_string(),
-            }))?;
+        let func_id = module
+            .declare_function(&func_name, cranelift_module::Linkage::Import, &sig)
+            .map_err(|e| {
+                VmError::Core(vm_core::CoreError::Internal {
+                    message: format!("Failed to declare SIMD function: {}", e),
+                    module: "simd_integration".to_string(),
+                })
+            })?;
 
         Ok(func_id)
     }
 
     /// 获取函数名称
-    fn get_function_name(&self, operation: SimdOperation, element_size: u8, vector_size: VectorSize) -> String {
+    fn get_function_name(
+        &self,
+        operation: SimdOperation,
+        element_size: u8,
+        vector_size: VectorSize,
+    ) -> String {
         let op_name = match operation {
             SimdOperation::VecAdd => "jit_vec_add",
             SimdOperation::VecSub => "jit_vec_sub",
@@ -351,7 +387,10 @@ impl SimdIntegrationManager {
 
         // 对于基本的向量操作（VecAdd, VecSub, VecMul），直接返回函数名
         // 这些函数已经在 simd.rs 中定义，签名是 (u64, u64, u64) -> u64
-        if matches!(operation, SimdOperation::VecAdd | SimdOperation::VecSub | SimdOperation::VecMul) {
+        if matches!(
+            operation,
+            SimdOperation::VecAdd | SimdOperation::VecSub | SimdOperation::VecMul
+        ) {
             return op_name.to_string();
         }
 
@@ -362,9 +401,14 @@ impl SimdIntegrationManager {
             VectorSize::Vec512 => "512",
         };
 
-        if matches!(operation, SimdOperation::VecFaddF32 | SimdOperation::VecFsubF32 |
-                           SimdOperation::VecFmulF32 | SimdOperation::VecFdivF32 |
-                           SimdOperation::VecFmaF32) {
+        if matches!(
+            operation,
+            SimdOperation::VecFaddF32
+                | SimdOperation::VecFsubF32
+                | SimdOperation::VecFmulF32
+                | SimdOperation::VecFdivF32
+                | SimdOperation::VecFmaF32
+        ) {
             format!("{}_{}", op_name, size_suffix)
         } else {
             format!("{}_{}_{}", op_name, size_suffix, element_size)
@@ -391,51 +435,66 @@ impl SimdIntegrationManager {
     ) -> Result<Option<Value>, VmError> {
         match op {
             // === 基本向量运算 ===
-            IROp::VecAdd { dst, src1, src2, element_size } => {
-                self.compile_vec_binop(
-                    module,
-                    builder,
-                    SimdOperation::VecAdd,
-                    *dst,
-                    *src1,
-                    *src2,
-                    *element_size,
-                    VectorSize::Scalar64,
-                    regs_ptr,
-                    vec_regs_ptr,
-                )
-            }
-            IROp::VecSub { dst, src1, src2, element_size } => {
-                self.compile_vec_binop(
-                    module,
-                    builder,
-                    SimdOperation::VecSub,
-                    *dst,
-                    *src1,
-                    *src2,
-                    *element_size,
-                    VectorSize::Scalar64,
-                    regs_ptr,
-                    vec_regs_ptr,
-                )
-            }
-            IROp::VecMul { dst, src1, src2, element_size } => {
-                self.compile_vec_binop(
-                    module,
-                    builder,
-                    SimdOperation::VecMul,
-                    *dst,
-                    *src1,
-                    *src2,
-                    *element_size,
-                    VectorSize::Scalar64,
-                    regs_ptr,
-                    vec_regs_ptr,
-                )
-            }
+            IROp::VecAdd {
+                dst,
+                src1,
+                src2,
+                element_size,
+            } => self.compile_vec_binop(
+                module,
+                builder,
+                SimdOperation::VecAdd,
+                *dst,
+                *src1,
+                *src2,
+                *element_size,
+                VectorSize::Scalar64,
+                regs_ptr,
+                vec_regs_ptr,
+            ),
+            IROp::VecSub {
+                dst,
+                src1,
+                src2,
+                element_size,
+            } => self.compile_vec_binop(
+                module,
+                builder,
+                SimdOperation::VecSub,
+                *dst,
+                *src1,
+                *src2,
+                *element_size,
+                VectorSize::Scalar64,
+                regs_ptr,
+                vec_regs_ptr,
+            ),
+            IROp::VecMul {
+                dst,
+                src1,
+                src2,
+                element_size,
+            } => self.compile_vec_binop(
+                module,
+                builder,
+                SimdOperation::VecMul,
+                *dst,
+                *src1,
+                *src2,
+                *element_size,
+                VectorSize::Scalar64,
+                regs_ptr,
+                vec_regs_ptr,
+            ),
 
             // === 饱和向量运算 ===
-            IROp::VecAddSat { dst, src1, src2, element_size, signed } => {
+            IROp::VecAddSat {
+                dst,
+                src1,
+                src2,
+                element_size,
+                signed,
+            } => {
                 let operation = if *signed {
                     SimdOperation::VecAddSatS
                 } else {
@@ -454,7 +513,13 @@ impl SimdIntegrationManager {
                     vec_regs_ptr,
                 )
             }
-            IROp::VecSubSat { dst, src1, src2, element_size, signed } => {
+            IROp::VecSubSat {
+                dst,
+                src1,
+                src2,
+                element_size,
+                signed,
+            } => {
                 let operation = if *signed {
                     SimdOperation::VecSubSatS
                 } else {
@@ -473,7 +538,13 @@ impl SimdIntegrationManager {
                     vec_regs_ptr,
                 )
             }
-            IROp::VecMulSat { dst, src1, src2, element_size, signed } => {
+            IROp::VecMulSat {
+                dst,
+                src1,
+                src2,
+                element_size,
+                signed,
+            } => {
                 let operation = if *signed {
                     SimdOperation::VecMulSatS
                 } else {
@@ -691,22 +762,24 @@ impl SimdIntegrationManager {
     ) -> Result<Option<Value>, VmError> {
         // 获取或创建SIMD函数
         let func_id = self.get_or_create_func(module, operation, element_size, vector_size)?;
-        
+
         // 声明函数引用
         let func_ref = module.declare_func_in_func(func_id, builder.func);
-        
+
         // 加载源寄存器
         let src1_val = Self::load_vec_reg(builder, regs_ptr, src1 as usize);
         let src2_val = Self::load_vec_reg(builder, regs_ptr, src2 as usize);
         let element_size_val = builder.ins().iconst(types::I64, element_size as i64);
-        
+
         // 调用SIMD函数
-        let call = builder.ins().call(func_ref, &[src1_val, src2_val, element_size_val]);
+        let call = builder
+            .ins()
+            .call(func_ref, &[src1_val, src2_val, element_size_val]);
         let result = builder.inst_results(call)[0];
-        
+
         // 存储结果
         Self::store_vec_reg(builder, regs_ptr, dst as usize, result);
-        
+
         Ok(Some(result))
     }
 
@@ -875,10 +948,9 @@ impl SimdIntegrationManager {
         let element_size_val = builder.ins().iconst(types::I64, element_size as i64);
 
         // 调用SIMD函数
-        let call = builder.ins().call(
-            func_ref,
-            &[src_val, shift_val, element_size_val],
-        );
+        let call = builder
+            .ins()
+            .call(func_ref, &[src_val, shift_val, element_size_val]);
         let result = builder.inst_results(call)[0];
 
         // 存储结果
@@ -918,10 +990,9 @@ impl SimdIntegrationManager {
         let element_size_val = builder.ins().iconst(types::I64, element_size as i64);
 
         // 调用SIMD函数
-        let call = builder.ins().call(
-            func_ref,
-            &[src_val, shift_val, element_size_val],
-        );
+        let call = builder
+            .ins()
+            .call(func_ref, &[src_val, shift_val, element_size_val]);
         let result = builder.inst_results(call)[0];
 
         // 存储结果
@@ -954,12 +1025,18 @@ impl SimdIntegrationManager {
 
         // 确定类型
         let (_is_f32, type_val) = match operation {
-            SimdOperation::VecFaddF32 | SimdOperation::VecFsubF32 |
-            SimdOperation::VecFmulF32 | SimdOperation::VecFdivF32 |
-            SimdOperation::VecFminF32 | SimdOperation::VecFmaxF32 => (true, types::F32),
-            SimdOperation::VecFaddF64 | SimdOperation::VecFsubF64 |
-            SimdOperation::VecFmulF64 | SimdOperation::VecFdivF64 |
-            SimdOperation::VecFminF64 | SimdOperation::VecFmaxF64 => (false, types::F64),
+            SimdOperation::VecFaddF32
+            | SimdOperation::VecFsubF32
+            | SimdOperation::VecFmulF32
+            | SimdOperation::VecFdivF32
+            | SimdOperation::VecFminF32
+            | SimdOperation::VecFmaxF32 => (true, types::F32),
+            SimdOperation::VecFaddF64
+            | SimdOperation::VecFsubF64
+            | SimdOperation::VecFmulF64
+            | SimdOperation::VecFdivF64
+            | SimdOperation::VecFminF64
+            | SimdOperation::VecFmaxF64 => (false, types::F64),
             _ => return Ok(None),
         };
 
@@ -984,19 +1061,25 @@ impl SimdIntegrationManager {
             SimdOperation::VecFminF32 | SimdOperation::VecFminF64 => {
                 // 浮点最小值：使用fcmp + select
                 // 简化实现：使用fmin (如果可用)
-                let cmp = builder.ins().fcmp(FloatCC::LessThan, src1_float, src2_float);
+                let cmp = builder
+                    .ins()
+                    .fcmp(FloatCC::LessThan, src1_float, src2_float);
                 builder.ins().select(cmp, src1_float, src2_float)
             }
             SimdOperation::VecFmaxF32 | SimdOperation::VecFmaxF64 => {
                 // 浮点最大值
-                let cmp = builder.ins().fcmp(FloatCC::GreaterThan, src1_float, src2_float);
+                let cmp = builder
+                    .ins()
+                    .fcmp(FloatCC::GreaterThan, src1_float, src2_float);
                 builder.ins().select(cmp, src1_float, src2_float)
             }
             _ => return Ok(None),
         };
 
         // 转换回整数类型存储
-        let result = builder.ins().bitcast(types::I64, MemFlags::new(), result_float);
+        let result = builder
+            .ins()
+            .bitcast(types::I64, MemFlags::new(), result_float);
         Self::store_vec_reg(builder, fregs_ptr, dst as usize, result);
 
         Ok(Some(result))
@@ -1044,7 +1127,9 @@ impl SimdIntegrationManager {
         let result_float = builder.ins().fadd(product, src3_float);
 
         // 转换回整数类型存储
-        let result = builder.ins().bitcast(types::I64, MemFlags::new(), result_float);
+        let result = builder
+            .ins()
+            .bitcast(types::I64, MemFlags::new(), result_float);
         Self::store_vec_reg(builder, fregs_ptr, dst as usize, result);
 
         Ok(Some(result))
@@ -1104,17 +1189,20 @@ impl SimdIntegrationManager {
         Ok(Some(result))
     }
 
-  
     /// 加载向量寄存器（从通用寄存器数组）
     fn load_vec_reg(builder: &mut FunctionBuilder, regs_ptr: Value, idx: usize) -> Value {
         let offset = (idx as i32) * 8;
-        builder.ins().load(types::I64, MemFlags::trusted(), regs_ptr, offset)
+        builder
+            .ins()
+            .load(types::I64, MemFlags::trusted(), regs_ptr, offset)
     }
 
     /// 存储向量寄存器（到通用寄存器数组）
     fn store_vec_reg(builder: &mut FunctionBuilder, regs_ptr: Value, idx: usize, val: Value) {
         let offset = (idx as i32) * 8;
-        builder.ins().store(MemFlags::trusted(), val, regs_ptr, offset);
+        builder
+            .ins()
+            .store(MemFlags::trusted(), val, regs_ptr, offset);
     }
 }
 

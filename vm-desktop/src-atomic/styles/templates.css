@@ -1,0 +1,523 @@
+/* ========================================
+   模板布局 (Templates)
+   页面级别的布局结构
+   ======================================== */
+
+/* ========================================
+   仪表板模板
+   ======================================== */
+
+.template-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.template-dashboard__header {
+    margin-bottom: 1rem;
+}
+
+.template-dashboard__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.template-dashboard__quick-actions {
+    margin-bottom: 2rem;
+}
+
+.template-dashboard__main-content {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+}
+
+.template-dashboard__primary {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.template-dashboard__secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+    .template-dashboard__main-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========================================
+   虚拟机列表模板
+   ======================================== */
+
+.template-vm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.template-vm-list__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.template-vm-list__filters {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.template-vm-list__search {
+    flex: 1;
+    min-width: 250px;
+    max-width: 400px;
+}
+
+.template-vm-list__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+}
+
+.template-vm-list__empty {
+    grid-column: 1 / -1;
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+/* ========================================
+   虚拟机详情模板
+   ======================================== */
+
+.template-vm-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.template-vm-detail__header {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.template-vm-detail__info {
+    flex: 1;
+}
+
+.template-vm-detail__title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.5rem 0;
+}
+
+.template-vm-detail__meta {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.9375rem;
+    color: var(--text-secondary, #6b7280);
+}
+
+.template-vm-detail__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+
+.template-vm-detail__content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 2rem;
+}
+
+.template-vm-detail__section {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem;
+}
+
+.template-vm-detail__section-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 1rem 0;
+}
+
+/* ========================================
+   监控模板
+   ======================================== */
+
+.template-monitoring {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.template-monitoring__selector {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem;
+}
+
+.template-monitoring__selector-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.template-monitoring__charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+}
+
+.template-monitoring__chart {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem;
+}
+
+.template-monitoring__metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+/* ========================================
+   设置模板
+   ======================================== */
+
+.template-settings {
+    display: flex;
+    gap: 2rem;
+}
+
+.template-settings__sidebar {
+    width: 240px;
+    flex-shrink: 0;
+}
+
+.template-settings__content {
+    flex: 1;
+    max-width: 800px;
+}
+
+.template-settings__section {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+}
+
+.template-settings__section-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.template-settings__section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.5rem 0;
+}
+
+.template-settings__section-description {
+    font-size: 0.9375rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+}
+
+@media (max-width: 768px) {
+    .template-settings {
+        flex-direction: column;
+    }
+
+    .template-settings__sidebar {
+        width: 100%;
+    }
+}
+
+/* ========================================
+   认证模板
+   ======================================== */
+
+.template-auth {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--bg-secondary, #f9fafb);
+    padding: 1rem;
+}
+
+.template-auth__container {
+    width: 100%;
+    max-width: 450px;
+}
+
+.template-auth__card {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 2.5rem;
+    box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+}
+
+.template-auth__header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.template-auth__logo {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.template-auth__title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.5rem 0;
+}
+
+.template-auth__subtitle {
+    font-size: 1rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+}
+
+/* ========================================
+   错误页面模板
+   ======================================== */
+
+.template-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--bg-secondary, #f9fafb);
+    padding: 1rem;
+}
+
+.template-error__container {
+    text-align: center;
+    max-width: 600px;
+}
+
+.template-error__code {
+    font-size: 8rem;
+    font-weight: 700;
+    color: var(--primary-color, #6366f1);
+    line-height: 1;
+    margin-bottom: 1rem;
+}
+
+.template-error__title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 1rem 0;
+}
+
+.template-error__message {
+    font-size: 1.125rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0 0 2rem 0;
+}
+
+/* ========================================
+   加载模板
+   ======================================== */
+
+.template-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--bg-secondary, #f9fafb);
+}
+
+.template-loading__container {
+    text-align: center;
+}
+
+.template-loading__spinner {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 1.5rem;
+}
+
+.template-loading__text {
+    font-size: 1.125rem;
+    color: var(--text-secondary, #6b7280);
+}
+
+/* ========================================
+   主布局模板
+   ======================================== */
+
+.template-main {
+    display: flex;
+    min-height: 100vh;
+    background: var(--bg-secondary, #f9fafb);
+}
+
+.template-main__sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+}
+
+.template-main__content {
+    flex: 1;
+    margin-left: 260px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.template-main__topbar {
+    background: var(--bg-primary, #ffffff);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: 1rem 2rem;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.template-main__page {
+    flex: 1;
+    padding: 2rem;
+}
+
+@media (max-width: 768px) {
+    .template-main__sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+
+    .template-main__sidebar--open {
+        transform: translateX(0);
+    }
+
+    .template-main__content {
+        margin-left: 0;
+    }
+
+    .template-main__page {
+        padding: 1rem;
+    }
+
+    .template-main__topbar {
+        padding: 1rem;
+    }
+}
+
+/* ========================================
+   响应式辅助类
+   ======================================== */
+
+.template-container {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+.template-container--fluid {
+    max-width: none;
+}
+
+.template-container--narrow {
+    max-width: 900px;
+}
+
+@media (max-width: 768px) {
+    .template-container {
+        padding: 0 1rem;
+    }
+}
+
+/* ========================================
+   网格系统
+   ======================================== */
+
+.template-grid {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.template-grid--2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.template-grid--3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.template-grid--4 {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.template-grid--auto {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+@media (max-width: 1024px) {
+    .template-grid--4,
+    .template-grid--3 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .template-grid--4,
+    .template-grid--3,
+    .template-grid--2 {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========================================
+   间距系统
+   ======================================== */
+
+.template-spacer--sm {
+    margin-bottom: 1rem;
+}
+
+.template-spacer--md {
+    margin-bottom: 2rem;
+}
+
+.template-spacer--lg {
+    margin-bottom: 3rem;
+}
+
+.template-spacer--xl {
+    margin-bottom: 4rem;
+}

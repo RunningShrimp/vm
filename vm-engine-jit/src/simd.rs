@@ -7,17 +7,19 @@
 // 这些是公共API的一部分，由simd_integration模块重新导出
 #[allow(unused_imports)]
 pub use crate::simd_integration::{
+    ElementSize,
+
     // SIMD编译器
     SimdCompiler,
 
     // SIMD操作类型和配置
-    SimdOperation, VectorSize, ElementSize,
-
-    // SIMD编译支持
-    compile_simd_op, compile_simd_operation,
-
+    SimdOperation,
     // 向量操作枚举
     VectorOperation,
+    VectorSize,
+    // SIMD编译支持
+    compile_simd_op,
+    compile_simd_operation,
 };
 
 // 便捷的SIMD操作函数（向后兼容旧API）

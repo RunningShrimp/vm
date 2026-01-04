@@ -408,9 +408,6 @@ impl Default for CodeGenerator {
 
 #[cfg(test)]
 mod tests {
-    use vm_core::GuestAddr;
-    use vm_ir::IRBlock;
-
     use super::*;
 
     #[test]

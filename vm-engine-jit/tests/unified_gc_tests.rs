@@ -5,10 +5,9 @@
 use std::sync::atomic::Ordering;
 
 use vm_engine_jit::unified_gc::{
-    AdaptiveQuotaManager, GCColor, GCPhase, LockFreeMarkStack, ShardedWriteBarrier, UnifiedGC,
-    UnifiedGcConfig, UnifiedGcStats,
+    AdaptiveQuotaManager, GCPhase, ShardedWriteBarrier, UnifiedGC, UnifiedGcConfig, UnifiedGcStats,
 };
-use vm_ir::{GuestAddr, IRBlock, IRBuilder, IROp, Terminator};
+use vm_ir::{IRBlock, IROp, Terminator};
 
 #[test]
 fn test_unified_gc_creation() {

@@ -682,7 +682,7 @@ mod tests {
         assert!(result.is_some());
 
         // Read访问应该使用DTLB（可能不在DTLB中）
-        let result2 = hierarchy.lookup(GuestAddr(0x1000), 0, AccessType::Read);
+        let _result2 = hierarchy.lookup(GuestAddr(0x1000), 0, AccessType::Read);
         // 可能返回Some或None，取决于实现
     }
 
@@ -797,7 +797,7 @@ mod tests {
         }
 
         // 应该仍然能够查找（旧条目可能被驱逐）
-        let result = hierarchy.lookup(GuestAddr(0x1000), 0, AccessType::Read);
+        let _result = hierarchy.lookup(GuestAddr(0x1000), 0, AccessType::Read);
         // 可能返回Some或None，取决于驱逐策略
     }
 

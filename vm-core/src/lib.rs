@@ -644,7 +644,7 @@ pub trait Decoder {
     ///
     /// # 参数
     /// - `mmu`: MMU可变引用，用于读取虚拟内存中的指令
-    ///         （需要可变性因为translate可能更新TLB）
+    ///   （需要可变性因为translate可能更新TLB）
     /// - `pc`: 程序计数器，指向要解码的指令地址
     ///
     /// # 返回
@@ -658,7 +658,7 @@ pub trait Decoder {
     ///
     /// # 参数
     /// - `mmu`: MMU可变引用，用于读取虚拟内存中的指令
-    ///         （需要可变性因为translate可能更新TLB）
+    ///   （需要可变性因为translate可能更新TLB）
     /// - `pc`: 程序计数器，指向基本块起始地址
     ///
     /// # 返回
@@ -874,7 +874,7 @@ pub enum VmState {
 }
 
 /// 虚拟机核心结构
-#[cfg(not(feature = "no_std"))]
+#[allow(dead_code)]
 pub struct VirtualMachine<B> {
     /// 配置
     config: VmConfig,
@@ -892,7 +892,6 @@ pub struct VirtualMachine<B> {
     template_manager: Mutex<template::TemplateManager>,
 }
 
-#[cfg(not(feature = "no_std"))]
 impl<B: 'static> VirtualMachine<B> {
     /// 使用提供的 MMU 创建 VM
     pub fn with_mmu(config: VmConfig, mmu: Box<dyn MMU>) -> Self {

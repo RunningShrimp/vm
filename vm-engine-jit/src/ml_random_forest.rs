@@ -207,10 +207,7 @@ impl RandomForestModel {
         }
 
         let total_votes = self.num_trees as f64;
-        let (decision, count) = votes
-            .into_iter()
-            .max_by_key(|&(_, count)| count)
-            .unwrap();
+        let (decision, count) = votes.into_iter().max_by_key(|&(_, count)| count).unwrap();
 
         let confidence = count as f64 / total_votes;
         (decision, confidence)

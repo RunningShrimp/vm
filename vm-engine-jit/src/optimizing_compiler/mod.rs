@@ -2,26 +2,25 @@
 //!
 //! 包含寄存器分配、指令调度、优化Pass等子模块
 
-pub mod register_allocator;
 pub mod instruction_scheduler;
-pub mod optimization_passes;
 pub mod ir_utils;
+pub mod optimization_passes;
+pub mod register_allocator;
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use vm_ir::IRBlock;
 
 // 重新导出主要类型
 pub use register_allocator::{
-    RegisterAllocator, RegisterAllocation, RegisterAllocatorTrait,
-    LinearScanAllocator, GraphColoringAllocator, StubGraphColoringAllocator,
-    RegisterAllocatorStats,
+    GraphColoringAllocator, LinearScanAllocator, RegisterAllocation, RegisterAllocator,
+    RegisterAllocatorStats, RegisterAllocatorTrait, StubGraphColoringAllocator,
 };
 
-pub use instruction_scheduler::{InstructionScheduler, Dependency, DependencyType};
+pub use instruction_scheduler::{Dependency, DependencyType, InstructionScheduler};
 
-pub use optimization_passes::{OptimizationPassManager, OptimizationPass};
+pub use optimization_passes::{OptimizationPass, OptimizationPassManager};
 
 /// 寄存器分配策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,7 +132,8 @@ impl OptimizingJIT {
         };
 
         // 3. 指令调度
-        self.instruction_scheduler.build_dependency_graph(&optimized_ops);
+        self.instruction_scheduler
+            .build_dependency_graph(&optimized_ops);
         let _schedule = self.instruction_scheduler.schedule(&optimized_ops);
 
         // 4. 更新统计信息

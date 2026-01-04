@@ -4,11 +4,11 @@
 
 use super::ml_model_enhanced::ExecutionFeaturesEnhanced;
 use super::ml_random_forest::{CompilationDecision, RandomForestModel};
+use rand::Rng;
+use rand::SeedableRng;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use rand::SeedableRng;
-use rand::Rng;
 
 // ============================================================================
 // 性能记录
@@ -94,7 +94,7 @@ pub struct ABTestConfig {
 impl Default for ABTestConfig {
     fn default() -> Self {
         Self {
-            traffic_split: 0.5,  // 50/50分配
+            traffic_split: 0.5, // 50/50分配
             enable_logging: true,
             min_samples: 100,
             auto_select_winner: false,
@@ -149,11 +149,7 @@ impl ModelABTest {
     /// - `model_a`: 模型A
     /// - `model_b`: 模型B
     /// - `config`: 测试配置
-    pub fn new(
-        model_a: Box<dyn MLModel>,
-        model_b: Box<dyn MLModel>,
-        config: ABTestConfig,
-    ) -> Self {
+    pub fn new(model_a: Box<dyn MLModel>, model_b: Box<dyn MLModel>, config: ABTestConfig) -> Self {
         let rng = rand::rngs::StdRng::from_entropy();
         Self {
             model_a,
@@ -167,10 +163,7 @@ impl ModelABTest {
     /// 预测并记录性能
     ///
     /// 根据流量分配选择模型A或B，并记录结果
-    pub fn predict_and_log(
-        &mut self,
-        features: ExecutionFeaturesEnhanced,
-    ) -> CompilationDecision {
+    pub fn predict_and_log(&mut self, features: ExecutionFeaturesEnhanced) -> CompilationDecision {
         // 随机选择模型
         let use_model_a = {
             let mut rng = self.rng.lock().unwrap();
@@ -284,15 +277,13 @@ impl ModelABTest {
 
         // 计算准确率（简化：使用成功率）
         model_a_stats.accuracy = if model_a_stats.total_predictions > 0 {
-            model_a_stats.successful_predictions as f64
-                / model_a_stats.total_predictions as f64
+            model_a_stats.successful_predictions as f64 / model_a_stats.total_predictions as f64
         } else {
             0.0
         };
 
         model_b_stats.accuracy = if model_b_stats.total_predictions > 0 {
-            model_b_stats.successful_predictions as f64
-                / model_b_stats.total_predictions as f64
+            model_b_stats.successful_predictions as f64 / model_b_stats.total_predictions as f64
         } else {
             0.0
         };
@@ -454,7 +445,8 @@ impl ABTestManager {
             // 检查是否所有模型都有足够的样本
             let min_samples = self.config.min_samples;
             let all_have_enough = self.models.iter().all(|name| {
-                records.get(name)
+                records
+                    .get(name)
                     .map(|recs| recs.len() >= min_samples)
                     .unwrap_or(false)
             });
@@ -552,7 +544,11 @@ impl ABTestManager {
     }
 
     /// 比较两个模型
-    pub fn compare_models(&self, model_a_name: &str, model_b_name: &str) -> Option<ModelComparison> {
+    pub fn compare_models(
+        &self,
+        model_a_name: &str,
+        model_b_name: &str,
+    ) -> Option<ModelComparison> {
         let stats_a = self.get_model_stats(model_a_name)?;
         let stats_b = self.get_model_stats(model_b_name)?;
 
@@ -564,10 +560,12 @@ impl ABTestManager {
         }
 
         // 基于平均执行时间确定获胜者（时间越短越好）
-        let (winner, improvement) = if stats_a.avg_execution_time_ns < stats_b.avg_execution_time_ns {
+        let (winner, improvement) = if stats_a.avg_execution_time_ns < stats_b.avg_execution_time_ns
+        {
             let improvement = if stats_b.avg_execution_time_ns > 0.0 {
                 (stats_b.avg_execution_time_ns - stats_a.avg_execution_time_ns)
-                    / stats_b.avg_execution_time_ns * 100.0
+                    / stats_b.avg_execution_time_ns
+                    * 100.0
             } else {
                 0.0
             };
@@ -575,7 +573,8 @@ impl ABTestManager {
         } else {
             let improvement = if stats_a.avg_execution_time_ns > 0.0 {
                 (stats_a.avg_execution_time_ns - stats_b.avg_execution_time_ns)
-                    / stats_a.avg_execution_time_ns * 100.0
+                    / stats_a.avg_execution_time_ns
+                    * 100.0
             } else {
                 0.0
             };

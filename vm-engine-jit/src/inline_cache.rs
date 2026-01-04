@@ -46,14 +46,17 @@ impl PartialEq for IcState {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (IcState::Uninitialized, IcState::Uninitialized) => true,
-            (IcState::Monomorphic(a), IcState::Monomorphic(b)) => a.type_id == b.type_id && a.target == b.target,
+            (IcState::Monomorphic(a), IcState::Monomorphic(b)) => {
+                a.type_id == b.type_id && a.target == b.target
+            }
             (IcState::Polymorphic(a), IcState::Polymorphic(b)) => {
-                a.len() == b.len() &&
-                a.iter().zip(b.iter()).all(|(ea, eb)| ea.type_id == eb.type_id && ea.target == eb.target)
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|(ea, eb)| ea.type_id == eb.type_id && ea.target == eb.target)
             }
             (IcState::Megamorphic { entries: a, .. }, IcState::Megamorphic { entries: b, .. }) => {
-                a.len() == b.len() &&
-                a.keys().all(|k| b.get(k).is_some())
+                a.len() == b.len() && a.keys().all(|k| b.get(k).is_some())
             }
             _ => false,
         }
@@ -136,7 +139,7 @@ impl InlineCache {
     ///
     /// 如果缓存命中，返回 `Some(target)`，否则返回 `None`
     pub fn lookup(&self, type_id: u64) -> Option<u64> {
-        let mut state = self.state.lock();
+        let state = self.state.lock();
         let mut stats = self.stats.lock();
 
         stats.total_lookups += 1;
@@ -235,7 +238,10 @@ impl InlineCache {
                     }
                 }
             }
-            IcState::Megamorphic { entries, type_count } => {
+            IcState::Megamorphic {
+                entries,
+                type_count,
+            } => {
                 // 兆态状态：检查是否已存在
                 if let Some(_entry) = entries.get(&type_id) {
                     // 类型已存在，更新访问计数
@@ -430,7 +436,13 @@ mod tests {
         }
 
         // 验证状态
-        assert!(matches!(cache.get_state(), IcState::Megamorphic { entries: _, type_count: _ }));
+        assert!(matches!(
+            cache.get_state(),
+            IcState::Megamorphic {
+                entries: _,
+                type_count: _
+            }
+        ));
 
         let stats = cache.get_stats();
         assert_eq!(stats.state_transitions, 6); // Uninit → Mono → Poly → Poly → Poly → Poly → Mega
@@ -581,8 +593,7 @@ mod tests {
         // 验证类型计数未增加
         let stats_after = cache.get_stats();
         assert_eq!(
-            stats_after.cached_types,
-            stats_before.cached_types,
+            stats_after.cached_types, stats_before.cached_types,
             "重复的类型不应该增加计数"
         );
     }

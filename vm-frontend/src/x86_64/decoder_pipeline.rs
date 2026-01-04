@@ -332,7 +332,7 @@ impl Default for DecoderPipeline {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "vm-mem"))]
 mod tests {
     use vm_core::MemoryAccess;
     use vm_mem::SoftMmu;

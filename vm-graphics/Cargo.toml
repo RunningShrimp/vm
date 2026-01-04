@@ -8,3 +8,10 @@ vm-core = { path = "../vm-core" }
 log = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+
+[features]
+default = []
+# Vulkan support (requires Vulkan SDK)
+vulkan = []
+# All graphics features
+all-graphics = ["vulkan"]

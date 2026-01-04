@@ -313,6 +313,7 @@ impl IncrementalGc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::WriteBarrierType;
 
     #[test]
     fn test_incremental_gc_creation() {

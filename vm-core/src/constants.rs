@@ -134,8 +134,8 @@ mod tests {
 
     #[test]
     fn test_tlb_sizes_are_valid() {
-        assert!(MIN_TLB_SIZE <= DEFAULT_TLB_SIZE);
-        assert!(DEFAULT_TLB_SIZE <= MAX_TLB_SIZE);
+        const { assert!(MIN_TLB_SIZE <= DEFAULT_TLB_SIZE) }
+        const { assert!(DEFAULT_TLB_SIZE <= MAX_TLB_SIZE) }
         assert!(DEFAULT_TLB_SIZE.is_power_of_two());
     }
 
@@ -148,29 +148,29 @@ mod tests {
 
     #[test]
     fn test_stack_sizes_are_valid() {
-        assert!(MIN_STACK_SIZE <= DEFAULT_STACK_SIZE);
-        assert!(DEFAULT_STACK_SIZE <= MAX_STACK_SIZE);
+        const { assert!(MIN_STACK_SIZE <= DEFAULT_STACK_SIZE) }
+        const { assert!(DEFAULT_STACK_SIZE <= MAX_STACK_SIZE) }
         assert_eq!(DEFAULT_STACK_SIZE % PAGE_SIZE, 0);
     }
 
     #[test]
     fn test_heap_sizes_are_valid() {
-        assert!(MIN_HEAP_SIZE <= DEFAULT_HEAP_SIZE);
-        assert!(DEFAULT_HEAP_SIZE <= MAX_HEAP_SIZE);
+        const { assert!(MIN_HEAP_SIZE <= DEFAULT_HEAP_SIZE) }
+        const { assert!(DEFAULT_HEAP_SIZE <= MAX_HEAP_SIZE) }
         assert_eq!(DEFAULT_HEAP_SIZE % PAGE_SIZE, 0);
     }
 
     #[test]
     fn test_code_cache_sizes_are_valid() {
-        assert!(MIN_CODE_CACHE_SIZE <= DEFAULT_CODE_CACHE_SIZE);
-        assert!(DEFAULT_CODE_CACHE_SIZE <= MAX_CODE_CACHE_SIZE);
+        const { assert!(MIN_CODE_CACHE_SIZE <= DEFAULT_CODE_CACHE_SIZE) }
+        const { assert!(DEFAULT_CODE_CACHE_SIZE <= MAX_CODE_CACHE_SIZE) }
         assert_eq!(DEFAULT_CODE_CACHE_SIZE % PAGE_SIZE, 0);
     }
 
     #[test]
     fn test_time_slice_range() {
-        assert!(MIN_TIME_SLICE <= DEFAULT_TIME_SLICE);
-        assert!(DEFAULT_TIME_SLICE <= MAX_TIME_SLICE);
+        const { assert!(MIN_TIME_SLICE <= DEFAULT_TIME_SLICE) }
+        const { assert!(DEFAULT_TIME_SLICE <= MAX_TIME_SLICE) }
     }
 
     #[test]

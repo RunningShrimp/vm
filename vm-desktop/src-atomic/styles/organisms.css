@@ -1,0 +1,908 @@
+/* ========================================
+   有机体组件 (Organisms)
+   由分子和原子组成的复杂 UI 组件
+   ======================================== */
+
+/* ========================================
+   虚拟机卡片有机体
+   ======================================== */
+
+.org-vm-card {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.org-vm-card:hover {
+    box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+    transform: translateY(-2px);
+    border-color: var(--primary-color, #6366f1);
+}
+
+.org-vm-card__header {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.org-vm-card__icon {
+    font-size: 2rem;
+    line-height: 1;
+}
+
+.org-vm-card__status {
+    flex-shrink: 0;
+}
+
+.org-vm-card__title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.5rem 0;
+}
+
+.org-vm-card__config {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+}
+
+.org-vm-card__config-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.org-vm-card__actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.org-vm-card__actions .atom-btn {
+    flex: 1;
+}
+
+/* ========================================
+   导航侧边栏有机体
+   ======================================== */
+
+.org-sidebar {
+    width: 260px;
+    height: 100vh;
+    background: var(--bg-secondary, #f9fafb);
+    border-right: 1px solid var(--border-color, #e5e7eb);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    top: 0;
+    overflow-y: auto;
+}
+
+.org-sidebar__header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.org-sidebar__logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary, #111827);
+    text-decoration: none;
+}
+
+.org-sidebar__logo-icon {
+    font-size: 1.5rem;
+}
+
+.org-sidebar__nav {
+    flex: 1;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.org-sidebar__nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: none;
+    border: none;
+    border-radius: var(--radius-md, 8px);
+    color: var(--text-secondary, #6b7280);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    position: relative;
+}
+
+.org-sidebar__nav-item:hover {
+    background: var(--bg-tertiary, #f3f4f6);
+    color: var(--text-primary, #111827);
+}
+
+.org-sidebar__nav-item--active {
+    background: var(--primary-color, #6366f1);
+    color: white;
+}
+
+.org-sidebar__nav-item__icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.org-sidebar__nav-item__label {
+    flex: 1;
+}
+
+.org-sidebar__nav-item__badge {
+    margin-left: auto;
+}
+
+.org-sidebar__footer {
+    padding: 1rem;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.org-sidebar__user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-primary, #ffffff);
+    border-radius: var(--radius-md, 8px);
+}
+
+.org-sidebar__user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--primary-color, #6366f1);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.org-sidebar__user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.org-sidebar__user-name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.org-sidebar__user-email {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ========================================
+   模态框有机体
+   ======================================== */
+
+.org-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 1rem;
+}
+
+.org-modal--open {
+    display: flex;
+}
+
+.org-modal__container {
+    background: var(--bg-primary, #ffffff);
+    border-radius: var(--radius-lg, 12px);
+    box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.org-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.org-modal__title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0;
+}
+
+.org-modal__close {
+    width: 36px;
+    height: 36px;
+    background: none;
+    border: none;
+    border-radius: var(--radius-md, 8px);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--text-secondary, #6b7280);
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.org-modal__close:hover {
+    background: var(--bg-secondary, #f9fafb);
+    color: var(--text-primary, #111827);
+}
+
+.org-modal__body {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.org-modal__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.org-modal--lg .org-modal__container {
+    max-width: 800px;
+}
+
+.org-modal--sm .org-modal__container {
+    max-width: 400px;
+}
+
+/* ========================================
+   活动面板有机体
+   ======================================== */
+
+.org-activity-panel {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem;
+}
+
+.org-activity-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.org-activity-panel__title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0;
+}
+
+.org-activity-panel__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.org-activity-item {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: var(--radius-md, 8px);
+    transition: background 0.2s ease;
+}
+
+.org-activity-item:hover {
+    background: var(--bg-secondary, #f9fafb);
+}
+
+.org-activity-item__icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-tertiary, #f3f4f6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.org-activity-item__content {
+    flex: 1;
+    min-width: 0;
+}
+
+.org-activity-item__title {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.25rem 0;
+}
+
+.org-activity-item__description {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+}
+
+.org-activity-item__time {
+    font-size: 0.75rem;
+    color: var(--text-tertiary, #9ca3af);
+    margin-top: 0.25rem;
+}
+
+/* ========================================
+   仪表板视图有机体
+   ======================================== */
+
+.org-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.org-dashboard__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+}
+
+.org-dashboard__quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.org-dashboard__main {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+}
+
+.org-dashboard__content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.org-dashboard__sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+    .org-dashboard__main {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========================================
+   虚拟机网格有机体
+   ======================================== */
+
+.org-vm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+}
+
+.org-vm-grid--dense {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.org-vm-grid--compact {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1rem;
+}
+
+.org-vm-grid__container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.org-vm-grid__filters {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.org-vm-grid__search {
+    flex: 1;
+    min-width: 200px;
+}
+
+.org-vm-grid__status-filter {
+    min-width: 150px;
+}
+
+/* ========================================
+   设置面板有机体
+   ======================================== */
+
+.org-settings-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.org-settings-panel__sidebar {
+    width: 240px;
+    flex-shrink: 0;
+}
+
+.org-settings-panel__content {
+    flex: 1;
+    max-width: 800px;
+}
+
+.org-settings-section {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+}
+
+.org-settings-section__header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.org-settings-section__title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.5rem 0;
+}
+
+.org-settings-section__description {
+    font-size: 0.9375rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+}
+
+.org-settings-section__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+/* ========================================
+   监控面板有机体
+   ======================================== */
+
+.org-monitoring-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.org-monitoring-panel__vm-select {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+}
+
+.org-monitoring-panel__metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+
+.org-monitoring-chart {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem;
+}
+
+.org-monitoring-chart__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.org-monitoring-chart__title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0;
+}
+
+.org-monitoring-chart__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color, #6366f1);
+}
+
+.org-monitoring-chart__chart {
+    height: 200px;
+    display: flex;
+    align-items: end;
+    gap: 0.5rem;
+    padding: 1rem 0;
+}
+
+.org-monitoring-chart__bar {
+    flex: 1;
+    background: var(--primary-color, #6366f1);
+    border-radius: var(--radius-sm, 6px) var(--radius-sm, 6px) 0 0;
+    transition: height 0.3s ease;
+    min-height: 4px;
+}
+
+/* ========================================
+   通知容器有机体
+   ======================================== */
+
+.org-notification-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 400px;
+    width: 100%;
+}
+
+.org-notification {
+    display: flex;
+    align-items: start;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.org-notification__icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.org-notification__content {
+    flex: 1;
+}
+
+.org-notification__title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.25rem 0;
+}
+
+.org-notification__message {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+}
+
+.org-notification__close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.25rem;
+    color: var(--text-tertiary, #9ca3af);
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.org-notification--success {
+    border-left: 4px solid var(--success-color, #10b981);
+}
+
+.org-notification--warning {
+    border-left: 4px solid var(--warning-color, #f59e0b);
+}
+
+.org-notification--danger {
+    border-left: 4px solid var(--danger-color, #ef4444);
+}
+
+.org-notification--info {
+    border-left: 4px solid var(--primary-color, #6366f1);
+}
+
+/* ========================================
+   主应用布局有机体
+   ======================================== */
+
+.org-app-layout {
+    display: flex;
+    min-height: 100vh;
+    background: var(--bg-secondary, #f9fafb);
+}
+
+.org-app-layout__sidebar {
+    width: 260px;
+    flex-shrink: 0;
+}
+
+.org-app-layout__main {
+    flex: 1;
+    margin-left: 260px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.org-app-layout__topbar {
+    background: var(--bg-primary, #ffffff);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.org-app-layout__content {
+    flex: 1;
+    padding: 2rem;
+}
+
+.org-app-layout--collapsed .org-app-layout__sidebar {
+    width: 0;
+    overflow: hidden;
+}
+
+.org-app-layout--collapsed .org-app-layout__main {
+    margin-left: 0;
+}
+
+@media (max-width: 768px) {
+    .org-app-layout__sidebar {
+        position: fixed;
+        left: -260px;
+        transition: left 0.3s ease;
+        z-index: 1000;
+    }
+
+    .org-app-layout__sidebar--open {
+        left: 0;
+    }
+
+    .org-app-layout__main {
+        margin-left: 0;
+    }
+
+    .org-app-layout__content {
+        padding: 1rem;
+    }
+
+    .org-app-layout__topbar {
+        padding: 1rem;
+    }
+}
+
+/* ========================================
+   顶部栏有机体
+   ======================================== */
+
+.org-topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.org-topbar__toggle {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.5rem;
+}
+
+.org-topbar__title {
+    flex: 1;
+}
+
+.org-topbar__title__heading {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0;
+}
+
+.org-topbar__title__description {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0.25rem 0 0 0;
+}
+
+.org-topbar__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+    .org-topbar__toggle {
+        display: block;
+    }
+
+    .org-topbar__title__description {
+        display: none;
+    }
+}
+
+/* ========================================
+   空状态有机体
+   ======================================== */
+
+.org-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.org-empty-state__icon {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+    opacity: 0.5;
+}
+
+.org-empty-state__title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.75rem 0;
+}
+
+.org-empty-state__description {
+    font-size: 1rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0 0 2rem 0;
+    max-width: 400px;
+}
+
+.org-empty-state__actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+/* ========================================
+   加载状态有机体
+   ======================================== */
+
+.org-loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    gap: 1.5rem;
+}
+
+.org-loading-state__spinner {
+    width: 48px;
+    height: 48px;
+}
+
+.org-loading-state__text {
+    font-size: 1rem;
+    color: var(--text-secondary, #6b7280);
+}
+
+/* ========================================
+   错误状态有机体
+   ======================================== */
+
+.org-error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.org-error-state__icon {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+}
+
+.org-error-state__title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary, #111827);
+    margin: 0 0 0.75rem 0;
+}
+
+.org-error-state__message {
+    font-size: 1rem;
+    color: var(--text-secondary, #6b7280);
+    margin: 0 0 2rem 0;
+    max-width: 400px;
+}
+
+.org-error-state__actions {
+    display: flex;
+    gap: 0.75rem;
+}

@@ -1364,9 +1364,11 @@ mod tests {
     #[test]
     fn test_loop_optimization_strategies() {
         // Test BasicUnrolling
-        let mut config = TargetOptimizationConfig::default();
-        config.loop_strategy = LoopOptimizationStrategy::BasicUnrolling;
-        config.max_unroll_factor = 4;
+        let config = TargetOptimizationConfig {
+            loop_strategy: LoopOptimizationStrategy::BasicUnrolling,
+            max_unroll_factor: 4,
+            ..Default::default()
+        };
 
         let service = TargetOptimizationDomainService::new(config);
 
@@ -1394,9 +1396,11 @@ mod tests {
         );
 
         // Test Vectorization
-        let mut config = TargetOptimizationConfig::default();
-        config.loop_strategy = LoopOptimizationStrategy::Vectorization;
-        config.vectorization_width = 8;
+        let config = TargetOptimizationConfig {
+            loop_strategy: LoopOptimizationStrategy::Vectorization,
+            vectorization_width: 8,
+            ..Default::default()
+        };
 
         let service = TargetOptimizationDomainService::new(config);
 
@@ -1448,8 +1452,10 @@ mod tests {
         ];
 
         // Test ListScheduling
-        let mut config = TargetOptimizationConfig::default();
-        config.scheduling_strategy = InstructionSchedulingStrategy::ListScheduling;
+        let config = TargetOptimizationConfig {
+            scheduling_strategy: InstructionSchedulingStrategy::ListScheduling,
+            ..Default::default()
+        };
 
         let service = TargetOptimizationDomainService::new(config);
         let result = service
@@ -1464,8 +1470,10 @@ mod tests {
         );
 
         // Test ResourceAware
-        let mut config = TargetOptimizationConfig::default();
-        config.scheduling_strategy = InstructionSchedulingStrategy::ResourceAware;
+        let config = TargetOptimizationConfig {
+            scheduling_strategy: InstructionSchedulingStrategy::ResourceAware,
+            ..Default::default()
+        };
 
         let service = TargetOptimizationDomainService::new(config);
         let result = service
@@ -1506,8 +1514,10 @@ mod tests {
         ];
 
         // Test BasicHazardDetection
-        let mut config = TargetOptimizationConfig::default();
-        config.pipeline_strategy = PipelineOptimizationStrategy::BasicHazardDetection;
+        let config = TargetOptimizationConfig {
+            pipeline_strategy: PipelineOptimizationStrategy::BasicHazardDetection,
+            ..Default::default()
+        };
 
         let service = TargetOptimizationDomainService::new(config);
         let result = service
@@ -1522,8 +1532,10 @@ mod tests {
         );
 
         // Test AdvancedHazardDetection
-        let mut config = TargetOptimizationConfig::default();
-        config.pipeline_strategy = PipelineOptimizationStrategy::AdvancedHazardDetection;
+        let config = TargetOptimizationConfig {
+            pipeline_strategy: PipelineOptimizationStrategy::AdvancedHazardDetection,
+            ..Default::default()
+        };
 
         let service = TargetOptimizationDomainService::new(config);
         let result = service

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="VM Manager - 简洁高效的虚拟机管理工具">
+    <title>VM Manager - 虚拟机管理器</title>
+
+    <!-- Atomic Design Stylesheet -->
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💽</text></svg>">
+</head>
+<body>
+    <!-- ========================================
+         主应用布局 (Template Level)
+         ======================================== -->
+    <div class="org-app-layout">
+        <!-- 侧边栏 (Organism Level) -->
+        <aside class="org-app-layout__sidebar org-sidebar">
+            <div class="org-sidebar__header">
+                <a href="#" class="org-sidebar__logo">
+                    <span class="org-sidebar__logo-icon">⚡</span>
+                    <span>VM Manager</span>
+                </a>
+            </div>
+
+            <nav class="org-sidebar__nav">
+                <a href="#" class="org-sidebar__nav-item org-sidebar__nav-item--active" data-view="dashboard">
+                    <span class="org-sidebar__nav-item__icon">🏠</span>
+                    <span class="org-sidebar__nav-item__label">概览</span>
+                </a>
+                <a href="#" class="org-sidebar__nav-item" data-view="vms">
+                    <span class="org-sidebar__nav-item__icon">🖥️</span>
+                    <span class="org-sidebar__nav-item__label">虚拟机</span>
+                    <span class="atom-badge atom-badge--primary org-sidebar__nav-item__badge">3</span>
+                </a>
+                <a href="#" class="org-sidebar__nav-item" data-view="monitoring">
+                    <span class="org-sidebar__nav-item__icon">📊</span>
+                    <span class="org-sidebar__nav-item__label">监控</span>
+                </a>
+                <a href="#" class="org-sidebar__nav-item" data-view="settings">
+                    <span class="org-sidebar__nav-item__icon">⚙️</span>
+                    <span class="org-sidebar__nav-item__label">设置</span>
+                </a>
+            </nav>
+
+            <div class="org-sidebar__footer">
+                <div class="org-sidebar__user">
+                    <div class="org-sidebar__user-avatar">U</div>
+                    <div class="org-sidebar__user-info">
+                        <p class="org-sidebar__user-name">用户</p>
+                        <p class="org-sidebar__user-email">user@example.com</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区域 -->
+        <div class="org-app-layout__main">
+            <!-- 顶部栏 (Organism Level) -->
+            <header class="org-app-layout__topbar org-topbar">
+                <div class="org-topbar">
+                    <button class="org-topbar__toggle" aria-label="Toggle sidebar">
+                        ☰
+                    </button>
+                    <div class="org-topbar__title">
+                        <h1 class="org-topbar__title__heading">系统概览</h1>
+                        <p class="org-topbar__title__description">实时监控您的虚拟机状态</p>
+                    </div>
+                    <div class="org-topbar__actions">
+                        <button class="atom-btn-icon" aria-label="Refresh">
+                            🔄
+                        </button>
+                        <button class="atom-btn-icon" aria-label="Notifications">
+                            🔔
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 页面内容 -->
+            <main class="org-app-layout__content">
+                <!-- ========================================
+                     仪表板视图 (Template Level)
+                     ======================================== -->
+                <div id="view-dashboard" class="template-dashboard fade-in">
+                    <!-- 统计卡片 (Molecule Level) -->
+                    <section class="template-dashboard__stats">
+                        <div class="mol-stat-card">
+                            <div class="mol-stat-card__icon">🖥️</div>
+                            <div class="mol-stat-card__content">
+                                <div class="mol-stat-card__value">3</div>
+                                <div class="mol-stat-card__label">总虚拟机</div>
+                            </div>
+                        </div>
+                        <div class="mol-stat-card">
+                            <div class="mol-stat-card__icon">▶️</div>
+                            <div class="mol-stat-card__content">
+                                <div class="mol-stat-card__value">1</div>
+                                <div class="mol-stat-card__label">运行中</div>
+                            </div>
+                        </div>
+                        <div class="mol-stat-card">
+                            <div class="mol-stat-card__icon">⏸️</div>
+                            <div class="mol-stat-card__content">
+                                <div class="mol-stat-card__value">2</div>
+                                <div class="mol-stat-card__label">已停止</div>
+                            </div>
+                        </div>
+                        <div class="mol-stat-card">
+                            <div class="mol-stat-card__icon">💾</div>
+                            <div class="mol-stat-card__content">
+                                <div class="mol-stat-card__value">24 GB</div>
+                                <div class="mol-stat-card__label">总内存</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 快速操作 (Molecule Level) -->
+                    <section class="template-dashboard__quick-actions">
+                        <div class="mol-toolbar">
+                            <div class="mol-toolbar__left">
+                                <h2 class="mol-toolbar__title">快速操作</h2>
+                            </div>
+                            <div class="mol-toolbar__right">
+                                <button class="atom-btn atom-btn--primary" id="btn-create-vm">
+                                    ➕ 创建虚拟机
+                                </button>
+                                <button class="atom-btn atom-btn--success" id="btn-start-all">
+                                    ▶️ 启动所有
+                                </button>
+                                <button class="atom-btn atom-btn--danger" id="btn-stop-all">
+                                    ⏹️ 停止所有
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 主内容区域 -->
+                    <section class="template-dashboard__main-content">
+                        <!-- 主要内容 -->
+                        <div class="template-dashboard__primary">
+                            <!-- 系统状态 -->
+                            <div class="org-activity-panel">
+                                <div class="org-activity-panel__header">
+                                    <h2 class="org-activity-panel__title">系统状态</h2>
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                    <div class="mol-metric">
+                                        <div class="mol-metric__header">
+                                            <span class="mol-metric__label">CPU 使用率</span>
+                                            <span class="mol-metric__value">45%</span>
+                                        </div>
+                                        <div class="mol-metric__progress">
+                                            <div class="atom-progress">
+                                                <div class="atom-progress-bar" style="width: 45%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mol-metric">
+                                        <div class="mol-metric__header">
+                                            <span class="mol-metric__label">内存使用</span>
+                                            <span class="mol-metric__value">67%</span>
+                                        </div>
+                                        <div class="mol-metric__progress">
+                                            <div class="atom-progress">
+                                                <div class="atom-progress-bar" style="width: 67%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mol-metric">
+                                        <div class="mol-metric__header">
+                                            <span class="mol-metric__label">磁盘使用</span>
+                                            <span class="mol-metric__value">23%</span>
+                                        </div>
+                                        <div class="mol-metric__progress">
+                                            <div class="atom-progress">
+                                                <div class="atom-progress-bar" style="width: 23%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 侧边栏内容 -->
+                        <div class="template-dashboard__secondary">
+                            <!-- 最近活动 -->
+                            <div class="org-activity-panel">
+                                <div class="org-activity-panel__header">
+                                    <h2 class="org-activity-panel__title">最近活动</h2>
+                                </div>
+                                <div class="org-activity-panel__list">
+                                    <div class="org-activity-item">
+                                        <div class="org-activity-item__icon">🚀</div>
+                                        <div class="org-activity-item__content">
+                                            <p class="org-activity-item__title">系统启动完成</p>
+                                            <p class="org-activity-item__description">所有服务已正常运行</p>
+                                            <p class="org-activity-item__time">2 分钟前</p>
+                                        </div>
+                                    </div>
+                                    <div class="org-activity-item">
+                                        <div class="org-activity-item__icon">💽</div>
+                                        <div class="org-activity-item__content">
+                                            <p class="org-activity-item__title">Ubuntu Server 已启动</p>
+                                            <p class="org-activity-item__description">虚拟机启动成功</p>
+                                            <p class="org-activity-item__time">5 分钟前</p>
+                                        </div>
+                                    </div>
+                                    <div class="org-activity-item">
+                                        <div class="org-activity-item__icon">⚙️</div>
+                                        <div class="org-activity-item__content">
+                                            <p class="org-activity-item__title">配置已更新</p>
+                                            <p class="org-activity-item__description">系统设置已保存</p>
+                                            <p class="org-activity-item__time">10 分钟前</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- ========================================
+                     虚拟机列表视图 (Template Level)
+                     ======================================== -->
+                <div id="view-vms" class="template-vm-list" style="display: none;">
+                    <div class="template-vm-list__header">
+                        <h2 class="atom-text atom-text--h2">虚拟机</h2>
+                        <button class="atom-btn atom-btn--primary" id="btn-create-vm-2">
+                            ➕ 创建虚拟机
+                        </button>
+                    </div>
+
+                    <div class="template-vm-list__filters">
+                        <div class="template-vm-list__search mol-search-bar">
+                            <input type="text" class="atom-input atom-input--search mol-search-bar__input"
+                                   placeholder="搜索虚拟机..." id="vm-search">
+                            <button class="atom-btn atom-btn--secondary mol-search-bar__button">
+                                🔍
+                            </button>
+                        </div>
+                        <select class="atom-input" style="width: auto;" id="vm-status-filter">
+                            <option value="all">全部状态</option>
+                            <option value="running">运行中</option>
+                            <option value="stopped">已停止</option>
+                            <option value="paused">已暂停</option>
+                        </select>
+                    </div>
+
+                    <div class="template-vm-list__grid org-vm-grid" id="vm-grid">
+                        <!-- VM cards will be dynamically inserted here -->
+                    </div>
+                </div>
+
+                <!-- ========================================
+                     监控视图 (Template Level)
+                     ======================================== -->
+                <div id="view-monitoring" class="template-monitoring" style="display: none;">
+                    <h2 class="atom-text atom-text--h2 template-monitoring__selector-content">性能监控</h2>
+
+                    <div class="template-monitoring__charts">
+                        <div class="org-monitoring-chart">
+                            <div class="org-monitoring-chart__header">
+                                <h3 class="org-monitoring-chart__title">CPU 使用率</h3>
+                                <span class="org-monitoring-chart__value">45%</span>
+                            </div>
+                            <div class="org-monitoring-chart__chart">
+                                <div class="org-monitoring-chart__bar" style="height: 30%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 45%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 60%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 40%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 55%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 50%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 65%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 45%"></div>
+                            </div>
+                        </div>
+
+                        <div class="org-monitoring-chart">
+                            <div class="org-monitoring-chart__header">
+                                <h3 class="org-monitoring-chart__title">内存使用</h3>
+                                <span class="org-monitoring-chart__value">67%</span>
+                            </div>
+                            <div class="org-monitoring-chart__chart">
+                                <div class="org-monitoring-chart__bar" style="height: 60%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 65%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 70%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 67%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 68%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 66%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 69%"></div>
+                                <div class="org-monitoring-chart__bar" style="height: 67%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================
+                     设置视图 (Template Level)
+                     ======================================== -->
+                <div id="view-settings" class="template-settings" style="display: none;">
+                    <div class="template-settings__sidebar">
+                        <nav class="mol-tabs mol-tabs--vertical">
+                            <button class="mol-tabs__item mol-tabs__item--active">通用</button>
+                            <button class="mol-tabs__item">虚拟化</button>
+                            <button class="mol-tabs__item">网络</button>
+                            <button class="mol-tabs__item">存储</button>
+                            <button class="mol-tabs__item">高级</button>
+                        </nav>
+                    </div>
+
+                    <div class="template-settings__content">
+                        <div class="template-settings__section">
+                            <div class="template-settings__section-header">
+                                <h2 class="template-settings__section-title">通用设置</h2>
+                                <p class="template-settings__section-description">配置应用程序的基本设置</p>
+                            </div>
+
+                            <div class="mol-form-group">
+                                <label class="atom-label">默认 CPU 核心数</label>
+                                <input type="number" class="atom-input" value="2" min="1" max="16">
+                            </div>
+
+                            <div class="mol-form-group">
+                                <label class="atom-label">默认内存大小 (MB)</label>
+                                <input type="number" class="atom-input" value="2048" min="512" max="32768">
+                            </div>
+
+                            <div class="mol-form-group">
+                                <label class="mol-form-group__label">
+                                    <span class="atom-label">启用自动更新</span>
+                                    <label class="mol-switch">
+                                        <input type="checkbox" class="mol-switch__input" checked>
+                                        <span class="mol-switch__label"></span>
+                                    </label>
+                                </label>
+                            </div>
+
+                            <div class="template-settings__section__actions">
+                                <button class="atom-btn atom-btn--secondary">取消</button>
+                                <button class="atom-btn atom-btn--primary">保存</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- ========================================
+         模态框 (Organism Level)
+         ======================================== -->
+
+    <!-- 创建虚拟机模态框 -->
+    <div id="modal-create-vm" class="org-modal">
+        <div class="org-modal__container">
+            <div class="org-modal__header">
+                <h2 class="org-modal__title">创建虚拟机</h2>
+                <button class="org-modal__close" aria-label="Close">×</button>
+            </div>
+            <div class="org-modal__body">
+                <form id="form-create-vm">
+                    <div class="mol-form-group">
+                        <label class="atom-label atom-label--required">虚拟机名称</label>
+                        <input type="text" class="atom-input" name="name" required
+                               placeholder="e.g. Ubuntu Server">
+                        <div class="mol-form-group__hint">
+                            为虚拟机指定一个易于识别的名称
+                        </div>
+                    </div>
+
+                    <div class="mol-form-group mol-form-group--horizontal">
+                        <div class="mol-form-group">
+                            <label class="atom-label atom-label--required">CPU 核心数</label>
+                            <input type="number" class="atom-input" name="cpu" value="2" min="1" max="16">
+                        </div>
+                        <div class="mol-form-group">
+                            <label class="atom-label atom-label--required">内存 (MB)</label>
+                            <input type="number" class="atom-input" name="memory" value="2048" min="512" max="32768">
+                        </div>
+                    </div>
+
+                    <div class="mol-form-group">
+                        <label class="atom-label atom-label--required">磁盘大小 (GB)</label>
+                        <input type="number" class="atom-input" name="disk" value="50" min="10" max="1000">
+                    </div>
+
+                    <div class="mol-form-group">
+                        <label class="atom-label">显示模式</label>
+                        <select class="atom-input" name="display">
+                            <option value="gui">图形界面</option>
+                            <option value="terminal">终端</option>
+                            <option value="headless">无头模式</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="org-modal__footer">
+                <button class="atom-btn atom-btn--secondary" data-action="cancel">取消</button>
+                <button class="atom-btn atom-btn--primary" data-action="confirm">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 虚拟机详情模态框 -->
+    <div id="modal-vm-detail" class="org-modal">
+        <div class="org-modal__container org-modal__container--lg">
+            <div class="org-modal__header">
+                <h2 class="org-modal__title" id="vm-detail-title">虚拟机详情</h2>
+                <button class="org-modal__close" aria-label="Close">×</button>
+            </div>
+            <div class="org-modal__body">
+                <div class="template-vm-detail">
+                    <div class="template-vm-detail__header">
+                        <div class="template-vm-detail__info">
+                            <h2 class="template-vm-detail__title" id="detail-vm-name">Ubuntu Server</h2>
+                            <div class="template-vm-detail__meta">
+                                <span id="detail-vm-id">ID: vm-001</span>
+                                <span>•</span>
+                                <span id="detail-vm-state">运行中</span>
+                            </div>
+                        </div>
+                        <div class="template-vm-detail__actions">
+                            <button class="atom-btn atom-btn--success">▶️ 启动</button>
+                            <button class="atom-btn atom-btn--warning">⏸️ 暂停</button>
+                            <button class="atom-btn atom-btn--danger">⏹️ 停止</button>
+                        </div>
+                    </div>
+                    <div class="template-vm-detail__content">
+                        <div class="template-vm-detail__section">
+                            <h3 class="template-vm-detail__section-title">基本信息</h3>
+                            <div class="mol-form-group">
+                                <label class="atom-label">状态</label>
+                                <div id="detail-vm-status-badge"></div>
+                            </div>
+                            <div class="mol-form-group">
+                                <label class="atom-label">CPU</label>
+                                <p class="atom-text atom-text--body" id="detail-vm-cpu">4 核心</p>
+                            </div>
+                            <div class="mol-form-group">
+                                <label class="atom-label">内存</label>
+                                <p class="atom-text atom-text--body" id="detail-vm-memory">8192 MB</p>
+                            </div>
+                            <div class="mol-form-group">
+                                <label class="atom-label">磁盘</label>
+                                <p class="atom-text atom-text--body" id="detail-vm-disk">100 GB</p>
+                            </div>
+                        </div>
+                        <div class="template-vm-detail__section">
+                            <h3 class="template-vm-detail__section-title">性能指标</h3>
+                            <div class="mol-metric">
+                                <div class="mol-metric__header">
+                                    <span class="mol-metric__label">CPU 使用率</span>
+                                    <span class="mol-metric__value" id="detail-vm-cpu-usage">45%</span>
+                                </div>
+                                <div class="mol-metric__progress">
+                                    <div class="atom-progress">
+                                        <div class="atom-progress-bar" style="width: 45%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mol-metric">
+                                <div class="mol-metric__header">
+                                    <span class="mol-metric__label">内存使用</span>
+                                    <span class="mol-metric__value" id="detail-vm-memory-usage">2.4 GB</span>
+                                </div>
+                                <div class="mol-metric__progress">
+                                    <div class="atom-progress">
+                                        <div class="atom-progress-bar" style="width: 60%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通知容器 -->
+    <div class="org-notification-container" id="notification-container"></div>
+
+    <!-- JavaScript -->
+    <script src="app.js"></script>
+</body>
+</html>

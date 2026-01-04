@@ -21,7 +21,7 @@ pub enum VmInputDevice {
 }
 
 /// 虚拟输入代码
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VmInputCode {
     Keyboard(u32),
     MouseButton(u8),
@@ -46,19 +46,24 @@ pub enum HostInput {
         button: Option<u32>,
         axis: Option<(u8, f32)>,
     },
+    Touchscreen {
+        x: u16,
+        y: u16,
+        pressed: bool,
+    },
 }
 
 /// 输入映射器
 pub struct InputMapper {
     /// 键盘映射表
     keyboard_map: HashMap<u32, VmInputCode>,
-    
+
     /// 鼠标按钮映射
     mouse_button_map: HashMap<u8, VmInputCode>,
-    
+
     /// 游戏手柄映射
     gamepad_maps: HashMap<u32, GamepadMapping>,
-    
+
     /// 映射统计
     stats: InputMappingStats,
 }
@@ -93,19 +98,15 @@ impl InputMapper {
 
     /// 映射键盘输入
     pub fn map_keyboard(&mut self, host_keycode: u32, vm_keycode: u32) {
-        self.keyboard_map.insert(
-            host_keycode,
-            VmInputCode::Keyboard(vm_keycode),
-        );
+        self.keyboard_map
+            .insert(host_keycode, VmInputCode::Keyboard(vm_keycode));
         self.stats.total_mappings += 1;
     }
 
     /// 映射鼠标按钮
     pub fn map_mouse_button(&mut self, host_button: u8, vm_button: u8) {
-        self.mouse_button_map.insert(
-            host_button,
-            VmInputCode::MouseButton(vm_button),
-        );
+        self.mouse_button_map
+            .insert(host_button, VmInputCode::MouseButton(vm_button));
         self.stats.total_mappings += 1;
     }
 
@@ -134,14 +135,17 @@ impl InputMapper {
                         return Some((VmInputDevice::Mouse, *vm_code));
                     }
                 }
-                
+
                 if let Some((ax, val)) = axis {
-                    return Some((VmInputDevice::Mouse, VmInputCode::MouseAxis {
-                        axis: *ax,
-                        value: *val,
-                    }));
+                    return Some((
+                        VmInputDevice::Mouse,
+                        VmInputCode::MouseAxis {
+                            axis: *ax,
+                            value: *val,
+                        },
+                    ));
                 }
-                
+
                 None
             }
             HostInput::Gamepad {
@@ -155,9 +159,9 @@ impl InputMapper {
                             return Some((VmInputDevice::Gamepad(*device_id), *vm_code));
                         }
                     }
-                    
+
                     if let Some((ax, val)) = axis {
-                        if let Some(vm_code) = mapping.axis_map.get(ax) {
+                        if let Some(_vm_code) = mapping.axis_map.get(ax) {
                             return Some((
                                 VmInputDevice::Gamepad(*device_id),
                                 VmInputCode::GamepadAxis {
@@ -168,10 +172,10 @@ impl InputMapper {
                         }
                     }
                 }
-                
+
                 None
             }
-            HostInput::Touchscreen => {
+            HostInput::Touchscreen { .. } => {
                 // 触摸屏输入直接传递
                 None
             }
@@ -227,10 +231,10 @@ mod tests {
     #[test]
     fn test_keyboard_mapping() {
         let mut mapper = InputMapper::new();
-        
+
         mapper.map_keyboard(30, 30);
         mapper.map_keyboard(31, 31);
-        
+
         assert_eq!(mapper.keyboard_map.len(), 2);
         assert_eq!(mapper.stats.total_mappings, 2);
     }
@@ -239,15 +243,15 @@ mod tests {
     fn test_keyboard_translation() {
         let mut mapper = InputMapper::new();
         mapper.map_keyboard(30, 30);
-        
+
         let input = HostInput::Keyboard {
             keycode: 30,
             pressed: true,
         };
-        
+
         let result = mapper.translate_input(&input);
         assert!(result.is_some());
-        
+
         let (device, code) = result.unwrap();
         assert_eq!(device, VmInputDevice::Keyboard);
         assert_eq!(code, VmInputCode::Keyboard(30));
@@ -256,12 +260,12 @@ mod tests {
     #[test]
     fn test_unmapped_input() {
         let mut mapper = InputMapper::new();
-        
+
         let input = HostInput::Keyboard {
             keycode: 999,
             pressed: true,
         };
-        
+
         let result = mapper.translate_input(&input);
         assert!(result.is_none());
         assert_eq!(mapper.stats.unmapped_inputs, 1);
@@ -271,12 +275,12 @@ mod tests {
     fn test_mouse_translation() {
         let mut mapper = InputMapper::new();
         mapper.map_mouse_button(1, 1);
-        
+
         let input = HostInput::Mouse {
             button: Some(1),
             axis: None,
         };
-        
+
         let result = mapper.translate_input(&input);
         assert!(result.is_some());
     }
@@ -284,23 +288,26 @@ mod tests {
     #[test]
     fn test_gamepad_mapping() {
         let mut mapper = InputMapper::new();
-        
+
         let mut button_map = HashMap::new();
         button_map.insert(0, VmInputCode::GamepadButton(100));
-        
+
         let mut axis_map = HashMap::new();
-        axis_map.insert(0, VmInputCode::GamepadAxis {
-            axis: 0,
-            value: 0.5,
-        });
-        
+        axis_map.insert(
+            0,
+            VmInputCode::GamepadAxis {
+                axis: 0,
+                value: 0.5,
+            },
+        );
+
         mapper.add_gamepad_mapping(GamepadMapping {
             device_id: 0,
             button_map,
             axis_map,
             deadzone: 0.15,
         });
-        
+
         assert_eq!(mapper.gamepad_maps.len(), 1);
     }
 }

@@ -33,7 +33,12 @@ impl EwmaHotspotDetector {
         // 占位实现
     }
 
-    pub fn record_execution_with_complexity(&self, _addr: GuestAddr, _duration_us: u64, _complexity_score: f64) {
+    pub fn record_execution_with_complexity(
+        &self,
+        _addr: GuestAddr,
+        _duration_us: u64,
+        _complexity_score: f64,
+    ) {
         // 占位实现
     }
 }

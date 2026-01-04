@@ -263,19 +263,16 @@ impl PGOGuidedOptimizer {
         let path = path.as_ref();
         log::info!("Loading PGO profile from: {:?}", path);
 
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            ExecutionError::JitError {
-                message: format!("Failed to read profile file: {}", e),
-                function_addr: None,
-            }
+        let content = std::fs::read_to_string(path).map_err(|e| ExecutionError::JitError {
+            message: format!("Failed to read profile file: {}", e),
+            function_addr: None,
         })?;
 
-        let profile_data: ProfileData = serde_json::from_str(&content).map_err(|e| {
-            ExecutionError::JitError {
+        let profile_data: ProfileData =
+            serde_json::from_str(&content).map_err(|e| ExecutionError::JitError {
                 message: format!("Failed to parse profile data: {}", e),
                 function_addr: None,
-            }
-        })?;
+            })?;
 
         *self.profile_data.lock() = profile_data;
         self.profile_path = Some(path.to_path_buf());
@@ -293,26 +290,21 @@ impl PGOGuidedOptimizer {
 
         // 创建父目录
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                ExecutionError::JitError {
-                    message: format!("Failed to create profile directory: {}", e),
-                    function_addr: None,
-                }
+            std::fs::create_dir_all(parent).map_err(|e| ExecutionError::JitError {
+                message: format!("Failed to create profile directory: {}", e),
+                function_addr: None,
             })?;
         }
 
-        let content = serde_json::to_string_pretty(&*profile_data).map_err(|e| {
-            ExecutionError::JitError {
+        let content =
+            serde_json::to_string_pretty(&*profile_data).map_err(|e| ExecutionError::JitError {
                 message: format!("Failed to serialize profile data: {}", e),
                 function_addr: None,
-            }
-        })?;
+            })?;
 
-        std::fs::write(path, content).map_err(|e| {
-            ExecutionError::JitError {
-                message: format!("Failed to write profile file: {}", e),
-                function_addr: None,
-            }
+        std::fs::write(path, content).map_err(|e| ExecutionError::JitError {
+            message: format!("Failed to write profile file: {}", e),
+            function_addr: None,
         })?;
 
         log::info!("PGO profile saved successfully");
@@ -372,7 +364,11 @@ impl PGOGuidedOptimizer {
     /// 获取块的执行频率
     pub fn get_block_frequency(&self, block_id: usize) -> u64 {
         let profile = self.profile_data.lock();
-        profile.block_execution_count.get(&block_id).copied().unwrap_or(0)
+        profile
+            .block_execution_count
+            .get(&block_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// 预测分支方向
@@ -491,8 +487,7 @@ impl PGOGuidedOptimizer {
             if stats.avg_duration_us == 0 {
                 stats.avg_duration_us = other_stats.avg_duration_us;
             } else {
-                stats.avg_duration_us =
-                    (stats.avg_duration_us + other_stats.avg_duration_us) / 2;
+                stats.avg_duration_us = (stats.avg_duration_us + other_stats.avg_duration_us) / 2;
             }
         }
 
@@ -704,16 +699,20 @@ impl ProfileCollector {
         profile.total_executions += 1;
 
         // Update block profile
-        let block_profile = profile.block_profiles.entry(block_id).or_insert_with(|| BlockProfile {
-            block_id,
-            execution_count: 0,
-            avg_duration_ns: 0,
-            instruction_count: 0,
-            branch_count: 0,
-            memory_access_count: 0,
-            callers: Vec::new(),
-            callees: Vec::new(),
-        });
+        let block_profile =
+            profile
+                .block_profiles
+                .entry(block_id)
+                .or_insert_with(|| BlockProfile {
+                    block_id,
+                    execution_count: 0,
+                    avg_duration_ns: 0,
+                    instruction_count: 0,
+                    branch_count: 0,
+                    memory_access_count: 0,
+                    callers: Vec::new(),
+                    callees: Vec::new(),
+                });
 
         block_profile.execution_count += 1;
         if block_profile.avg_duration_ns == 0 {
@@ -775,16 +774,20 @@ impl ProfileCollector {
 
     pub fn collect_block_profile(&self, block_id: usize, duration: Duration) {
         let mut profile = self.profile_data.lock();
-        let block_profile = profile.block_profiles.entry(block_id).or_insert_with(|| BlockProfile {
-            block_id,
-            execution_count: 0,
-            avg_duration_ns: 0,
-            instruction_count: 0,
-            branch_count: 0,
-            memory_access_count: 0,
-            callers: Vec::new(),
-            callees: Vec::new(),
-        });
+        let block_profile =
+            profile
+                .block_profiles
+                .entry(block_id)
+                .or_insert_with(|| BlockProfile {
+                    block_id,
+                    execution_count: 0,
+                    avg_duration_ns: 0,
+                    instruction_count: 0,
+                    branch_count: 0,
+                    memory_access_count: 0,
+                    callers: Vec::new(),
+                    callees: Vec::new(),
+                });
 
         block_profile.execution_count += 1;
         let duration_ns = duration.as_nanos() as u64;
@@ -803,8 +806,7 @@ impl ProfileCollector {
         let profile = self.get_profile_data();
         let json = serde_json::to_string_pretty(&profile)
             .map_err(|e| format!("Failed to serialize profile: {}", e))?;
-        std::fs::write(path, json)
-            .map_err(|e| format!("Failed to write profile to file: {}", e))
+        std::fs::write(path, json).map_err(|e| format!("Failed to write profile to file: {}", e))
     }
 }
 

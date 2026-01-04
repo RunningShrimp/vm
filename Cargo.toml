@@ -34,6 +34,8 @@ members = [
     "vm-platform",
     "vm-smmu",
     "vm-passthrough",
+    "vm-soc",
+    "vm-graphics",
 
     # Other
     "vm-plugin",
@@ -126,6 +128,9 @@ smoltcp = { version = "0.12" }
 
 # Compression
 miniz_oxide = "0.7"
+
+# Base64 encoding
+base64 = "0.22.1"
 
 # TOML parsing
 toml = "0.8"

@@ -57,9 +57,9 @@ use crate::compiler_backend::CompilerError;
 use crate::parallel_compiler::ParallelJITCompiler;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock, mpsc};
+use vm_core::foundation::{JitError, VmError};
 use vm_ir::IRBlock;
-use vm_core::foundation::{VmError, JitError};
 
 /// 编译任务
 #[derive(Debug, Clone)]
@@ -176,22 +176,19 @@ impl AsyncPrecompiler {
 
                 while *running.read().await {
                     // 接收编译任务（带超时）
-                    let recv_result = tokio::time::timeout(
-                        Duration::from_secs(1),
-                        async {
-                            let mut recv_guard = receiver.lock().await;
-                            recv_guard.recv().await
-                        },
-                    ).await;
+                    let recv_result = tokio::time::timeout(Duration::from_secs(1), async {
+                        let mut recv_guard = receiver.lock().await;
+                        recv_guard.recv().await
+                    })
+                    .await;
 
                     match recv_result {
                         Ok(Some(task)) => {
                             // 编译块（使用并行编译器或内部编译）
                             let start_time = Instant::now();
-                            let result = Self::compile_block_with_parallel(
-                                &task.block,
-                                &parallel_compiler,
-                            ).await;
+                            let result =
+                                Self::compile_block_with_parallel(&task.block, &parallel_compiler)
+                                    .await;
 
                             // 更新统计
                             let compile_time_ms = start_time.elapsed().as_millis() as u64;
@@ -203,14 +200,12 @@ impl AsyncPrecompiler {
                                 &result,
                                 compile_time_ms,
                                 queued_tasks,
-                            ).await;
+                            )
+                            .await;
 
                             // 缓存结果
                             if let Ok(ref code) = result {
-                                cache.write().await.insert(
-                                    task.block_hash,
-                                    code.clone(),
-                                );
+                                cache.write().await.insert(task.block_hash, code.clone());
                             }
 
                             tracing::debug!(
@@ -314,8 +309,8 @@ impl AsyncPrecompiler {
 
     /// 计算块哈希（简单实现）
     fn hash_block(block: &IRBlock) -> u64 {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         block.start_pc.hash(&mut hasher);
@@ -407,8 +402,8 @@ impl AsyncPrecompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_ir::{IROp, Terminator};
     use crate::cranelift_backend::CraneliftBackend;
+    use vm_ir::{IROp, Terminator};
 
     fn create_test_block(name: &str, num_ops: usize) -> IRBlock {
         use vm_core::GuestAddr;
@@ -420,9 +415,7 @@ mod tests {
 
         IRBlock {
             start_pc: GuestAddr(addr),
-            ops: (0..num_ops)
-                .map(|_| IROp::Nop)
-                .collect(),
+            ops: (0..num_ops).map(|_| IROp::Nop).collect(),
             term: Terminator::Ret,
         }
     }
@@ -512,16 +505,8 @@ mod tests {
         let precompiler = AsyncPrecompiler::new(2).await.unwrap();
 
         // 添加一些缓存
-        precompiler
-            .cache
-            .write()
-            .await
-            .insert(1, vec![0xC3]);
-        precompiler
-            .cache
-            .write()
-            .await
-            .insert(2, vec![0x90]);
+        precompiler.cache.write().await.insert(1, vec![0xC3]);
+        precompiler.cache.write().await.insert(2, vec![0x90]);
 
         assert_eq!(precompiler.cache.read().await.len(), 2);
 

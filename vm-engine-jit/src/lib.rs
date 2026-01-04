@@ -44,7 +44,10 @@
 //! ```
 
 use std::time::Duration;
-use vm_core::{AccessType, ExecResult, ExecStats, ExecStatus, ExecutionEngine, ExecutionError, Fault, GuestAddr, MMU};
+use vm_core::{
+    AccessType, ExecResult, ExecStats, ExecStatus, ExecutionEngine, ExecutionError, Fault,
+    GuestAddr, MMU,
+};
 use vm_ir::{AtomicOp, IRBlock, IROp, Terminator};
 
 // 厂商优化策略 - 已实现 ✅
@@ -52,8 +55,8 @@ use vm_ir::{AtomicOp, IRBlock, IROp, Terminator};
 // 详见: docs/VENDOR_OPTIMIZATIONS.md
 pub mod vendor_optimizations;
 pub use vendor_optimizations::{
-    CpuVendor, CpuMicroarchitecture, CpuFeature, OptimizationType,
-    VendorOptimizationStrategy, VendorOptimizer, CacheOptimizationHints
+    CacheOptimizationHints, CpuFeature, CpuMicroarchitecture, CpuVendor, OptimizationType,
+    VendorOptimizationStrategy, VendorOptimizer,
 };
 
 use cranelift::prelude::*;
@@ -82,28 +85,26 @@ mod simd_integration;
 // JIT块链接优化 - 已实现 ✅
 // 实现了完整的块链接优化，预期10-15%性能提升
 // 详见: docs/BLOCK_CHAINING_IMPLEMENTATION.md
+pub mod async_precompiler;
 pub mod block_chaining;
+pub mod compile_cache;
 pub mod compiler_backend;
+pub mod cranelift_backend;
+pub mod incremental_cache;
+pub mod inline_cache;
+mod jit_helpers;
 #[allow(unexpected_cfgs)]
 #[cfg(feature = "llvm-backend")]
 pub mod llvm_backend;
-pub mod cranelift_backend;
-pub mod parallel_compiler;
-pub mod async_precompiler;
-pub mod incremental_cache;
-pub mod compile_cache;
-pub mod inline_cache;
-mod jit_helpers;
 pub mod loop_opt;
+pub mod parallel_compiler;
 pub mod pool;
-pub mod trace_selection;
 pub mod tiered_compiler;
+pub mod trace_selection;
 
 // 拆分出的模块（提升可维护性）
 // 注意：compiler和executor功能已集成到主Jit结构体中
 mod stats;
-#[cfg(feature = "async")]
-mod async_execution_engine;
 
 // 原有模块
 pub mod adaptive_optimizer;
@@ -111,9 +112,9 @@ pub mod ml_guided_jit;
 pub mod ml_model;
 
 // Phase 2-2: ML优化增强模块
+pub mod ml_ab_testing;
 pub mod ml_model_enhanced;
 pub mod ml_random_forest;
-pub mod ml_ab_testing;
 
 // Phase 5: JIT配置文件引导优化 (PGO)
 pub mod pgo;
@@ -126,19 +127,19 @@ pub mod optimizing_compiler;
 // enhanced_cache 已合并到 unified_cache
 // cache.rs占位符已删除，使用compile_cache和incremental_cache
 pub mod ewma_hotspot;
-pub mod unified_cache;
-pub mod unified_gc;
 pub mod gc_adaptive;
-pub mod gc_trait;
 pub mod gc_marker;
 pub mod gc_sweeper;
+pub mod gc_trait;
 pub mod graph_coloring_allocator;
+pub mod unified_cache;
+pub mod unified_gc;
 
 // Phase 2 模块
+pub mod aot_cache;
 pub mod aot_format;
 pub mod aot_integration;
 pub mod aot_loader;
-pub mod aot_cache;
 pub mod hybrid_executor;
 
 // Phase 2.4: 语义库集成
@@ -148,18 +149,20 @@ pub mod semantic_integration;
 
 // JIT块链接优化 - 已实现完整功能
 pub use block_chaining::{
-    BlockChainer,        // 块链接器
-    BlockChain,          // 块链
-    ChainLink,           // 链接关系
-    ChainType,           // 链接类型
-    BlockChainerStats,   // 统计信息
+    BlockChain,        // 块链
+    BlockChainer,      // 块链接器
+    BlockChainerStats, // 统计信息
+    ChainLink,         // 链接关系
+    ChainType,         // 链接类型
 };
 pub use inline_cache::{InlineCacheManager, InlineCacheStats};
-pub use tiered_compiler::{TieredCompiler, TieredCompilationConfig, TieredCompilationStats, CompilationTier};
 pub use jit_helpers::{FloatRegHelper, MemoryHelper, RegisterHelper};
 pub use loop_opt::{LoopInfo, LoopOptConfig, LoopOptimizer};
-pub use trace_selection::{TraceBlockRef, TraceSelector, TraceStats};
 pub use simd_integration::SimdIntegrationManager;
+pub use tiered_compiler::{
+    CompilationTier, TieredCompilationConfig, TieredCompilationStats, TieredCompiler,
+};
+pub use trace_selection::{TraceBlockRef, TraceSelector, TraceStats};
 
 // 重新导出原有类型
 pub use adaptive_optimizer::{
@@ -177,19 +180,18 @@ pub use unified_gc::{
 };
 
 // 导出优化型JIT编译器类型
+pub use graph_coloring_allocator::GraphColoringConfig;
 pub use optimizing_compiler::{
-    OptimizingJIT, OptimizingJITStats, InstructionScheduler, OptimizationPassManager, RegisterAllocator,
-    RegisterAllocationStrategy,
+    InstructionScheduler, OptimizationPassManager, OptimizingJIT, OptimizingJITStats,
+    RegisterAllocationStrategy, RegisterAllocator,
 };
-pub use graph_coloring_allocator::{GraphColoringConfig};
 // enhanced_hotspot已合并到ewma_hotspot，保留向后兼容导出
-pub use ewma_hotspot::{
-    EwmaHotspotConfig, EwmaHotspotDetector, EwmaHotspotStats, HotspotStats,
-};
+pub use ewma_hotspot::{EwmaHotspotConfig, EwmaHotspotDetector, EwmaHotspotStats, HotspotStats};
 // enhanced_cache已合并到unified_cache，保留向后兼容导出
 pub use unified_cache::{CacheConfig, CacheEntry, CacheStats, EvictionPolicy, UnifiedCodeCache};
 
 // 导出 Phase 2 类型
+pub use aot_cache::{AotCache, AotCacheConfig, AotCacheStats};
 pub use aot_format::{
     AotHeader, AotImage, CodeBlockEntry, RelationType, RelocationEntry, SymbolEntry, SymbolType,
 };
@@ -197,14 +199,10 @@ pub use aot_integration::{
     create_hybrid_executor, create_test_aot_image, init_aot_loader, validate_aot_config,
 };
 pub use aot_loader::{AotCodeBlock, AotLoader};
-pub use aot_cache::{AotCache, AotCacheConfig, AotCacheStats};
 pub use hybrid_executor::{AotFailureReason, CodeSource, ExecutionStats, HybridExecutor};
 pub use semantic_integration::{
     OptimizationStats, OptimizedHybridExecutor, SemanticAnalyzer, SemanticCache,
 };
-
-#[cfg(feature = "async")]
-pub use async_execution_engine::AsyncJitContext;
 
 // modern_jit 导出已移除
 
@@ -481,7 +479,10 @@ enum SimdIntrinsic {
 
 extern "C" fn jit_read(ctx: *mut JitContext, vaddr: u64, size: u8) -> u64 {
     unsafe {
-        let pa = match (*ctx).mmu.translate(GuestAddr(vaddr), vm_core::AccessType::Read) {
+        let pa = match (*ctx)
+            .mmu
+            .translate(GuestAddr(vaddr), vm_core::AccessType::Read)
+        {
             Ok(p) => p,
             Err(_) => return 0,
         };
@@ -491,14 +492,22 @@ extern "C" fn jit_read(ctx: *mut JitContext, vaddr: u64, size: u8) -> u64 {
 
 extern "C" fn jit_write(ctx: *mut JitContext, vaddr: u64, val: u64, size: u8) {
     unsafe {
-        if let Ok(pa) = (*ctx).mmu.translate(GuestAddr(vaddr), vm_core::AccessType::Write) {
+        if let Ok(pa) = (*ctx)
+            .mmu
+            .translate(GuestAddr(vaddr), vm_core::AccessType::Write)
+        {
             let _ = (*ctx).mmu.write(GuestAddr(pa.0), val, size);
         }
     }
 }
 
 extern "C" fn jit_lr(ctx: *mut JitContext, vaddr: u64, size: u8) -> u64 {
-    unsafe { (*ctx).mmu.load_reserved(GuestAddr(vaddr), size).unwrap_or(0) }
+    unsafe {
+        (*ctx)
+            .mmu
+            .load_reserved(GuestAddr(vaddr), size)
+            .unwrap_or(0)
+    }
 }
 
 extern "C" fn jit_sc(ctx: *mut JitContext, vaddr: u64, val: u64, size: u8) -> u64 {
@@ -514,13 +523,19 @@ extern "C" fn jit_sc(ctx: *mut JitContext, vaddr: u64, val: u64, size: u8) -> u6
 extern "C" fn jit_cas(ctx: *mut JitContext, vaddr: u64, expected: u64, new: u64, size: u8) -> u64 {
     unsafe {
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
-        let pa_r = match (*ctx).mmu.translate(GuestAddr(vaddr), vm_core::AccessType::Read) {
+        let pa_r = match (*ctx)
+            .mmu
+            .translate(GuestAddr(vaddr), vm_core::AccessType::Read)
+        {
             Ok(p) => p,
             Err(_) => return 0,
         };
         let old = (*ctx).mmu.read(GuestAddr(pa_r.0), size).unwrap_or(0);
         if old == expected {
-            if let Ok(pa_w) = (*ctx).mmu.translate(GuestAddr(vaddr), vm_core::AccessType::Write) {
+            if let Ok(pa_w) = (*ctx)
+                .mmu
+                .translate(GuestAddr(vaddr), vm_core::AccessType::Write)
+            {
                 let _ = (*ctx).mmu.write(GuestAddr(pa_w.0), new, size);
             }
         }
@@ -674,7 +689,8 @@ pub struct Jit {
     /// 后台编译任务停止信号
     background_compile_stop: Arc<tokio::sync::Notify>,
     /// 异步编译任务句柄映射 (PC -> Arc<JoinHandle>)
-    async_compile_tasks: Arc<parking_lot::Mutex<HashMap<GuestAddr, Arc<tokio::task::JoinHandle<CodePtr>>>>>,
+    async_compile_tasks:
+        Arc<parking_lot::Mutex<HashMap<GuestAddr, Arc<tokio::task::JoinHandle<CodePtr>>>>>,
     /// 异步编译结果缓存 (PC -> CodePtr)
     async_compile_results: Arc<parking_lot::Mutex<HashMap<GuestAddr, CodePtr>>>,
     /// IR块缓存（用于后台编译）
@@ -823,7 +839,9 @@ impl Jit {
 
     /// 获取Profile数据
     pub fn get_profile_data(&self) -> Option<pgo::ProfileData> {
-        self.profile_collector.as_ref().map(|c| c.get_profile_data())
+        self.profile_collector
+            .as_ref()
+            .map(|c| c.get_profile_data())
     }
 
     /// 保存Profile数据到文件
@@ -882,22 +900,27 @@ impl Jit {
                 let profile = collector.get_profile_data();
                 // 转换pgo::ProfileData到ml_guided_jit::ProfileData
                 let ml_profile = ml_guided_jit::ProfileData {
-                    execution_count: profile.block_profiles.values()
+                    execution_count: profile
+                        .block_profiles
+                        .values()
                         .map(|p| p.execution_count)
                         .sum(),
                     cache_hit_rate: 0.8, // 占位值
-                    avg_block_time_us: profile.block_profiles.values()
+                    avg_block_time_us: profile
+                        .block_profiles
+                        .values()
                         .map(|p| p.avg_duration_ns)
                         .filter(|&t| t > 0)
-                        .sum::<u64>() as f64 / profile.block_profiles.len().max(1) as f64 / 1000.0,
+                        .sum::<u64>() as f64
+                        / profile.block_profiles.len().max(1) as f64
+                        / 1000.0,
                 };
-                ml_compiler.lock().enhance_features_with_pgo(
-                    &mut enhanced_features,
-                    &ml_profile,
-                );
+                ml_compiler
+                    .lock()
+                    .enhance_features_with_pgo(&mut enhanced_features, &ml_profile);
             }
 
-            let mut compiler = ml_compiler.lock();
+            let compiler = ml_compiler.lock();
             Some(compiler.predict_decision(&enhanced_features))
         } else {
             None
@@ -920,30 +943,37 @@ impl Jit {
                 let profile = collector.get_profile_data();
                 // 转换pgo::ProfileData到ml_guided_jit::ProfileData
                 let ml_profile = ml_guided_jit::ProfileData {
-                    execution_count: profile.block_profiles.values()
+                    execution_count: profile
+                        .block_profiles
+                        .values()
                         .map(|p| p.execution_count)
                         .sum(),
                     cache_hit_rate: 0.8, // 占位值
-                    avg_block_time_us: profile.block_profiles.values()
+                    avg_block_time_us: profile
+                        .block_profiles
+                        .values()
                         .map(|p| p.avg_duration_ns)
                         .filter(|&t| t > 0)
-                        .sum::<u64>() as f64 / profile.block_profiles.len().max(1) as f64 / 1000.0,
+                        .sum::<u64>() as f64
+                        / profile.block_profiles.len().max(1) as f64
+                        / 1000.0,
                 };
-                ml_compiler.lock().enhance_features_with_pgo(
-                    &mut enhanced_features,
-                    &ml_profile,
-                );
+                ml_compiler
+                    .lock()
+                    .enhance_features_with_pgo(&mut enhanced_features, &ml_profile);
             }
 
-            learner.lock().add_sample(enhanced_features, decision, performance);
+            learner
+                .lock()
+                .add_sample(enhanced_features, decision, performance);
         }
     }
 
     /// 获取ML性能报告
     pub fn get_ml_performance_report(&self) -> Option<ml_model::PerformanceReport> {
-        self.performance_validator.as_ref().map(|v| {
-            v.lock().get_performance_report()
-        })
+        self.performance_validator
+            .as_ref()
+            .map(|v| v.lock().get_performance_report())
     }
 
     /// 发布代码块编译事件
@@ -1087,7 +1117,7 @@ impl Jit {
     /// 记录执行并检查是否需要编译 (使用自适应阈值)
     pub fn record_execution(&mut self, pc: GuestAddr) -> bool {
         let threshold = self.adaptive_threshold.threshold();
-        
+
         // 先获取当前状态，避免在更新时再次借用self
         let (should_compile, exec_count) = {
             let stats = self.hot_counts.entry(pc).or_default();
@@ -1098,7 +1128,7 @@ impl Jit {
             }
             (should, stats.exec_count)
         };
-        
+
         if should_compile {
             // 计算编译优先级（基于关键路径和调用频率）
             let priority = self.compute_compile_priority(pc);
@@ -1115,19 +1145,17 @@ impl Jit {
     }
 
     /// 计算编译优先级（关键路径优先）
-    /// 
+    ///
     /// 优先级基于：
     /// 1. 执行频率（越高优先级越高）
     /// 2. 关键路径位置（在调用链中的位置）
     /// 3. 调用者数量（被更多块调用的块优先级更高）
     fn compute_compile_priority(&self, pc: GuestAddr) -> u32 {
-        let exec_count = self.hot_counts.get(&pc)
-            .map(|s| s.exec_count)
-            .unwrap_or(0);
-        
+        let exec_count = self.hot_counts.get(&pc).map(|s| s.exec_count).unwrap_or(0);
+
         // 基础优先级：执行频率
         let mut priority = exec_count.min(u32::MAX as u64) as u32;
-        
+
         // 如果有PGO数据，增强优先级计算
         if let Some(ref collector) = self.profile_collector {
             let profile = collector.get_profile_data();
@@ -1139,17 +1167,17 @@ impl Jit {
                 priority += (block_profile.callees.len() * 5).min(50) as u32;
             }
         }
-        
+
         priority
     }
 
     /// 处理待编译队列（增量编译）
-    /// 
+    ///
     /// 从队列中取出高优先级的代码块进行编译，直到用完时间预算
     pub fn process_compile_queue(&mut self, blocks: &HashMap<GuestAddr, IRBlock>) -> usize {
         let start_time = std::time::Instant::now();
         let mut compiled_count = 0;
-        
+
         // 处理队列中的高优先级块
         while let Some((pc, _priority)) = self.pending_compile_queue.pop() {
             // 检查时间预算
@@ -1157,7 +1185,7 @@ impl Jit {
                 // 超过预算，将剩余项放回队列
                 break;
             }
-            
+
             // 查找对应的IR块
             if let Some(block) = blocks.get(&pc) {
                 // 编译块
@@ -1167,43 +1195,55 @@ impl Jit {
                 }
             }
         }
-        
+
         compiled_count
     }
 
     /// 基于执行路径预测预编译代码块
-    /// 
+    ///
     /// 使用PGO数据预测下一个可能执行的代码块，并加入预编译队列
     pub fn prefetch_code_blocks(&mut self, current_pc: GuestAddr) {
         // 如果有PGO数据，使用路径分析预测下一个块
         if let Some(ref collector) = self.profile_collector {
             let profile = collector.get_profile_data();
-            
+
             // 查找当前块的被调用者（下一个可能执行的块）
             if let Some(block_profile) = profile.block_profiles.get(&(current_pc.0 as usize)) {
                 // 按调用频率排序被调用者
                 let mut callees: Vec<_> = block_profile.callees.iter().collect();
-                
+
                 // 计算每个被调用者的调用频率（简化：使用执行次数）
                 callees.sort_by_key(|&callee_pc| {
-                    profile.block_profiles.get(callee_pc)
+                    profile
+                        .block_profiles
+                        .get(callee_pc)
                         .map(|p| p.execution_count)
                         .unwrap_or(0)
                 });
-                
+
                 // 将高频被调用者加入预编译队列
                 for &callee_pc in callees.iter().rev().take(3) {
                     // 将usize转换为GuestAddr
                     let callee_guest_addr = GuestAddr(*callee_pc as u64);
                     // 检查是否已经在队列中或已编译
-                    if !self.pending_compile_queue.iter().any(|(pc, _)| *pc == callee_guest_addr) &&
-                       !self.prefetch_compile_queue.iter().any(|(pc, _)| *pc == callee_guest_addr) &&
-                       self.cache.get(callee_guest_addr).is_none() {
+                    if !self
+                        .pending_compile_queue
+                        .iter()
+                        .any(|(pc, _)| *pc == callee_guest_addr)
+                        && !self
+                            .prefetch_compile_queue
+                            .iter()
+                            .any(|(pc, _)| *pc == callee_guest_addr)
+                        && self.cache.get(callee_guest_addr).is_none()
+                    {
                         // 计算优先级（基于调用频率）
-                        let priority = profile.block_profiles.get(callee_pc)
+                        let priority = profile
+                            .block_profiles
+                            .get(callee_pc)
                             .map(|p| (p.execution_count.min(1000) / 10) as u32)
                             .unwrap_or(1);
-                        self.prefetch_compile_queue.push((callee_guest_addr, priority));
+                        self.prefetch_compile_queue
+                            .push((callee_guest_addr, priority));
                     }
                 }
             }
@@ -1211,30 +1251,30 @@ impl Jit {
     }
 
     /// 处理预编译队列
-    /// 
+    ///
     /// 从预编译队列中取出代码块进行异步编译
     pub fn process_prefetch_queue(&mut self, blocks: &HashMap<GuestAddr, IRBlock>) -> usize {
         let mut prefetched_count = 0;
-        
+
         // 处理预编译队列（限制数量，避免过度预取）
         while let Some((pc, _priority)) = self.prefetch_compile_queue.pop() {
             if prefetched_count >= 5 {
                 // 限制每次最多预取5个块
                 break;
             }
-            
+
             // 检查是否已编译
             if self.cache.get(pc).is_some() {
                 continue;
             }
-            
+
             // 查找对应的IR块并异步编译
             if let Some(block) = blocks.get(&pc).cloned() {
                 let _handle = self.compile_async(block);
                 prefetched_count += 1;
             }
         }
-        
+
         prefetched_count
     }
 
@@ -1261,18 +1301,18 @@ impl Jit {
         if let Some(code_ptr) = self.async_compile_results.lock().get(&pc) {
             return AsyncCompileResult::Completed(*code_ptr);
         }
-        
+
         // 检查是否还在进行中
         if self.async_compile_tasks.lock().contains_key(&pc) {
             return AsyncCompileResult::Pending;
         }
-        
+
         // 超时或失败
         AsyncCompileResult::Timeout
     }
 
     /// 启动后台编译任务
-    /// 
+    ///
     /// 后台任务会定期处理pending_compile_queue和prefetch_compile_queue
     /// 减少主线程阻塞，提高系统响应性
     pub fn start_background_compile_task(&mut self) {
@@ -1282,80 +1322,84 @@ impl Jit {
         }
 
         let stop_signal = self.background_compile_stop.clone();
-        let pending_queue = Arc::new(parking_lot::Mutex::new(std::mem::take(&mut self.pending_compile_queue)));
-        let prefetch_queue = Arc::new(parking_lot::Mutex::new(std::mem::take(&mut self.prefetch_compile_queue)));
+        let pending_queue = Arc::new(parking_lot::Mutex::new(std::mem::take(
+            &mut self.pending_compile_queue,
+        )));
+        let prefetch_queue = Arc::new(parking_lot::Mutex::new(std::mem::take(
+            &mut self.prefetch_compile_queue,
+        )));
         let ir_cache = self.ir_block_cache.clone();
         let async_results = self.async_compile_results.clone();
         let async_tasks = self.async_compile_tasks.clone();
         let cache = self.cache.clone();
         let compile_time_budget = self.compile_time_budget_ns;
-        
+
         // 创建后台编译任务
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(50)); // 每50ms处理一次
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
                         // 处理待编译队列
                         let mut compiled_count = 0;
                         let start_time = std::time::Instant::now();
-                        
+
                         // 处理pending队列（高优先级）
                         loop {
                             let item = {
                                 let mut queue = pending_queue.lock();
                                 queue.pop()
                             };
-                            
+
                             let (pc, priority) = match item {
                                 Some(item) => item,
                                 None => break, // 队列为空
                             };
-                            
+
                             // 检查时间预算
                             if start_time.elapsed().as_nanos() as u64 > compile_time_budget {
                                 // 超过预算，将项放回队列
                                 pending_queue.lock().push((pc, priority));
                                 break;
                             }
-                            
+
                             // 查找IR块
                             let block = {
                                 let cache = ir_cache.lock();
                                 cache.get(&pc).cloned()
                             };
-                            
+
                             if let Some(block) = block {
                                 // 异步编译
                                 let block_clone = block.clone();
                                 let cache_clone = cache.clone();
                                 let results_clone = async_results.clone();
                                 let tasks_clone = async_tasks.clone();
-                                
+
                                 let handle = tokio::task::spawn_blocking(move || {
                                     let mut temp_jit = Jit::new();
                                     let code_ptr = temp_jit.compile(&block_clone);
-                                    
+
                                     // 存储结果
                                     results_clone.lock().insert(pc, code_ptr);
                                     cache_clone.insert(pc, code_ptr);
                                     tasks_clone.lock().remove(&pc);
-                                    
+
                                     code_ptr
                                 });
-                                
+
                                 // JoinHandle已经实现了Send + Sync，可以直接存储
                                 async_tasks.lock().insert(pc, Arc::new(handle));
                                 compiled_count += 1;
                             }
-                            
+
                             // 限制每次处理的块数
                             if compiled_count >= 10 {
                                 break;
                             }
                         }
-                        
+
                         // 处理预编译队列（低优先级，限制数量）
                         let mut prefetch_count = 0;
                         loop {
@@ -1363,48 +1407,48 @@ impl Jit {
                                 let mut queue = prefetch_queue.lock();
                                 queue.pop()
                             };
-                            
+
                             let (pc, _priority) = match item {
                                 Some(item) => item,
                                 None => break, // 队列为空
                             };
-                            
+
                             if prefetch_count >= 3 {
                                 // 达到限制，将项放回队列
                                 prefetch_queue.lock().push((pc, _priority));
                                 break;
                             }
-                            
+
                             // 检查是否已编译
                             if cache.get(pc).is_some() {
                                 continue;
                             }
-                            
+
                             // 查找IR块
                             let block = {
                                 let cache = ir_cache.lock();
                                 cache.get(&pc).cloned()
                             };
-                            
+
                             if let Some(block) = block {
                                 // 异步编译
                                 let block_clone = block.clone();
                                 let cache_clone = cache.clone();
                                 let results_clone = async_results.clone();
                                 let tasks_clone = async_tasks.clone();
-                                
+
                                 let handle = tokio::task::spawn_blocking(move || {
                                     let mut temp_jit = Jit::new();
                                     let code_ptr = temp_jit.compile(&block_clone);
-                                    
+
                                     // 存储结果
                                     results_clone.lock().insert(pc, code_ptr);
                                     cache_clone.insert(pc, code_ptr);
                                     tasks_clone.lock().remove(&pc);
-                                    
+
                                     code_ptr
                                 });
-                                
+
                                 // JoinHandle已经实现了Send + Sync，可以直接存储
                                 async_tasks.lock().insert(pc, Arc::new(handle));
                                 prefetch_count += 1;
@@ -1418,7 +1462,7 @@ impl Jit {
                 }
             }
         });
-        
+
         self.background_compile_handle = Some(handle);
     }
 
@@ -1483,7 +1527,7 @@ impl Jit {
     }
 
     /// 只编译不执行（公共接口）
-    /// 
+    ///
     /// 编译IR块并返回代码指针，但不执行代码
     /// 编译结果会被缓存，后续调用会直接返回缓存的代码指针
     pub fn compile_only(&mut self, block: &IRBlock) -> CodePtr {
@@ -1493,13 +1537,13 @@ impl Jit {
     }
 
     /// 异步编译IR块
-    /// 
+    ///
     /// 在后台异步编译IR块，不阻塞当前执行线程
     /// 使用spawn_blocking在阻塞线程池中执行编译，避免阻塞tokio运行时
     /// 编译结果会自动缓存到async_compile_results中
     pub fn compile_async(&mut self, block: IRBlock) -> tokio::task::JoinHandle<CodePtr> {
         let pc = block.start_pc;
-        
+
         // 检查是否已经在编译中
         {
             let tasks = self.async_compile_tasks.lock();
@@ -1511,7 +1555,11 @@ impl Jit {
                         // 创建新的已完成任务
                         let results = self.async_compile_results.clone();
                         return tokio::spawn(async move {
-                            results.lock().get(&pc).copied().unwrap_or(CodePtr(std::ptr::null()))
+                            results
+                                .lock()
+                                .get(&pc)
+                                .copied()
+                                .unwrap_or(CodePtr(std::ptr::null()))
                         });
                     }
                 } else {
@@ -1538,7 +1586,7 @@ impl Jit {
                 }
             }
         }
-        
+
         // 检查缓存
         if let Some(ptr) = self.cache.get(pc) {
             // 已经在缓存中，创建一个立即完成的future
@@ -1548,7 +1596,7 @@ impl Jit {
                 ptr
             });
         }
-        
+
         // 准备编译所需的数据
         let block_clone = block.clone();
         let cache = self.cache.clone();
@@ -1568,23 +1616,25 @@ impl Jit {
             // 但这是当前架构下最实用的方法
             let mut temp_jit = Self::new();
             let code_ptr = temp_jit.compile(&block_clone);
-            
+
             // 存储结果
             results.lock().insert(pc, code_ptr);
             cache.insert(pc, code_ptr);
-            
+
             // 清理任务句柄
             tasks.lock().remove(&pc);
-            
+
             code_ptr
         });
-        
+
         // 使用Arc包装JoinHandle以便存储和共享
         let handle_arc = Arc::new(handle);
-        
+
         // 存储任务句柄
-        self.async_compile_tasks.lock().insert(pc, handle_arc.clone());
-        
+        self.async_compile_tasks
+            .lock()
+            .insert(pc, handle_arc.clone());
+
         // 创建一个包装任务来返回结果
         // 这里返回一个轮询结果的future，因为Arc<JoinHandle>不能直接await
         let results = self.async_compile_results.clone();
@@ -1603,23 +1653,23 @@ impl Jit {
             CodePtr(std::ptr::null())
         })
     }
-    
+
     /// 检查异步编译是否完成
-    /// 
+    ///
     /// 返回Some(CodePtr)如果编译完成，None如果还在编译中
     pub fn check_async_compile(&self, pc: GuestAddr) -> Option<CodePtr> {
         // 检查结果缓存
         if let Some(ptr) = self.async_compile_results.lock().get(&pc).copied() {
             return Some(ptr);
         }
-        
+
         // 检查同步缓存（可能编译已完成但结果还没移到async_compile_results）
         if let Some(ptr) = self.cache.get(pc) {
             // 移到async_compile_results
             self.async_compile_results.lock().insert(pc, ptr);
             return Some(ptr);
         }
-        
+
         None
     }
 
@@ -1642,19 +1692,24 @@ impl Jit {
                 let profile = collector.get_profile_data();
                 // 转换pgo::ProfileData到ml_guided_jit::ProfileData
                 let ml_profile = ml_guided_jit::ProfileData {
-                    execution_count: profile.block_profiles.values()
+                    execution_count: profile
+                        .block_profiles
+                        .values()
                         .map(|p| p.execution_count)
                         .sum(),
                     cache_hit_rate: 0.8, // 占位值
-                    avg_block_time_us: profile.block_profiles.values()
+                    avg_block_time_us: profile
+                        .block_profiles
+                        .values()
                         .map(|p| p.avg_duration_ns)
                         .filter(|&t| t > 0)
-                        .sum::<u64>() as f64 / profile.block_profiles.len().max(1) as f64 / 1000.0,
+                        .sum::<u64>() as f64
+                        / profile.block_profiles.len().max(1) as f64
+                        / 1000.0,
                 };
-                ml_compiler.lock().enhance_features_with_pgo(
-                    &mut enhanced_features,
-                    &ml_profile,
-                );
+                ml_compiler
+                    .lock()
+                    .enhance_features_with_pgo(&mut enhanced_features, &ml_profile);
             }
 
             Some(ml_compiler.lock().predict_decision(&enhanced_features))
@@ -1663,15 +1718,17 @@ impl Jit {
         };
 
         // 分层编译：根据热点程度选择编译策略
-        let execution_count = self.hot_counts.get(&block.start_pc)
+        let execution_count = self
+            .hot_counts
+            .get(&block.start_pc)
             .map(|s| s.exec_count)
             .unwrap_or(0);
-        
+
         // 如果ML推荐跳过编译，返回null指针（调用者会回退到解释器）
         if let Some(CompilationDecision::Skip) = ml_decision {
             return CodePtr(std::ptr::null());
         }
-        
+
         // 快速编译路径（执行次数 < 200）：使用基础优化
         // 优化编译路径（执行次数 >= 200）：使用完整优化
         // 如果ML有推荐，优先使用ML决策
@@ -1680,14 +1737,14 @@ impl Jit {
             Some(CompilationDecision::OptimizedJit) | Some(CompilationDecision::Aot) => false,
             _ => execution_count < 200,
         };
-        
+
         // 注意：Cranelift的优化级别是在ISA创建时设置的，不能在运行时动态改变
         // 因此，我们通过跳过某些优化Pass来控制编译时间
         // 优化级别字符串仅用于日志记录
         let _optimization_level = if use_fast_path {
-            "speed_and_size"  // Cranelift的快速优化级别（已通过ISA设置）
+            "speed_and_size" // Cranelift的快速优化级别（已通过ISA设置）
         } else {
-            "speed"  // Cranelift的完整优化级别（已通过ISA设置）
+            "speed" // Cranelift的完整优化级别（已通过ISA设置）
         };
 
         if config.enable_compile_time_budget {
@@ -2107,12 +2164,45 @@ impl Jit {
                 // 向量操作 (64-bit packed)
                 // 使用 SIMD 集成管理器生成真正的 SIMD 指令
                 // ============================================================
-                IROp::VecAdd { dst, src1, src2, element_size: _element_size } |
-                IROp::VecSub { dst, src1, src2, element_size: _element_size } |
-                IROp::VecMul { dst, src1, src2, element_size: _element_size } |
-                IROp::VecAddSat { dst, src1, src2, element_size: _element_size, signed: _ } |
-                IROp::VecSubSat { dst, src1, src2, element_size: _element_size, signed: _ } |
-                IROp::VecMulSat { dst, src1, src2, element_size: _element_size, signed: _ } => {
+                IROp::VecAdd {
+                    dst,
+                    src1,
+                    src2,
+                    element_size: _element_size,
+                }
+                | IROp::VecSub {
+                    dst,
+                    src1,
+                    src2,
+                    element_size: _element_size,
+                }
+                | IROp::VecMul {
+                    dst,
+                    src1,
+                    src2,
+                    element_size: _element_size,
+                }
+                | IROp::VecAddSat {
+                    dst,
+                    src1,
+                    src2,
+                    element_size: _element_size,
+                    signed: _,
+                }
+                | IROp::VecSubSat {
+                    dst,
+                    src1,
+                    src2,
+                    element_size: _element_size,
+                    signed: _,
+                }
+                | IROp::VecMulSat {
+                    dst,
+                    src1,
+                    src2,
+                    element_size: _element_size,
+                    signed: _,
+                } => {
                     // 尝试使用 SimdIntegrationManager 生成 SIMD 指令
                     match self.simd_integration.compile_simd_op(
                         &mut self.module,
@@ -2128,7 +2218,10 @@ impl Jit {
                         }
                         Ok(None) => {
                             // SIMD 不支持，回退到标量操作
-                            tracing::debug!("SIMD not available, using scalar fallback for {:?}", op);
+                            tracing::debug!(
+                                "SIMD not available, using scalar fallback for {:?}",
+                                op
+                            );
 
                             let src1_val = Self::load_reg(&mut builder, regs_ptr, *src1);
                             let src2_val = Self::load_reg(&mut builder, regs_ptr, *src2);
@@ -2148,7 +2241,11 @@ impl Jit {
                         }
                         Err(e) => {
                             // SIMD 编译失败，回退到标量操作
-                            tracing::warn!("SIMD compilation failed for {:?}: {}, using scalar fallback", op, e);
+                            tracing::warn!(
+                                "SIMD compilation failed for {:?}: {}, using scalar fallback",
+                                op,
+                                e
+                            );
 
                             let src1_val = Self::load_reg(&mut builder, regs_ptr, *src1);
                             let src2_val = Self::load_reg(&mut builder, regs_ptr, *src2);
@@ -3224,7 +3321,10 @@ impl Jit {
 unsafe impl Sync for Jit {}
 
 impl ExecutionEngine<IRBlock> for Jit {
-    fn execute_instruction(&mut self, _instruction: &vm_core::Instruction) -> vm_core::VmResult<()> {
+    fn execute_instruction(
+        &mut self,
+        _instruction: &vm_core::Instruction,
+    ) -> vm_core::VmResult<()> {
         // JIT引擎不支持单条指令执行
         // JIT编译器以基本块为单位进行编译和执行
         // 如果需要单条指令执行，请使用解释器引擎
@@ -3241,10 +3341,10 @@ impl ExecutionEngine<IRBlock> for Jit {
 
         // 基本块键值使用 start_pc 而非当前 pc
         let pc_key = block.start_pc;
-        
+
         // 记录执行开始时间（用于PGO）
         let execution_start = std::time::Instant::now();
-        
+
         // 检查是否需要编译并记录编译时间
         if self.record_execution(pc_key) {
             // 首先检查异步编译是否已完成
@@ -3267,7 +3367,7 @@ impl ExecutionEngine<IRBlock> for Jit {
                 // 异步编译已启动，继续使用解释器执行
                 // 下次执行时会检查编译结果
             }
-            
+
             // 如果同步编译仍然需要（例如首次执行或异步编译失败），使用同步编译作为回退
             // 但为了性能，我们优先使用异步编译
             // 这里保留原有的同步编译逻辑作为回退
@@ -3275,7 +3375,7 @@ impl ExecutionEngine<IRBlock> for Jit {
                 let compile_start = std::time::Instant::now();
                 let code_ptr = self.compile(block);
                 let compile_time_ns = compile_start.elapsed().as_nanos() as u64;
-                
+
                 // 记录PGO数据：代码块调用关系
                 if let Some(ref collector) = self.profile_collector {
                     if self.pc != GuestAddr(0) && self.pc != pc_key {
@@ -3389,7 +3489,7 @@ impl ExecutionEngine<IRBlock> for Jit {
 
             let exec_time_ns = exec_start.elapsed().as_nanos() as u64;
             self.record_compiled_execution(exec_time_ns, block_ops_count);
-            
+
             // 记录PGO数据：代码块执行
             if let Some(ref collector) = self.profile_collector {
                 collector.record_block_execution(pc_key, exec_time_ns);
@@ -3414,7 +3514,7 @@ impl ExecutionEngine<IRBlock> for Jit {
 
                 self.record_ml_sample(block, decision, performance);
             }
-            
+
             self.total_compiled += 1;
         } else {
             let stats = self.adaptive_stats();
@@ -3431,7 +3531,7 @@ impl ExecutionEngine<IRBlock> for Jit {
             );
             // Fallback: 未编译路径根据终结符计算 next_pc
             self.record_interpreted_execution();
-            
+
             // 记录PGO数据：解释执行
             let execution_time_ns = execution_start.elapsed().as_nanos() as u64;
             if let Some(ref collector) = self.profile_collector {
@@ -3441,7 +3541,7 @@ impl ExecutionEngine<IRBlock> for Jit {
                     collector.record_block_call(self.pc, pc_key);
                 }
             }
-            
+
             match &block.term {
                 Terminator::Jmp { target } => {
                     self.pc = *target;
@@ -3454,23 +3554,23 @@ impl ExecutionEngine<IRBlock> for Jit {
                     let cond_val = self.regs[*cond as usize];
                     let taken = cond_val != 0;
                     let target = if taken { *target_true } else { *target_false };
-                    
+
                     // 记录PGO数据：分支预测
                     if let Some(ref collector) = self.profile_collector {
                         collector.record_branch(pc_key, target, taken);
                     }
-                    
+
                     self.pc = target;
                 }
                 Terminator::JmpReg { base, offset } => {
                     let base_val = self.regs[*base as usize] as i64;
                     let target = GuestAddr((base_val + *offset) as u64);
-                    
+
                     // 记录PGO数据：间接跳转
                     if let Some(ref collector) = self.profile_collector {
                         collector.record_branch(pc_key, target, true);
                     }
-                    
+
                     self.pc = target;
                 }
                 Terminator::Ret => {
@@ -3478,7 +3578,7 @@ impl ExecutionEngine<IRBlock> for Jit {
                     if let Some(ref _collector) = self.profile_collector {
                         // 可以记录函数调用信息
                     }
-                    /* 保持当前 pc 以便上层处理 */ 
+                    /* 保持当前 pc 以便上层处理 */
                 }
                 Terminator::Call { target, ret_pc: _ } => {
                     // 记录PGO数据：函数调用
@@ -3549,14 +3649,14 @@ impl ExecutionEngine<IRBlock> for Jit {
         // 构建GuestRegs - 映射self.regs到gpr字段
         let guest_regs = GuestRegs {
             pc: self.pc.0,
-            sp: 0,      // JIT引擎不单独维护SP，使用regs[2]
-            fp: 0,      // JIT引擎不单独维护FP，使用regs[8]
+            sp: 0, // JIT引擎不单独维护SP，使用regs[2]
+            fp: 0, // JIT引擎不单独维护FP，使用regs[8]
             gpr: self.regs,
         };
 
         // 构建VcpuStateContainer
         vm_core::VcpuStateContainer {
-            vcpu_id: 0,  // 单VCPU实现
+            vcpu_id: 0, // 单VCPU实现
             state: VmState::Running,
             running: true,
             regs: guest_regs,

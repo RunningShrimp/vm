@@ -11,10 +11,10 @@
 //! - 编译时间预算：控制最大编译时间
 
 use crate::compiler_backend::{CompilerBackend, CompilerError, CompilerStats};
-use vm_ir::IRBlock;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use vm_ir::IRBlock;
 
 /// 并行JIT编译器
 pub struct ParallelJITCompiler {
@@ -66,7 +66,12 @@ impl ParallelJITCompiler {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(num_cpus::get())
             .build()
-            .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap());
+            .unwrap_or_else(|_| {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(4)
+                    .build()
+                    .unwrap()
+            });
 
         Self {
             backend: Arc::new(Mutex::new(backend)),
@@ -113,7 +118,7 @@ impl ParallelJITCompiler {
                 let elapsed = start_time.elapsed().as_nanos() as u64;
                 if elapsed > time_budget {
                     return Err(CompilerError::CompilationFailed(
-                        "Time budget exceeded".to_string()
+                        "Time budget exceeded".to_string(),
                     ));
                 }
 
@@ -123,7 +128,10 @@ impl ParallelJITCompiler {
                 // 更新统计信息
                 if let Ok(ref code) = result {
                     let compile_time = compile_start.elapsed().as_nanos() as u64;
-                    stats.lock().unwrap().update_compile(compile_time, code.len());
+                    stats
+                        .lock()
+                        .unwrap()
+                        .update_compile(compile_time, code.len());
                 }
 
                 result
@@ -132,7 +140,10 @@ impl ParallelJITCompiler {
     }
 
     /// 并行编译多个IR块（忽略时间预算，用于批处理）
-    pub fn compile_blocks_unbounded(&mut self, blocks: &[IRBlock]) -> Vec<Result<Vec<u8>, CompilerError>> {
+    pub fn compile_blocks_unbounded(
+        &mut self,
+        blocks: &[IRBlock],
+    ) -> Vec<Result<Vec<u8>, CompilerError>> {
         let backend = Arc::clone(&self.backend);
         let stats = Arc::clone(&self.stats);
 
@@ -144,7 +155,10 @@ impl ParallelJITCompiler {
 
                 if let Ok(ref code) = result {
                     let compile_time = start_time.elapsed().as_nanos() as u64;
-                    stats.lock().unwrap().update_compile(compile_time, code.len());
+                    stats
+                        .lock()
+                        .unwrap()
+                        .update_compile(compile_time, code.len());
                 }
 
                 result
@@ -176,7 +190,10 @@ impl ParallelJITCompiler {
 
                             if let Ok(ref code) = result {
                                 let compile_time = start_time.elapsed().as_nanos() as u64;
-                                stats.lock().unwrap().update_compile(compile_time, code.len());
+                                stats
+                                    .lock()
+                                    .unwrap()
+                                    .update_compile(compile_time, code.len());
                             }
 
                             result
@@ -284,26 +301,22 @@ impl ParallelJITCompiler {
         let warmup_blocks = vec![
             IRBlock {
                 start_pc: vm_core::GuestAddr(0x1000),
-                ops: vec![
-                    vm_ir::IROp::BinaryOp {
-                        op: vm_ir::BinaryOperator::Add,
-                        dest: 1,
-                        src1: vm_ir::Operand::Register(0),
-                        src2: vm_ir::Operand::Immediate(1),
-                    },
-                ],
+                ops: vec![vm_ir::IROp::BinaryOp {
+                    op: vm_ir::BinaryOperator::Add,
+                    dest: 1,
+                    src1: vm_ir::Operand::Register(0),
+                    src2: vm_ir::Operand::Immediate(1),
+                }],
                 term: vm_ir::Terminator::Ret,
             },
             IRBlock {
                 start_pc: vm_core::GuestAddr(0x2000),
-                ops: vec![
-                    vm_ir::IROp::BinaryOp {
-                        op: vm_ir::BinaryOperator::Mul,
-                        dest: 2,
-                        src1: vm_ir::Operand::Register(1),
-                        src2: vm_ir::Operand::Immediate(2),
-                    },
-                ],
+                ops: vec![vm_ir::IROp::BinaryOp {
+                    op: vm_ir::BinaryOperator::Mul,
+                    dest: 2,
+                    src1: vm_ir::Operand::Register(1),
+                    src2: vm_ir::Operand::Immediate(2),
+                }],
                 term: vm_ir::Terminator::Ret,
             },
         ];
@@ -378,7 +391,7 @@ mod tests {
             adaptive_chunking: false,
             ..Default::default()
         };
-        let mut parallel_compiler = ParallelJITCompiler::with_config(Box::new(backend), config);
+        let parallel_compiler = ParallelJITCompiler::with_config(Box::new(backend), config);
 
         // 验证配置已应用
         assert_eq!(parallel_compiler.get_time_budget(), 1_000_000);
@@ -390,13 +403,11 @@ mod tests {
         let mut parallel_compiler = ParallelJITCompiler::new(Box::new(backend));
 
         // 创建测试块
-        let blocks = vec![
-            IRBlock {
-                start_pc: vm_core::GuestAddr(0x1000),
-                ops: vec![],
-                term: vm_ir::Terminator::Ret,
-            },
-        ];
+        let blocks = vec![IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        }];
 
         // 编译并获取指标
         let _results = parallel_compiler.compile_blocks(&blocks);
@@ -428,13 +439,11 @@ mod tests {
         parallel_compiler.set_time_budget(1); // 1纳秒
 
         // 创建测试块
-        let blocks = vec![
-            IRBlock {
-                start_pc: vm_core::GuestAddr(0x1000),
-                ops: vec![],
-                term: vm_ir::Terminator::Ret,
-            },
-        ];
+        let blocks = vec![IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        }];
 
         // 编译（可能会超时）
         let results = parallel_compiler.compile_blocks(&blocks);
@@ -492,13 +501,11 @@ mod tests {
         let mut parallel_compiler = ParallelJITCompiler::new(Box::new(backend));
 
         // 创建测试块
-        let blocks = vec![
-            IRBlock {
-                start_pc: vm_core::GuestAddr(0x1000),
-                ops: vec![],
-                term: vm_ir::Terminator::Ret,
-            },
-        ];
+        let blocks = vec![IRBlock {
+            start_pc: vm_core::GuestAddr(0x1000),
+            ops: vec![],
+            term: vm_ir::Terminator::Ret,
+        }];
 
         // 使用无界编译（不检查时间预算）
         let results = parallel_compiler.compile_blocks_unbounded(&blocks);
@@ -508,5 +515,3 @@ mod tests {
         assert!(results[0].is_ok());
     }
 }
-
-

@@ -8,6 +8,7 @@ vm-core = { path = "../vm-core" }
 log = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+num_cpus = { workspace = true }
 
 [features]
 default = []

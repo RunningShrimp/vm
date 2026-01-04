@@ -108,7 +108,7 @@ fn create_test_block(base_pc: GuestAddr, instruction_count: usize) -> IRBlock {
 fn example1_basic_jit_compilation() {
     println!("\n{'=':=<60}");
     println!("示例1：基础JIT编译");
-    println!("{:=<60}", '');
+    println!("{}", "=".repeat(60));
 
     // 创建默认配置的JIT引擎
     let config = JITConfig::default();
@@ -137,7 +137,10 @@ fn example1_basic_jit_compilation() {
             println!("   机器码指令数: {}", stats.machine_insn_count);
             println!("   编译总耗时: {} ns", stats.compilation_time_ns);
             println!("   优化耗时: {} ns", stats.optimization_time_ns);
-            println!("   寄存器分配耗时: {} ns", stats.register_allocation_time_ns);
+            println!(
+                "   寄存器分配耗时: {} ns",
+                stats.register_allocation_time_ns
+            );
             println!("   代码生成耗时: {} ns", stats.code_generation_time_ns);
         }
         Err(e) => {
@@ -154,12 +157,21 @@ fn example1_basic_jit_compilation() {
 fn example2_optimization_levels() {
     println!("\n{'=':=<60}");
     println!("示例2：优化级别对比");
-    println!("{:=<60}", '');
+    println!("{}", "=".repeat(60));
 
     let test_blocks = vec![
-        ("小代码块 (10条指令)", create_test_block(GuestAddr(0x1000), 10)),
-        ("中等代码块 (50条指令)", create_test_block(GuestAddr(0x2000), 50)),
-        ("大代码块 (100条指令)", create_test_block(GuestAddr(0x3000), 100)),
+        (
+            "小代码块 (10条指令)",
+            create_test_block(GuestAddr(0x1000), 10),
+        ),
+        (
+            "中等代码块 (50条指令)",
+            create_test_block(GuestAddr(0x2000), 50),
+        ),
+        (
+            "大代码块 (100条指令)",
+            create_test_block(GuestAddr(0x3000), 100),
+        ),
     ];
 
     let optimization_levels = vec![
@@ -186,11 +198,9 @@ fn example2_optimization_levels() {
                     let compile_time = start.elapsed();
                     let stats = result.stats;
 
-                    println!("  {}: 编译时间 {:>8.2?}, 优化后指令数: {:>4}, 代码大小: {:>5} bytes",
-                        level_name,
-                        compile_time,
-                        stats.optimized_insn_count,
-                        result.code_size
+                    println!(
+                        "  {}: 编译时间 {:>8.2?}, 优化后指令数: {:>4}, 代码大小: {:>5} bytes",
+                        level_name, compile_time, stats.optimized_insn_count, result.code_size
                     );
                 }
                 Err(e) => {
@@ -209,7 +219,7 @@ fn example2_optimization_levels() {
 fn example3_hotspot_detection_and_cache() {
     println!("\n{'=':=<60}");
     println!("示例3：热点检测和缓存");
-    println!("{:=<60}", '');
+    println!("{}", "=".repeat(60));
 
     let mut config = JITConfig::default();
     config.hotspot_threshold = 5; // 设置较低的热点阈值用于演示
@@ -233,8 +243,10 @@ fn example3_hotspot_detection_and_cache() {
         // 检查缓存状态
         let cache_stats = jit_engine.get_cache_stats();
 
-        println!("执行 #{:2}: 热点={}, 缓存条目数={}",
-            i, is_hotspot, cache_stats.size);
+        println!(
+            "执行 #{:2}: 热点={}, 缓存条目数={}",
+            i, is_hotspot, cache_stats.size
+        );
 
         // 尝试执行（热点会触发编译）
         let result = jit_engine.execute(&mut mmu, test_pc);
@@ -251,11 +263,12 @@ fn example3_hotspot_detection_and_cache() {
     // 显示最终统计
     println!("\n最终缓存统计:");
     let cache_stats = jit_engine.get_cache_stats();
-    println!("  缓存大小: {} / {} bytes",
-        cache_stats.size,
-        cache_stats.capacity
+    println!(
+        "  缓存大小: {} / {} bytes",
+        cache_stats.size, cache_stats.capacity
     );
-    println!("  缓存命中率: {:.1}%",
+    println!(
+        "  缓存命中率: {:.1}%",
         (cache_stats.hits as f64 / (cache_stats.hits + cache_stats.misses) as f64) * 100.0
     );
 }
@@ -268,7 +281,7 @@ fn example3_hotspot_detection_and_cache() {
 fn example4_parallel_compilation() {
     println!("\n{'=':=<60}");
     println!("示例4：并行编译性能对比");
-    println!("{:=<60}", '');
+    println!("{}", "=".repeat(60));
 
     let blocks: Vec<_> = (0..10)
         .map(|i| create_test_block(GuestAddr(0x1000 + i as u64 * 0x100), 50))
@@ -325,7 +338,7 @@ fn example4_parallel_compilation() {
 fn example5_optimization_strategies() {
     println!("\n{'=':=<60}");
     println!("示例5：优化策略对比");
-    println!("{:=<60}", '');
+    println!("{}", "=".repeat(60));
 
     let block = create_test_block(GuestAddr(0x1000), 50);
 
@@ -381,10 +394,12 @@ fn example5_optimization_strategies() {
 
                 println!("{}:", strategy.name);
                 println!("  编译时间: {:?}", compile_time);
-                println!("  优化后指令数: {} (减少: {:.1}%)",
+                println!(
+                    "  优化后指令数: {} (减少: {:.1}%)",
                     stats.optimized_insn_count,
                     ((stats.original_insn_count - stats.optimized_insn_count) as f64
-                        / stats.original_insn_count as f64) * 100.0
+                        / stats.original_insn_count as f64)
+                        * 100.0
                 );
                 println!("  代码大小: {} bytes", result.code_size);
                 println!("  优化耗时: {} ns", stats.optimization_time_ns);
@@ -406,7 +421,7 @@ fn example5_optimization_strategies() {
 fn example6_full_compilation_pipeline() {
     println!("\n{'=':=<60}");
     println!("示例6：完整JIT编译流程");
-    println!("{:=<60}", '');
+    println!("{}", "=".repeat(60));
 
     // 创建优化的JIT配置
     let mut config = JITConfig::default();
@@ -470,17 +485,30 @@ fn example6_full_compilation_pipeline() {
     println!("  优化后指令总数: {}", stats.optimized_insn_count);
     println!("  机器码指令总数: {}", stats.machine_insn_count);
     println!("  总编译时间: {} ms", stats.compilation_time_ns / 1_000_000);
-    println!("  总优化时间: {} ms", stats.optimization_time_ns / 1_000_000);
-    println!("  总寄存器分配时间: {} ms", stats.register_allocation_time_ns / 1_000_000);
-    println!("  总代码生成时间: {} ms", stats.code_generation_time_ns / 1_000_000);
+    println!(
+        "  总优化时间: {} ms",
+        stats.optimization_time_ns / 1_000_000
+    );
+    println!(
+        "  总寄存器分配时间: {} ms",
+        stats.register_allocation_time_ns / 1_000_000
+    );
+    println!(
+        "  总代码生成时间: {} ms",
+        stats.code_generation_time_ns / 1_000_000
+    );
 
     // 显示缓存统计
     println!("\n代码缓存统计:");
     let cache_stats = jit_engine.get_cache_stats();
-    println!("  缓存条目数: {} / {}", cache_stats.size, cache_stats.capacity);
+    println!(
+        "  缓存条目数: {} / {}",
+        cache_stats.size, cache_stats.capacity
+    );
     println!("  缓存命中次数: {}", cache_stats.hits);
     println!("  缓存未命中次数: {}", cache_stats.misses);
-    println!("  命中率: {:.1}%",
+    println!(
+        "  命中率: {:.1}%",
         (cache_stats.hits as f64 / (cache_stats.hits + cache_stats.misses) as f64) * 100.0
     );
 
@@ -519,5 +547,5 @@ fn main() {
 
     println!("\n{'=':=<60}");
     println!("所有示例运行完成！");
-    println!("{:=<60}", '');
+    println!("{}", "=".repeat(60));
 }

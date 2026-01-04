@@ -153,7 +153,11 @@ impl IncrementalCompilationCache {
     ///
     /// # 返回
     /// 编译后的机器码
-    pub fn get_or_compile<F>(&mut self, block: &IRBlock, compile_fn: F) -> Result<Vec<u8>, CompilerError>
+    pub fn get_or_compile<F>(
+        &mut self,
+        block: &IRBlock,
+        compile_fn: F,
+    ) -> Result<Vec<u8>, CompilerError>
     where
         F: FnOnce(&IRBlock) -> Result<Vec<u8>, CompilerError>,
     {

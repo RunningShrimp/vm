@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VM Manager - 虚拟机管理器</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">VM Manager</span>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" data-view="dashboard">
+                    <span class="nav-icon">🏠</span>
+                    <span class="nav-label">概览</span>
+                </button>
+                <button class="nav-item" data-view="vms">
+                    <span class="nav-icon">🖥️</span>
+                    <span class="nav-label">虚拟机</span>
+                    <span class="nav-badge" id="vmCount">0</span>
+                </button>
+                <button class="nav-item" data-view="monitoring">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-label">监控</span>
+                </button>
+                <button class="nav-item" data-view="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">设置</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="btn-create-vm" id="btnCreateVm">
+                    <span class="btn-icon">➕</span>
+                    <span class="btn-label">创建虚拟机</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 顶部栏 -->
+            <header class="top-bar">
+                <div class="page-title">
+                    <h1 id="pageTitle">概览</h1>
+                    <p id="pageSubtitle">系统状态总览</p>
+                </div>
+                <div class="top-bar-actions">
+                    <button class="icon-btn" id="btnRefresh" title="刷新">
+                        <span>🔄</span>
+                    </button>
+                    <button class="icon-btn" id="btnNotifications" title="通知">
+                        <span>🔔</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 内容视图 -->
+            <div class="content-views">
+                <!-- 概览视图 -->
+                <div class="view active" id="view-dashboard">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">🖥️</div>
+                            <div class="stat-info">
+                                <div class="stat-value" id="statTotalVms">0</div>
+                                <div class="stat-label">总虚拟机</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon stat-running">▶️</div>
+                            <div class="stat-info">
+                                <div class="stat-value" id="statRunningVms">0</div>
+                                <div class="stat-label">运行中</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon stat-stopped">⏸️</div>
+                            <div class="stat-info">
+                                <div class="stat-value" id="statStoppedVms">0</div>
+                                <div class="stat-label">已停止</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">💾</div>
+                            <div class="stat-info">
+                                <div class="stat-value" id="statTotalMemory">0 GB</div>
+                                <div class="stat-label">总内存</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-grid">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h3>快速操作</h3>
+                            </div>
+                            <div class="quick-actions">
+                                <button class="action-card" id="quickCreateVm">
+                                    <span class="action-icon">➕</span>
+                                    <span class="action-label">创建虚拟机</span>
+                                </button>
+                                <button class="action-card" id="quickStartAll">
+                                    <span class="action-icon">▶️</span>
+                                    <span class="action-label">启动所有</span>
+                                </button>
+                                <button class="action-card" id="quickStopAll">
+                                    <span class="action-icon">⏹️</span>
+                                    <span class="action-label">停止所有</span>
+                                </button>
+                                <button class="action-card" id="quickImport">
+                                    <span class="action-icon">📥</span>
+                                    <span class="action-label">导入配置</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h3>系统状态</h3>
+                            </div>
+                            <div class="system-status">
+                                <div class="status-item">
+                                    <span class="status-label">CPU 使用率</span>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 23%"></div>
+                                    </div>
+                                    <span class="status-value">23%</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">内存使用</span>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 45%"></div>
+                                    </div>
+                                    <span class="status-value">45%</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">磁盘使用</span>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 67%"></div>
+                                    </div>
+                                    <span class="status-value">67%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>最近活动</h3>
+                        </div>
+                        <div class="activity-list" id="activityList">
+                            <div class="activity-item">
+                                <span class="activity-time">2 分钟前</span>
+                                <span class="activity-text">系统启动</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 虚拟机列表视图 -->
+                <div class="view" id="view-vms">
+                    <div class="toolbar">
+                        <div class="search-box">
+                            <input type="text" id="vmSearch" placeholder="搜索虚拟机...">
+                        </div>
+                        <div class="toolbar-actions">
+                            <select id="vmFilter">
+                                <option value="all">全部状态</option>
+                                <option value="running">运行中</option>
+                                <option value="stopped">已停止</option>
+                                <option value="paused">已暂停</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="vm-grid" id="vmGrid">
+                        <!-- VM 卡片将通过 JavaScript 动态生成 -->
+                    </div>
+                </div>
+
+                <!-- 监控视图 -->
+                <div class="view" id="view-monitoring">
+                    <div class="monitoring-grid">
+                        <div class="panel monitoring-panel">
+                            <div class="panel-header">
+                                <h3>CPU 使用率</h3>
+                            </div>
+                            <div class="chart-placeholder">
+                                <div class="chart-icon">📈</div>
+                                <p>CPU 使用率图表</p>
+                            </div>
+                        </div>
+                        <div class="panel monitoring-panel">
+                            <div class="panel-header">
+                                <h3>内存使用</h3>
+                            </div>
+                            <div class="chart-placeholder">
+                                <div class="chart-icon">📊</div>
+                                <p>内存使用图表</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 设置视图 -->
+                <div class="view" id="view-settings">
+                    <div class="settings-section">
+                        <h3>常规设置</h3>
+                        <div class="setting-item">
+                            <label>默认虚拟机路径</label>
+                            <input type="text" id="defaultVmPath" value="/Users/vm">
+                        </div>
+                        <div class="setting-item">
+                            <label>自动启动虚拟机</label>
+                            <select id="autoStartVm">
+                                <option value="">无</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>性能设置</h3>
+                        <div class="setting-item">
+                            <label>最大并发虚拟机数</label>
+                            <input type="number" id="maxConcurrentVms" value="4" min="1" max="16">
+                        </div>
+                        <div class="setting-item">
+                            <label>启用性能监控</label>
+                            <input type="checkbox" id="enableMonitoring" checked>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 创建虚拟机模态框 -->
+    <div class="modal" id="createVmModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>创建虚拟机</h2>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <form id="createVmForm">
+                <div class="form-group">
+                    <label for="vmName">虚拟机名称 *</label>
+                    <input type="text" id="vmName" required placeholder="例如: Ubuntu Server">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cpuCount">CPU 核心数 *</label>
+                        <input type="number" id="cpuCount" required min="1" max="128" value="2">
+                    </div>
+                    <div class="form-group">
+                        <label for="memoryMb">内存 (MB) *</label>
+                        <input type="number" id="memoryMb" required min="512" step="512" value="2048">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="diskSize">磁盘大小 (GB) *</label>
+                    <input type="number" id="diskSize" required min="10" value="50">
+                </div>
+                <div class="form-group">
+                    <label for="displayMode">显示模式</label>
+                    <select id="displayMode">
+                        <option value="GUI">图形界面</option>
+                        <option value="Terminal">终端</option>
+                        <option value="Headless">无头模式</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelCreate">取消</button>
+                    <button type="submit" class="btn btn-primary">创建</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- VM 详情模态框 -->
+    <div class="modal" id="vmDetailModal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="detailVmName">虚拟机详情</h2>
+                <button class="modal-close" id="closeDetailModal">&times;</button>
+            </div>
+            <div class="vm-detail-content">
+                <div class="detail-section">
+                    <h3>基本信息</h3>
+                    <div class="detail-info">
+                        <div class="info-row">
+                            <span class="info-label">状态:</span>
+                            <span class="info-value" id="detailStatus">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">CPU:</span>
+                            <span class="info-value" id="detailCpu">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">内存:</span>
+                            <span class="info-value" id="detailMemory">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">磁盘:</span>
+                            <span class="info-value" id="detailDisk">-</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <h3>性能指标</h3>
+                    <div class="metrics-grid">
+                        <div class="metric-item">
+                            <div class="metric-label">CPU 使用率</div>
+                            <div class="metric-value" id="metricCpu">0%</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">内存使用</div>
+                            <div class="metric-value" id="metricMemory">0 MB</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">运行时间</div>
+                            <div class="metric-value" id="metricUptime">0h</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-actions">
+                    <button class="btn btn-success" id="btnStartVm">▶️ 启动</button>
+                    <button class="btn btn-warning" id="btnPauseVm">⏸️ 暂停</button>
+                    <button class="btn btn-danger" id="btnStopVm">⏹️ 停止</button>
+                    <button class="btn btn-secondary" id="btnDeleteVm">🗑️ 删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

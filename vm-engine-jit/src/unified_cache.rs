@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 use vm_core::GuestAddr;
 
@@ -713,7 +713,7 @@ impl UnifiedCodeCache {
     }
 
     /// 异步查找代码
-    /// 
+    ///
     /// 使用异步锁，不阻塞tokio运行时
     /// 返回Some(CodePtr)如果找到，None如果未找到
     pub async fn get_async(&self, addr: GuestAddr) -> Option<CodePtr> {
@@ -725,7 +725,7 @@ impl UnifiedCodeCache {
     }
 
     /// 异步插入代码（使用CodePtr）
-    /// 
+    ///
     /// 使用异步锁，不阻塞tokio运行时
     pub async fn insert_async_code(
         &self,
@@ -1051,7 +1051,7 @@ impl UnifiedCodeCache {
                     }
                 }
             }
-            
+
             // 策略3：基于执行路径预测（如果有PGO数据）
             // 这里可以集成PGO模块的路径分析功能
             addrs
@@ -1067,7 +1067,7 @@ impl UnifiedCodeCache {
     }
 
     /// 异步预取相关代码
-    /// 
+    ///
     /// 基于执行路径预测预取代码，不阻塞当前执行线程
     pub async fn prefetch_async(&self, addr: GuestAddr, execution_path: Option<Vec<GuestAddr>>) {
         // 先clone self，然后在spawn_blocking中使用
@@ -1075,7 +1075,7 @@ impl UnifiedCodeCache {
         tokio::task::spawn_blocking(move || {
             // 基础预取：相邻地址
             cache.prefetch_related(addr);
-            
+
             // 基于执行路径的预取
             if let Some(path) = execution_path {
                 for path_addr in path.iter().take(5) {
@@ -1092,9 +1092,7 @@ impl UnifiedCodeCache {
 
     /// 获取统计信息
     pub fn stats(&self) -> CacheStats {
-        self.stats.try_lock()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.stats.try_lock().map(|s| s.clone()).unwrap_or_default()
     }
 
     /// 检查是否为热点
@@ -1215,7 +1213,8 @@ impl UnifiedCodeCache {
             let evict_count = (candidates.len() / 5).max(1);
 
             // Clone the addrs to evict to avoid lifetime issues
-            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
+            let addrs_to_evict: Vec<GuestAddr> = candidates
+                .iter()
                 .take(evict_count)
                 .map(|(addr, _)| *addr)
                 .collect();
@@ -1275,7 +1274,8 @@ impl UnifiedCodeCache {
             let evict_count = (candidates.len() / 5).max(1);
 
             // Clone the addrs to evict to avoid lifetime issues
-            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
+            let addrs_to_evict: Vec<GuestAddr> = candidates
+                .iter()
                 .take(evict_count)
                 .map(|(addr, _)| *addr)
                 .collect();
@@ -1328,7 +1328,8 @@ impl UnifiedCodeCache {
             let evict_count = (candidates.len() / 5).max(1);
 
             // Clone the addrs to evict to avoid lifetime issues
-            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
+            let addrs_to_evict: Vec<GuestAddr> = candidates
+                .iter()
                 .take(evict_count)
                 .map(|(addr, _)| *addr)
                 .collect();
@@ -1389,10 +1390,8 @@ impl UnifiedCodeCache {
             let evict_count = (candidates.len() / 5).max(1);
 
             // Clone the addrs to evict to avoid lifetime issues
-            let addrs_to_evict: Vec<GuestAddr> = candidates.iter()
-                .take(evict_count)
-                .copied()
-                .collect();
+            let addrs_to_evict: Vec<GuestAddr> =
+                candidates.iter().take(evict_count).copied().collect();
 
             for addr in addrs_to_evict {
                 if let Some(entry) = hot.remove(&addr) {
@@ -1453,21 +1452,22 @@ impl UnifiedCodeCache {
 
     /// 获取热点条目
     pub fn get_hot_entries(&self, limit: usize) -> Vec<(GuestAddr, f64)> {
-        let hot_entries = if let (Ok(hot), Ok(cold)) = (self.hot_cache.try_read(), self.cold_cache.try_read()) {
-            let mut entries: Vec<_> = hot
-                .iter()
-                .map(|(&addr, entry)| (addr, entry.hotness_score))
-                .chain(
-                    cold.iter()
-                        .map(|(&addr, entry)| (addr, entry.hotness_score)),
-                )
-                .collect();
+        let hot_entries =
+            if let (Ok(hot), Ok(cold)) = (self.hot_cache.try_read(), self.cold_cache.try_read()) {
+                let mut entries: Vec<_> = hot
+                    .iter()
+                    .map(|(&addr, entry)| (addr, entry.hotness_score))
+                    .chain(
+                        cold.iter()
+                            .map(|(&addr, entry)| (addr, entry.hotness_score)),
+                    )
+                    .collect();
 
-            entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            entries.into_iter().take(limit).collect()
-        } else {
-            Vec::new()
-        };
+                entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                entries.into_iter().take(limit).collect()
+            } else {
+                Vec::new()
+            };
 
         hot_entries
     }
@@ -1576,7 +1576,9 @@ impl SmartPrefetcher {
     /// 记录执行跳转（用于学习访问模式）
     pub fn record_jump(&self, from_addr: GuestAddr, to_addr: GuestAddr) {
         if let Ok(mut history) = self.history.try_write() {
-            history.jump_history.entry(from_addr)
+            history
+                .jump_history
+                .entry(from_addr)
                 .or_insert_with(Vec::new)
                 .push(to_addr);
             history.last_updated = Instant::now();
@@ -1617,9 +1619,9 @@ impl SmartPrefetcher {
     fn add_predicted_addresses(&self, from_addr: GuestAddr, to_addr: GuestAddr) {
         let predicted_addresses = self.predict_next_addresses(from_addr, to_addr);
 
-        if let (Ok(mut queue), Ok(mut prefetched)) = (
+        if let (Ok(mut queue), Ok(prefetched)) = (
             self.prefetch_queue.try_write(),
-            self.prefetched_addresses.try_write()
+            self.prefetched_addresses.try_write(),
         ) {
             for addr in predicted_addresses {
                 // 检查是否已经在队列中或已预取
@@ -1656,7 +1658,10 @@ impl SmartPrefetcher {
                 let mut sorted_targets: Vec<_> = target_counts.into_iter().collect();
                 sorted_targets.sort_by(|a, b| b.1.cmp(&a.1));
 
-                for (target, _) in sorted_targets.into_iter().take(self.config.prefetch_window_size) {
+                for (target, _) in sorted_targets
+                    .into_iter()
+                    .take(self.config.prefetch_window_size)
+                {
                     predictions.push(target);
                 }
             }
@@ -1702,23 +1707,20 @@ impl SmartPrefetcher {
         if let Ok(mut stats) = self.stats.try_lock() {
             stats.prefetch_hits += 1;
             if stats.successful_prefetches > 0 {
-                stats.prefetch_accuracy = stats.prefetch_hits as f64 / stats.successful_prefetches as f64;
+                stats.prefetch_accuracy =
+                    stats.prefetch_hits as f64 / stats.successful_prefetches as f64;
             }
         }
     }
 
     /// 获取预取队列大小
     pub fn queue_size(&self) -> usize {
-        self.prefetch_queue.try_read()
-            .map(|q| q.len())
-            .unwrap_or(0)
+        self.prefetch_queue.try_read().map(|q| q.len()).unwrap_or(0)
     }
 
     /// 获取预取统计
     pub fn get_stats(&self) -> PrefetchStats {
-        let mut stats = self.stats.try_lock()
-            .map(|s| s.clone())
-            .unwrap_or_default();
+        let mut stats = self.stats.try_lock().map(|s| s.clone()).unwrap_or_default();
         stats.queue_size = self.queue_size();
         stats
     }
@@ -1741,7 +1743,7 @@ impl UnifiedCodeCache {
     }
 
     /// 启动后台预编译任务
-    /// 
+    ///
     /// 实现完整的预编译逻辑：
     /// 1. 从预取队列获取待编译地址
     /// 2. 生成编译请求并发送到编译通道
@@ -1769,7 +1771,9 @@ impl UnifiedCodeCache {
                     if let Some(addr) = prefetcher_clone.get_next_prefetch_address() {
                         // 检查地址是否已经在缓存中
                         let already_cached = {
-                            if let (Ok(hot), Ok(cold)) = (hot_cache.try_read(), cold_cache.try_read()) {
+                            if let (Ok(hot), Ok(cold)) =
+                                (hot_cache.try_read(), cold_cache.try_read())
+                            {
                                 hot.contains_key(&addr) || cold.contains_key(&addr)
                             } else {
                                 false
@@ -1786,7 +1790,11 @@ impl UnifiedCodeCache {
                             };
 
                             // 发送编译请求
-                            if let Some(ref tx) = compile_tx.try_lock().ok().and_then(|tx| tx.as_ref().cloned()) {
+                            if let Some(ref tx) = compile_tx
+                                .try_lock()
+                                .ok()
+                                .and_then(|tx| tx.as_ref().cloned())
+                            {
                                 let request = CompileRequest {
                                     addr,
                                     ir_block,
@@ -1796,7 +1804,8 @@ impl UnifiedCodeCache {
                                 if tx.try_send(request).is_ok() {
                                     // 更新预取统计
                                     if let Ok(mut stats_guard) = stats.try_lock() {
-                                        stats_guard.prefetch_compiles = stats_guard.prefetch_compiles.saturating_add(1);
+                                        stats_guard.prefetch_compiles =
+                                            stats_guard.prefetch_compiles.saturating_add(1);
                                     }
 
                                     // 标记为已预取
@@ -1817,7 +1826,7 @@ impl UnifiedCodeCache {
             self.compile_tasks.lock().unwrap().push(task);
         }
     }
-    
+
     /// 停止所有后台预编译任务
     pub fn stop_background_prefetch(&self) {
         let mut tasks = self.compile_tasks.lock().unwrap();
@@ -1889,11 +1898,8 @@ mod prefetch_tests {
             ..Default::default()
         };
 
-        let cache = UnifiedCodeCache::with_prefetch_config(
-            cache_config,
-            hotspot_config,
-            prefetch_config,
-        );
+        let cache =
+            UnifiedCodeCache::with_prefetch_config(cache_config, hotspot_config, prefetch_config);
 
         // 验证预取器已创建
         assert!(cache.prefetcher.is_some());

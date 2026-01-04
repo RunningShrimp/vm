@@ -6,7 +6,7 @@
 //! - 归纳变量优化
 //! - 循环强度削弱
 
-use vm_ir::{IRBlock, Terminator, GuestAddr, IROp, RegId};
+use vm_ir::{GuestAddr, IRBlock, IROp, RegId, Terminator};
 
 /// 变量类型
 pub type Variable = RegId;
@@ -160,9 +160,14 @@ impl LoopOptimizer {
                     None
                 }
             }
-            Terminator::CondJmp { target_true, target_false, .. } => {
+            Terminator::CondJmp {
+                target_true,
+                target_false,
+                ..
+            } => {
                 // 条件跳转 - 检查是否有回边
-                let has_back_edge = target_true.0 <= block.start_pc.0 || target_false.0 <= block.start_pc.0;
+                let has_back_edge =
+                    target_true.0 <= block.start_pc.0 || target_false.0 <= block.start_pc.0;
 
                 if has_back_edge {
                     let mut back_edges = Vec::new();
@@ -308,7 +313,13 @@ impl LoopOptimizer {
                 vars.push(*dst_hi);
             }
 
-            IROp::Vec256Add { dst0, dst1, dst2, dst3, .. } => {
+            IROp::Vec256Add {
+                dst0,
+                dst1,
+                dst2,
+                dst3,
+                ..
+            } => {
                 vars.push(*dst0);
                 vars.push(*dst1);
                 vars.push(*dst2);
@@ -329,7 +340,7 @@ impl LoopOptimizer {
 
         match insn {
             // 算术操作 - 使用 src1/src2
-            | IROp::Add { src1, src2, .. }
+            IROp::Add { src1, src2, .. }
             | IROp::Sub { src1, src2, .. }
             | IROp::Mul { src1, src2, .. }
             | IROp::Div { src1, src2, .. }
@@ -351,7 +362,7 @@ impl LoopOptimizer {
             }
 
             // 比较操作 - 使用 lhs/rhs
-            | IROp::CmpEq { lhs, rhs, .. }
+            IROp::CmpEq { lhs, rhs, .. }
             | IROp::CmpNe { lhs, rhs, .. }
             | IROp::CmpLt { lhs, rhs, .. }
             | IROp::CmpLtU { lhs, rhs, .. }
@@ -362,7 +373,7 @@ impl LoopOptimizer {
             }
 
             // 单操作数指令
-            | IROp::Not { src, .. }
+            IROp::Not { src, .. }
             | IROp::AddImm { src, .. }
             | IROp::MulImm { src, .. }
             | IROp::Mov { src, .. }
@@ -377,7 +388,7 @@ impl LoopOptimizer {
             }
 
             // 双操作数指令（带移位寄存器）
-            | IROp::Sll { src, .. }
+            IROp::Sll { src, .. }
             | IROp::Srl { src, .. }
             | IROp::Sra { src, .. }
             | IROp::VecShl { src, shift: _, .. }
@@ -387,42 +398,62 @@ impl LoopOptimizer {
             }
 
             // 三操作数指令
-            | IROp::Select { cond, true_val, false_val, .. } => {
+            IROp::Select {
+                cond,
+                true_val,
+                false_val,
+                ..
+            } => {
                 vars.insert(*cond);
                 vars.insert(*true_val);
                 vars.insert(*false_val);
             }
 
             // 存储和原子操作
-            | IROp::Store { src, base, .. } => {
+            IROp::Store { src, base, .. } => {
                 vars.insert(*src);
                 vars.insert(*base);
             }
-            | IROp::AtomicRMW { base, src, .. }
-            | IROp::AtomicRMWOrder { base, src, .. } => {
+            IROp::AtomicRMW { base, src, .. } | IROp::AtomicRMWOrder { base, src, .. } => {
                 vars.insert(*base);
                 vars.insert(*src);
             }
-            | IROp::AtomicCmpXchg { base, expected, new, .. }
-            | IROp::AtomicCmpXchgFlag { base, expected, new, .. } => {
+            IROp::AtomicCmpXchg {
+                base,
+                expected,
+                new,
+                ..
+            }
+            | IROp::AtomicCmpXchgFlag {
+                base,
+                expected,
+                new,
+                ..
+            } => {
                 vars.insert(*base);
                 vars.insert(*expected);
                 vars.insert(*new);
             }
-            | IROp::AtomicLoadReserve { base, .. } => {
+            IROp::AtomicLoadReserve { base, .. } => {
                 vars.insert(*base);
             }
-            | IROp::AtomicStoreCond { src, base, .. } => {
+            IROp::AtomicStoreCond { src, base, .. } => {
                 vars.insert(*src);
                 vars.insert(*base);
             }
-            | IROp::AtomicRmwFlag { base, src, .. } => {
+            IROp::AtomicRmwFlag { base, src, .. } => {
                 vars.insert(*base);
                 vars.insert(*src);
             }
 
             // 128位向量操作
-            | IROp::Vec128Add { src1_lo, src1_hi, src2_lo, src2_hi, .. } => {
+            IROp::Vec128Add {
+                src1_lo,
+                src1_hi,
+                src2_lo,
+                src2_hi,
+                ..
+            } => {
                 vars.insert(*src1_lo);
                 vars.insert(*src1_hi);
                 vars.insert(*src2_lo);
@@ -430,7 +461,17 @@ impl LoopOptimizer {
             }
 
             // 256位向量操作
-            | IROp::Vec256Add { src10, src11, src12, src13, src20, src21, src22, src23, .. } => {
+            IROp::Vec256Add {
+                src10,
+                src11,
+                src12,
+                src13,
+                src20,
+                src21,
+                src22,
+                src23,
+                ..
+            } => {
                 vars.insert(*src10);
                 vars.insert(*src11);
                 vars.insert(*src12);
@@ -449,7 +490,11 @@ impl LoopOptimizer {
     }
 
     /// 识别循环不变量
-    fn identify_loop_invariants(&self, _loop_body: &IRBlock, data_flow: &DataFlowInfo) -> Vec<usize> {
+    fn identify_loop_invariants(
+        &self,
+        _loop_body: &IRBlock,
+        data_flow: &DataFlowInfo,
+    ) -> Vec<usize> {
         let mut invariants = Vec::new();
 
         // 寻找在循环中只被定义一次且未被重新定义的操作
@@ -476,32 +521,33 @@ impl LoopOptimizer {
 
     /// 检查是否是纯计算操作
     fn is_pure_operation(&self, insn: &IROp) -> bool {
-        matches!(insn,
+        matches!(
+            insn,
             IROp::Add { .. }
-            | IROp::Sub { .. }
-            | IROp::Mul { .. }
-            | IROp::Div { .. }
-            | IROp::Rem { .. }
-            | IROp::And { .. }
-            | IROp::Or { .. }
-            | IROp::Xor { .. }
-            | IROp::Not { .. }
-            | IROp::Sll { .. }
-            | IROp::Srl { .. }
-            | IROp::Sra { .. }
-            | IROp::AddImm { .. }
-            | IROp::MulImm { .. }
-            | IROp::Mov { .. }
-            | IROp::SllImm { .. }
-            | IROp::SrlImm { .. }
-            | IROp::SraImm { .. }
-            | IROp::CmpEq { .. }
-            | IROp::CmpNe { .. }
-            | IROp::CmpLt { .. }
-            | IROp::CmpLtU { .. }
-            | IROp::CmpGe { .. }
-            | IROp::CmpGeU { .. }
-            | IROp::Select { .. }
+                | IROp::Sub { .. }
+                | IROp::Mul { .. }
+                | IROp::Div { .. }
+                | IROp::Rem { .. }
+                | IROp::And { .. }
+                | IROp::Or { .. }
+                | IROp::Xor { .. }
+                | IROp::Not { .. }
+                | IROp::Sll { .. }
+                | IROp::Srl { .. }
+                | IROp::Sra { .. }
+                | IROp::AddImm { .. }
+                | IROp::MulImm { .. }
+                | IROp::Mov { .. }
+                | IROp::SllImm { .. }
+                | IROp::SrlImm { .. }
+                | IROp::SraImm { .. }
+                | IROp::CmpEq { .. }
+                | IROp::CmpNe { .. }
+                | IROp::CmpLt { .. }
+                | IROp::CmpLtU { .. }
+                | IROp::CmpGe { .. }
+                | IROp::CmpGeU { .. }
+                | IROp::Select { .. }
         )
     }
 
@@ -555,8 +601,16 @@ impl LoopOptimizer {
                 // 强度削减：乘法转为加法
                 optimizations.push(InductionVariableOptimization::StrengthReduce {
                     var: 1,
-                    original: Box::new(IROp::Mul { dst: 2, src1: 1, src2: 4 }), // 示例：乘4
-                    optimized: Box::new(IROp::SllImm { dst: 2, src: 1, sh: 2 }), // 优化为移位
+                    original: Box::new(IROp::Mul {
+                        dst: 2,
+                        src1: 1,
+                        src2: 4,
+                    }), // 示例：乘4
+                    optimized: Box::new(IROp::SllImm {
+                        dst: 2,
+                        src: 1,
+                        sh: 2,
+                    }), // 优化为移位
                 });
             }
         }
@@ -575,7 +629,11 @@ impl LoopOptimizer {
                 // 消除归纳变量：用最终值替换
                 self.apply_iv_eliminate(block, var, replacement);
             }
-            InductionVariableOptimization::StrengthReduce { var, original, optimized } => {
+            InductionVariableOptimization::StrengthReduce {
+                var,
+                original,
+                optimized,
+            } => {
                 // 强度削弱：用更高效的指令替换
                 self.apply_strength_reduction(block, var, original, optimized);
             }
@@ -593,7 +651,13 @@ impl LoopOptimizer {
     }
 
     /// 应用强度削弱
-    fn apply_strength_reduction(&self, _block: &mut IRBlock, _var: Variable, _original: Box<IROp>, _optimized: Box<IROp>) {
+    fn apply_strength_reduction(
+        &self,
+        _block: &mut IRBlock,
+        _var: Variable,
+        _original: Box<IROp>,
+        _optimized: Box<IROp>,
+    ) {
         // 在实际实现中，这里会用更高效的指令替换低效的指令
     }
 
@@ -742,7 +806,9 @@ mod tests {
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
             ops: vec![],
-            term: Terminator::Jmp { target: GuestAddr(0x1000) },
+            term: Terminator::Jmp {
+                target: GuestAddr(0x1000),
+            },
         };
 
         let loop_info = optimizer.detect_loop(&block);
@@ -781,7 +847,9 @@ mod tests {
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
             ops: vec![],
-            term: Terminator::Jmp { target: GuestAddr(0x2000) },
+            term: Terminator::Jmp {
+                target: GuestAddr(0x2000),
+            },
         };
 
         let loop_info = optimizer.detect_loop(&block);
@@ -814,10 +882,10 @@ mod tests {
         // 测试optimize方法不会panic
         let mut block = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::MovImm { dst: 1, imm: 42 },
-            ],
-            term: Terminator::Jmp { target: GuestAddr(0x1000) },
+            ops: vec![IROp::MovImm { dst: 1, imm: 42 }],
+            term: Terminator::Jmp {
+                target: GuestAddr(0x1000),
+            },
         };
 
         // 应该成功执行而不panic
@@ -834,7 +902,10 @@ mod tests {
         let optimizer2 = optimizer1.clone();
 
         // 克隆的优化器应该有相同的配置
-        assert_eq!(optimizer2.config.enable_code_motion, optimizer1.config.enable_code_motion);
+        assert_eq!(
+            optimizer2.config.enable_code_motion,
+            optimizer1.config.enable_code_motion
+        );
     }
 
     #[test]

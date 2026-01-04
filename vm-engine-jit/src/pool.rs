@@ -1,11 +1,11 @@
 use crate::{CodePtr, Jit};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use vm_ir::IRBlock;
 
 /// 异步JIT代码池
-/// 
+///
 /// 使用tokio异步运行时管理JIT编译任务
 /// 支持异步代码查找和插入，使用并发安全的缓存结构
 pub struct JitPool {
@@ -16,13 +16,13 @@ pub struct JitPool {
 
 impl JitPool {
     /// 创建新的异步JIT代码池
-    /// 
+    ///
     /// `worker_count`: 工作线程数量（当前实现使用单个worker处理所有任务）
     pub fn new(_worker_count: usize) -> Self {
         let (tx, rx) = mpsc::unbounded_channel::<IRBlock>();
         let cache = Arc::new(RwLock::new(HashMap::new()));
         let mut workers = Vec::new();
-        
+
         // 使用单个worker处理所有编译任务
         // 因为UnboundedReceiver不能clone
         let cache_clone = cache.clone();
@@ -41,7 +41,7 @@ impl JitPool {
             }
         });
         workers.push(handle);
-        
+
         Self { workers, tx, cache }
     }
 
@@ -65,14 +65,14 @@ impl JitPool {
     }
 
     /// 异步查找代码指针
-    /// 
+    ///
     /// 返回Some(CodePtr)如果找到，None如果未找到
     pub async fn get_async(&self, pc: u64) -> Option<CodePtr> {
         self.cache.read().await.get(&pc).copied()
     }
 
     /// 异步插入代码指针
-    /// 
+    ///
     /// 如果已存在，返回旧的CodePtr；否则返回None
     pub async fn insert_async(&self, pc: u64, code_ptr: CodePtr) -> Option<CodePtr> {
         self.cache.write().await.insert(pc, code_ptr)
@@ -110,7 +110,7 @@ impl Drop for JitPool {
 
 impl JitPool {
     /// 优雅关闭代码池
-    /// 
+    ///
     /// 关闭发送端并等待所有worker完成
     pub async fn shutdown(mut self) {
         // 关闭发送端
@@ -118,7 +118,7 @@ impl JitPool {
             let (tx, _) = mpsc::unbounded_channel();
             tx
         }));
-        
+
         // 等待所有worker完成
         for h in self.workers.drain(..) {
             let _ = h.await;

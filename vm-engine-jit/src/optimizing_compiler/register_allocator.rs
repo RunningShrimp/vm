@@ -1,7 +1,7 @@
 //! 寄存器分配器占位实现
 
-use vm_ir::{IROp, RegId};
 use std::collections::HashMap;
+use vm_ir::{IROp, RegId};
 
 /// 寄存器分配器
 pub struct RegisterAllocator {

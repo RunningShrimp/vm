@@ -2,18 +2,21 @@
 //!
 //! 使用Cranelift作为JIT编译后端,提供高效的代码生成。
 
-use crate::compiler_backend::{CompilerBackend, CompilerBackendType, CompilerError, CompilerFeature, OptimizationLevel, CompilerStats};
-use vm_ir::{IROp, IRBlock, Terminator, RegId};
+use crate::compiler_backend::{
+    CompilerBackend, CompilerBackendType, CompilerError, CompilerFeature, CompilerStats,
+    OptimizationLevel,
+};
 use cranelift::prelude::*;
 use cranelift_codegen::Context as CodegenContext;
-use cranelift_codegen::ir::{UserFuncName, AbiParam, InstBuilder};
 use cranelift_codegen::ir::types;
+use cranelift_codegen::ir::{AbiParam, InstBuilder, UserFuncName};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{Linkage, Module, ModuleError, default_libcall_names};
 use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_module::{Linkage, Module, ModuleError, default_libcall_names};
 use cranelift_native;
 use std::time::Instant;
+use vm_ir::{IRBlock, IROp, RegId, Terminator};
 
 /// Convert ModuleError to CompilerError
 impl From<ModuleError> for CompilerError {
@@ -46,14 +49,15 @@ impl CraneliftBackend {
         flag_builder.set("opt_level", "speed").unwrap();
 
         // 使用主机ISA
-        let isa_builder = cranelift_native::builder()
-            .map_err(|_| CompilerError::BackendUnavailable(
-                "host ISA is not supported by Cranelift".to_string(),
-            ))?;
+        let isa_builder = cranelift_native::builder().map_err(|_| {
+            CompilerError::BackendUnavailable("host ISA is not supported by Cranelift".to_string())
+        })?;
 
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
-            .map_err(|e| CompilerError::BackendUnavailable(format!("ISA creation failed: {}", e)))?;
+            .map_err(|e| {
+                CompilerError::BackendUnavailable(format!("ISA creation failed: {}", e))
+            })?;
 
         // 创建JIT模块 (使用with_isa而不是new)
         let module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
@@ -97,7 +101,9 @@ impl CompilerBackend for CraneliftBackend {
         sig.returns.push(AbiParam::new(types::I64));
 
         // 声明函数
-        let func_id = self.module.declare_function(&func_name, Linkage::Export, &sig)?;
+        let func_id = self
+            .module
+            .declare_function(&func_name, Linkage::Export, &sig)?;
 
         // 创建上下文
         let mut ctx = self.module.make_context();
@@ -157,7 +163,11 @@ impl CompilerBackend for CraneliftBackend {
         self.features.clone()
     }
 
-    fn optimize(&mut self, block: &mut IRBlock, level: OptimizationLevel) -> Result<(), CompilerError> {
+    fn optimize(
+        &mut self,
+        block: &mut IRBlock,
+        level: OptimizationLevel,
+    ) -> Result<(), CompilerError> {
         // 实现基本优化
         match level {
             OptimizationLevel::O0 => {
@@ -308,7 +318,11 @@ impl CraneliftBackend {
 
                 builder.ins().return_(&[tagged_target]);
             }
-            Terminator::CondJmp { cond, target_true, target_false } => {
+            Terminator::CondJmp {
+                cond,
+                target_true,
+                target_false,
+            } => {
                 // 条件跳转实现
                 //
                 // 与无条件跳转类似，返回标记的目标地址
@@ -319,8 +333,9 @@ impl CraneliftBackend {
                 // target_false: 条件为假时的跳转目标
 
                 // 获取条件值
-                let cond_var = _var_map.get(cond)
-                    .ok_or_else(|| CompilerError::InvalidRegister(format!("Condition register {} not found", cond)))?;
+                let cond_var = _var_map.get(cond).ok_or_else(|| {
+                    CompilerError::InvalidRegister(format!("Condition register {} not found", cond))
+                })?;
                 let cond_val = builder.use_var(*cond_var);
 
                 // 创建两个目标地址
@@ -330,7 +345,10 @@ impl CraneliftBackend {
                 // 使用条件选择：如果cond_val != 0，选择target_true，否则选择target_false
                 // Cranelift的select需要条件值为i1，我们需要比较
                 let cond_bool = builder.ins().icmp_imm(IntCC::Equal, cond_val, 0);
-                let selected_target = builder.ins().select(cond_bool, target_false_val, target_true_val);
+                let selected_target =
+                    builder
+                        .ins()
+                        .select(cond_bool, target_false_val, target_true_val);
 
                 // 添加跳转标志位
                 let jump_flag = builder.ins().iconst(types::I64, 1i64 << 63);
@@ -338,7 +356,10 @@ impl CraneliftBackend {
 
                 builder.ins().return_(&[tagged_target]);
             }
-            Terminator::Call { target, ret_pc: _ret_pc } => {
+            Terminator::Call {
+                target,
+                ret_pc: _ret_pc,
+            } => {
                 // 函数调用实现
                 //
                 // 函数调用比普通跳转复杂，需要：
@@ -370,13 +391,18 @@ impl CraneliftBackend {
                 // 设置跳转和调用标志位
                 // 位63 = 1（跳转标志）
                 // 位62 = 1（调用标志）
-                let call_flags = builder.ins().iconst(types::I64, (1i64 << 63) | (1i64 << 62));
+                let call_flags = builder
+                    .ins()
+                    .iconst(types::I64, (1i64 << 63) | (1i64 << 62));
                 let tagged_target = builder.ins().bor(target_addr, call_flags);
 
                 builder.ins().return_(&[tagged_target]);
             }
             _ => {
-                return Err(CompilerError::UnsupportedOperation(format!("Unsupported terminator: {:?}", term)));
+                return Err(CompilerError::UnsupportedOperation(format!(
+                    "Unsupported terminator: {:?}",
+                    term
+                )));
             }
         }
         Ok(())
@@ -407,7 +433,6 @@ impl CraneliftBackend {
 mod tests {
     use super::*;
     use vm_ir::{IROp, Terminator};
-    use std::sync::Arc;
 
     /// 创建一个简单的IR块，用于测试
     fn create_test_block(start_pc: u64, ops: Vec<IROp>, term: Terminator) -> IRBlock {
@@ -430,9 +455,7 @@ mod tests {
         // 创建一个简单的块，以Call终止
         let block = create_test_block(
             0x1000,
-            vec![
-                IROp::MovImm { dst: 1, imm: 42 },
-            ],
+            vec![IROp::MovImm { dst: 1, imm: 42 }],
             Terminator::Call {
                 target: vm_ir::GuestAddr(0x5000),
                 ret_pc: vm_ir::GuestAddr(0x1008),
@@ -441,10 +464,16 @@ mod tests {
 
         // 编译块 - 应该成功
         let result = compiler.compile(&block);
-        assert!(result.is_ok(), "Call terminator should compile successfully");
+        assert!(
+            result.is_ok(),
+            "Call terminator should compile successfully"
+        );
 
         let compiled_code = result.unwrap();
-        assert!(!compiled_code.is_empty(), "Compiled code should not be empty");
+        assert!(
+            !compiled_code.is_empty(),
+            "Compiled code should not be empty"
+        );
     }
 
     #[test]
@@ -485,7 +514,11 @@ mod tests {
             vec![
                 IROp::MovImm { dst: 1, imm: 10 },
                 IROp::MovImm { dst: 2, imm: 20 },
-                IROp::Add { dst: 3, src1: 1, src2: 2 },
+                IROp::Add {
+                    dst: 3,
+                    src1: 1,
+                    src2: 2,
+                },
             ],
             Terminator::Call {
                 target: vm_ir::GuestAddr(0x5000),
@@ -494,7 +527,10 @@ mod tests {
         );
 
         let result = compiler.compile(&block);
-        assert!(result.is_ok(), "Call with preceding operations should compile");
+        assert!(
+            result.is_ok(),
+            "Call with preceding operations should compile"
+        );
     }
 
     #[test]
@@ -532,9 +568,21 @@ mod tests {
         let expected_encoded = (target as i64) | expected_flags;
 
         // 验证标志位设置
-        assert_eq!(expected_encoded & (1i64 << 63), 1i64 << 63, "Bit 63 should be set (jump flag)");
-        assert_eq!(expected_encoded & (1i64 << 62), 1i64 << 62, "Bit 62 should be set (call flag)");
-        assert_eq!(expected_encoded & 0x3FFF_FFFF_FFFF_FFFF, target as i64, "Target address should be preserved");
+        assert_eq!(
+            expected_encoded & (1i64 << 63),
+            1i64 << 63,
+            "Bit 63 should be set (jump flag)"
+        );
+        assert_eq!(
+            expected_encoded & (1i64 << 62),
+            1i64 << 62,
+            "Bit 62 should be set (call flag)"
+        );
+        assert_eq!(
+            expected_encoded & 0x3FFF_FFFF_FFFF_FFFF,
+            target as i64,
+            "Target address should be preserved"
+        );
     }
 
     #[test]
@@ -550,12 +598,28 @@ mod tests {
         let call_encoded = (call_target as i64) | (1i64 << 63) | (1i64 << 62);
 
         // 验证Jmp标志
-        assert_eq!(jump_encoded & (1i64 << 63), 1i64 << 63, "Jump should have bit 63 set");
-        assert_eq!(jump_encoded & (1i64 << 62), 0, "Jump should NOT have bit 62 set");
+        assert_eq!(
+            jump_encoded & (1i64 << 63),
+            1i64 << 63,
+            "Jump should have bit 63 set"
+        );
+        assert_eq!(
+            jump_encoded & (1i64 << 62),
+            0,
+            "Jump should NOT have bit 62 set"
+        );
 
         // 验证Call标志
-        assert_eq!(call_encoded & (1i64 << 63), 1i64 << 63, "Call should have bit 63 set");
-        assert_eq!(call_encoded & (1i64 << 62), 1i64 << 62, "Call should have bit 62 set");
+        assert_eq!(
+            call_encoded & (1i64 << 63),
+            1i64 << 63,
+            "Call should have bit 63 set"
+        );
+        assert_eq!(
+            call_encoded & (1i64 << 62),
+            1i64 << 62,
+            "Call should have bit 62 set"
+        );
     }
 
     #[test]
@@ -629,7 +693,11 @@ mod tests {
             0x1000,
             vec![
                 IROp::MovImm { dst: 1, imm: 42 },
-                IROp::Add { dst: 2, src1: 1, src2: 1 },
+                IROp::Add {
+                    dst: 2,
+                    src1: 1,
+                    src2: 1,
+                },
             ],
             Terminator::Call {
                 target: vm_ir::GuestAddr(0x5000),
@@ -640,7 +708,10 @@ mod tests {
         let compiled_code = compiler.compile(&block).unwrap();
 
         // Verify compilation succeeded and code was generated
-        assert!(!compiled_code.is_empty(), "Compiled code should not be empty");
+        assert!(
+            !compiled_code.is_empty(),
+            "Compiled code should not be empty"
+        );
     }
 
     #[test]

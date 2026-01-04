@@ -470,7 +470,7 @@ mod tests {
         let mut predictor = MarkovPredictor::new(2, 0.1);
 
         // 使用predict方法来增加total_predictions
-        let predictions = predictor.predict(0x1000, 3);
+        let _predictions = predictor.predict(0x1000, 3);
         // predict会增加total_predictions
         assert!(predictor.total_predictions > 0);
 

@@ -131,10 +131,7 @@ impl BlockChainer {
                 self.add_link(block_addr, *target_true, ChainType::Conditional);
                 self.add_link(block_addr, *target_false, ChainType::Conditional);
             }
-            Terminator::Call {
-                target,
-                ret_pc: _,
-            } => {
+            Terminator::Call { target, ret_pc: _ } => {
                 // 函数调用 - 可以链接到被调用函数
                 self.add_link(block_addr, *target, ChainType::Call);
             }
@@ -171,9 +168,7 @@ impl BlockChainer {
         self.chains.clear();
 
         // 获取所有块起始地址
-        let mut start_blocks: Vec<GuestAddr> = self.links.keys()
-            .map(|(from, _)| *from)
-            .collect();
+        let mut start_blocks: Vec<GuestAddr> = self.links.keys().map(|(from, _)| *from).collect();
 
         // 按频率排序（热路径优先）
         if self.enable_hot_path {
@@ -233,7 +228,9 @@ impl BlockChainer {
 
     /// 查找最佳的下一个块
     fn find_best_next_block(&self, current: GuestAddr) -> Option<GuestAddr> {
-        let mut candidates: Vec<(GuestAddr, ChainType, u32)> = self.links.iter()
+        let mut candidates: Vec<(GuestAddr, ChainType, u32)> = self
+            .links
+            .iter()
             .filter(|((from, _), _)| *from == current)
             .map(|((_, to), link)| (*to, link.link_type, link.frequency))
             .collect();
@@ -347,7 +344,11 @@ mod tests {
         chainer.analyze_block(&block1).unwrap();
 
         assert_eq!(chainer.stats().total_links, 1);
-        assert!(chainer.get_link(GuestAddr(0x1000), GuestAddr(0x2000)).is_some());
+        assert!(
+            chainer
+                .get_link(GuestAddr(0x1000), GuestAddr(0x2000))
+                .is_some()
+        );
     }
 
     #[test]
@@ -365,8 +366,16 @@ mod tests {
         chainer.analyze_block(&block).unwrap();
 
         assert_eq!(chainer.stats().total_links, 2);
-        assert!(chainer.get_link(GuestAddr(0x1000), GuestAddr(0x2000)).is_some());
-        assert!(chainer.get_link(GuestAddr(0x1000), GuestAddr(0x3000)).is_some());
+        assert!(
+            chainer
+                .get_link(GuestAddr(0x1000), GuestAddr(0x2000))
+                .is_some()
+        );
+        assert!(
+            chainer
+                .get_link(GuestAddr(0x1000), GuestAddr(0x3000))
+                .is_some()
+        );
     }
 
     #[test]

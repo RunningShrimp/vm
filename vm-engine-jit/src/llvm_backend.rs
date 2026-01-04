@@ -5,13 +5,18 @@
 #![allow(unexpected_cfgs)]
 
 #[cfg(feature = "llvm-backend")]
-use crate::compiler_backend::{CompilerBackend, CompilerBackendType, CompilerError, CompilerFeature, OptimizationLevel, CompilerStats};
-#[cfg(feature = "llvm-backend")]
-use vm_ir::{IROp, IRBlock, Terminator};
-#[cfg(feature = "llvm-backend")]
-use vm_ir_lift::inkwell_integration::{InkwellCodeGenerator, InkwellContext, InkwellModule, InkwellBuilder};
+use crate::compiler_backend::{
+    CompilerBackend, CompilerBackendType, CompilerError, CompilerFeature, CompilerStats,
+    OptimizationLevel,
+};
 #[cfg(feature = "llvm-backend")]
 use std::time::Instant;
+#[cfg(feature = "llvm-backend")]
+use vm_ir::{IRBlock, IROp, Terminator};
+#[cfg(feature = "llvm-backend")]
+use vm_ir_lift::inkwell_integration::{
+    InkwellBuilder, InkwellCodeGenerator, InkwellContext, InkwellModule,
+};
 
 /// LLVM后端
 #[cfg(feature = "llvm-backend")]
@@ -29,7 +34,7 @@ impl LLVMBackend {
     /// 创建新的LLVM后端
     pub fn new() -> Result<Self, CompilerError> {
         let codegen = InkwellCodeGenerator::new("jit_module");
-        
+
         let features = vec![
             CompilerFeature::Simd,
             CompilerFeature::Vectorization,
@@ -37,14 +42,14 @@ impl LLVMBackend {
             CompilerFeature::AdvancedOptimization,
             CompilerFeature::DebugInfo,
         ];
-        
+
         Ok(Self {
             codegen,
             stats: CompilerStats::new(),
             features,
         })
     }
-    
+
     /// 将IR操作转换为LLVM指令
     fn translate_ir_op(&mut self, op: &IROp) -> Result<(), CompilerError> {
         match op {
@@ -58,11 +63,16 @@ impl LLVMBackend {
                 self.codegen.add_sub(30, 10)?; // 示例值
             }
             // 其他操作...
-            _ => return Err(CompilerError::UnsupportedOperation(format!("Unsupported IR operation: {:?}", op))),
+            _ => {
+                return Err(CompilerError::UnsupportedOperation(format!(
+                    "Unsupported IR operation: {:?}",
+                    op
+                )));
+            }
         }
         Ok(())
     }
-    
+
     /// 处理终止符
     fn translate_terminator(&mut self, term: &Terminator) -> Result<(), CompilerError> {
         match term {
@@ -73,14 +83,25 @@ impl LLVMBackend {
             }
             Terminator::Br { target } => {
                 // 简化实现：创建基本块并跳转
-                self.codegen.create_function(&format!("block_{}", target), "i64")?;
+                self.codegen
+                    .create_function(&format!("block_{}", target), "i64")?;
             }
-            Terminator::CondBr { cond, true_target, false_target } => {
+            Terminator::CondBr {
+                cond,
+                true_target,
+                false_target,
+            } => {
                 // 简化实现：创建条件分支
-                self.codegen.create_function(&format!("cond_br_{}", cond), "i64")?;
+                self.codegen
+                    .create_function(&format!("cond_br_{}", cond), "i64")?;
             }
             // 其他终止符...
-            _ => return Err(CompilerError::UnsupportedOperation(format!("Unsupported terminator: {:?}", term))),
+            _ => {
+                return Err(CompilerError::UnsupportedOperation(format!(
+                    "Unsupported terminator: {:?}",
+                    term
+                )));
+            }
         }
         Ok(())
     }
@@ -90,44 +111,49 @@ impl LLVMBackend {
 impl CompilerBackend for LLVMBackend {
     fn compile(&mut self, block: &IRBlock) -> Result<Vec<u8>, CompilerError> {
         let start_time = Instant::now();
-        
+
         // 创建函数
-        self.codegen.create_function(&format!("{:#x}", block.start_pc.0), "i64")?;
-        
+        self.codegen
+            .create_function(&format!("{:#x}", block.start_pc.0), "i64")?;
+
         // 翻译IR操作
         for op in &block.ops {
             self.translate_ir_op(op)?;
         }
-        
+
         // 翻译终止符
         self.translate_terminator(&block.term)?;
-        
+
         // 生成LLVM IR
         let llvm_ir = self.codegen.generate_ir()?;
-        
+
         // 验证模块
         self.codegen.verify()?;
-        
+
         // 简化实现：返回LLVM IR文本作为"代码"
         // 实际实现需要使用LLVM JIT编译器将IR编译为机器码
         let code = llvm_ir.as_bytes().to_vec();
-        
+
         // 更新统计信息
         let compile_time = start_time.elapsed().as_nanos() as u64;
         self.stats.update_compile(compile_time, code.len());
-        
+
         Ok(code)
     }
-    
+
     fn name(&self) -> &str {
         "LLVM"
     }
-    
+
     fn supported_features(&self) -> Vec<CompilerFeature> {
         self.features.clone()
     }
-    
-    fn optimize(&mut self, block: &mut IRBlock, level: OptimizationLevel) -> Result<(), CompilerError> {
+
+    fn optimize(
+        &mut self,
+        block: &mut IRBlock,
+        level: OptimizationLevel,
+    ) -> Result<(), CompilerError> {
         // 实现基本优化
         match level {
             OptimizationLevel::O0 => {
@@ -153,11 +179,11 @@ impl CompilerBackend for LLVMBackend {
                 self.advanced_optimizations(block)?;
             }
         }
-        
+
         self.stats.update_optimization(1);
         Ok(())
     }
-    
+
     fn backend_type(&self) -> CompilerBackendType {
         CompilerBackendType::LLVM
     }
@@ -171,28 +197,28 @@ impl LLVMBackend {
         // 实际实现需要分析IR并应用变换
         Ok(())
     }
-    
+
     /// 死代码消除优化
     fn dead_code_elimination(&mut self, _block: &mut IRBlock) -> Result<(), CompilerError> {
         // 简化实现：移除未使用的代码
         // 实际实现需要分析数据流并移除死代码
         Ok(())
     }
-    
+
     /// 指令合并优化
     fn instruction_combining(&mut self, _block: &mut IRBlock) -> Result<(), CompilerError> {
         // 简化实现：合并相邻的简单指令
         // 实际实现需要识别可合并的模式并应用变换
         Ok(())
     }
-    
+
     /// 循环优化
     fn loop_optimization(&mut self, _block: &mut IRBlock) -> Result<(), CompilerError> {
         // 简化实现：基本循环优化
         // 实际实现需要识别循环结构并应用优化
         Ok(())
     }
-    
+
     /// 高级优化
     fn advanced_optimizations(&mut self, _block: &mut IRBlock) -> Result<(), CompilerError> {
         // 简化实现：高级优化
@@ -200,5 +226,3 @@ impl LLVMBackend {
         Ok(())
     }
 }
-
-
