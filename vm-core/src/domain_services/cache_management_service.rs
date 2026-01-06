@@ -21,6 +21,7 @@ use crate::domain::CacheManager;
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Type alias for cache manager map to reduce type complexity
 ///
@@ -90,10 +91,10 @@ impl Default for CacheManagementConfig {
 pub struct CacheManagementDomainService {
     /// Business rules for cache management
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// Configuration for cache management
-    config: CacheManagementConfig,
+    cache_config: CacheManagementConfig,
     /// Cache managers by tier (infrastructure layer implementations via trait)
     cache_managers: CacheManagerMap,
 }
@@ -104,11 +105,11 @@ impl CacheManagementDomainService {
     /// # 参数
     /// - `config`: Cache management configuration
     /// - `cache_managers`: Map of tier name to cache manager implementation
-    pub fn new(config: CacheManagementConfig, cache_managers: CacheManagerMap) -> Self {
+    pub fn new(cache_config: CacheManagementConfig, cache_managers: CacheManagerMap) -> Self {
         Self {
             business_rules: Vec::new(),
-            event_bus: None,
-            config,
+            config: BaseServiceConfig::new(),
+            cache_config,
             cache_managers,
         }
     }
@@ -120,7 +121,7 @@ impl CacheManagementDomainService {
 
     /// Set the event bus for publishing domain events
     pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
     }
 
     /// Get a cache entry from the appropriate tier
@@ -136,7 +137,7 @@ impl CacheManagementDomainService {
         }
 
         // Search from L1 to L3
-        for tier in &self.config.tiers {
+        for tier in &self.cache_config.tiers {
             if let Some(cache_manager) = self.cache_managers.get(&tier.name) {
                 let manager = cache_manager.lock().unwrap();
                 if let Some(value) = manager.get(&key) {
@@ -172,7 +173,7 @@ impl CacheManagementDomainService {
         }
 
         // Try to put in L1 first, then L2, then L3
-        for tier in &self.config.tiers {
+        for tier in &self.cache_config.tiers {
             if let Some(cache_manager) = self.cache_managers.get(&tier.name) {
                 let mut manager = cache_manager.lock().unwrap();
                 let stats = manager.stats();
@@ -195,7 +196,7 @@ impl CacheManagementDomainService {
         }
 
         // If we can't fit in any tier, evict from L3 and try again
-        if let Some(l3_tier) = self.config.tiers.last()
+        if let Some(l3_tier) = self.cache_config.tiers.last()
             && let Some(cache_manager) = self.cache_managers.get(&l3_tier.name)
         {
             let mut manager = cache_manager.lock().unwrap();
@@ -218,7 +219,7 @@ impl CacheManagementDomainService {
     ///
     /// Delegates to the infrastructure layer implementation.
     pub async fn evict(&mut self, key: u64) -> VmResult<()> {
-        for tier in &self.config.tiers {
+        for tier in &self.cache_config.tiers {
             if let Some(cache_manager) = self.cache_managers.get(&tier.name) {
                 let mut manager = cache_manager.lock().unwrap();
                 manager.evict(&key);
@@ -231,7 +232,7 @@ impl CacheManagementDomainService {
     ///
     /// Delegates to the infrastructure layer implementation.
     pub async fn clear(&mut self) -> VmResult<()> {
-        for tier in &self.config.tiers {
+        for tier in &self.cache_config.tiers {
             if let Some(cache_manager) = self.cache_managers.get(&tier.name) {
                 let mut manager = cache_manager.lock().unwrap();
                 manager.clear();
@@ -254,7 +255,7 @@ impl CacheManagementDomainService {
 
     /// Publish optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
-        if let Some(event_bus) = &self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let _ = event_bus.publish(&DomainEventEnum::Optimization(event));
         }
         Ok(())
