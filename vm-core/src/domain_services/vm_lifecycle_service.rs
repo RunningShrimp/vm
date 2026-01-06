@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::aggregate_root::VirtualMachineAggregate;
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::events::DomainEventEnum;
 use crate::domain_services::events::{DomainEventEnum as BaseDomainEventEnum, VmLifecycleEvent};
 use crate::domain_services::rules::{
@@ -20,11 +21,14 @@ use crate::{VmLifecycleState, VmResult, VmState};
 /// This service manages VM lifecycle operations by coordinating business rules
 /// and state transitions. It follows the domain service pattern to keep
 /// business logic out of the aggregate root.
+///
+/// **Refactored (Round 44 Phase 2)**: Now uses unified `BaseServiceConfig`
+/// for consistent configuration management across domain services.
 pub struct VmLifecycleDomainService {
     /// Business rules for lifecycle operations
     business_rules: Vec<Box<dyn LifecycleBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Unified service configuration
+    config: BaseServiceConfig,
 }
 
 impl VmLifecycleDomainService {
@@ -37,7 +41,7 @@ impl VmLifecycleDomainService {
 
         Self {
             business_rules,
-            event_bus: None,
+            config: BaseServiceConfig::new(),
         }
     }
 
@@ -45,13 +49,13 @@ impl VmLifecycleDomainService {
     pub fn with_rules(business_rules: Vec<Box<dyn LifecycleBusinessRule>>) -> Self {
         Self {
             business_rules,
-            event_bus: None,
+            config: BaseServiceConfig::new(),
         }
     }
 
     /// Set the event bus for publishing domain events
     pub fn with_event_bus(mut self, event_bus: Arc<DomainEventBus>) -> Self {
-        self.event_bus = Some(event_bus);
+        self.config = self.config.with_event_bus(event_bus);
         self
     }
 
@@ -294,7 +298,7 @@ impl VmLifecycleDomainService {
         aggregate.record_event(event.clone());
 
         // If we have an event bus, publish immediately
-        if let Some(event_bus) = &self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let domain_event: DomainEventEnum = event;
             // Event publishing failures are logged but don't fail the operation
             let _ = event_bus.publish(&domain_event);
