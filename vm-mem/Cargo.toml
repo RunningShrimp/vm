@@ -89,6 +89,11 @@ harness = false
 name = "combined_workload_bench"
 harness = false
 
+# Round 34: ARM64 NEON专用基准测试
+[[bench]]
+name = "arm64_neon_bench"
+harness = false
+
 [features]
 default = ["std", "optimizations"]
 
