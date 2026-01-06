@@ -1,55 +1,22 @@
 [package]
 name = "vm-benches"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 publish = false
 
-[lib]
-path = "lib.rs"
-
-[dev-dependencies]
-criterion = { version = "0.5", features = ["async_tokio"] }
-tokio = { workspace = true, features = ["sync", "rt-multi-thread", "macros", "time", "io-util", "fs"] }
-parking_lot = { workspace = true }
+[dependencies]
+# 核心依赖
 vm-core = { path = "../vm-core" }
-vm-device = { path = "../vm-device", features = [] }
 vm-mem = { path = "../vm-mem" }
-vm-cross-arch = { path = "../vm-cross-arch" }
-vm-engine = { path = "../vm-engine" }
-vm-ir = { path = "../vm-ir" }
-fastrand = "2.1"
+vm-monitor = { path = "../vm-monitor" }
+
+# 性能测试框架
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# 依赖
+parking_lot = "0.12"
+serde = { version = "1.0", features = ["derive"] }
 
 [[bench]]
-name = "async_performance_benchmark"
-path = "async_performance_benchmark.rs"
-harness = false
-
-[[bench]]
-name = "comprehensive_async_benchmark"
-path = "comprehensive_async_benchmark.rs"
-harness = false
-
-[[bench]]
-name = "async_device_io_bench"
-path = "async_device_io_bench.rs"
-harness = false
-
-[[bench]]
-name = "async_execution_engine_benchmark"
-path = "async_execution_engine_benchmark.rs"
-harness = false
-
-[[bench]]
-name = "fast_path_bench"
-path = "fast_path_bench.rs"
-harness = false
-
-[[bench]]
-name = "block_cache_bench"
-path = "block_cache_bench.rs"
-harness = false
-
-[[bench]]
-name = "pgo_jit_bench"
-path = "pgo_jit_bench.rs"
+name = "round35_37_performance_verification"
 harness = false
