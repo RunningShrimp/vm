@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::events::{DomainEventEnum, ExecutionEvent};
 use crate::{CoreError, GuestAddr, VmError, VmResult};
 
@@ -165,8 +166,8 @@ impl ExecutionStatistics {
 /// This service provides high-level business logic for managing execution contexts
 /// with priority-based scheduling, state tracking, and performance monitoring.
 pub struct ExecutionManagerDomainService {
-    /// Event bus for publishing execution events
-    event_bus: Arc<DomainEventBus>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// Active execution contexts
     contexts: HashMap<u64, ExecutionContext>,
     /// Ready queue for execution
@@ -180,12 +181,17 @@ pub struct ExecutionManagerDomainService {
 impl ExecutionManagerDomainService {
     pub fn new(event_bus: Arc<DomainEventBus>, max_active_contexts: usize) -> Self {
         Self {
-            event_bus,
+            config: BaseServiceConfig::new().with_event_bus(event_bus),
             contexts: HashMap::new(),
             ready_queue: Vec::new(),
             statistics: ExecutionStatistics::default(),
             max_active_contexts,
         }
+    }
+
+    /// Set the event bus for publishing domain events
+    pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
+        self.config.set_event_bus(event_bus);
     }
 
     /// Create a new execution context
@@ -404,7 +410,9 @@ impl ExecutionManagerDomainService {
 
     /// Publish an execution event
     fn publish_event(&self, event: ExecutionEvent) {
-        let _ = self.event_bus.publish(&DomainEventEnum::Execution(event));
+        if let Some(event_bus) = self.config.event_bus() {
+            let _ = event_bus.publish(&DomainEventEnum::Execution(event));
+        }
     }
 }
 

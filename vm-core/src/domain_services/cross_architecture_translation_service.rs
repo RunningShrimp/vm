@@ -185,6 +185,7 @@
 //! - **`TranslationCacheAggregate`**: Translation result caching
 
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
 use crate::domain_services::rules::translation_rules::{
     ArchitectureCompatibilityRule, PerformanceThresholdRule, ResourceAvailabilityRule,
@@ -199,7 +200,7 @@ use std::sync::Arc;
 /// translation between x86-64, ARM64, and RISC-V64 architectures.
 pub struct CrossArchitectureTranslationDomainService {
     business_rules: Vec<Box<dyn TranslationBusinessRule>>,
-    event_bus: Option<Arc<DomainEventBus>>,
+    config: BaseServiceConfig,
 }
 
 impl CrossArchitectureTranslationDomainService {
@@ -213,7 +214,7 @@ impl CrossArchitectureTranslationDomainService {
 
         Self {
             business_rules,
-            event_bus: None,
+            config: BaseServiceConfig::new(),
         }
     }
 
@@ -221,13 +222,13 @@ impl CrossArchitectureTranslationDomainService {
     pub fn with_rules(business_rules: Vec<Box<dyn TranslationBusinessRule>>) -> Self {
         Self {
             business_rules,
-            event_bus: None,
+            config: BaseServiceConfig::new(),
         }
     }
 
     /// Set the event bus for publishing domain events
     pub fn with_event_bus(mut self, event_bus: Arc<DomainEventBus>) -> Self {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
         self
     }
 
@@ -830,7 +831,7 @@ impl CrossArchitectureTranslationDomainService {
 
     /// Publish translation event
     fn publish_translation_event(&self, event: TranslationEvent) -> VmResult<()> {
-        if let Some(event_bus) = &self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let domain_event = DomainEventEnum::Translation(event);
             event_bus.publish(&domain_event)?;
         }

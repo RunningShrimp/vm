@@ -220,6 +220,7 @@ use std::sync::Arc;
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::{VmError, VmResult};
 
 /// Resource type for management
@@ -470,23 +471,23 @@ impl Default for ResourceManagementConfig {
 pub struct ResourceManagementDomainService {
     /// Business rules for resource management
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// Configuration for resource management
-    config: ResourceManagementConfig,
+    resource_config: ResourceManagementConfig,
     /// Current resource constraints
     current_constraints: HashMap<ResourceType, ResourceConstraint>,
 }
 
 impl ResourceManagementDomainService {
     /// Create a new resource management domain service
-    pub fn new(config: ResourceManagementConfig) -> Self {
-        let current_constraints = config.default_constraints.clone();
+    pub fn new(resource_config: ResourceManagementConfig) -> Self {
+        let current_constraints = resource_config.default_constraints.clone();
 
         Self {
             business_rules: Vec::new(),
-            event_bus: None,
-            config,
+            config: BaseServiceConfig::new(),
+            resource_config,
             current_constraints,
         }
     }
@@ -498,7 +499,7 @@ impl ResourceManagementDomainService {
 
     /// Set the event bus for publishing domain events
     pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
     }
 
     /// Validate resource constraints
@@ -638,7 +639,7 @@ impl ResourceManagementDomainService {
     /// Check if garbage collection should be triggered
     pub fn should_trigger_gc(&self) -> bool {
         if let Some(memory_constraint) = self.current_constraints.get(&ResourceType::Memory) {
-            memory_constraint.utilization_ratio() >= self.config.gc_trigger_threshold
+            memory_constraint.utilization_ratio() >= self.resource_config.gc_trigger_threshold
         } else {
             false
         }
@@ -658,7 +659,7 @@ impl ResourceManagementDomainService {
         resource_type: ResourceType,
         current_performance: f64,
     ) -> VmResult<()> {
-        if let Some(threshold) = self.config.performance_thresholds.get_mut(&resource_type)
+        if let Some(threshold) = self.resource_config.performance_thresholds.get_mut(&resource_type)
             && threshold.adaptive_thresholding
         {
             // Adjust thresholds based on current performance
@@ -699,34 +700,34 @@ impl ResourceManagementDomainService {
     ) -> VmResult<HashMap<ResourceType, u64>> {
         let mut allocation = HashMap::new();
 
-        match self.config.optimization_budget.allocation_strategy {
+        match self.resource_config.optimization_budget.allocation_strategy {
             BudgetAllocationStrategy::Equal => {
                 allocation.insert(
                     ResourceType::Cpu,
-                    (self.config.optimization_budget.cpu_budget * 100.0) as u64 / 4,
+                    (self.resource_config.optimization_budget.cpu_budget * 100.0) as u64 / 4,
                 );
                 allocation.insert(
                     ResourceType::Memory,
-                    self.config.optimization_budget.memory_budget / 4,
+                    self.resource_config.optimization_budget.memory_budget / 4,
                 );
                 allocation.insert(
                     ResourceType::Cache,
-                    self.config.optimization_budget.cache_budget / 4,
+                    self.resource_config.optimization_budget.cache_budget / 4,
                 );
             }
             BudgetAllocationStrategy::PriorityBased => {
                 let weight = priority as f64 / 100.0;
                 allocation.insert(
                     ResourceType::Cpu,
-                    (self.config.optimization_budget.cpu_budget * 100.0 * weight) as u64,
+                    (self.resource_config.optimization_budget.cpu_budget * 100.0 * weight) as u64,
                 );
                 allocation.insert(
                     ResourceType::Memory,
-                    (self.config.optimization_budget.memory_budget as f64 * weight) as u64,
+                    (self.resource_config.optimization_budget.memory_budget as f64 * weight) as u64,
                 );
                 allocation.insert(
                     ResourceType::Cache,
-                    (self.config.optimization_budget.cache_budget as f64 * weight) as u64,
+                    (self.resource_config.optimization_budget.cache_budget as f64 * weight) as u64,
                 );
             }
             BudgetAllocationStrategy::PerformanceBased => {
@@ -737,15 +738,15 @@ impl ResourceManagementDomainService {
 
                 allocation.insert(
                     ResourceType::Cpu,
-                    (self.config.optimization_budget.cpu_budget * 100.0 * cpu_weight) as u64,
+                    (self.resource_config.optimization_budget.cpu_budget * 100.0 * cpu_weight) as u64,
                 );
                 allocation.insert(
                     ResourceType::Memory,
-                    (self.config.optimization_budget.memory_budget as f64 * memory_weight) as u64,
+                    (self.resource_config.optimization_budget.memory_budget as f64 * memory_weight) as u64,
                 );
                 allocation.insert(
                     ResourceType::Cache,
-                    self.config.optimization_budget.cache_budget / 2,
+                    self.resource_config.optimization_budget.cache_budget / 2,
                 );
             }
             BudgetAllocationStrategy::Adaptive => {
@@ -764,20 +765,20 @@ impl ResourceManagementDomainService {
 
                 allocation.insert(
                     ResourceType::Cpu,
-                    (self.config.optimization_budget.cpu_budget
+                    (self.resource_config.optimization_budget.cpu_budget
                         * 100.0
                         * cpu_available
                         * cpu_factor) as u64,
                 );
                 allocation.insert(
                     ResourceType::Memory,
-                    (self.config.optimization_budget.memory_budget as f64
+                    (self.resource_config.optimization_budget.memory_budget as f64
                         * memory_available
                         * memory_factor) as u64,
                 );
                 allocation.insert(
                     ResourceType::Cache,
-                    self.config.optimization_budget.cache_budget / 2,
+                    self.resource_config.optimization_budget.cache_budget / 2,
                 );
             }
         }
@@ -799,7 +800,7 @@ impl ResourceManagementDomainService {
 
     /// Publish an optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
-        if let Some(ref event_bus) = self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let domain_event = DomainEventEnum::Optimization(event);
             event_bus.publish(&domain_event)?;
         }
