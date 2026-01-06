@@ -473,6 +473,18 @@ pub enum ExecutionEvent {
     ContextPaused { id: u64 },
     /// Execution context was resumed
     ContextResumed { id: u64 },
+    /// JIT code block compilation completed
+    CodeBlockCompiled {
+        vm_id: String,
+        pc: u64,
+        block_size: usize,
+    },
+    /// Hotspot detected in execution
+    HotspotDetected {
+        vm_id: String,
+        pc: u64,
+        execution_count: u64,
+    },
 }
 
 impl DomainEvent for ExecutionEvent {
@@ -486,6 +498,8 @@ impl DomainEvent for ExecutionEvent {
             ExecutionEvent::ContextFailed { .. } => "execution.context_failed",
             ExecutionEvent::ContextPaused { .. } => "execution.context_paused",
             ExecutionEvent::ContextResumed { .. } => "execution.context_resumed",
+            ExecutionEvent::CodeBlockCompiled { .. } => "execution.code_block_compiled",
+            ExecutionEvent::HotspotDetected { .. } => "execution.hotspot_detected",
         }
     }
 

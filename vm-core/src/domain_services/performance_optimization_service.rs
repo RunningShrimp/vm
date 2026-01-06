@@ -11,6 +11,7 @@ use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::optimization_pipeline_service::OptimizationPipelineConfig;
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -21,7 +22,7 @@ use std::time::SystemTime;
 /// across different domains, providing a unified interface for optimization decisions.
 pub struct PerformanceOptimizationDomainService {
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    event_bus: Option<Arc<DomainEventBus>>,
+    config: BaseServiceConfig,
     optimization_strategies: HashMap<OptimizationDomain, Vec<OptimizationStrategy>>,
     performance_metrics: PerformanceMetrics,
 }
@@ -31,7 +32,7 @@ impl PerformanceOptimizationDomainService {
     pub fn new() -> Self {
         let mut service = Self {
             business_rules: Vec::new(),
-            event_bus: None,
+            config: BaseServiceConfig::new(),
             optimization_strategies: HashMap::new(),
             performance_metrics: PerformanceMetrics::default(),
         };
@@ -46,7 +47,7 @@ impl PerformanceOptimizationDomainService {
     pub fn with_rules(business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>) -> Self {
         let mut service = Self {
             business_rules,
-            event_bus: None,
+            config: BaseServiceConfig::new(),
             optimization_strategies: HashMap::new(),
             performance_metrics: PerformanceMetrics::default(),
         };
@@ -59,7 +60,7 @@ impl PerformanceOptimizationDomainService {
 
     /// Set the event bus for publishing domain events
     pub fn with_event_bus(mut self, event_bus: Arc<DomainEventBus>) -> Self {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
         self
     }
 
@@ -1348,7 +1349,7 @@ impl PerformanceOptimizationDomainService {
 
     /// Publish optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
-        if let Some(event_bus) = &self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let domain_event = DomainEventEnum::Optimization(event);
             event_bus.publish(&domain_event)?
         }

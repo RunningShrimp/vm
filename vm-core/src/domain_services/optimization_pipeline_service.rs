@@ -18,6 +18,7 @@ use crate::VmResult;
 use crate::domain::{OptimizationStrategy, OptimizationType};
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
 
 /// Optimization stage in the pipeline
@@ -137,8 +138,8 @@ pub struct PipelineExecutionResult {
 pub struct OptimizationPipelineDomainService {
     /// Business rules for pipeline validation
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// Optimization strategy (infrastructure layer implementation via trait)
     optimization_strategy: Arc<dyn OptimizationStrategy>,
 }
@@ -153,11 +154,18 @@ impl OptimizationPipelineDomainService {
         optimization_strategy: Arc<dyn OptimizationStrategy>,
         event_bus: Option<Arc<DomainEventBus>>,
     ) -> Self {
-        Self {
+        let mut service = Self {
             business_rules: Vec::new(),
-            event_bus,
+            config: BaseServiceConfig::new(),
             optimization_strategy,
+        };
+
+        // Set event bus if provided
+        if let Some(bus) = event_bus {
+            service.config = service.config.with_event_bus(bus);
         }
+
+        service
     }
 
     /// Add a business rule to the service
@@ -167,7 +175,7 @@ impl OptimizationPipelineDomainService {
 
     /// Set the event bus for publishing domain events
     pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
     }
 
     /// Execute the optimization pipeline
@@ -289,7 +297,7 @@ impl OptimizationPipelineDomainService {
 
     /// Publish optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
-        if let Some(event_bus) = &self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let _ = event_bus.publish(&DomainEventEnum::Optimization(event));
         }
         Ok(())

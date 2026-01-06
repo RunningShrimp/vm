@@ -10,6 +10,7 @@ use crate::VmResult;
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Target architecture for optimization
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -254,10 +255,10 @@ pub struct OptimizationResult {
 pub struct TargetOptimizationDomainService {
     /// Business rules for target optimization
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// Configuration for target optimization
-    config: TargetOptimizationConfig,
+    target_config: TargetOptimizationConfig,
     /// Target-specific pipeline information (used for architecture-specific optimizations)
     #[allow(dead_code)] // Reserved for future use in pipeline optimization
     pipeline_info: HashMap<TargetArch, Vec<PipelineStage>>,
@@ -385,8 +386,8 @@ impl TargetOptimizationDomainService {
 
         Self {
             business_rules: Vec::new(),
-            event_bus: None,
-            config,
+            config: BaseServiceConfig::new(),
+            target_config: config,
             pipeline_info,
         }
     }
@@ -398,7 +399,7 @@ impl TargetOptimizationDomainService {
 
     /// Set the event bus for publishing domain events
     pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
     }
 
     /// Optimize code for the target architecture
@@ -418,7 +419,7 @@ impl TargetOptimizationDomainService {
         let mut optimizations_applied = 0;
 
         // Apply target-specific instruction selection
-        if self.config.enable_target_specific_selection {
+        if self.target_config.enable_target_specific_selection {
             let result = self.apply_target_specific_instruction_selection(&optimized_code)?;
             optimized_code = result.optimized_code;
             optimization_details.extend(result.optimization_details);
@@ -467,8 +468,8 @@ impl TargetOptimizationDomainService {
 
         // Publish optimization event
         self.publish_optimization_event(OptimizationEvent::TargetOptimizationCompleted {
-            target_arch: format!("{:?}", self.config.target_arch),
-            optimization_level: format!("{:?}", self.config.optimization_level),
+            target_arch: format!("{:?}", self.target_config.target_arch),
+            optimization_level: format!("{:?}", self.target_config.optimization_level),
             performance_improvement,
             size_change,
             optimizations_applied,
@@ -485,11 +486,11 @@ impl TargetOptimizationDomainService {
         let mut optimizations_applied = 0;
 
         for loop_info in loops {
-            match self.config.loop_strategy {
+            match self.target_config.loop_strategy {
                 LoopOptimizationStrategy::None => continue,
                 LoopOptimizationStrategy::BasicUnrolling => {
                     if loop_info.estimated_iterations < 10 && loop_info.body_size < 50 {
-                        let unroll_factor = std::cmp::min(self.config.max_unroll_factor, 4);
+                        let unroll_factor = std::cmp::min(self.target_config.max_unroll_factor, 4);
                         let result = self.unroll_loop(&optimized_code, loop_info, unroll_factor)?;
                         optimized_code = result.optimized_code;
                         optimization_details.push(format!(
@@ -512,16 +513,16 @@ impl TargetOptimizationDomainService {
                     }
                 }
                 LoopOptimizationStrategy::Vectorization => {
-                    if loop_info.vectorizable && self.config.vectorization_width > 1 {
+                    if loop_info.vectorizable && self.target_config.vectorization_width > 1 {
                         let result = self.vectorize_loop(
                             &optimized_code,
                             loop_info,
-                            self.config.vectorization_width,
+                            self.target_config.vectorization_width,
                         )?;
                         optimized_code = result.optimized_code;
                         optimization_details.push(format!(
                             "Vectorized loop at 0x{:x} with width {}",
-                            loop_info.start_address, self.config.vectorization_width
+                            loop_info.start_address, self.target_config.vectorization_width
                         ));
                         optimizations_applied += 1;
                     }
@@ -576,16 +577,16 @@ impl TargetOptimizationDomainService {
                         optimizations_applied += 1;
                     }
 
-                    if loop_info.vectorizable && self.config.vectorization_width > 1 {
+                    if loop_info.vectorizable && self.target_config.vectorization_width > 1 {
                         let result = self.vectorize_loop(
                             &optimized_code,
                             loop_info,
-                            self.config.vectorization_width,
+                            self.target_config.vectorization_width,
                         )?;
                         optimized_code = result.optimized_code;
                         optimization_details.push(format!(
                             "Vectorized loop at 0x{:x} with width {}",
-                            loop_info.start_address, self.config.vectorization_width
+                            loop_info.start_address, self.target_config.vectorization_width
                         ));
                         optimizations_applied += 1;
                     }
@@ -613,7 +614,7 @@ impl TargetOptimizationDomainService {
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
 
-        match self.config.scheduling_strategy {
+        match self.target_config.scheduling_strategy {
             InstructionSchedulingStrategy::None => {
                 // No scheduling
             }
@@ -669,7 +670,7 @@ impl TargetOptimizationDomainService {
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
 
-        match self.config.pipeline_strategy {
+        match self.target_config.pipeline_strategy {
             PipelineOptimizationStrategy::None => {
                 // No pipeline optimization
             }
@@ -723,7 +724,7 @@ impl TargetOptimizationDomainService {
             return 1; // Don't unroll very short loops
         }
 
-        let base_factor = match self.config.optimization_level {
+        let base_factor = match self.target_config.optimization_level {
             OptimizationLevel::O0 | OptimizationLevel::O1 => 2,
             OptimizationLevel::O2 => 4,
             OptimizationLevel::O3 | OptimizationLevel::Os | OptimizationLevel::Oz => 8,
@@ -748,7 +749,7 @@ impl TargetOptimizationDomainService {
         };
 
         let adaptive_factor = (base_factor as f64 * size_factor * dependency_factor) as usize;
-        std::cmp::min(adaptive_factor, self.config.max_unroll_factor)
+        std::cmp::min(adaptive_factor, self.target_config.max_unroll_factor)
     }
 
     /// Apply target-specific instruction selection
@@ -763,7 +764,7 @@ impl TargetOptimizationDomainService {
         let mut optimization_details = Vec::new();
         let mut optimizations_applied = 0;
 
-        match self.config.target_arch {
+        match self.target_config.target_arch {
             TargetArch::X86_64 => {
                 // x86-64 specific optimizations
                 optimization_details
@@ -1177,7 +1178,7 @@ impl TargetOptimizationDomainService {
             OptimizationPipelineConfig, OptimizationStage,
         };
 
-        let optimization_level = match self.config.optimization_level {
+        let optimization_level = match self.target_config.optimization_level {
             OptimizationLevel::O0 => 0,
             OptimizationLevel::O1 => 1,
             OptimizationLevel::O2 => 2,
@@ -1194,19 +1195,19 @@ impl TargetOptimizationDomainService {
 
         // Add instruction scheduling if enabled
         if !matches!(
-            self.config.scheduling_strategy,
+            self.target_config.scheduling_strategy,
             InstructionSchedulingStrategy::None
         ) {
             enabled_stages.push(OptimizationStage::InstructionScheduling);
         }
 
         // Add register allocation if enabled
-        if self.config.enable_register_optimization {
+        if self.target_config.enable_register_optimization {
             enabled_stages.push(OptimizationStage::RegisterAllocation);
         }
 
         // Add target optimization if target-specific selection is enabled
-        if self.config.enable_target_specific_selection {
+        if self.target_config.enable_target_specific_selection {
             enabled_stages.push(OptimizationStage::TargetOptimization);
         }
 
@@ -1223,7 +1224,7 @@ impl TargetOptimizationDomainService {
 
     /// Publish an optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
-        if let Some(ref event_bus) = self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let domain_event = DomainEventEnum::Optimization(event);
             event_bus.publish(&domain_event)?;
         }

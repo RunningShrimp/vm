@@ -141,6 +141,7 @@ use crate::VmResult;
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Hotspot information for adaptive optimization
 #[derive(Debug, Clone)]
@@ -269,19 +270,19 @@ impl Default for AdaptiveOptimizationConfig {
 pub struct AdaptiveOptimizationDomainService {
     /// Business rules for adaptive optimization
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// Configuration for adaptive optimization
-    config: AdaptiveOptimizationConfig,
+    adaptive_config: AdaptiveOptimizationConfig,
 }
 
 impl AdaptiveOptimizationDomainService {
     /// Create a new adaptive optimization domain service
-    pub fn new(config: AdaptiveOptimizationConfig) -> Self {
+    pub fn new(adaptive_config: AdaptiveOptimizationConfig) -> Self {
         Self {
             business_rules: Vec::new(),
-            event_bus: None,
-            config,
+            config: BaseServiceConfig::new(),
+            adaptive_config,
         }
     }
 
@@ -292,7 +293,7 @@ impl AdaptiveOptimizationDomainService {
 
     /// Set the event bus for publishing domain events
     pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
     }
 
     /// Detect hotspots based on execution data
@@ -305,7 +306,7 @@ impl AdaptiveOptimizationDomainService {
             }
 
             let execution_count = history.len() as u64;
-            if execution_count < self.config.hotspot_threshold {
+            if execution_count < self.adaptive_config.hotspot_threshold {
                 continue;
             }
 
@@ -314,7 +315,7 @@ impl AdaptiveOptimizationDomainService {
 
             let hotness_score = self.calculate_hotness_score(execution_count, avg_execution_time);
 
-            if hotness_score >= self.config.hotness_threshold {
+            if hotness_score >= self.adaptive_config.hotness_threshold {
                 let performance_trend = self.analyze_performance_trend(history);
                 let last_execution = history
                     .last()
@@ -340,12 +341,12 @@ impl AdaptiveOptimizationDomainService {
         });
 
         // Limit to max_hotspots
-        hotspots.truncate(self.config.max_hotspots);
+        hotspots.truncate(self.adaptive_config.max_hotspots);
 
         // Publish hotspot detection event
         self.publish_optimization_event(OptimizationEvent::HotspotsDetected {
             count: hotspots.len(),
-            threshold: self.config.hotspot_threshold,
+            threshold: self.adaptive_config.hotspot_threshold,
             occurred_at: SystemTime::now(),
         })?;
 
@@ -398,7 +399,7 @@ impl AdaptiveOptimizationDomainService {
         let now = Instant::now();
         let recent_data: Vec<_> = history
             .iter()
-            .filter(|dp| now.duration_since(dp.timestamp) <= self.config.trend_analysis_window)
+            .filter(|dp| now.duration_since(dp.timestamp) <= self.adaptive_config.trend_analysis_window)
             .collect();
 
         if recent_data.len() < 5 {
@@ -423,9 +424,9 @@ impl AdaptiveOptimizationDomainService {
         let avg_y = sum_y / n;
         let improvement_rate = -slope / avg_y; // Negative slope means improvement
 
-        if improvement_rate > self.config.improvement_threshold {
+        if improvement_rate > self.adaptive_config.improvement_threshold {
             PerformanceTrend::Improving
-        } else if improvement_rate < -self.config.improvement_threshold {
+        } else if improvement_rate < -self.adaptive_config.improvement_threshold {
             PerformanceTrend::Degrading
         } else {
             PerformanceTrend::Stable
@@ -465,7 +466,7 @@ impl AdaptiveOptimizationDomainService {
 
     /// Publish an optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
-        if let Some(ref event_bus) = self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let domain_event = DomainEventEnum::Optimization(event);
             event_bus.publish(&domain_event)?;
         }
