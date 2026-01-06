@@ -53,6 +53,7 @@ pub mod migration;
 pub mod optimization;
 pub mod mmu_traits;
 pub mod runtime;
+pub mod scheduling;  // Round 38: 大小核调度
 pub mod snapshot;
 pub mod syscall;
 pub mod template;
