@@ -77,7 +77,7 @@ impl BigLittleScheduler {
         F: std::future::Future<Output = R>,
     {
         // 在任务开始时设置QoS
-        set_task_category(category);
+        let _ = set_task_category(category);
         f.await
     }
 }
