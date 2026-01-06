@@ -8,6 +8,9 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+// Use optimized memcpy for device data transfer
+use crate::mem_opt::memcpy_adaptive;
+
 /// 设备类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeviceType {
@@ -367,7 +370,8 @@ impl Device for VirtualDiskDevice {
         self.status = DeviceStatus::Busy;
         let start_time = Instant::now();
 
-        self.data[start..end].copy_from_slice(data);
+        // Use adaptive memcpy for optimal performance based on data size
+        memcpy_adaptive(&mut self.data[start..end], data);
 
         self.stats.write_requests += 1;
         self.stats.write_bytes += data.len() as u64;

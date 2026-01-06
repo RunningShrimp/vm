@@ -27,6 +27,9 @@
 use crate::{ExecResult, GuestAddr, VmError};
 use async_trait::async_trait;
 
+// Use optimized memcpy for memory operations
+use crate::mem_opt::memcpy_adaptive;
+
 /// 异步执行引擎trait
 ///
 /// 这是`ExecutionEngine`的异步版本，支持异步执行和异步内存访问。
@@ -255,7 +258,8 @@ impl crate::MMU for SyncMmuWrapper {
         if data.len() > self.memory_buffer.len() {
             return Err("Memory data too large".to_string());
         }
-        self.memory_buffer[..data.len()].copy_from_slice(data);
+        // Use adaptive memcpy for optimal performance
+        memcpy_adaptive(&mut self.memory_buffer[..data.len()], data);
         Ok(())
     }
 

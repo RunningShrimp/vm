@@ -50,6 +50,7 @@ pub mod gc;
 pub mod gdb;
 pub mod gpu;
 pub mod macros;
+pub mod mem_opt; // Round 13: Memory optimization utilities
 pub mod migration;
 pub mod mmu_traits;
 pub mod optimization;

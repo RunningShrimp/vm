@@ -9,6 +9,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// Use optimized memcpy for bulk data operations
+use crate::mem_opt::memcpy_adaptive;
+
 /// 分片MMU缓存
 ///
 /// 将内存空间分片，每个vCPU优先访问自己的分片，减少锁竞争
@@ -427,7 +430,8 @@ impl<'a> MMU for OptimizedMmu<'a> {
     fn read_bulk(&self, addr: GuestAddr, buf: &mut [u8]) -> Result<(), crate::VmError> {
         for (i, chunk) in buf.chunks_mut(8).enumerate() {
             let value = self.read(addr + i as u64 * 8, chunk.len() as u8)?;
-            chunk.copy_from_slice(&value.to_le_bytes()[..chunk.len()]);
+            // Use adaptive memcpy for small chunks (≤8 bytes) - SIMD optimal
+            memcpy_adaptive(chunk, &value.to_le_bytes()[..chunk.len()]);
         }
         Ok(())
     }
@@ -435,7 +439,10 @@ impl<'a> MMU for OptimizedMmu<'a> {
     fn write_bulk(&mut self, addr: GuestAddr, buf: &[u8]) -> Result<(), crate::VmError> {
         for (i, chunk) in buf.chunks(8).enumerate() {
             let mut value = 0u64;
-            value.copy_from_slice(&chunk[..chunk.len().min(8)]);
+            // Use adaptive memcpy for small chunks (≤8 bytes) - SIMD optimal
+            let mut temp = [0u8; 8];
+            memcpy_adaptive(&mut temp[..chunk.len()], chunk);
+            value = u64::from_le_bytes(temp);
             self.write(addr + i as u64 * 8, value, chunk.len() as u8)?;
         }
         Ok(())
