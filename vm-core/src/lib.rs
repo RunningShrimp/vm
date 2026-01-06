@@ -50,6 +50,7 @@ pub mod gc;
 pub mod gdb;
 pub mod macros;
 pub mod migration;
+pub mod optimization;
 pub mod mmu_traits;
 pub mod runtime;
 pub mod snapshot;

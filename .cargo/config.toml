@@ -47,3 +47,34 @@ check-all = ["check", "--workspace", "--all-targets", "--all-features"]
 hakari-gen = "hakari generate"
 # 验证hakari配置
 hakari-verify = "hakari verify"
+
+# ============================================================================
+# ARM64特定优化 (Round 34-35)
+# ============================================================================
+[target.aarch64-apple-darwin]
+# Apple M4/M4 Pro特定优化
+rustflags = [
+    # 优化目标CPU
+    "-C", "target-cpu=apple-m4",
+    # 启用NEON SIMD特性
+    "-C", "target-feature=+neon",
+    "-C", "target-feature=+crypto",    # AES/SHA硬件加速
+    "-C", "target-feature=+aes",       # AES加密指令集
+    "-C", "target-feature=+crc",       # CRC-32校验和计算
+    "-C", "target-feature=+dotprod",   # 点积运算加速(ML重要)
+    "-C", "target-feature=+fp16",      # 半精度浮点(AI/ML重要)
+]
+
+[target.aarch64-unknown-linux-gnu]
+# 通用ARM64 Linux优化
+rustflags = [
+    "-C", "target-cpu=neoverse-v1",   # 使用Neoverse V1作为基线
+    "-C", "target-feature=+neon",
+    "-C", "target-feature=+crypto",
+    "-C", "target-feature=+aes",
+    "-C", "target-feature=+crc",
+    "-C", "target-feature=+dotprod",
+    "-C", "target-feature=+fp16",
+    "-C", "target-feature=+lse",       # Large System Extension
+    "-C", "target-feature=+rdm",       # Round Robin Multiplication
+]

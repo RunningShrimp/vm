@@ -31,6 +31,10 @@ pub mod riscv_vector;
 /// ARM SVE 指令
 pub mod sve;
 
+/// NEON优化小向量操作 (Round 35)
+#[cfg(feature = "opt-simd")]
+pub mod neon_optimized;
+
 pub mod opt;
 
 pub use opt::SimdOptimizer;
