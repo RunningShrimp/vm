@@ -2,9 +2,9 @@
 //!
 //! 测试多级TLB和并发TLB的性能表现
 
+use std::hint::black_box;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::hint::black_box;
 use vm_core::AddressTranslator;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};

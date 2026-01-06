@@ -35,8 +35,12 @@ fn main() {
 
     // 编译代码块
     for (i, block) in blocks.iter().enumerate() {
-        println!("Compiling block {}: PC=0x{:x}, ops={}",
-                 i+1, block.start_pc.0, block.ops.len());
+        println!(
+            "Compiling block {}: PC=0x{:x}, ops={}",
+            i + 1,
+            block.start_pc.0,
+            block.ops.len()
+        );
 
         // 编译代码块（这会触发CodeBlockCompiled事件）
         // 使用compile_only方法：只编译不执行，返回代码指针
@@ -66,19 +70,28 @@ fn create_test_blocks() -> Vec<IRBlock> {
         IRBlock {
             start_pc: vm_core::GuestAddr(0x1000),
             ops: vec![
-                IROp::AddImm { dst: 1, src: 0, imm: 42 },
-                IROp::AddImm { dst: 2, src: 1, imm: 10 },
+                IROp::AddImm {
+                    dst: 1,
+                    src: 0,
+                    imm: 42,
+                },
+                IROp::AddImm {
+                    dst: 2,
+                    src: 1,
+                    imm: 10,
+                },
             ],
-            term: Terminator::Jmp { target: vm_core::GuestAddr(0x1004) },
+            term: Terminator::Jmp {
+                target: vm_core::GuestAddr(0x1004),
+            },
         },
         // Block 2: 寄存器移动
         IRBlock {
             start_pc: vm_core::GuestAddr(0x1004),
-            ops: vec![
-                IROp::Mov { dst: 3, src: 1 },
-                IROp::Mov { dst: 4, src: 2 },
-            ],
-            term: Terminator::Jmp { target: vm_core::GuestAddr(0x1008) },
+            ops: vec![IROp::Mov { dst: 3, src: 1 }, IROp::Mov { dst: 4, src: 2 }],
+            term: Terminator::Jmp {
+                target: vm_core::GuestAddr(0x1008),
+            },
         },
         // Block 3: 立即数加载
         IRBlock {

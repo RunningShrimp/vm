@@ -139,9 +139,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::VmResult;
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Hotspot information for adaptive optimization
 #[derive(Debug, Clone)]
@@ -399,7 +399,9 @@ impl AdaptiveOptimizationDomainService {
         let now = Instant::now();
         let recent_data: Vec<_> = history
             .iter()
-            .filter(|dp| now.duration_since(dp.timestamp) <= self.adaptive_config.trend_analysis_window)
+            .filter(|dp| {
+                now.duration_since(dp.timestamp) <= self.adaptive_config.trend_analysis_window
+            })
             .collect();
 
         if recent_data.len() < 5 {

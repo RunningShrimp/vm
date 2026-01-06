@@ -156,6 +156,9 @@ mod tests {
         let config = BaseServiceConfig::new().with_event_bus(event_bus.clone());
         let cloned = config.clone();
 
-        assert!(Arc::ptr_eq(config.event_bus().unwrap(), cloned.event_bus().unwrap()));
+        assert!(Arc::ptr_eq(
+            config.event_bus().unwrap(),
+            cloned.event_bus().unwrap()
+        ));
     }
 }

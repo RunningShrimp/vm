@@ -955,7 +955,10 @@ mod gc_integration_tests {
             .allocate(layout)
             .expect("Allocation should succeed");
         // NonNull保证非空，验证指针对齐正确
-        assert!(ptr.as_ptr() as usize % 8 == 0, "Pointer should be 8-byte aligned");
+        assert!(
+            ptr.as_ptr() as usize % 8 == 0,
+            "Pointer should be 8-byte aligned"
+        );
 
         // 释放内存
         numa_allocator.deallocate(ptr, 1024);

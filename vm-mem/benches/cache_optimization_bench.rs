@@ -8,10 +8,8 @@
 
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use vm_mem::optimization::{
-    CopyStrategy, FastMemoryCopier, MemoryCopyConfig,
-};
+use criterion::{Criterion, criterion_group, criterion_main};
+use vm_mem::optimization::{CopyStrategy, FastMemoryCopier, MemoryCopyConfig};
 
 /// 创建测试数据
 fn create_test_data(size: usize) -> Vec<u8> {
@@ -28,10 +26,8 @@ fn bench_copy_strategies(c: &mut Criterion) {
         let mut dst = vec![0u8; 64];
         let copier = FastMemoryCopier::with_default_config();
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 64)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 64)).unwrap();
         });
     });
 
@@ -41,10 +37,8 @@ fn bench_copy_strategies(c: &mut Criterion) {
         let mut dst = vec![0u8; 1024];
         let copier = FastMemoryCopier::with_default_config();
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 1024)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 1024)).unwrap();
         });
     });
 
@@ -54,10 +48,8 @@ fn bench_copy_strategies(c: &mut Criterion) {
         let mut dst = vec![0u8; 65536];
         let copier = FastMemoryCopier::with_default_config();
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 65536)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 65536)).unwrap();
         });
     });
 
@@ -67,10 +59,8 @@ fn bench_copy_strategies(c: &mut Criterion) {
         let mut dst = vec![0u8; 1024 * 1024];
         let copier = FastMemoryCopier::with_default_config();
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 1024 * 1024)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 1024 * 1024)).unwrap();
         });
     });
 
@@ -100,10 +90,8 @@ fn bench_aligned_vs_unaligned(c: &mut Criterion) {
 
         let copier = FastMemoryCopier::with_default_config();
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src_ptr, dst_ptr, size)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src_ptr, dst_ptr, size)).unwrap();
         });
     });
 
@@ -113,10 +101,8 @@ fn bench_aligned_vs_unaligned(c: &mut Criterion) {
         let mut dst = vec![0u8; size];
         let copier = FastMemoryCopier::with_default_config();
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
         });
     });
 
@@ -139,10 +125,8 @@ fn bench_prefetch_effect(c: &mut Criterion) {
         let src = create_test_data(16384);
         let mut dst = vec![0u8; 16384];
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 16384)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 16384)).unwrap();
         });
     });
 
@@ -157,10 +141,8 @@ fn bench_prefetch_effect(c: &mut Criterion) {
         let src = create_test_data(16384);
         let mut dst = vec![0u8; 16384];
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 16384)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), 16384)).unwrap();
         });
     });
 
@@ -185,10 +167,8 @@ fn bench_non_temporal(c: &mut Criterion) {
         let src = create_test_data(large_size);
         let mut dst = vec![0u8; large_size];
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), large_size)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), large_size)).unwrap();
         });
     });
 
@@ -203,10 +183,8 @@ fn bench_non_temporal(c: &mut Criterion) {
         let src = create_test_data(large_size);
         let mut dst = vec![0u8; large_size];
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), large_size)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), large_size)).unwrap();
         });
     });
 
@@ -230,10 +208,8 @@ fn bench_simd_levels(c: &mut Criterion) {
         let src = create_test_data(size);
         let mut dst = vec![0u8; size];
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
         });
     });
 
@@ -248,10 +224,8 @@ fn bench_simd_levels(c: &mut Criterion) {
         let src = create_test_data(size);
         let mut dst = vec![0u8; size];
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
         });
     });
 
@@ -266,10 +240,8 @@ fn bench_simd_levels(c: &mut Criterion) {
         let src = create_test_data(size);
         let mut dst = vec![0u8; size];
 
-        b.iter(|| {
-            unsafe {
-                black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
-            }
+        b.iter(|| unsafe {
+            black_box(copier.copy_memory(src.as_ptr(), dst.as_mut_ptr(), size)).unwrap();
         });
     });
 

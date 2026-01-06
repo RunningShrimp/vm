@@ -598,7 +598,6 @@ impl ShardedWriteBarrier {
         let cpu_count = get_cpu_count();
 
         // 根据CPU核心数选择合适的分片数
-        
 
         match cpu_count {
             1..=2 => 2,
@@ -677,11 +676,12 @@ impl ShardedWriteBarrier {
 
         // 优化：如果使用card marking，只标记card
         if self.use_card_marking
-            && let Some(ref card_table) = self.card_table {
-                // 快速路径：只标记card，不记录具体对象
-                card_table.mark_card(obj_addr);
-                return;
-            }
+            && let Some(ref card_table) = self.card_table
+        {
+            // 快速路径：只标记card，不记录具体对象
+            card_table.mark_card(obj_addr);
+            return;
+        }
 
         // 传统路径：使用地址哈希选择分片
         let shard_index = (obj_addr as usize) & self.shard_mask;
@@ -1428,9 +1428,10 @@ impl UnifiedGC {
 
         for &addr in young_gen_objects {
             if self.should_promote(addr)
-                && let Ok(new_addr) = self.promote_object(addr) {
-                    promoted.push((addr, new_addr));
-                }
+                && let Ok(new_addr) = self.promote_object(addr)
+            {
+                promoted.push((addr, new_addr));
+            }
         }
 
         promoted
@@ -1488,30 +1489,31 @@ impl UnifiedGC {
 
         // 2. 系统负载检查（如果启用）
         if self.config.enable_load_aware_trigger
-            && let Some(system_load) = self.get_system_load() {
-                // 高负载时（负载 > 0.8），放宽GC触发条件
-                if system_load > 0.8 {
-                    // 高负载下，只有堆使用率超过80%才触发GC
-                    if heap_usage_ratio < 0.8 {
-                        return false;
-                    }
-                } else if system_load < 0.3 {
-                    // 低负载时，降低GC触发阈值到60%
-                    if heap_usage_ratio > 0.6 {
-                        return true;
-                    }
+            && let Some(system_load) = self.get_system_load()
+        {
+            // 高负载时（负载 > 0.8），放宽GC触发条件
+            if system_load > 0.8 {
+                // 高负载下，只有堆使用率超过80%才触发GC
+                if heap_usage_ratio < 0.8 {
+                    return false;
+                }
+            } else if system_load < 0.3 {
+                // 低负载时，降低GC触发阈值到60%
+                if heap_usage_ratio > 0.6 {
+                    return true;
                 }
             }
+        }
 
         // 3. 内存压力检查（如果启用）
         if self.config.enable_memory_pressure_trigger
-            && let Some(memory_pressure) = self.get_memory_pressure() {
-                // 内存压力高时，降低GC触发阈值
-                if memory_pressure > 0.8
-                    && heap_usage_ratio > 0.7 {
-                        return true;
-                    }
+            && let Some(memory_pressure) = self.get_memory_pressure()
+        {
+            // 内存压力高时，降低GC触发阈值
+            if memory_pressure > 0.8 && heap_usage_ratio > 0.7 {
+                return true;
             }
+        }
 
         // 4. 检查基于时间的触发
         if self.config.enable_time_based_trigger && self.config.time_based_trigger_interval_ms > 0 {
@@ -1566,7 +1568,9 @@ impl UnifiedGC {
 
     /// 获取当前分配速率（如果启用自适应调整）
     pub fn get_allocation_rate(&self) -> Option<u64> {
-        self.adaptive_adjuster.as_ref().map(|adjuster| adjuster.get_allocation_rate())
+        self.adaptive_adjuster
+            .as_ref()
+            .map(|adjuster| adjuster.get_allocation_rate())
     }
 
     /// 获取系统负载（0.0-1.0，1.0表示满负载）
@@ -1704,9 +1708,10 @@ impl UnifiedGC {
 
         // 如果启用card marking，清除所有card标记
         if self.config.use_card_marking
-            && let Some(ref card_table) = self.write_barrier.lock().unwrap().card_table {
-                card_table.clear_all_cards();
-            }
+            && let Some(ref card_table) = self.write_barrier.lock().unwrap().card_table
+        {
+            card_table.clear_all_cards();
+        }
 
         self.phase
             .store(GCPhase::MarkPrepare as u64, Ordering::Release);
@@ -1740,42 +1745,44 @@ impl UnifiedGC {
         let mut marker = GcMarker::new();
 
         // 如果启用分代GC和card marking，先扫描标记的card
-        if self.config.enable_generational && self.config.use_card_marking
-            && let Some(ref card_table) = self.write_barrier.lock().unwrap().card_table {
-                let marked_objects = card_table.scan_marked_cards();
-                let mut _marked_count = 0usize;
-                for obj_addr in marked_objects {
-                    // 检查对象是否在老年代，且引用了年轻代对象
-                    if self.get_generation(obj_addr) == Generation::Old {
-                        // 遍历对象的引用字段（使用启发式方法）
-                        // 假设对象内的每8字节可能是一个引用
-                        let object_size = 64u64; // 估算的对象大小
+        if self.config.enable_generational
+            && self.config.use_card_marking
+            && let Some(ref card_table) = self.write_barrier.lock().unwrap().card_table
+        {
+            let marked_objects = card_table.scan_marked_cards();
+            let mut _marked_count = 0usize;
+            for obj_addr in marked_objects {
+                // 检查对象是否在老年代，且引用了年轻代对象
+                if self.get_generation(obj_addr) == Generation::Old {
+                    // 遍历对象的引用字段（使用启发式方法）
+                    // 假设对象内的每8字节可能是一个引用
+                    let object_size = 64u64; // 估算的对象大小
 
-                        for offset in (0..object_size).step_by(8) {
-                            let potential_ref = obj_addr + offset;
+                    for offset in (0..object_size).step_by(8) {
+                        let potential_ref = obj_addr + offset;
 
-                            // 检查该引用是否指向年轻代
-                            if self.get_generation(potential_ref) == Generation::Young {
-                                // 将年轻代对象加入标记栈
-                                if !self
-                                    .marked_set
-                                    .read()
-                                    .expect("lock")
-                                    .contains(&potential_ref)
-                                {
-                                    let _ = self.mark_stack.push(potential_ref);
-                                    _marked_count += 1;
-                                }
+                        // 检查该引用是否指向年轻代
+                        if self.get_generation(potential_ref) == Generation::Young {
+                            // 将年轻代对象加入标记栈
+                            if !self
+                                .marked_set
+                                .read()
+                                .expect("lock")
+                                .contains(&potential_ref)
+                            {
+                                let _ = self.mark_stack.push(potential_ref);
+                                _marked_count += 1;
                             }
                         }
+                    }
 
-                        // 同时将老年代对象本身加入标记栈（确保完整遍历）
-                        if !self.marked_set.read().expect("lock").contains(&obj_addr) {
-                            let _ = self.mark_stack.push(obj_addr);
-                        }
+                    // 同时将老年代对象本身加入标记栈（确保完整遍历）
+                    if !self.marked_set.read().expect("lock").contains(&obj_addr) {
+                        let _ = self.mark_stack.push(obj_addr);
                     }
                 }
             }
+        }
 
         // 精细控制的增量标记：分步执行，确保每次不超过1ms
         let mut marked_count = 0;
@@ -1876,10 +1883,9 @@ impl UnifiedGC {
         let mut promoted_count = 0;
         for &addr in &young_survivors {
             self.record_survival(addr);
-            if self.should_promote(addr)
-                && self.promote_object(addr).is_ok() {
-                    promoted_count += 1;
-                }
+            if self.should_promote(addr) && self.promote_object(addr).is_ok() {
+                promoted_count += 1;
+            }
         }
 
         // 7. 执行清扫（只清扫年轻代）
@@ -1907,9 +1913,10 @@ impl UnifiedGC {
 
         // 2. 如果启用card marking，清除所有card标记
         if self.config.use_card_marking
-            && let Some(ref card_table) = self.write_barrier.lock().unwrap().card_table {
-                card_table.clear_all_cards();
-            }
+            && let Some(ref card_table) = self.write_barrier.lock().unwrap().card_table
+        {
+            card_table.clear_all_cards();
+        }
 
         // 3. 执行增量标记直到完成
         loop {

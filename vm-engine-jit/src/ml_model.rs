@@ -283,7 +283,10 @@ impl FeatureExtractor {
         pc: GuestAddr,
         profile: &ProfileData,
     ) -> Option<ExecutionFeatures> {
-        profile.block_profiles.get(&(pc.0 as usize)).map(|block_profile| ExecutionFeatures {
+        profile
+            .block_profiles
+            .get(&(pc.0 as usize))
+            .map(|block_profile| ExecutionFeatures {
                 block_size: 0,          // 需要从其他地方获取
                 instr_count: 0,         // 需要从其他地方获取
                 branch_count: 0,        // 需要从其他地方获取
@@ -463,10 +466,11 @@ impl PerformanceValidator {
 
         // 计算改进
         if let Some(&baseline) = self.baseline_performance.get(&block_id)
-            && baseline > 0.0 {
-                let improvement = (baseline - performance) / baseline * 100.0;
-                self.improvements.push(improvement);
-            }
+            && baseline > 0.0
+        {
+            let improvement = (baseline - performance) / baseline * 100.0;
+            self.improvements.push(improvement);
+        }
     }
 
     /// 获取平均性能改进

@@ -218,9 +218,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::{VmError, VmResult};
 
 /// Resource type for management
@@ -659,7 +659,10 @@ impl ResourceManagementDomainService {
         resource_type: ResourceType,
         current_performance: f64,
     ) -> VmResult<()> {
-        if let Some(threshold) = self.resource_config.performance_thresholds.get_mut(&resource_type)
+        if let Some(threshold) = self
+            .resource_config
+            .performance_thresholds
+            .get_mut(&resource_type)
             && threshold.adaptive_thresholding
         {
             // Adjust thresholds based on current performance
@@ -738,11 +741,13 @@ impl ResourceManagementDomainService {
 
                 allocation.insert(
                     ResourceType::Cpu,
-                    (self.resource_config.optimization_budget.cpu_budget * 100.0 * cpu_weight) as u64,
+                    (self.resource_config.optimization_budget.cpu_budget * 100.0 * cpu_weight)
+                        as u64,
                 );
                 allocation.insert(
                     ResourceType::Memory,
-                    (self.resource_config.optimization_budget.memory_budget as f64 * memory_weight) as u64,
+                    (self.resource_config.optimization_budget.memory_budget as f64 * memory_weight)
+                        as u64,
                 );
                 allocation.insert(
                     ResourceType::Cache,

@@ -8,9 +8,9 @@
 #![cfg(target_arch = "aarch64")]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use std::hint::black_box;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::arch::aarch64::*;
+use std::hint::black_box;
 use std::time::Duration;
 
 // 测试数据大小
@@ -287,10 +287,8 @@ fn bench_dot_product(c: &mut Criterion) {
 
         // NEON版本
         group.bench_with_input(BenchmarkId::new("neon", size), size, |b, _| {
-            b.iter(|| {
-                unsafe {
-                    black_box(neon_dot_product_f32(&input_a, &input_b));
-                }
+            b.iter(|| unsafe {
+                black_box(neon_dot_product_f32(&input_a, &input_b));
             });
         });
 

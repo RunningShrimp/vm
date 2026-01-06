@@ -73,7 +73,10 @@ impl TaskCategory {
 
     /// 是否应该使用E-core
     pub fn prefers_efficiency_core(&self) -> bool {
-        matches!(self, TaskCategory::BatchProcessing | TaskCategory::BackgroundCleanup)
+        matches!(
+            self,
+            TaskCategory::BatchProcessing | TaskCategory::BackgroundCleanup
+        )
     }
 
     /// 获取性能影响描述
@@ -308,7 +311,10 @@ mod tests {
             TaskCategory::LatencySensitive.performance_impact(),
             PerformanceImpact::High
         );
-        assert_eq!(TaskCategory::Normal.performance_impact(), PerformanceImpact::Medium);
+        assert_eq!(
+            TaskCategory::Normal.performance_impact(),
+            PerformanceImpact::Medium
+        );
         assert_eq!(
             TaskCategory::BatchProcessing.performance_impact(),
             PerformanceImpact::Low
@@ -329,7 +335,10 @@ mod tests {
             TaskCategory::LatencySensitive.recommended_core_type(),
             CoreType::Performance
         );
-        assert_eq!(TaskCategory::Normal.recommended_core_type(), CoreType::Balanced);
+        assert_eq!(
+            TaskCategory::Normal.recommended_core_type(),
+            CoreType::Balanced
+        );
         assert_eq!(
             TaskCategory::BatchProcessing.recommended_core_type(),
             CoreType::Efficiency
@@ -342,33 +351,25 @@ mod tests {
 
     #[test]
     fn test_with_task_category() {
-        let result = with_task_category(TaskCategory::PerformanceCritical, || {
-            42
-        });
+        let result = with_task_category(TaskCategory::PerformanceCritical, || 42);
         assert_eq!(result, 42);
     }
 
     #[test]
     fn test_with_performance_critical() {
-        let result = with_performance_critical(|| {
-            "critical"
-        });
+        let result = with_performance_critical(|| "critical");
         assert_eq!(result, "critical");
     }
 
     #[test]
     fn test_with_latency_sensitive() {
-        let result = with_latency_sensitive(|| {
-            "latency sensitive"
-        });
+        let result = with_latency_sensitive(|| "latency sensitive");
         assert_eq!(result, "latency sensitive");
     }
 
     #[test]
     fn test_with_background_cleanup() {
-        let result = with_background_cleanup(|| {
-            "background"
-        });
+        let result = with_background_cleanup(|| "background");
         assert_eq!(result, "background");
     }
 
@@ -386,11 +387,11 @@ mod tests {
         let category = get_task_category();
         // 应该返回有效的类别
         match category {
-            TaskCategory::PerformanceCritical |
-            TaskCategory::LatencySensitive |
-            TaskCategory::Normal |
-            TaskCategory::BatchProcessing |
-            TaskCategory::BackgroundCleanup => {}
+            TaskCategory::PerformanceCritical
+            | TaskCategory::LatencySensitive
+            | TaskCategory::Normal
+            | TaskCategory::BatchProcessing
+            | TaskCategory::BackgroundCleanup => {}
         }
     }
 }

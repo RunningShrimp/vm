@@ -48,7 +48,7 @@ fn main() {
         let metrics = PerformanceMetrics {
             timestamp_ns: 0,
             operation_time_ns: 8000 + (i as i64 * 50), // ~8us操作
-            memory_used_bytes: 1024 * 1024, // 1MB
+            memory_used_bytes: 1024 * 1024,            // 1MB
             cpu_usage_percent: 40.0,
             cache_hit_rate: Some(0.60),
         };
@@ -76,7 +76,10 @@ fn main() {
 
     let strategy3 = optimizer.analyze_and_optimize();
     println!("  识别为: {:?}", strategy3.workload);
-    println!("  全面优化: {}", strategy3.enable_simd && strategy3.enable_memory_pool);
+    println!(
+        "  全面优化: {}",
+        strategy3.enable_simd && strategy3.enable_memory_pool
+    );
     println!("  TLB优化: {}", strategy3.enable_tlb_optimization);
     println!("  JIT热点: {}", strategy3.enable_jit_hotspot);
 

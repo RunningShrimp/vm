@@ -149,11 +149,9 @@ impl EventBasedJitMonitor {
         count: usize,
     ) -> Vec<(u64, EventBasedJitMetrics)> {
         let mut blocks: Vec<_> = metrics.iter().collect();
-        blocks.sort_by(|a, b| {
-            b.1.avg_compile_time_ns
-                .cmp(&a.1.avg_compile_time_ns)
-        });
-        blocks.into_iter()
+        blocks.sort_by(|a, b| b.1.avg_compile_time_ns.cmp(&a.1.avg_compile_time_ns));
+        blocks
+            .into_iter()
             .take(count)
             .map(|(addr, m)| (*addr, m.clone()))
             .collect()
@@ -165,11 +163,9 @@ impl EventBasedJitMonitor {
         count: usize,
     ) -> Vec<(u64, EventBasedJitMetrics)> {
         let mut blocks: Vec<_> = metrics.iter().collect();
-        blocks.sort_by(|a, b| {
-            b.1.hotspot_detections
-                .cmp(&a.1.hotspot_detections)
-        });
-        blocks.into_iter()
+        blocks.sort_by(|a, b| b.1.hotspot_detections.cmp(&a.1.hotspot_detections));
+        blocks
+            .into_iter()
             .take(count)
             .map(|(addr, m)| (*addr, m.clone()))
             .collect()
@@ -186,10 +182,22 @@ impl EventBasedJitMonitor {
         let global = self.get_global_metrics();
         println!("=== JIT Performance Summary ===");
         println!("Total compilations: {}", global.total_compilations);
-        println!("Total compile time: {:.2}s", global.total_compile_time_ns as f64 / 1e9);
-        println!("Avg compile time: {:.2}μs", global.avg_compile_time_ns as f64 / 1e3);
-        println!("Min compile time: {:.2}μs", global.min_compile_time_ns as f64 / 1e3);
-        println!("Max compile time: {:.2}μs", global.max_compile_time_ns as f64 / 1e3);
+        println!(
+            "Total compile time: {:.2}s",
+            global.total_compile_time_ns as f64 / 1e9
+        );
+        println!(
+            "Avg compile time: {:.2}μs",
+            global.avg_compile_time_ns as f64 / 1e3
+        );
+        println!(
+            "Min compile time: {:.2}μs",
+            global.min_compile_time_ns as f64 / 1e3
+        );
+        println!(
+            "Max compile time: {:.2}μs",
+            global.max_compile_time_ns as f64 / 1e3
+        );
         println!("Hotspot detections: {}", global.hotspot_detections);
         println!("===============================");
     }
@@ -225,11 +233,20 @@ impl EventBasedPerformanceReport {
         println!("Generated at: {}s since epoch", self.generated_at_timestamp);
 
         println!("\n--- Global Metrics ---");
-        println!("Total compilations: {}", self.global_metrics.total_compilations);
-        println!("Average compile time: {:.2}μs", self.global_metrics.avg_compile_time_ns as f64 / 1e3);
+        println!(
+            "Total compilations: {}",
+            self.global_metrics.total_compilations
+        );
+        println!(
+            "Average compile time: {:.2}μs",
+            self.global_metrics.avg_compile_time_ns as f64 / 1e3
+        );
 
         if !self.slowest_blocks.is_empty() {
-            println!("\n--- Slowest Compilation Blocks (Top {}) ---", self.slowest_blocks.len());
+            println!(
+                "\n--- Slowest Compilation Blocks (Top {}) ---",
+                self.slowest_blocks.len()
+            );
             for (i, (addr, metrics)) in self.slowest_blocks.iter().enumerate() {
                 println!(
                     "{}. Block 0x{:x}: {:.2}μs avg, {} compilations",
@@ -242,7 +259,10 @@ impl EventBasedPerformanceReport {
         }
 
         if !self.most_hot_blocks.is_empty() {
-            println!("\n--- Hottest Blocks (Top {}) ---", self.most_hot_blocks.len());
+            println!(
+                "\n--- Hottest Blocks (Top {}) ---",
+                self.most_hot_blocks.len()
+            );
             for (i, (addr, metrics)) in self.most_hot_blocks.iter().enumerate() {
                 println!(
                     "{}. Block 0x{:x}: {} hotspot detections, {} compilations",

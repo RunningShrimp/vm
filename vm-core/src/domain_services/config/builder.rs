@@ -119,22 +119,14 @@ mod tests {
         let event_bus2 = Arc::new(DomainEventBus::new());
 
         let builder = ServiceConfigBuilder::new();
-        let config1 = builder
-            .with_event_bus(event_bus1.clone())
-            .build();
+        let config1 = builder.with_event_bus(event_bus1.clone()).build();
 
         let config2 = ServiceConfigBuilder::new()
             .with_event_bus(event_bus2.clone())
             .build();
 
-        assert!(Arc::ptr_eq(
-            config1.event_bus().unwrap(),
-            &event_bus1
-        ));
-        assert!(Arc::ptr_eq(
-            config2.event_bus().unwrap(),
-            &event_bus2
-        ));
+        assert!(Arc::ptr_eq(config1.event_bus().unwrap(), &event_bus1));
+        assert!(Arc::ptr_eq(config2.event_bus().unwrap(), &event_bus2));
         // Different event buses
         assert!(!Arc::ptr_eq(
             config1.event_bus().unwrap(),

@@ -7,10 +7,10 @@
 
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
-use vm_mem::tlb::management::manager::StandardTlbManager;
 use vm_mem::tlb::management::TlbManager;
+use vm_mem::tlb::management::manager::StandardTlbManager;
 
 /// 创建测试 TLB 条目
 fn create_test_entry(addr: u64, asid: u16) -> vm_core::TlbEntry {

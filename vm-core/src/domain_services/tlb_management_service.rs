@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use crate::domain::TlbManager;
 use crate::domain_event_bus::DomainEventBus;
-use crate::domain_services::events::{DomainEventEnum, TlbEvent};
 use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
+use crate::domain_services::events::{DomainEventEnum, TlbEvent};
 use crate::{AccessType, GuestAddr, TlbEntry, VmResult};
 
 /// TLB level (ITLB, DTLB, L2 TLB, etc.)

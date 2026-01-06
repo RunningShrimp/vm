@@ -254,12 +254,12 @@ impl GpuDeviceManager {
     ///
     /// 当启用"cuda" feature时可用
     #[cfg(feature = "cuda")]
-    #[allow(dead_code)]  // 仅在启用cuda feature时使用
+    #[allow(dead_code)] // 仅在启用cuda feature时使用
     fn detect_cuda_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
         use crate::passthrough::cuda::CudaAccelerator;
 
-        let accelerator = CudaAccelerator::new(0)
-            .map_err(|e| GpuError::DeviceInitializationFailed {
+        let accelerator =
+            CudaAccelerator::new(0).map_err(|e| GpuError::DeviceInitializationFailed {
                 device_type: "CUDA".to_string(),
                 reason: e.to_string(),
             })?;
@@ -271,20 +271,20 @@ impl GpuDeviceManager {
     ///
     /// 当启用"rocm" feature时可用
     #[cfg(feature = "rocm")]
-    #[allow(dead_code)]  // 仅在启用rocm feature时使用
+    #[allow(dead_code)] // 仅在启用rocm feature时使用
     fn detect_rocm_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
         // TODO: 实现ROCm设备检测
         Err(GpuError::NoDeviceAvailable)
     }
 
     #[cfg(not(feature = "cuda"))]
-    #[allow(dead_code)]  // 仅在未启用cuda feature时使用
+    #[allow(dead_code)] // 仅在未启用cuda feature时使用
     fn detect_cuda_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
         Err(GpuError::NoDeviceAvailable)
     }
 
     #[cfg(not(feature = "rocm"))]
-    #[allow(dead_code)]  // 仅在未启用rocm feature时使用
+    #[allow(dead_code)] // 仅在未启用rocm feature时使用
     fn detect_rocm_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
         Err(GpuError::NoDeviceAvailable)
     }

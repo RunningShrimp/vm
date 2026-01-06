@@ -7,15 +7,15 @@
 //! - Model size and memory usage
 //! - Feature importance analysis
 
-use std::time::Duration;
 use std::hint::black_box;
+use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use vm_core::GuestAddr;
 use vm_engine_jit::ml_model_enhanced::{
     CompilationHistory, ExecutionFeaturesEnhanced, InstMixFeatures,
 };
 use vm_engine_jit::ml_random_forest::{CompilationDecision, RandomForestModel};
-use vm_core::GuestAddr;
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 // Test parameters

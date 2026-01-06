@@ -17,9 +17,9 @@ use std::sync::Arc;
 use crate::VmResult;
 use crate::domain::RegisterAllocator;
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
-use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Register allocation configuration
 #[derive(Debug, Clone)]

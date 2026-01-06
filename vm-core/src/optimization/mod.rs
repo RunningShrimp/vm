@@ -5,10 +5,6 @@
 pub mod auto_optimizer;
 
 pub use auto_optimizer::{
-    AutoOptimizer,
-    OptimizationStrategy,
-    PerformanceMetrics,
-    PlatformCapabilities,
-    WorkloadCharacteristics,
-    WorkloadType,
+    AutoOptimizer, OptimizationStrategy, PerformanceMetrics, PlatformCapabilities,
+    WorkloadCharacteristics, WorkloadType,
 };

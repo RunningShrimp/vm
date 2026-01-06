@@ -5,21 +5,19 @@
 
 #[cfg(test)]
 mod simd_direct_intrinsic_tests {
-    use vm_ir::{IROp, IRBlock, Terminator};
     use vm_core::GuestAddr;
+    use vm_ir::{IRBlock, IROp, Terminator};
 
     /// 创建简单的向量加法IR块
     fn create_vec_add_ir_block() -> IRBlock {
         IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecAdd {
-                    dst: 1u32,
-                    src1: 2u32,
-                    src2: 3u32,
-                    element_size: 32,
-                },
-            ],
+            ops: vec![IROp::VecAdd {
+                dst: 1u32,
+                src1: 2u32,
+                src2: 3u32,
+                element_size: 32,
+            }],
             term: Terminator::Ret,
         }
     }
@@ -97,7 +95,12 @@ mod simd_direct_intrinsic_tests {
         // IR块应该成功创建
         assert_eq!(block.ops.len(), 1, "Should have 1 VecAdd operation");
         match &block.ops[0] {
-            IROp::VecAdd { dst, src1, src2, element_size } => {
+            IROp::VecAdd {
+                dst,
+                src1,
+                src2,
+                element_size,
+            } => {
                 assert_eq!(*dst, 1u32);
                 assert_eq!(*src1, 2u32);
                 assert_eq!(*src2, 3u32);
@@ -113,20 +116,23 @@ mod simd_direct_intrinsic_tests {
         // 测试直接SIMD intrinsic的向量乘法 - IR创建
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecMul {
-                    dst: 1u32,
-                    src1: 2u32,
-                    src2: 3u32,
-                    element_size: 32,
-                },
-            ],
+            ops: vec![IROp::VecMul {
+                dst: 1u32,
+                src1: 2u32,
+                src2: 3u32,
+                element_size: 32,
+            }],
             term: Terminator::Ret,
         };
 
         assert_eq!(block.ops.len(), 1);
         match &block.ops[0] {
-            IROp::VecMul { dst, src1, src2, element_size } => {
+            IROp::VecMul {
+                dst,
+                src1,
+                src2,
+                element_size,
+            } => {
                 assert_eq!(*dst, 1u32);
                 assert_eq!(*src1, 2u32);
                 assert_eq!(*src2, 3u32);
@@ -142,20 +148,23 @@ mod simd_direct_intrinsic_tests {
         // 测试直接SIMD intrinsic的向量减法 - IR创建
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecSub {
-                    dst: 1u32,
-                    src1: 2u32,
-                    src2: 3u32,
-                    element_size: 64,
-                },
-            ],
+            ops: vec![IROp::VecSub {
+                dst: 1u32,
+                src1: 2u32,
+                src2: 3u32,
+                element_size: 64,
+            }],
             term: Terminator::Ret,
         };
 
         assert_eq!(block.ops.len(), 1);
         match &block.ops[0] {
-            IROp::VecSub { dst, src1, src2, element_size } => {
+            IROp::VecSub {
+                dst,
+                src1,
+                src2,
+                element_size,
+            } => {
                 assert_eq!(*dst, 1u32);
                 assert_eq!(*src1, 2u32);
                 assert_eq!(*src2, 3u32);
@@ -175,7 +184,12 @@ mod simd_direct_intrinsic_tests {
 
         // 验证VecAnd
         match &block.ops[0] {
-            IROp::VecAnd { dst, src1, src2, element_size } => {
+            IROp::VecAnd {
+                dst,
+                src1,
+                src2,
+                element_size,
+            } => {
                 assert_eq!(*dst, 1u32);
                 assert_eq!(*src1, 2u32);
                 assert_eq!(*src2, 3u32);
@@ -186,7 +200,9 @@ mod simd_direct_intrinsic_tests {
 
         // 验证VecOr
         match &block.ops[1] {
-            IROp::VecOr { dst, src1, src2, .. } => {
+            IROp::VecOr {
+                dst, src1, src2, ..
+            } => {
                 assert_eq!(*dst, 4u32);
                 assert_eq!(*src1, 5u32);
                 assert_eq!(*src2, 6u32);
@@ -196,7 +212,9 @@ mod simd_direct_intrinsic_tests {
 
         // 验证VecXor
         match &block.ops[2] {
-            IROp::VecXor { dst, src1, src2, .. } => {
+            IROp::VecXor {
+                dst, src1, src2, ..
+            } => {
                 assert_eq!(*dst, 7u32);
                 assert_eq!(*src1, 8u32);
                 assert_eq!(*src2, 9u32);
@@ -215,22 +233,22 @@ mod simd_direct_intrinsic_tests {
 
         // 验证操作序列
         match &block.ops[0] {
-            IROp::VecAdd { .. } => {},
+            IROp::VecAdd { .. } => {}
             _ => panic!("Expected VecAdd as first operation"),
         }
 
         match &block.ops[1] {
-            IROp::VecMul { .. } => {},
+            IROp::VecMul { .. } => {}
             _ => panic!("Expected VecMul as second operation"),
         }
 
         match &block.ops[2] {
-            IROp::VecAnd { .. } => {},
+            IROp::VecAnd { .. } => {}
             _ => panic!("Expected VecAnd as third operation"),
         }
 
         match &block.ops[3] {
-            IROp::VecXor { .. } => {},
+            IROp::VecXor { .. } => {}
             _ => panic!("Expected VecXor as fourth operation"),
         }
     }
@@ -242,21 +260,21 @@ mod simd_direct_intrinsic_tests {
         for element_size in [8u8, 16, 32, 64].iter() {
             let block = IRBlock {
                 start_pc: GuestAddr(0x1000),
-                ops: vec![
-                    IROp::VecAdd {
-                        dst: 1u32,
-                        src1: 2u32,
-                        src2: 3u32,
-                        element_size: *element_size,
-                    },
-                ],
+                ops: vec![IROp::VecAdd {
+                    dst: 1u32,
+                    src1: 2u32,
+                    src2: 3u32,
+                    element_size: *element_size,
+                }],
                 term: Terminator::Ret,
             };
 
             // 验证IR块成功创建
             assert_eq!(block.ops.len(), 1);
             match &block.ops[0] {
-                IROp::VecAdd { element_size: es, .. } => {
+                IROp::VecAdd {
+                    element_size: es, ..
+                } => {
                     assert_eq!(*es, *element_size);
                 }
                 _ => panic!("Expected VecAdd operation"),
@@ -290,7 +308,12 @@ mod simd_direct_intrinsic_tests {
         // 验证所有操作都是VecAdd
         for (i, op) in block.ops.iter().enumerate() {
             match op {
-                IROp::VecAdd { dst, src1, src2, element_size } => {
+                IROp::VecAdd {
+                    dst,
+                    src1,
+                    src2,
+                    element_size,
+                } => {
                     assert_eq!(*dst, (i * 3 + 1) as u32);
                     assert_eq!(*src1, (i * 3 + 2) as u32);
                     assert_eq!(*src2, (i * 3 + 3) as u32);
@@ -326,14 +349,12 @@ mod simd_direct_intrinsic_tests {
         // 测试128位向量优化的IR结构
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecAdd {
-                    dst: 1u32,
-                    src1: 2u32,
-                    src2: 3u32,
-                    element_size: 32,  // 32位元素适合Vec128 (4×32=128)
-                },
-            ],
+            ops: vec![IROp::VecAdd {
+                dst: 1u32,
+                src1: 2u32,
+                src2: 3u32,
+                element_size: 32, // 32位元素适合Vec128 (4×32=128)
+            }],
             term: Terminator::Ret,
         };
 
@@ -365,15 +386,13 @@ mod simd_direct_intrinsic_tests {
         // 测试有符号饱和加法
         let block_signed = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecAddSat {
-                    dst: 1u32,
-                    src1: 2u32,
-                    src2: 3u32,
-                    element_size: 32,
-                    signed: true,
-                },
-            ],
+            ops: vec![IROp::VecAddSat {
+                dst: 1u32,
+                src1: 2u32,
+                src2: 3u32,
+                element_size: 32,
+                signed: true,
+            }],
             term: Terminator::Ret,
         };
 
@@ -388,15 +407,13 @@ mod simd_direct_intrinsic_tests {
         // 测试无符号饱和加法
         let block_unsigned = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecAddSat {
-                    dst: 1u32,
-                    src1: 2u32,
-                    src2: 3u32,
-                    element_size: 32,
-                    signed: false,
-                },
-            ],
+            ops: vec![IROp::VecAddSat {
+                dst: 1u32,
+                src1: 2u32,
+                src2: 3u32,
+                element_size: 32,
+                signed: false,
+            }],
             term: Terminator::Ret,
         };
 
@@ -415,14 +432,12 @@ mod simd_direct_intrinsic_tests {
         // 测试最小/最大值的SIMD实现 - IR创建
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecAdd {
-                    dst: 1u32,
-                    src1: 2u32,
-                    src2: 3u32,
-                    element_size: 32,
-                },
-            ],
+            ops: vec![IROp::VecAdd {
+                dst: 1u32,
+                src1: 2u32,
+                src2: 3u32,
+                element_size: 32,
+            }],
             term: Terminator::Ret,
         };
 

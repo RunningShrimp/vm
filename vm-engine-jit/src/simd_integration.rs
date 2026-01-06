@@ -210,7 +210,7 @@ impl SimdIntegrationManager {
             (64, VectorSize::Vec256) => types::F64X2, // 回退
             (32, VectorSize::Vec512) => types::F32X4, // 回退
             (64, VectorSize::Vec512) => types::F64X2, // 回退
-            _ => types::F32X4, // 默认
+            _ => types::F32X4,                        // 默认
         }
     }
 
@@ -221,16 +221,13 @@ impl SimdIntegrationManager {
         simd_type: Type,
         offset: i32,
     ) -> Value {
-        builder.ins().load(simd_type, MemFlags::trusted(), ptr, offset)
+        builder
+            .ins()
+            .load(simd_type, MemFlags::trusted(), ptr, offset)
     }
 
     /// 存储向量数据 (直接SIMD存储)
-    fn store_vector_direct(
-        builder: &mut FunctionBuilder,
-        val: Value,
-        ptr: Value,
-        offset: i32,
-    ) {
+    fn store_vector_direct(builder: &mut FunctionBuilder, val: Value, ptr: Value, offset: i32) {
         builder.ins().store(MemFlags::trusted(), val, ptr, offset);
     }
 
@@ -543,7 +540,7 @@ impl SimdIntegrationManager {
                     *src1,
                     *src2,
                     *element_size,
-                    VectorSize::Vec128,  // 使用128位SIMD
+                    VectorSize::Vec128, // 使用128位SIMD
                     regs_ptr,
                 ) {
                     Ok(Some(result)) => Ok(Some(result)),
@@ -581,20 +578,18 @@ impl SimdIntegrationManager {
                     regs_ptr,
                 ) {
                     Ok(Some(result)) => Ok(Some(result)),
-                    _ => {
-                        self.compile_vec_binop(
-                            module,
-                            builder,
-                            SimdOperation::VecSub,
-                            *dst,
-                            *src1,
-                            *src2,
-                            *element_size,
-                            VectorSize::Scalar64,
-                            regs_ptr,
-                            vec_regs_ptr,
-                        )
-                    }
+                    _ => self.compile_vec_binop(
+                        module,
+                        builder,
+                        SimdOperation::VecSub,
+                        *dst,
+                        *src1,
+                        *src2,
+                        *element_size,
+                        VectorSize::Scalar64,
+                        regs_ptr,
+                        vec_regs_ptr,
+                    ),
                 }
             }
             IROp::VecMul {
@@ -614,20 +609,18 @@ impl SimdIntegrationManager {
                     regs_ptr,
                 ) {
                     Ok(Some(result)) => Ok(Some(result)),
-                    _ => {
-                        self.compile_vec_binop(
-                            module,
-                            builder,
-                            SimdOperation::VecMul,
-                            *dst,
-                            *src1,
-                            *src2,
-                            *element_size,
-                            VectorSize::Scalar64,
-                            regs_ptr,
-                            vec_regs_ptr,
-                        )
-                    }
+                    _ => self.compile_vec_binop(
+                        module,
+                        builder,
+                        SimdOperation::VecMul,
+                        *dst,
+                        *src1,
+                        *src2,
+                        *element_size,
+                        VectorSize::Scalar64,
+                        regs_ptr,
+                        vec_regs_ptr,
+                    ),
                 }
             }
 
@@ -726,20 +719,18 @@ impl SimdIntegrationManager {
                     regs_ptr,
                 ) {
                     Ok(Some(result)) => Ok(Some(result)),
-                    _ => {
-                        self.compile_vec_binop(
-                            module,
-                            builder,
-                            SimdOperation::VecAnd,
-                            *dst,
-                            *src1,
-                            *src2,
-                            *element_size,
-                            VectorSize::Scalar64,
-                            regs_ptr,
-                            vec_regs_ptr,
-                        )
-                    }
+                    _ => self.compile_vec_binop(
+                        module,
+                        builder,
+                        SimdOperation::VecAnd,
+                        *dst,
+                        *src1,
+                        *src2,
+                        *element_size,
+                        VectorSize::Scalar64,
+                        regs_ptr,
+                        vec_regs_ptr,
+                    ),
                 }
             }
 
@@ -760,20 +751,18 @@ impl SimdIntegrationManager {
                     regs_ptr,
                 ) {
                     Ok(Some(result)) => Ok(Some(result)),
-                    _ => {
-                        self.compile_vec_binop(
-                            module,
-                            builder,
-                            SimdOperation::VecOr,
-                            *dst,
-                            *src1,
-                            *src2,
-                            *element_size,
-                            VectorSize::Scalar64,
-                            regs_ptr,
-                            vec_regs_ptr,
-                        )
-                    }
+                    _ => self.compile_vec_binop(
+                        module,
+                        builder,
+                        SimdOperation::VecOr,
+                        *dst,
+                        *src1,
+                        *src2,
+                        *element_size,
+                        VectorSize::Scalar64,
+                        regs_ptr,
+                        vec_regs_ptr,
+                    ),
                 }
             }
 
@@ -794,20 +783,18 @@ impl SimdIntegrationManager {
                     regs_ptr,
                 ) {
                     Ok(Some(result)) => Ok(Some(result)),
-                    _ => {
-                        self.compile_vec_binop(
-                            module,
-                            builder,
-                            SimdOperation::VecXor,
-                            *dst,
-                            *src1,
-                            *src2,
-                            *element_size,
-                            VectorSize::Scalar64,
-                            regs_ptr,
-                            vec_regs_ptr,
-                        )
-                    }
+                    _ => self.compile_vec_binop(
+                        module,
+                        builder,
+                        SimdOperation::VecXor,
+                        *dst,
+                        *src1,
+                        *src2,
+                        *element_size,
+                        VectorSize::Scalar64,
+                        regs_ptr,
+                        vec_regs_ptr,
+                    ),
                 }
             }
 
@@ -1434,13 +1421,13 @@ impl SimdIntegrationManager {
             SimdOperation::VecXor => builder.ins().bxor(src1_vec, src2_vec),
             SimdOperation::VecAddSatU | SimdOperation::VecAddSatS => {
                 // 饱和加法: 使用 cmp + select 实现
-                
+
                 // 简化实现: 直接返回和 (完整的饱和操作需要更多指令)
                 builder.ins().iadd(src1_vec, src2_vec)
             }
             SimdOperation::VecSubSatU | SimdOperation::VecSubSatS => {
                 // 饱和减法
-                
+
                 builder.ins().isub(src1_vec, src2_vec)
             }
             SimdOperation::VecMulSatU | SimdOperation::VecMulSatS => {
@@ -1449,12 +1436,16 @@ impl SimdIntegrationManager {
             }
             SimdOperation::VecMinU => {
                 // 无符号最小值
-                let cmp = builder.ins().icmp(IntCC::UnsignedLessThan, src1_vec, src2_vec);
+                let cmp = builder
+                    .ins()
+                    .icmp(IntCC::UnsignedLessThan, src1_vec, src2_vec);
                 builder.ins().select(cmp, src1_vec, src2_vec)
             }
             SimdOperation::VecMaxU => {
                 // 无符号最大值
-                let cmp = builder.ins().icmp(IntCC::UnsignedGreaterThan, src1_vec, src2_vec);
+                let cmp = builder
+                    .ins()
+                    .icmp(IntCC::UnsignedGreaterThan, src1_vec, src2_vec);
                 builder.ins().select(cmp, src1_vec, src2_vec)
             }
             _ => return Ok(None),

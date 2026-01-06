@@ -169,9 +169,9 @@ impl Default for CacheConfig {
     fn default() -> Self {
         Self {
             max_entries: 10000,
-            max_memory_bytes: 100 * 1024 * 1024,      // 100MB
+            max_memory_bytes: 100 * 1024 * 1024,     // 100MB
             eviction_policy: EvictionPolicy::LruLfu, // 默认使用LRU+LFU混合策略
-            cleanup_interval_secs: 60,                // 1分钟
+            cleanup_interval_secs: 60,               // 1分钟
             hotness_decay_factor: 0.99,
             warmup_size: 1000,
         }
@@ -277,15 +277,16 @@ impl HybridEvictionIndex {
     /// 移除LFU条目
     fn remove_lfu(&mut self, addr: GuestAddr) {
         if let Some(&pos) = self.lfu_index.get(&addr)
-            && pos < self.lfu_heap.len() {
-                let last_pos = self.lfu_heap.len() - 1;
-                self.lfu_heap.swap(pos, last_pos);
-                let swapped_addr = self.lfu_heap[pos].1;
-                self.lfu_index.insert(swapped_addr, pos);
-                self.lfu_heap.pop();
-                self.lfu_index.remove(&addr);
-                self.heapify_down(pos);
-            }
+            && pos < self.lfu_heap.len()
+        {
+            let last_pos = self.lfu_heap.len() - 1;
+            self.lfu_heap.swap(pos, last_pos);
+            let swapped_addr = self.lfu_heap[pos].1;
+            self.lfu_index.insert(swapped_addr, pos);
+            self.lfu_heap.pop();
+            self.lfu_index.remove(&addr);
+            self.heapify_down(pos);
+        }
     }
 
     /// 获取LFU最小值（最少访问）
@@ -623,44 +624,45 @@ impl UnifiedCodeCache {
             // 命中热点缓存，需要更新访问信息
             // 优化：使用try_write减少阻塞，如果失败则跳过更新（避免阻塞）
             if let Ok(mut hot) = self.hot_cache.try_write()
-                && let Some(entry) = hot.get_mut(&addr) {
-                    entry.update_access();
-                    let new_count = entry.access_count;
+                && let Some(entry) = hot.get_mut(&addr)
+            {
+                entry.update_access();
+                let new_count = entry.access_count;
 
-                    // 更新LRU+LFU索引（O(1)操作）
-                    // 优化：批量更新，减少锁获取次数
-                    if self.config.eviction_policy == EvictionPolicy::LruLfu {
-                        if let Ok(mut index) = self.hybrid_index.try_write() {
-                            index.update_lru(addr);
-                            if new_count != old_count {
-                                index.update_lfu(addr, new_count);
-                            }
-                        }
-                    } else {
-                        // 向后兼容：更新传统LRU顺序
-                        if let Ok(mut lru) = self.lru_order.try_write() {
-                            if let Some(pos) = lru.iter().position(|&a| a == addr) {
-                                lru.remove(pos);
-                            }
-                            lru.push_back(addr);
+                // 更新LRU+LFU索引（O(1)操作）
+                // 优化：批量更新，减少锁获取次数
+                if self.config.eviction_policy == EvictionPolicy::LruLfu {
+                    if let Ok(mut index) = self.hybrid_index.try_write() {
+                        index.update_lru(addr);
+                        if new_count != old_count {
+                            index.update_lfu(addr, new_count);
                         }
                     }
-
-                    let lookup_time = start_time.elapsed().as_nanos() as u64;
-                    self.update_lookup_time(lookup_time);
-
-                    if let Ok(mut stats) = self.stats.try_lock() {
-                        stats.hits += 1;
-                        stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
-
-                        // 优化：触发预取（如果命中率低于阈值）
-                        if stats.hit_rate < 0.90 {
-                            self.prefetch_related(addr);
+                } else {
+                    // 向后兼容：更新传统LRU顺序
+                    if let Ok(mut lru) = self.lru_order.try_write() {
+                        if let Some(pos) = lru.iter().position(|&a| a == addr) {
+                            lru.remove(pos);
                         }
-
-                        return Some(code_ptr);
+                        lru.push_back(addr);
                     }
                 }
+
+                let lookup_time = start_time.elapsed().as_nanos() as u64;
+                self.update_lookup_time(lookup_time);
+
+                if let Ok(mut stats) = self.stats.try_lock() {
+                    stats.hits += 1;
+                    stats.hit_rate = stats.hits as f64 / (stats.hits + stats.misses) as f64;
+
+                    // 优化：触发预取（如果命中率低于阈值）
+                    if stats.hit_rate < 0.90 {
+                        self.prefetch_related(addr);
+                    }
+
+                    return Some(code_ptr);
+                }
+            }
         }
 
         // 查找冷缓存（只读锁，无写锁竞争）
@@ -676,9 +678,10 @@ impl UnifiedCodeCache {
             } else {
                 // 更新冷缓存的访问信息
                 if let Ok(mut cold) = self.cold_cache.try_write()
-                    && let Some(entry) = cold.get_mut(&addr) {
-                        entry.update_access();
-                    }
+                    && let Some(entry) = cold.get_mut(&addr)
+                {
+                    entry.update_access();
+                }
 
                 let lookup_time = start_time.elapsed().as_nanos() as u64;
                 self.update_lookup_time(lookup_time);
@@ -892,42 +895,44 @@ impl UnifiedCodeCache {
 
         if let Some(count) = access_count
             && let Ok(mut cold) = self.cold_cache.try_write()
-                && let Some(entry) = cold.remove(&addr) {
-                    if let Ok(mut fifo) = self.fifo_queue.try_write()
-                        && let Some(pos) = fifo.iter().position(|&a| a == addr) {
-                            fifo.remove(pos);
-                        }
+            && let Some(entry) = cold.remove(&addr)
+        {
+            if let Ok(mut fifo) = self.fifo_queue.try_write()
+                && let Some(pos) = fifo.iter().position(|&a| a == addr)
+            {
+                fifo.remove(pos);
+            }
 
+            if let Ok(mut hot) = self.hot_cache.try_write() {
+                if hot.len() >= self.config.max_entries {
+                    drop(hot);
+                    drop(cold);
+                    self.evict_hot();
                     if let Ok(mut hot) = self.hot_cache.try_write() {
-                        if hot.len() >= self.config.max_entries {
-                            drop(hot);
-                            drop(cold);
-                            self.evict_hot();
-                            if let Ok(mut hot) = self.hot_cache.try_write() {
-                                hot.insert(addr, entry);
-                            }
-                        } else {
-                            hot.insert(addr, entry);
-                        }
+                        hot.insert(addr, entry);
                     }
-
-                    // 更新索引
-                    if self.config.eviction_policy == EvictionPolicy::LruLfu {
-                        if let Ok(mut index) = self.hybrid_index.try_write() {
-                            index.add_lru(addr);
-                            index.update_lfu(addr, count);
-                        }
-                    } else if let Ok(mut lru) = self.lru_order.try_write() {
-                        lru.push_back(addr);
-                    }
+                } else {
+                    hot.insert(addr, entry);
                 }
+            }
+
+            // 更新索引
+            if self.config.eviction_policy == EvictionPolicy::LruLfu {
+                if let Ok(mut index) = self.hybrid_index.try_write() {
+                    index.add_lru(addr);
+                    index.update_lfu(addr, count);
+                }
+            } else if let Ok(mut lru) = self.lru_order.try_write() {
+                lru.push_back(addr);
+            }
+        }
     }
 
     /// 驱逐热点缓存条目
     fn evict_hot(&self) {
         let addr_to_evict = if self.config.eviction_policy == EvictionPolicy::LruLfu {
             // 使用混合策略选择要淘汰的条目
-            
+
             if let Ok(index) = self.hybrid_index.try_read() {
                 let candidate = index.get_lru_head();
                 let lfu_candidate = index.get_lfu_min();
@@ -948,54 +953,57 @@ impl UnifiedCodeCache {
 
         if let Some(addr) = addr_to_evict
             && let Ok(mut hot) = self.hot_cache.try_write()
-                && let Some(entry) = hot.remove(&addr) {
-                    // 更新索引
-                    if self.config.eviction_policy == EvictionPolicy::LruLfu {
-                        if let Ok(mut index) = self.hybrid_index.try_write() {
-                            index.remove_lru(addr);
-                            index.remove_lfu(addr);
-                        }
-                    } else if let Ok(mut lru) = self.lru_order.try_write()
-                    && let Some(pos) = lru.iter().position(|&a| a == addr) {
-                        lru.remove(pos);
-                    }
-
-                    // 移动到冷缓存
-                    if let Ok(mut cold) = self.cold_cache.try_write() {
-                        if cold.len() >= self.config.max_entries {
-                            drop(hot);
-                            drop(cold);
-                            self.evict_cold();
-                            if let Ok(mut cold) = self.cold_cache.try_write() {
-                                cold.insert(addr, entry);
-                            }
-                        } else {
-                            cold.insert(addr, entry);
-                        }
-                    }
-
-                    if let Ok(mut fifo) = self.fifo_queue.try_write() {
-                        fifo.push_back(addr);
-                    }
-
-                    if let Ok(mut stats) = self.stats.try_lock() {
-                        stats.evictions += 1;
-                    }
+            && let Some(entry) = hot.remove(&addr)
+        {
+            // 更新索引
+            if self.config.eviction_policy == EvictionPolicy::LruLfu {
+                if let Ok(mut index) = self.hybrid_index.try_write() {
+                    index.remove_lru(addr);
+                    index.remove_lfu(addr);
                 }
+            } else if let Ok(mut lru) = self.lru_order.try_write()
+                && let Some(pos) = lru.iter().position(|&a| a == addr)
+            {
+                lru.remove(pos);
+            }
+
+            // 移动到冷缓存
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                if cold.len() >= self.config.max_entries {
+                    drop(hot);
+                    drop(cold);
+                    self.evict_cold();
+                    if let Ok(mut cold) = self.cold_cache.try_write() {
+                        cold.insert(addr, entry);
+                    }
+                } else {
+                    cold.insert(addr, entry);
+                }
+            }
+
+            if let Ok(mut fifo) = self.fifo_queue.try_write() {
+                fifo.push_back(addr);
+            }
+
+            if let Ok(mut stats) = self.stats.try_lock() {
+                stats.evictions += 1;
+            }
+        }
     }
 
     /// 驱逐冷缓存条目
     fn evict_cold(&self) {
         if let Ok(mut fifo) = self.fifo_queue.try_write()
-            && let Some(addr) = fifo.pop_front() {
-                if let Ok(mut cold) = self.cold_cache.try_write() {
-                    cold.remove(&addr);
-                }
-
-                if let Ok(mut stats) = self.stats.try_lock() {
-                    stats.evictions += 1;
-                }
+            && let Some(addr) = fifo.pop_front()
+        {
+            if let Ok(mut cold) = self.cold_cache.try_write() {
+                cold.remove(&addr);
             }
+
+            if let Ok(mut stats) = self.stats.try_lock() {
+                stats.evictions += 1;
+            }
+        }
     }
 
     /// 更新查找时间统计
@@ -1092,15 +1100,17 @@ impl UnifiedCodeCache {
     pub fn update_execution_benefit(&self, addr: GuestAddr, benefit: f64) {
         // 更新热点缓存中的条目
         if let Ok(mut hot) = self.hot_cache.try_write()
-            && let Some(entry) = hot.get_mut(&addr) {
-                entry.execution_benefit += benefit;
-            }
+            && let Some(entry) = hot.get_mut(&addr)
+        {
+            entry.execution_benefit += benefit;
+        }
 
         // 更新冷缓存中的条目
         if let Ok(mut cold) = self.cold_cache.try_write()
-            && let Some(entry) = cold.get_mut(&addr) {
-                entry.execution_benefit += benefit;
-            }
+            && let Some(entry) = cold.get_mut(&addr)
+        {
+            entry.execution_benefit += benefit;
+        }
     }
 
     /// 定期维护
@@ -1170,15 +1180,17 @@ impl UnifiedCodeCache {
 
                 // LRU评分：最近访问时间越久，分数越高（越应该淘汰）
                 if let Some(lru_addr) = lru_candidate
-                    && addr == lru_addr {
-                        score += 0.6; // LRU头节点得分最高
-                    }
+                    && addr == lru_addr
+                {
+                    score += 0.6; // LRU头节点得分最高
+                }
 
                 // LFU评分：访问次数越少，分数越高（越应该淘汰）
                 if let Some(lfu_addr) = lfu_candidate
-                    && addr == lfu_addr {
-                        score += 0.4; // LFU最小值得分最高
-                    }
+                    && addr == lfu_addr
+                {
+                    score += 0.4; // LFU最小值得分最高
+                }
 
                 // 综合热度评分：热度越低，越应该淘汰
                 score += (1.0 - entry.hotness_score) * 0.3;
@@ -1284,9 +1296,10 @@ impl UnifiedCodeCache {
             }
 
             if let Ok(mut lru) = self.lru_order.try_write()
-                && let Some(pos) = lru.iter().position(|&a| a == addr) {
-                    lru.remove(pos);
-                }
+                && let Some(pos) = lru.iter().position(|&a| a == addr)
+            {
+                lru.remove(pos);
+            }
         }
     }
 
@@ -1337,9 +1350,10 @@ impl UnifiedCodeCache {
             }
 
             if let Ok(mut lru) = self.lru_order.try_write()
-                && let Some(pos) = lru.iter().position(|&a| a == addr) {
-                    lru.remove(pos);
-                }
+                && let Some(pos) = lru.iter().position(|&a| a == addr)
+            {
+                lru.remove(pos);
+            }
         }
     }
 
@@ -1395,9 +1409,10 @@ impl UnifiedCodeCache {
             }
 
             if let Ok(mut lru) = self.lru_order.try_write()
-                && let Some(pos) = lru.iter().position(|&a| a == addr) {
-                    lru.remove(pos);
-                }
+                && let Some(pos) = lru.iter().position(|&a| a == addr)
+            {
+                lru.remove(pos);
+            }
         }
     }
 
@@ -1427,23 +1442,21 @@ impl UnifiedCodeCache {
 
     /// 获取热点条目
     pub fn get_hot_entries(&self, limit: usize) -> Vec<(GuestAddr, f64)> {
-        
-
         if let (Ok(hot), Ok(cold)) = (self.hot_cache.try_read(), self.cold_cache.try_read()) {
-                let mut entries: Vec<_> = hot
-                    .iter()
-                    .map(|(&addr, entry)| (addr, entry.hotness_score))
-                    .chain(
-                        cold.iter()
-                            .map(|(&addr, entry)| (addr, entry.hotness_score)),
-                    )
-                    .collect();
+            let mut entries: Vec<_> = hot
+                .iter()
+                .map(|(&addr, entry)| (addr, entry.hotness_score))
+                .chain(
+                    cold.iter()
+                        .map(|(&addr, entry)| (addr, entry.hotness_score)),
+                )
+                .collect();
 
-                entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                entries.into_iter().take(limit).collect()
-            } else {
-                Vec::new()
-            }
+            entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            entries.into_iter().take(limit).collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// 清空缓存
@@ -1578,9 +1591,10 @@ impl SmartPrefetcher {
 
             // 检查是否是循环（返回到之前访问过的地址）
             if let Some(targets) = history.jump_history.get(&to_addr)
-                && targets.contains(&from_addr) {
-                    return AccessPattern::Looping;
-                }
+                && targets.contains(&from_addr)
+            {
+                return AccessPattern::Looping;
+            }
 
             AccessPattern::Branching
         } else {

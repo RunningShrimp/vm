@@ -230,6 +230,6 @@ pub mod error;
 pub mod executor;
 
 // 重新导出主要类型
-pub use device::{GpuDeviceManager, GpuDeviceInfo, GpuExecutionResult};
+pub use device::{GpuDeviceInfo, GpuDeviceManager, GpuExecutionResult};
 pub use error::{GpuError, GpuResult};
 pub use executor::{GpuExecutionConfig, GpuExecutor};

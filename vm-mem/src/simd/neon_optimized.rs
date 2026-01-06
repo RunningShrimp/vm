@@ -18,26 +18,23 @@ use std::arch::aarch64::*;
 /// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] { unsafe {
-    let a_vec = vld1q_f32(a.as_ptr());
-    let b_vec = vld1q_f32(b.as_ptr());
-    let result = vaddq_f32(a_vec, b_vec);
+pub unsafe fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
+    unsafe {
+        let a_vec = vld1q_f32(a.as_ptr());
+        let b_vec = vld1q_f32(b.as_ptr());
+        let result = vaddq_f32(a_vec, b_vec);
 
-    let mut output = [0.0f32; 4];
-    vst1q_f32(output.as_mut_ptr(), result);
-    output
-}}
+        let mut output = [0.0f32; 4];
+        vst1q_f32(output.as_mut_ptr(), result);
+        output
+    }
+}
 
 /// 标量fallback: 4元素向量加法
 #[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
-    [
-        a[0] + b[0],
-        a[1] + b[1],
-        a[2] + b[2],
-        a[3] + b[3],
-    ]
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
 }
 
 /// NEON优化的4元素向量乘法
@@ -46,26 +43,23 @@ pub fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
 /// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] { unsafe {
-    let a_vec = vld1q_f32(a.as_ptr());
-    let b_vec = vld1q_f32(b.as_ptr());
-    let result = vmulq_f32(a_vec, b_vec);
+pub unsafe fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
+    unsafe {
+        let a_vec = vld1q_f32(a.as_ptr());
+        let b_vec = vld1q_f32(b.as_ptr());
+        let result = vmulq_f32(a_vec, b_vec);
 
-    let mut output = [0.0f32; 4];
-    vst1q_f32(output.as_mut_ptr(), result);
-    output
-}}
+        let mut output = [0.0f32; 4];
+        vst1q_f32(output.as_mut_ptr(), result);
+        output
+    }
+}
 
 /// 标量fallback: 4元素向量乘法
 #[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
-    [
-        a[0] * b[0],
-        a[1] * b[1],
-        a[2] * b[2],
-        a[3] * b[3],
-    ]
+    [a[0] * b[0], a[1] * b[1], a[2] * b[2], a[3] * b[3]]
 }
 
 /// NEON优化的融合乘加: a*b+c
@@ -74,19 +68,21 @@ pub fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
 /// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> [f32; 4] { unsafe {
-    let a_vec = vld1q_f32(a.as_ptr());
-    let b_vec = vld1q_f32(b.as_ptr());
-    let c_vec = vld1q_f32(c.as_ptr());
+pub unsafe fn vec4_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> [f32; 4] {
+    unsafe {
+        let a_vec = vld1q_f32(a.as_ptr());
+        let b_vec = vld1q_f32(b.as_ptr());
+        let c_vec = vld1q_f32(c.as_ptr());
 
-    // FMA: a*b + c
-    let mul_result = vmulq_f32(a_vec, b_vec);
-    let result = vaddq_f32(mul_result, c_vec);
+        // FMA: a*b + c
+        let mul_result = vmulq_f32(a_vec, b_vec);
+        let result = vaddq_f32(mul_result, c_vec);
 
-    let mut output = [0.0f32; 4];
-    vst1q_f32(output.as_mut_ptr(), result);
-    output
-}}
+        let mut output = [0.0f32; 4];
+        vst1q_f32(output.as_mut_ptr(), result);
+        output
+    }
+}
 
 /// 标量fallback: 融合乘加
 #[cfg(not(target_arch = "aarch64"))]
@@ -106,17 +102,19 @@ pub fn vec4_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> [f32; 4] {
 /// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_dot_f32(a: &[f32; 4], b: &[f32; 4]) -> f32 { unsafe {
-    let a_vec = vld1q_f32(a.as_ptr());
-    let b_vec = vld1q_f32(b.as_ptr());
+pub unsafe fn vec4_dot_f32(a: &[f32; 4], b: &[f32; 4]) -> f32 {
+    unsafe {
+        let a_vec = vld1q_f32(a.as_ptr());
+        let b_vec = vld1q_f32(b.as_ptr());
 
-    let mul = vmulq_f32(a_vec, b_vec);
+        let mul = vmulq_f32(a_vec, b_vec);
 
-    // 水平求和
-    let mut result = [0.0f32; 4];
-    vst1q_f32(result.as_mut_ptr(), mul);
-    result.iter().sum()
-}}
+        // 水平求和
+        let mut result = [0.0f32; 4];
+        vst1q_f32(result.as_mut_ptr(), mul);
+        result.iter().sum()
+    }
+}
 
 /// 标量fallback: 点积
 #[cfg(not(target_arch = "aarch64"))]
@@ -131,20 +129,22 @@ pub fn vec4_dot_f32(a: &[f32; 4], b: &[f32; 4]) -> f32 {
 /// 调用者确保输入数组至少有16个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec16_add_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] { unsafe {
-    let mut result = [0.0f32; 16];
+pub unsafe fn vec16_add_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+    unsafe {
+        let mut result = [0.0f32; 16];
 
-    // 处理4个向量块 (4×4=16)
-    for i in 0..4 {
-        let offset = i * 4;
-        let a_vec = vld1q_f32(a[offset..].as_ptr());
-        let b_vec = vld1q_f32(b[offset..].as_ptr());
-        let sum = vaddq_f32(a_vec, b_vec);
-        vst1q_f32(result[offset..].as_mut_ptr(), sum);
+        // 处理4个向量块 (4×4=16)
+        for i in 0..4 {
+            let offset = i * 4;
+            let a_vec = vld1q_f32(a[offset..].as_ptr());
+            let b_vec = vld1q_f32(b[offset..].as_ptr());
+            let sum = vaddq_f32(a_vec, b_vec);
+            vst1q_f32(result[offset..].as_mut_ptr(), sum);
+        }
+
+        result
     }
-
-    result
-}}
+}
 
 /// 标量fallback: 16元素向量加法
 #[cfg(not(target_arch = "aarch64"))]
@@ -163,19 +163,21 @@ pub fn vec16_add_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
 /// 调用者确保输入数组至少有16个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec16_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] { unsafe {
-    let mut result = [0.0f32; 16];
+pub unsafe fn vec16_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+    unsafe {
+        let mut result = [0.0f32; 16];
 
-    for i in 0..4 {
-        let offset = i * 4;
-        let a_vec = vld1q_f32(a[offset..].as_ptr());
-        let b_vec = vld1q_f32(b[offset..].as_ptr());
-        let product = vmulq_f32(a_vec, b_vec);
-        vst1q_f32(result[offset..].as_mut_ptr(), product);
+        for i in 0..4 {
+            let offset = i * 4;
+            let a_vec = vld1q_f32(a[offset..].as_ptr());
+            let b_vec = vld1q_f32(b[offset..].as_ptr());
+            let product = vmulq_f32(a_vec, b_vec);
+            vst1q_f32(result[offset..].as_mut_ptr(), product);
+        }
+
+        result
     }
-
-    result
-}}
+}
 
 /// 标量fallback: 16元素向量乘法
 #[cfg(not(target_arch = "aarch64"))]
@@ -194,31 +196,30 @@ pub fn vec16_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
 /// 调用者确保输入数组至少有16个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec16_dot_f32(a: &[f32; 16], b: &[f32; 16]) -> f32 { unsafe {
-    let mut sum_vec = vdupq_n_f32(0.0);
+pub unsafe fn vec16_dot_f32(a: &[f32; 16], b: &[f32; 16]) -> f32 {
+    unsafe {
+        let mut sum_vec = vdupq_n_f32(0.0);
 
-    for i in 0..4 {
-        let offset = i * 4;
-        let a_vec = vld1q_f32(a[offset..].as_ptr());
-        let b_vec = vld1q_f32(b[offset..].as_ptr());
-        let mul = vmulq_f32(a_vec, b_vec);
-        sum_vec = vaddq_f32(sum_vec, mul);
+        for i in 0..4 {
+            let offset = i * 4;
+            let a_vec = vld1q_f32(a[offset..].as_ptr());
+            let b_vec = vld1q_f32(b[offset..].as_ptr());
+            let mul = vmulq_f32(a_vec, b_vec);
+            sum_vec = vaddq_f32(sum_vec, mul);
+        }
+
+        // 水平求和
+        let mut result = [0.0f32; 4];
+        vst1q_f32(result.as_mut_ptr(), sum_vec);
+        result.iter().sum()
     }
-
-    // 水平求和
-    let mut result = [0.0f32; 4];
-    vst1q_f32(result.as_mut_ptr(), sum_vec);
-    result.iter().sum()
-}}
+}
 
 /// 标量fallback: 16元素点积
 #[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub fn vec16_dot_f32(a: &[f32; 16], b: &[f32; 16]) -> f32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| x * y)
-        .sum()
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
 /// 批量向量加法 (自适应大小)
@@ -248,16 +249,10 @@ pub fn vec_add_f32(a: &[f32], b: &[f32]) -> Vec<f32> {
         }
     } else if len < 64 {
         // 中等大小: 逐个元素处理
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| x + y)
-            .collect()
+        a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
     } else {
         // 大向量: 标量代码(编译器会自动向量化)
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| x + y)
-            .collect()
+        a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
     }
 }
 
@@ -283,16 +278,10 @@ pub fn vec_mul_f32(a: &[f32], b: &[f32]) -> Vec<f32> {
             vec16_mul_f32(&a_arr, &b_arr).to_vec()
         }
     } else if len < 64 {
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| x * y)
-            .collect()
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).collect()
     } else {
         // 大向量: 标量代码
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| x * y)
-            .collect()
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).collect()
     }
 }
 
@@ -319,16 +308,10 @@ pub fn vec_dot_f32(a: &[f32], b: &[f32]) -> f32 {
         }
     } else if len <= 256 {
         // 中等大小: 使用点积算法
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| x * y)
-            .sum()
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
     } else {
         // 大向量: 标量代码
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| x * y)
-            .sum()
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
     }
 }
 
@@ -372,11 +355,24 @@ mod tests {
 
     #[test]
     fn test_vec16_add_f32() {
-        let a: [f32; 16] = (0..16).map(|i| i as f32).collect::<Vec<_>>().try_into().unwrap();
-        let b: [f32; 16] = (0..16).map(|i| (i + 16) as f32).collect::<Vec<_>>().try_into().unwrap();
+        let a: [f32; 16] = (0..16)
+            .map(|i| i as f32)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let b: [f32; 16] = (0..16)
+            .map(|i| (i + 16) as f32)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
         let result = unsafe { vec16_add_f32(&a, &b) };
-        assert_eq!(result, [16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0,
-                           32.0, 34.0, 36.0, 38.0, 40.0, 42.0, 44.0, 46.0]);
+        assert_eq!(
+            result,
+            [
+                16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 38.0, 40.0, 42.0,
+                44.0, 46.0
+            ]
+        );
     }
 
     #[test]

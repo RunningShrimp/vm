@@ -1,7 +1,7 @@
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 ///
 /// 测试无锁TLB实现的性能指标
 use std::hint::black_box;
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 /// 无锁TLB性能基准测试
 use vm_mem::tlb::core::lockfree::{LockFreeTlb, TlbEntry};
 

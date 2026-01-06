@@ -7,10 +7,9 @@
 pub mod qos;
 pub mod task_category;
 
-pub use qos::{QoSClass, set_current_thread_qos, get_current_thread_qos};
+pub use qos::{QoSClass, get_current_thread_qos, set_current_thread_qos};
 pub use task_category::{
-    TaskCategory, set_task_category, get_task_category,
-    with_task_category, PerformanceImpact
+    PerformanceImpact, TaskCategory, get_task_category, set_task_category, with_task_category,
 };
 
 /// macOS调度器
@@ -73,11 +72,7 @@ impl BigLittleScheduler {
 
     /// 异步执行任务(自动调度)
     #[cfg(feature = "async")]
-    pub async fn schedule_async_task<F, R>(
-        &self,
-        category: TaskCategory,
-        f: F,
-    ) -> R
+    pub async fn schedule_async_task<F, R>(&self, category: TaskCategory, f: F) -> R
     where
         F: std::future::Future<Output = R>,
     {
@@ -113,9 +108,7 @@ mod tests {
     #[test]
     fn test_schedule_task() {
         let scheduler = BigLittleScheduler::new();
-        let result = scheduler.schedule_task(TaskCategory::LatencySensitive, || {
-            42
-        });
+        let result = scheduler.schedule_task(TaskCategory::LatencySensitive, || 42);
         assert_eq!(result, 42);
     }
 
@@ -134,7 +127,11 @@ mod tests {
 
         for (category, expected_qos) in mappings.iter() {
             let qos = category.to_qos();
-            assert_eq!(qos, *expected_qos, "Category {:?} should map to {:?}", category, expected_qos);
+            assert_eq!(
+                qos, *expected_qos,
+                "Category {:?} should map to {:?}",
+                category, expected_qos
+            );
         }
     }
 }

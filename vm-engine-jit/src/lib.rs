@@ -161,14 +161,8 @@ pub use loop_opt::{LoopInfo, LoopOptConfig, LoopOptimizer};
 // SIMD功能导出（需要simd feature）
 #[cfg(feature = "simd")]
 pub use simd_integration::{
-    SimdIntegrationManager,
-    SimdCompiler,
-    compile_simd_op,
-    compile_simd_operation,
-    ElementSize,
-    SimdOperation,
-    VectorOperation,
-    VectorSize,
+    ElementSize, SimdCompiler, SimdIntegrationManager, SimdOperation, VectorOperation, VectorSize,
+    compile_simd_op, compile_simd_operation,
 };
 
 // SIMD模块导出（始终可用但标记为实验性）
@@ -544,9 +538,9 @@ extern "C" fn jit_cas(ctx: *mut JitContext, vaddr: u64, expected: u64, new: u64,
             && let Ok(pa_w) = (*ctx)
                 .mmu
                 .translate(GuestAddr(vaddr), vm_core::AccessType::Write)
-            {
-                let _ = (*ctx).mmu.write(GuestAddr(pa_w.0), new, size);
-            }
+        {
+            let _ = (*ctx).mmu.write(GuestAddr(pa_w.0), new, size);
+        }
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
         old
     }
@@ -773,7 +767,6 @@ impl Jit {
 
         let module = JITModule::new(builder);
         let ctx = module.make_context();
-        
 
         // 默认启用ML引导优化（可通过disable_ml_guidance()禁用）
         // 注意：enable_ml_guidance 需要 &mut self，所以使用内部可变性或在调用处处理
@@ -882,7 +875,6 @@ impl Jit {
     pub fn disable_performance_monitor(&mut self) -> Option<vm_monitor::EventBasedJitMonitor> {
         self.performance_monitor.take()
     }
-
 
     /// 获取Profile数据
     pub fn get_profile_data(&self) -> Option<pgo::ProfileData> {
@@ -3365,7 +3357,8 @@ impl ExecutionEngine<IRBlock> for Jit {
                 if !code_ptr.0.is_null() {
                     // 记录PGO数据：代码块调用关系
                     if let Some(ref collector) = self.profile_collector
-                        && self.pc != GuestAddr(0) && self.pc != pc_key
+                        && self.pc != GuestAddr(0)
+                        && self.pc != pc_key
                     {
                         collector.record_block_call(self.pc, pc_key);
                     }
@@ -3390,7 +3383,8 @@ impl ExecutionEngine<IRBlock> for Jit {
 
                 // 记录PGO数据：代码块调用关系
                 if let Some(ref collector) = self.profile_collector
-                    && self.pc != GuestAddr(0) && self.pc != pc_key
+                    && self.pc != GuestAddr(0)
+                    && self.pc != pc_key
                 {
                     collector.record_block_call(self.pc, pc_key);
                 }

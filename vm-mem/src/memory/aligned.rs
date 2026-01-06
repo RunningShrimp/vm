@@ -144,7 +144,8 @@ impl SimdAlignedVector4 {
     /// 标量点积 (fallback)
     #[cfg(not(target_arch = "aarch64"))]
     pub fn dot_product(&self, other: &Self) -> f32 {
-        self.data.iter()
+        self.data
+            .iter()
             .zip(other.data.iter())
             .map(|(a, b)| a * b)
             .sum()
@@ -178,8 +179,7 @@ mod tests {
 
     #[test]
     fn test_aligned_object_pool() {
-        let mut pool: AlignedObjectPool<SimdAlignedVector4> =
-            AlignedObjectPool::with_capacity(10);
+        let mut pool: AlignedObjectPool<SimdAlignedVector4> = AlignedObjectPool::with_capacity(10);
 
         // 分配一些对象
         for _ in 0..5 {

@@ -49,21 +49,24 @@ impl ServiceContainer {
         let mut cache_managers: HashMap<String, CacheManagerRef> = HashMap::new();
 
         // L1 缓存（32KB）
-        let l1_cache: CacheManagerRef = Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
+        let l1_cache: CacheManagerRef =
+            Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
                 32 * 1024,
                 vm_engine::jit::cache::manager::CacheReplacementPolicy::LRU,
             )));
         cache_managers.insert("L1".to_string(), l1_cache);
 
         // L2 缓存（256KB）
-        let l2_cache: CacheManagerRef = Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
+        let l2_cache: CacheManagerRef =
+            Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
                 256 * 1024,
                 vm_engine::jit::cache::manager::CacheReplacementPolicy::LRU,
             )));
         cache_managers.insert("L2".to_string(), l2_cache);
 
         // L3 缓存（2MB）
-        let l3_cache: CacheManagerRef = Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
+        let l3_cache: CacheManagerRef =
+            Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
                 2 * 1024 * 1024,
                 vm_engine::jit::cache::manager::CacheReplacementPolicy::LFU,
             )));

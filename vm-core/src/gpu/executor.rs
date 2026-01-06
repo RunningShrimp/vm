@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use super::device::{GpuCompute, GpuDeviceManager, GpuKernel, GpuArg};
+use super::device::{GpuArg, GpuCompute, GpuDeviceManager, GpuKernel};
 use super::error::{GpuError, GpuResult};
 
 /// GPU执行配置
@@ -162,7 +162,9 @@ impl GpuExecutor {
 
     /// 获取GPU设备信息
     pub fn device_info(&self) -> Option<super::device::GpuDeviceInfo> {
-        self.device_manager.default_device().map(|device| device.device_info())
+        self.device_manager
+            .default_device()
+            .map(|device| device.device_info())
     }
 
     /// 检查指令是否可以在GPU上执行
@@ -218,13 +220,7 @@ impl GpuExecutor {
         };
 
         // 执行内核
-        let result = device.execute_kernel(
-            &kernel,
-            grid_dim,
-            block_dim,
-            args,
-            shared_memory_size,
-        );
+        let result = device.execute_kernel(&kernel, grid_dim, block_dim, args, shared_memory_size);
 
         let execution_time_ns = start.elapsed().as_nanos() as u64;
 
@@ -469,7 +465,10 @@ impl GpuExecutor {
         println!("GPU success count: {}", stats.gpu_success_count);
         println!("GPU failure count: {}", stats.gpu_failure_count);
         println!("CPU fallback count: {}", stats.cpu_fallback_count);
-        println!("Kernel compilation count: {}", stats.kernel_compilation_count);
+        println!(
+            "Kernel compilation count: {}",
+            stats.kernel_compilation_count
+        );
         println!("Cache hits: {}", stats.cache_hits);
         println!("Cache misses: {}", stats.cache_misses);
         println!("Cache hit rate: {:.2}%", stats.cache_hit_rate() * 100.0);

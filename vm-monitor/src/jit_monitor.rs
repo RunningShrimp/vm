@@ -33,10 +33,10 @@
 //! println!("{}", report);
 //! ```
 
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::Instant;
-use serde::{Deserialize, Serialize};
 
 // 重新导出vm-core的ExecutionEvent
 pub use vm_core::domain_services::ExecutionEvent;
@@ -151,7 +151,12 @@ impl JitPerformanceMonitor {
 
     /// 处理代码块编译事件
     pub fn handle_code_block_compiled(&self, event: &ExecutionEvent) {
-        if let ExecutionEvent::CodeBlockCompiled { vm_id, pc, block_size } = event {
+        if let ExecutionEvent::CodeBlockCompiled {
+            vm_id,
+            pc,
+            block_size,
+        } = event
+        {
             let record = CompilationRecord {
                 vm_id: vm_id.clone(),
                 pc: *pc,
@@ -173,7 +178,12 @@ impl JitPerformanceMonitor {
 
     /// 处理热点检测事件
     pub fn handle_hotspot_detected(&self, event: &ExecutionEvent) {
-        if let ExecutionEvent::HotspotDetected { vm_id, pc, execution_count } = event {
+        if let ExecutionEvent::HotspotDetected {
+            vm_id,
+            pc,
+            execution_count,
+        } = event
+        {
             let record = HotspotRecord {
                 vm_id: vm_id.clone(),
                 pc: *pc,
@@ -302,24 +312,52 @@ impl std::fmt::Display for PerformanceReport {
         writeln!(f)?;
         writeln!(f, "--- 统计信息 ---")?;
         writeln!(f, "总编译次数: {}", self.statistics.total_compilations)?;
-        writeln!(f, "总编译字节: {} bytes", self.statistics.total_compiled_bytes)?;
-        writeln!(f, "平均代码块大小: {:.2} bytes", self.statistics.avg_block_size)?;
+        writeln!(
+            f,
+            "总编译字节: {} bytes",
+            self.statistics.total_compiled_bytes
+        )?;
+        writeln!(
+            f,
+            "平均代码块大小: {:.2} bytes",
+            self.statistics.avg_block_size
+        )?;
         writeln!(f, "总热点检测: {}", self.statistics.total_hotspots)?;
-        writeln!(f, "平均执行次数: {:.2}", self.statistics.avg_execution_count)?;
+        writeln!(
+            f,
+            "平均执行次数: {:.2}",
+            self.statistics.avg_execution_count
+        )?;
         writeln!(f)?;
         writeln!(f, "--- 性能指标 ---")?;
         for metric in &self.metrics {
             writeln!(f, "{}: {:.2} {}", metric.name, metric.value, metric.unit)?;
         }
         writeln!(f)?;
-        writeln!(f, "--- 最近编译记录 ({}条) ---", self.recent_compilations.len())?;
+        writeln!(
+            f,
+            "--- 最近编译记录 ({}条) ---",
+            self.recent_compilations.len()
+        )?;
         for (i, record) in self.recent_compilations.iter().take(10).enumerate() {
-            writeln!(f, "{}. PC=0x{:x}, size={} bytes", i+1, record.pc, record.block_size)?;
+            writeln!(
+                f,
+                "{}. PC=0x{:x}, size={} bytes",
+                i + 1,
+                record.pc,
+                record.block_size
+            )?;
         }
         writeln!(f)?;
         writeln!(f, "--- 最近热点记录 ({}条) ---", self.recent_hotspots.len())?;
         for (i, record) in self.recent_hotspots.iter().take(10).enumerate() {
-            writeln!(f, "{}. PC=0x{:x}, exec_count={}", i+1, record.pc, record.execution_count)?;
+            writeln!(
+                f,
+                "{}. PC=0x{:x}, exec_count={}",
+                i + 1,
+                record.pc,
+                record.execution_count
+            )?;
         }
         Ok(())
     }

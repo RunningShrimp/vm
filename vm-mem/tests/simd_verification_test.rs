@@ -16,7 +16,10 @@ fn test_simd_feature_detection() {
 
     // 验证至少有一个SIMD特性被检测到
     let feature = simd_feature_name();
-    assert!(!feature.is_empty(), "Should detect at least one SIMD feature");
+    assert!(
+        !feature.is_empty(),
+        "Should detect at least one SIMD feature"
+    );
 
     println!("✅ SIMD feature detection works correctly");
 }
@@ -74,7 +77,11 @@ fn test_simd_memcpy_unaligned() {
         memcpy_fast(&mut dst, src_slice);
 
         let expected: Vec<u8> = (*offset..*offset + size).map(|i| i as u8).collect();
-        assert_eq!(dst, expected, "Unaligned memcpy failed for offset {}", offset);
+        assert_eq!(
+            dst, expected,
+            "Unaligned memcpy failed for offset {}",
+            offset
+        );
         println!("  ✅ Unaligned copy: offset={}, size={}", offset, size);
     }
 
@@ -90,7 +97,10 @@ fn test_simd_memcpy_zero_copy() {
 
     // 测试0字节拷贝
     memcpy_fast(&mut dst, &src[0..0]);
-    assert!(dst.iter().all(|&x| x == 0), "Zero copy should not modify destination");
+    assert!(
+        dst.iter().all(|&x| x == 0),
+        "Zero copy should not modify destination"
+    );
 
     println!("✅ Zero-copy edge case handled correctly");
 }
@@ -107,17 +117,15 @@ fn test_simd_memcpy_large_data() {
 
     assert_eq!(dst, src, "Large data SIMD memcpy failed");
 
-    println!("✅ Large data SIMD memcpy test passed ({} KB)", large_size / 1024);
+    println!(
+        "✅ Large data SIMD memcpy test passed ({} KB)",
+        large_size / 1024
+    );
 
     // 验证模式正确
     let check_count = 100;
     for i in 0..check_count {
-        assert_eq!(
-            dst[i],
-            (i % 256) as u8,
-            "Pattern mismatch at index {}",
-            i
-        );
+        assert_eq!(dst[i], (i % 256) as u8, "Pattern mismatch at index {}", i);
     }
     println!("✅ Data pattern verification passed");
 }
@@ -141,8 +149,12 @@ fn test_simd_performance_characteristics() {
         let duration = start.elapsed();
 
         let throughput = (*size as f64 * 1000.0) / duration.as_secs_f64() / (1024.0 * 1024.0);
-        println!("    Size: {:5} bytes | Time: {:8.3}ms | Throughput: {:8.2} MB/s",
-                 size, duration.as_secs_f64() * 1000.0, throughput);
+        println!(
+            "    Size: {:5} bytes | Time: {:8.3}ms | Throughput: {:8.2} MB/s",
+            size,
+            duration.as_secs_f64() * 1000.0,
+            throughput
+        );
     }
 
     println!("✅ Performance characteristics test completed");

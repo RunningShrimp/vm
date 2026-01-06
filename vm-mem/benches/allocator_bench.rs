@@ -7,9 +7,9 @@
 
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
-use vm_mem::{MemoryPool, StackPool};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use vm_mem::NumaAllocPolicy;
+use vm_mem::{MemoryPool, StackPool};
 
 /// 简单测试结构
 #[derive(Debug, Clone, Default)]

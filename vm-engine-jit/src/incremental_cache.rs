@@ -198,11 +198,12 @@ impl IncrementalCompilationCache {
 
         // 如果缓存已满，驱逐最旧的条目
         if self.cache.len() >= self.max_entries.get()
-            && let Some(oldest_hash) = self.access_order.first() {
-                self.cache.remove(oldest_hash);
-                self.access_order.remove(0);
-                self.stats.evictions += 1;
-            }
+            && let Some(oldest_hash) = self.access_order.first()
+        {
+            self.cache.remove(oldest_hash);
+            self.access_order.remove(0);
+            self.stats.evictions += 1;
+        }
 
         self.cache.insert(hash, entry);
         self.access_order.push(hash);
@@ -267,10 +268,11 @@ impl IncrementalCompilationCache {
 
                 // 如果缓存已满，驱逐最旧的条目
                 if self.cache.len() >= self.max_entries.get()
-                    && let Some(oldest_hash) = self.access_order.first() {
-                        self.cache.remove(oldest_hash);
-                        self.access_order.remove(0);
-                    }
+                    && let Some(oldest_hash) = self.access_order.first()
+                {
+                    self.cache.remove(oldest_hash);
+                    self.access_order.remove(0);
+                }
 
                 self.cache.insert(hash, entry);
                 self.access_order.push(hash);

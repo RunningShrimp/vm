@@ -17,8 +17,22 @@ fn main() {
     println!("Architecture: {}", std::env::consts::ARCH);
     println!("OS:           {}", std::env::consts::OS);
     println!("Family:       {}", std::env::consts::FAMILY);
-    println!("Endian:       {}", if cfg!(target_endian = "little") { "Little" } else { "Big" });
-    println!("Pointer:      {} bit", if cfg!(target_pointer_width = "64") { "64" } else { "32" });
+    println!(
+        "Endian:       {}",
+        if cfg!(target_endian = "little") {
+            "Little"
+        } else {
+            "Big"
+        }
+    );
+    println!(
+        "Pointer:      {} bit",
+        if cfg!(target_pointer_width = "64") {
+            "64"
+        } else {
+            "32"
+        }
+    );
     println!();
 
     // SIMD Features
@@ -30,27 +44,139 @@ fn main() {
         println!("✅ ARM64 NEON: Available");
         println!("  NEON (Advanced SIMD): Advanced SIMD instruction set");
         println!("  - Vector width: 128 bits");
-        println!("  - crypto:   {} (AES, SHA1, SHA2)", if cfg!(target_feature = "aes") { "✅" } else { "❌" });
-        println!("  - aes:      {} (AES encryption)", if cfg!(target_feature = "aes") { "✅" } else { "❌" });
-        println!("  - crc:      {} (CRC-32)", if cfg!(target_feature = "crc") { "✅" } else { "❌" });
-        println!("  - dotprod:  {} (Dot product)", if cfg!(target_feature = "dotprod") { "✅" } else { "❌" });
-        println!("  - fp16:     {} (Half-precision FP)", if cfg!(target_feature = "fp16") { "✅" } else { "❌" });
-        println!("  - sve:      {} (Scalable Vector Extension)", if cfg!(target_feature = "sve") { "✅" } else { "❌" });
-        println!("  - sve2:     {} (SVE version 2)", if cfg!(target_feature = "sve2") { "✅" } else { "❌" });
+        println!(
+            "  - crypto:   {} (AES, SHA1, SHA2)",
+            if cfg!(target_feature = "aes") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - aes:      {} (AES encryption)",
+            if cfg!(target_feature = "aes") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - crc:      {} (CRC-32)",
+            if cfg!(target_feature = "crc") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - dotprod:  {} (Dot product)",
+            if cfg!(target_feature = "dotprod") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - fp16:     {} (Half-precision FP)",
+            if cfg!(target_feature = "fp16") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - sve:      {} (Scalable Vector Extension)",
+            if cfg!(target_feature = "sve") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - sve2:     {} (SVE version 2)",
+            if cfg!(target_feature = "sve2") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
     {
         println!("✅ x86_64 SIMD: Available");
-        println!("  - sse:     {} (Streaming SIMD Extensions)", if cfg!(target_feature = "sse") { "✅" } else { "❌" });
-        println!("  - sse2:    {} (SSE2)", if cfg!(target_feature = "sse2") { "✅" } else { "❌" });
-        println!("  - sse3:    {} (SSE3)", if cfg!(target_feature = "sse3") { "✅" } else { "❌" });
-        println!("  - ssse3:   {} (Supplemental SSE3)", if cfg!(target_feature = "ssse3") { "✅" } else { "❌" });
-        println!("  - sse4.1:  {} (SSE4.1)", if cfg!(target_feature = "sse4.1") { "✅" } else { "❌" });
-        println!("  - sse4.2:  {} (SSE4.2)", if cfg!(target_feature = "sse4.2") { "✅" } else { "❌" });
-        println!("  - avx:     {} (Advanced Vector Extensions)", if cfg!(target_feature = "avx") { "✅" } else { "❌" });
-        println!("  - avx2:    {} (AVX2 - 256-bit vectors)", if cfg!(target_feature = "avx2") { "✅" } else { "❌" });
-        println!("  - avx512f: {} (AVX-512 Foundation)", if cfg!(target_feature = "avx512f") { "✅" } else { "❌" });
+        println!(
+            "  - sse:     {} (Streaming SIMD Extensions)",
+            if cfg!(target_feature = "sse") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - sse2:    {} (SSE2)",
+            if cfg!(target_feature = "sse2") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - sse3:    {} (SSE3)",
+            if cfg!(target_feature = "sse3") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - ssse3:   {} (Supplemental SSE3)",
+            if cfg!(target_feature = "ssse3") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - sse4.1:  {} (SSE4.1)",
+            if cfg!(target_feature = "sse4.1") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - sse4.2:  {} (SSE4.2)",
+            if cfg!(target_feature = "sse4.2") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - avx:     {} (Advanced Vector Extensions)",
+            if cfg!(target_feature = "avx") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - avx2:    {} (AVX2 - 256-bit vectors)",
+            if cfg!(target_feature = "avx2") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
+        println!(
+            "  - avx512f: {} (AVX-512 Foundation)",
+            if cfg!(target_feature = "avx512f") {
+                "✅"
+            } else {
+                "❌"
+            }
+        );
     }
 
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
@@ -95,16 +221,15 @@ fn main() {
             println!("Logical Threads: {}", threads.trim());
         }
 
-        if let Ok(output) = Command::new("sysctl")
-            .arg("-n")
-            .arg("hw.memsize")
-            .output()
-        {
+        if let Ok(output) = Command::new("sysctl").arg("-n").arg("hw.memsize").output() {
             let mem = String::from_utf8_lossy(&output.stdout)
                 .trim()
                 .parse::<u64>()
                 .unwrap_or(0);
-            println!("Total Memory:  {:.2} GB", mem as f64 / 1024.0 / 1024.0 / 1024.0 / 1024.0);
+            println!(
+                "Total Memory:  {:.2} GB",
+                mem as f64 / 1024.0 / 1024.0 / 1024.0 / 1024.0
+            );
         }
 
         if let Ok(output) = Command::new("sysctl")
@@ -134,9 +259,7 @@ fn main() {
             }
         }
 
-        if let Ok(output) = Command::new("nproc")
-            .output()
-        {
+        if let Ok(output) = Command::new("nproc").output() {
             let cores = String::from_utf8_lossy(&output.stdout);
             println!("CPU Cores:  {}", cores.trim());
         }
@@ -147,14 +270,20 @@ fn main() {
     // Rust Compilation Information
     println!("🦀 Rust Compilation Information");
     println!("─────────────────────────────────────────────────────────");
-    println!("Target:        {}", std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string()));
-    println!("Opt Level:      {}", std::env::var("OPT_LEVEL").unwrap_or_else(|_| "unknown".to_string()));
-    println!("Debug Assert:   {}", std::env::var("CFG_DEBUG_ASSERTIONS").unwrap_or_else(|_| "unknown".to_string()));
+    println!(
+        "Target:        {}",
+        std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string())
+    );
+    println!(
+        "Opt Level:      {}",
+        std::env::var("OPT_LEVEL").unwrap_or_else(|_| "unknown".to_string())
+    );
+    println!(
+        "Debug Assert:   {}",
+        std::env::var("CFG_DEBUG_ASSERTIONS").unwrap_or_else(|_| "unknown".to_string())
+    );
 
-    if let Ok(rustc) = Command::new("rustc")
-        .arg("--version")
-        .output()
-    {
+    if let Ok(rustc) = Command::new("rustc").arg("--version").output() {
         let version = String::from_utf8_lossy(&rustc.stdout);
         println!("Rustc Version: {}", version.trim());
     }

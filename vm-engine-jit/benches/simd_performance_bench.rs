@@ -3,9 +3,9 @@
 // 测试SIMD操作相对于标量操作的性能提升
 // 使用criterion进行精确的性能测量
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use vm_ir::{IROp, IRBlock, Terminator};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use vm_core::GuestAddr;
+use vm_ir::{IRBlock, IROp, Terminator};
 
 /// 创建向量加法的SIMD IR块
 fn create_vec_add_ir_block(num_ops: usize, element_size: u8) -> IRBlock {
@@ -41,11 +41,7 @@ fn create_scalar_add_ir_block(num_ops: usize) -> IRBlock {
         let src2 = (i * 3 + 3) as u32;
 
         // 使用标量Add操作
-        ops.push(IROp::Add {
-            dst,
-            src1,
-            src2,
-        });
+        ops.push(IROp::Add { dst, src1, src2 });
     }
 
     IRBlock {
@@ -90,16 +86,12 @@ fn bench_vec_add_vs_scalar(c: &mut Criterion) {
         );
 
         // 标量加法（用于对比）
-        group.bench_with_input(
-            BenchmarkId::new("scalar_add", size),
-            &size,
-            |b, &size| {
-                let block = create_scalar_add_ir_block(size);
-                b.iter(|| {
-                    std::hint::black_box(&block);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("scalar_add", size), &size, |b, &size| {
+            let block = create_scalar_add_ir_block(size);
+            b.iter(|| {
+                std::hint::black_box(&block);
+            });
+        });
     }
 
     group.finish();
@@ -364,16 +356,12 @@ fn bench_ir_block_throughput(c: &mut Criterion) {
     for size in [10, 50, 100, 500, 1000].iter() {
         group.throughput(Throughput::Elements(*size as u64));
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(size),
-            size,
-            |b, &size| {
-                b.iter(|| {
-                    let block = create_vec_add_ir_block(size, 32);
-                    std::hint::black_box(&block);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            b.iter(|| {
+                let block = create_vec_add_ir_block(size, 32);
+                std::hint::black_box(&block);
+            });
+        });
     }
 
     group.finish();

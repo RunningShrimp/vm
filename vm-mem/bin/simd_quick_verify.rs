@@ -50,7 +50,11 @@ fn main() {
         }
     }
 
-    println!("   ✅ 对齐拷贝: {}/{} 测试通过\n", aligned_passed, aligned_sizes.len());
+    println!(
+        "   ✅ 对齐拷贝: {}/{} 测试通过\n",
+        aligned_passed,
+        aligned_sizes.len()
+    );
 
     // 4. 未对齐拷贝测试
     println!("4. 未对齐拷贝测试");
@@ -73,7 +77,11 @@ fn main() {
         }
     }
 
-    println!("   ✅ 未对齐拷贝: {}/{} 测试通过\n", unaligned_passed, offsets.len());
+    println!(
+        "   ✅ 未对齐拷贝: {}/{} 测试通过\n",
+        unaligned_passed,
+        offsets.len()
+    );
 
     // 5. 性能测试
     println!("5. 性能特征测试");
@@ -103,8 +111,13 @@ fn main() {
         let total_bytes = (*size * iterations) as f64;
         let throughput_mb = total_bytes / duration.as_secs_f64() / (1024.0 * 1024.0);
 
-        println!("   {:9}  | {:8} | {:8.3}ms | {:8.2} MB/s",
-                 size, iterations, duration.as_secs_f64() * 1000.0, throughput_mb);
+        println!(
+            "   {:9}  | {:8} | {:8.3}ms | {:8.2} MB/s",
+            size,
+            iterations,
+            duration.as_secs_f64() * 1000.0,
+            throughput_mb
+        );
     }
 
     println!();
@@ -113,8 +126,16 @@ fn main() {
     println!("=== 测试总结 ===");
     println!("✅ SIMD特性检测: 通过");
     println!("✅ 基础功能测试: 通过");
-    println!("✅ 对齐拷贝测试: {}/{} 通过", aligned_passed, aligned_sizes.len());
-    println!("✅ 未对齐拷贝测试: {}/{} 通过", unaligned_passed, offsets.len());
+    println!(
+        "✅ 对齐拷贝测试: {}/{} 通过",
+        aligned_passed,
+        aligned_sizes.len()
+    );
+    println!(
+        "✅ 未对齐拷贝测试: {}/{} 通过",
+        unaligned_passed,
+        offsets.len()
+    );
     println!("✅ 性能测试: 完成");
 
     if aligned_passed == aligned_sizes.len() && unaligned_passed == offsets.len() {

@@ -6,17 +6,17 @@
 //! - 页表遍历：RISC-V SV39/SV48页表遍历实现
 //! - 对齐内存：ARM64 NEON优化的16字节对齐内存 (Round 35)
 
+#[cfg(feature = "opt-simd")]
+pub mod aligned;
 pub mod memory_pool;
 pub mod numa_allocator;
 pub mod page_table_walker;
 pub mod thp;
-#[cfg(feature = "opt-simd")]
-pub mod aligned;
 
 // 重新导出主要类型
+#[cfg(feature = "opt-simd")]
+pub use aligned::*;
 pub use memory_pool::*;
 pub use numa_allocator::*;
 pub use page_table_walker::*;
 pub use thp::*;
-#[cfg(feature = "opt-simd")]
-pub use aligned::*;

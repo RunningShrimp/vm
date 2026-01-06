@@ -341,10 +341,7 @@ impl PGOGuidedOptimizer {
         }
 
         let mut profile = self.profile_data.lock();
-        let stats = profile
-            .branch_predictions
-            .entry(block_id)
-            .or_default();
+        let stats = profile.branch_predictions.entry(block_id).or_default();
         stats.update(taken);
     }
 
@@ -478,10 +475,7 @@ impl PGOGuidedOptimizer {
 
         // 合并分支预测
         for (block_id, other_stats) in other.branch_predictions {
-            let stats = profile
-                .branch_predictions
-                .entry(block_id)
-                .or_default();
+            let stats = profile.branch_predictions.entry(block_id).or_default();
             stats.taken_count += other_stats.taken_count;
             stats.not_taken_count += other_stats.not_taken_count;
             stats.total_taken += other_stats.total_taken;
@@ -490,10 +484,7 @@ impl PGOGuidedOptimizer {
 
         // 合并函数调用
         for (func_name, other_stats) in other.function_calls {
-            let stats = profile
-                .function_calls
-                .entry(func_name)
-                .or_default();
+            let stats = profile.function_calls.entry(func_name).or_default();
             stats.call_count += other_stats.call_count;
             // 重新计算平均时间
             if stats.avg_duration_us == 0 {
@@ -670,15 +661,17 @@ impl ProfileCollector {
 
         // Update caller's callees list
         if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id)
-            && !caller_profile.callees.contains(&callee_id) {
-                caller_profile.callees.push(callee_id);
-            }
+            && !caller_profile.callees.contains(&callee_id)
+        {
+            caller_profile.callees.push(callee_id);
+        }
 
         // Update callee's callers list
         if let Some(callee_profile) = profile.block_profiles.get_mut(&callee_id)
-            && !callee_profile.callers.contains(&caller_id) {
-                callee_profile.callers.push(caller_id);
-            }
+            && !callee_profile.callers.contains(&caller_id)
+        {
+            callee_profile.callers.push(caller_id);
+        }
     }
 
     /// Record branch execution with target and direction
@@ -687,10 +680,7 @@ impl ProfileCollector {
         let block_id = pc.0 as usize;
 
         // Update branch statistics
-        let stats = profile
-            .branch_predictions
-            .entry(block_id)
-            .or_default();
+        let stats = profile.branch_predictions.entry(block_id).or_default();
         stats.update(taken);
 
         // Update block profile branch count
@@ -768,15 +758,17 @@ impl ProfileCollector {
 
             // Update caller's callees list
             if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id)
-                && !caller_profile.callees.contains(&target_id) {
-                    caller_profile.callees.push(target_id);
-                }
+                && !caller_profile.callees.contains(&target_id)
+            {
+                caller_profile.callees.push(target_id);
+            }
 
             // Update target's callers list
             if let Some(target_profile) = profile.block_profiles.get_mut(&target_id)
-                && !target_profile.callers.contains(&caller_id) {
-                    target_profile.callers.push(caller_id);
-                }
+                && !target_profile.callers.contains(&caller_id)
+            {
+                target_profile.callers.push(caller_id);
+            }
         }
     }
 

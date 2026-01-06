@@ -23,8 +23,8 @@ mod simd_feature_tests {
         // 验证所有SIMD类型都可以导入和使用
 
         use vm_engine_jit::{
-            SimdCompiler, SimdIntegrationManager, SimdOperation, VectorOperation,
-            ElementSize, VectorSize,
+            ElementSize, SimdCompiler, SimdIntegrationManager, SimdOperation, VectorOperation,
+            VectorSize,
         };
 
         // 验证类型存在
@@ -46,8 +46,8 @@ mod simd_feature_tests {
 
 #[cfg(test)]
 mod simd_integration_tests {
-    use vm_ir::{IROp, IRBlock, Terminator};
     use vm_core::GuestAddr;
+    use vm_ir::{IRBlock, IROp, Terminator};
 
     // 测试基本的SIMD IR操作可以创建
     #[test]
@@ -125,14 +125,12 @@ mod simd_integration_tests {
 
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
-            ops: vec![
-                IROp::VecAdd {
-                    dst: 1,
-                    src1: 2,
-                    src2: 3,
-                    element_size: 64,
-                },
-            ],
+            ops: vec![IROp::VecAdd {
+                dst: 1,
+                src1: 2,
+                src2: 3,
+                element_size: 64,
+            }],
             term: Terminator::Ret,
         };
 
@@ -145,7 +143,9 @@ mod simd_integration_tests {
 #[cfg(test)]
 #[cfg(feature = "simd")]
 mod simd_compiler_tests {
-    use vm_engine_jit::{SimdCompiler, SimdIntegrationManager, SimdOperation, ElementSize, VectorSize};
+    use vm_engine_jit::{
+        ElementSize, SimdCompiler, SimdIntegrationManager, SimdOperation, VectorSize,
+    };
 
     // 测试SimdCompiler创建
     #[test]
@@ -218,8 +218,8 @@ mod simd_compiler_tests {
 
 #[cfg(test)]
 mod simd_compilation_tests {
-    use vm_ir::{IROp, IRBlock, Terminator};
     use vm_core::GuestAddr;
+    use vm_ir::{IRBlock, IROp, Terminator};
 
     // 测试SIMD块的IR构建
     #[test]
@@ -266,12 +266,15 @@ mod simd_compilation_tests {
                 term: Terminator::Ret,
             };
 
-            assert_eq!(block.ops[0], IROp::VecAdd {
-                dst: 1,
-                src1: 2,
-                src2: 3,
-                element_size: size,
-            });
+            assert_eq!(
+                block.ops[0],
+                IROp::VecAdd {
+                    dst: 1,
+                    src1: 2,
+                    src2: 3,
+                    element_size: size,
+                }
+            );
         }
     }
 
@@ -281,10 +284,30 @@ mod simd_compilation_tests {
         let block = IRBlock {
             start_pc: GuestAddr(0x1000),
             ops: vec![
-                IROp::VecAdd { dst: 1, src1: 2, src2: 3, element_size: 8 },
-                IROp::VecSub { dst: 4, src1: 5, src2: 6, element_size: 16 },
-                IROp::VecMul { dst: 7, src1: 8, src2: 9, element_size: 32 },
-                IROp::VecAdd { dst: 10, src1: 11, src2: 12, element_size: 64 },
+                IROp::VecAdd {
+                    dst: 1,
+                    src1: 2,
+                    src2: 3,
+                    element_size: 8,
+                },
+                IROp::VecSub {
+                    dst: 4,
+                    src1: 5,
+                    src2: 6,
+                    element_size: 16,
+                },
+                IROp::VecMul {
+                    dst: 7,
+                    src1: 8,
+                    src2: 9,
+                    element_size: 32,
+                },
+                IROp::VecAdd {
+                    dst: 10,
+                    src1: 11,
+                    src2: 12,
+                    element_size: 64,
+                },
             ],
             term: Terminator::Ret,
         };
@@ -295,8 +318,8 @@ mod simd_compilation_tests {
 
 #[cfg(test)]
 mod simd_bitwise_tests {
-    use vm_ir::{IROp, IRBlock, Terminator};
     use vm_core::GuestAddr;
+    use vm_ir::{IRBlock, IROp, Terminator};
 
     // 测试SIMD位运算操作
     #[test]

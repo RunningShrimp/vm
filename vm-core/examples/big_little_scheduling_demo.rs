@@ -6,8 +6,8 @@ use std::thread;
 use std::time::Duration;
 
 use vm_core::scheduling::{
-    with_background_cleanup, with_latency_sensitive, with_performance_critical,
-    with_task_category, BigLittleScheduler, TaskCategory,
+    BigLittleScheduler, TaskCategory, with_background_cleanup, with_latency_sensitive,
+    with_performance_critical, with_task_category,
 };
 
 fn main() {
@@ -99,10 +99,7 @@ fn main() {
         scheduler.schedule_task(category, || {
             let qos = vm_core::scheduling::get_current_thread_qos();
             let core_type = category.recommended_core_type();
-            println!(
-                "  {:?}: QoS={:?}, 核心={}",
-                category, qos, core_type
-            );
+            println!("  {:?}: QoS={:?}, 核心={}", category, qos, core_type);
         });
     }
     println!();

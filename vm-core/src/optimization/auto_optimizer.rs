@@ -22,12 +22,36 @@ fn log_optimization_strategy(strategy: &OptimizationStrategy) {
     let _ = writeln!(std::io::stdout(), "  Workload: {:?}", strategy.workload);
     let _ = writeln!(std::io::stdout(), "  SIMD: {}", strategy.enable_simd);
     let _ = writeln!(std::io::stdout(), "  NEON: {}", strategy.enable_neon);
-    let _ = writeln!(std::io::stdout(), "  Memory Pool: {}", strategy.enable_memory_pool);
-    let _ = writeln!(std::io::stdout(), "  Object Pool: {}", strategy.enable_object_pool);
-    let _ = writeln!(std::io::stdout(), "  TLB Opt: {}", strategy.enable_tlb_optimization);
-    let _ = writeln!(std::io::stdout(), "  JIT Hotspot: {}", strategy.enable_jit_hotspot);
-    let _ = writeln!(std::io::stdout(), "  Alignment: {} bytes", strategy.memory_alignment);
-    let _ = writeln!(std::io::stdout(), "  P-core: {}", strategy.prefer_performance_cores);
+    let _ = writeln!(
+        std::io::stdout(),
+        "  Memory Pool: {}",
+        strategy.enable_memory_pool
+    );
+    let _ = writeln!(
+        std::io::stdout(),
+        "  Object Pool: {}",
+        strategy.enable_object_pool
+    );
+    let _ = writeln!(
+        std::io::stdout(),
+        "  TLB Opt: {}",
+        strategy.enable_tlb_optimization
+    );
+    let _ = writeln!(
+        std::io::stdout(),
+        "  JIT Hotspot: {}",
+        strategy.enable_jit_hotspot
+    );
+    let _ = writeln!(
+        std::io::stdout(),
+        "  Alignment: {} bytes",
+        strategy.memory_alignment
+    );
+    let _ = writeln!(
+        std::io::stdout(),
+        "  P-core: {}",
+        strategy.prefer_performance_cores
+    );
 }
 
 /// 工作负载类型
@@ -238,31 +262,28 @@ impl AutoOptimizer {
         }
 
         // 计算统计数据
-        let times: Vec<f64> = history.iter()
-            .map(|m| m.operation_time_ns as f64)
-            .collect();
+        let times: Vec<f64> = history.iter().map(|m| m.operation_time_ns as f64).collect();
 
         let avg = times.iter().sum::<f64>() / times.len() as f64;
-        let variance = times.iter()
-            .map(|t| (t - avg).powi(2))
-            .sum::<f64>() / times.len() as f64;
+        let variance = times.iter().map(|t| (t - avg).powi(2)).sum::<f64>() / times.len() as f64;
         let std_dev = variance.sqrt();
 
         // 从实际数据计算特征
         let allocation_frequency = if !history.is_empty() {
             // 估算内存分配频率 (假设10%的操作涉及显著内存分配)
-            history.iter()
+            history
+                .iter()
                 .filter(|m| m.memory_used_bytes > 10_000)
-                .count() as f64 / history.len() as f64 * 100.0
+                .count() as f64
+                / history.len() as f64
+                * 100.0
         } else {
             1.0
         };
 
         let memory_copy_size = if !history.is_empty() {
             // 估算平均内存拷贝大小 (基于memory_used_bytes)
-            let total_memory: u64 = history.iter()
-                .map(|m| m.memory_used_bytes)
-                .sum();
+            let total_memory: u64 = history.iter().map(|m| m.memory_used_bytes).sum();
             total_memory as f64 / history.len() as f64
         } else {
             4096.0
@@ -271,7 +292,8 @@ impl AutoOptimizer {
         let jit_compilation_frequency = if !history.is_empty() {
             // 估算JIT编译频率 (基于操作时间的分布)
             // JIT编译通常比普通操作慢10-100倍
-            let slow_operations = history.iter()
+            let slow_operations = history
+                .iter()
                 .filter(|m| m.operation_time_ns > 100_000)
                 .count() as f64;
             slow_operations / history.len() as f64
@@ -378,7 +400,7 @@ impl AutoOptimizer {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos() as u64
+                .as_nanos() as u64,
         );
 
         // 实际应用优化到各个组件
@@ -404,7 +426,7 @@ impl AutoOptimizer {
                 {
                     // 通过QoS类偏好P-core
                     let _ = crate::scheduling::set_current_thread_qos(
-                        crate::scheduling::QoSClass::UserInitiated
+                        crate::scheduling::QoSClass::UserInitiated,
                     );
                 }
             }
@@ -460,7 +482,8 @@ impl AutoOptimizer {
         let history = self.performance_history.lock();
 
         // 找到优化开始后的第一个和最后一个指标
-        let after_opt: Vec<_> = history.iter()
+        let after_opt: Vec<_> = history
+            .iter()
             .filter(|m| m.timestamp_ns >= start_ns)
             .collect();
 
@@ -513,10 +536,8 @@ mod tests {
             jit_compilation_frequency: 0.1,
         };
 
-        let strategy = optimizer.generate_strategy(
-            WorkloadType::ComputeIntensive,
-            &characteristics,
-        );
+        let strategy =
+            optimizer.generate_strategy(WorkloadType::ComputeIntensive, &characteristics);
 
         assert_eq!(strategy.workload, WorkloadType::ComputeIntensive);
         assert!(strategy.enable_simd);

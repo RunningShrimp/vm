@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use crate::VmResult;
 use crate::domain_event_bus::DomainEventBus;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
 use crate::domain_services::rules::translation_rules::TranslationBusinessRule;
-use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Translation strategy domain service
 ///

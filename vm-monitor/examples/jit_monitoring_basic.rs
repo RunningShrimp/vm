@@ -37,8 +37,10 @@ fn main() {
         };
 
         monitor.handle_code_block_compiled(&event);
-        println!("Compiled block {}: PC=0x{:x}, size={} bytes",
-                 i, pc, block_size);
+        println!(
+            "Compiled block {}: PC=0x{:x}, size={} bytes",
+            i, pc, block_size
+        );
     }
 
     // 模拟热点检测
@@ -54,8 +56,7 @@ fn main() {
         };
 
         monitor.handle_hotspot_detected(&event);
-        println!("Hotspot detected: PC=0x{:x}, exec_count={}",
-                 pc, exec_count);
+        println!("Hotspot detected: PC=0x{:x}, exec_count={}", pc, exec_count);
     }
 
     // 4. 生成性能报告
@@ -67,10 +68,16 @@ fn main() {
     let stats = monitor.get_statistics();
     println!("\n📈 Statistics Summary:");
     println!("  Total compilations: {}", stats.total_compilations);
-    println!("  Total compiled bytes: {} bytes", stats.total_compiled_bytes);
+    println!(
+        "  Total compiled bytes: {} bytes",
+        stats.total_compiled_bytes
+    );
     println!("  Average block size: {:.2} bytes", stats.avg_block_size);
     println!("  Total hotspots: {}", stats.total_hotspots);
-    println!("  Average execution count: {:.2}", stats.avg_execution_count);
+    println!(
+        "  Average execution count: {:.2}",
+        stats.avg_execution_count
+    );
 
     // 6. 演示重置功能
     println!("\n🔄 Resetting monitor...");
@@ -78,7 +85,10 @@ fn main() {
 
     let stats_after_reset = monitor.get_statistics();
     println!("After reset:");
-    println!("  Total compilations: {}", stats_after_reset.total_compilations);
+    println!(
+        "  Total compilations: {}",
+        stats_after_reset.total_compilations
+    );
     println!("  Total hotspots: {}", stats_after_reset.total_hotspots);
 
     println!("\n✅ Example completed successfully!");

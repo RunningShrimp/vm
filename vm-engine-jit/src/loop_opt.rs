@@ -509,10 +509,12 @@ impl LoopOptimizer {
                 // 对于每个定义的变量，检查是否在循环中只被定义一次
                 for var in defined_vars {
                     if let Some(defs) = data_flow.definitions.get(&var)
-                        && defs.len() == 1 && defs[0] == insn_idx {
-                            invariants.push(insn_idx);
-                            break; // 一个指令只需要被识别为不变量一次
-                        }
+                        && defs.len() == 1
+                        && defs[0] == insn_idx
+                    {
+                        invariants.push(insn_idx);
+                        break; // 一个指令只需要被识别为不变量一次
+                    }
                 }
             }
         }

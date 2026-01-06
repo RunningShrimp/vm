@@ -139,9 +139,7 @@ impl RealTimeMonitor {
             return;
         }
 
-        let latencies: Vec<u64> = history.iter()
-            .map(|m| m.latency_ns)
-            .collect();
+        let latencies: Vec<u64> = history.iter().map(|m| m.latency_ns).collect();
 
         let sorted = {
             let mut sorted = latencies.clone();
@@ -153,12 +151,14 @@ impl RealTimeMonitor {
         let sum: u64 = latencies.iter().sum();
         let avg = sum as f64 / count as f64;
 
-        let variance = latencies.iter()
+        let variance = latencies
+            .iter()
             .map(|&x| {
                 let diff = x as f64 - avg;
                 diff * diff
             })
-            .sum::<f64>() / count as f64;
+            .sum::<f64>()
+            / count as f64;
         let std_dev = variance.sqrt();
 
         // 计算百分位数
@@ -170,8 +170,8 @@ impl RealTimeMonitor {
         let max = sorted[count - 1];
 
         // 计算吞吐量
-        let duration_ns = history.back().unwrap().timestamp_ns
-            - history.front().unwrap().timestamp_ns;
+        let duration_ns =
+            history.back().unwrap().timestamp_ns - history.front().unwrap().timestamp_ns;
         let throughput = if duration_ns > 0 {
             count as f64 * 1_000_000_000.0 / duration_ns as f64
         } else {
@@ -250,7 +250,8 @@ impl RealTimeMonitor {
 
         // 检测P99延迟恶化
         if current.p99_latency_ns > (baseline.p99_latency_ns as f64 * 1.5) as u64 {
-            let severity_ratio = current.p99_latency_ns as f64 / baseline.p99_latency_ns as f64 - 1.0;
+            let severity_ratio =
+                current.p99_latency_ns as f64 / baseline.p99_latency_ns as f64 - 1.0;
             anomalies.push(PerformanceAnomaly {
                 anomaly_type: AnomalyType::PerformanceRegression,
                 detected_at_ns: now,
@@ -285,11 +286,7 @@ impl RealTimeMonitor {
     /// 获取最近的异常
     pub fn recent_anomalies(&self, count: usize) -> Vec<PerformanceAnomaly> {
         let anomalies = self.anomalies.lock();
-        anomalies.iter()
-            .rev()
-            .take(count)
-            .cloned()
-            .collect()
+        anomalies.iter().rev().take(count).cloned().collect()
     }
 
     /// 设置性能基线

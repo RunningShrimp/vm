@@ -15,9 +15,9 @@ use std::sync::{Arc, Mutex};
 
 use vm_core::{
     Config, ConfigBuilder, CoreError, DeviceError, ExecMode, ExecutionError, ExecutionManager,
-    GuestAddr, GuestArch, GuestPhysAddr, GuestRegs, MMU, MemoryError,
-    PageTableWalker, syscall::SyscallHandler, TlbEntry, TlbManager, VmConfig, VmError as CoreVmError,
-    VmLifecycleState, VmState,
+    GuestAddr, GuestArch, GuestPhysAddr, GuestRegs, MMU, MemoryError, PageTableWalker, TlbEntry,
+    TlbManager, VmConfig, VmError as CoreVmError, VmLifecycleState, VmState,
+    syscall::SyscallHandler,
 };
 
 // ============================================================================

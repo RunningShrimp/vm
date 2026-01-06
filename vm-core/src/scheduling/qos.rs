@@ -94,11 +94,11 @@ impl QoSClass {
 /// 这些变体名称使用SCREAMING_SNAKE_CASE以匹配Apple的pthread API命名约定。
 /// 虽然不符合Rust命名规范，但这是必要的，因为它们直接映射到系统API。
 #[repr(i32)]
-#[allow(non_camel_case_types)]  // FFI绑定需要匹配系统API命名
+#[allow(non_camel_case_types)] // FFI绑定需要匹配系统API命名
 pub enum pthread_qos_class_t {
     QOS_CLASS_USER_INTERACTIVE = 0x21,
     QOS_CLASS_USER_INITIATED = 0x19,
-    QOS_CLASS_DEFAULT = 0x15,  // macOS默认
+    QOS_CLASS_DEFAULT = 0x15, // macOS默认
     QOS_CLASS_UTILITY = 0x11,
     QOS_CLASS_BACKGROUND = 0x09,
 }
@@ -235,13 +235,15 @@ where
 }
 
 #[cfg(test)]
-#[cfg(not(target_os = "macos"))]  // Skip QOS tests on macOS due to pthread linking issues
+#[cfg(not(target_os = "macos"))] // Skip QOS tests on macOS due to pthread linking issues
 mod tests {
     use super::*;
 
     #[test]
     fn test_qos_priority_score() {
-        assert!(QoSClass::UserInteractive.priority_score() > QoSClass::UserInitiated.priority_score());
+        assert!(
+            QoSClass::UserInteractive.priority_score() > QoSClass::UserInitiated.priority_score()
+        );
         assert!(QoSClass::UserInitiated.priority_score() > QoSClass::Utility.priority_score());
         assert!(QoSClass::Utility.priority_score() > QoSClass::Background.priority_score());
     }
@@ -286,19 +288,17 @@ mod tests {
         let qos = get_current_thread_qos();
         // 应该返回有效的QoS类
         match qos {
-            QoSClass::UserInteractive |
-            QoSClass::UserInitiated |
-            QoSClass::Utility |
-            QoSClass::Background |
-            QoSClass::Unspecified => {}
+            QoSClass::UserInteractive
+            | QoSClass::UserInitiated
+            | QoSClass::Utility
+            | QoSClass::Background
+            | QoSClass::Unspecified => {}
         }
     }
 
     #[test]
     fn test_with_qos() {
-        let result = with_qos(QoSClass::UserInitiated, || {
-            42
-        });
+        let result = with_qos(QoSClass::UserInitiated, || 42);
         assert_eq!(result, 42);
 
         // 验证QoS被恢复

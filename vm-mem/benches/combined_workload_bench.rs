@@ -8,11 +8,11 @@
 //!
 //! Run: cargo bench --bench combined_workload_bench
 
-use std::time::Duration;
 use std::hint::black_box;
+use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use vm_mem::{StackPool, PhysicalMemory, UnifiedMmuConfigV2, HybridMMU, UnifiedMMUV2, MemoryPool};
+use vm_mem::{HybridMMU, MemoryPool, PhysicalMemory, StackPool, UnifiedMMUV2, UnifiedMmuConfigV2};
 
 // ============================================================================
 // Test Data Structures
@@ -21,7 +21,7 @@ use vm_mem::{StackPool, PhysicalMemory, UnifiedMmuConfigV2, HybridMMU, UnifiedMM
 #[derive(Debug, Clone, Default)]
 struct TestData {
     #[allow(dead_code)]
-    data: [u64; 8],  // 64 bytes
+    data: [u64; 8], // 64 bytes
 }
 
 // ============================================================================

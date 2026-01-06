@@ -57,7 +57,9 @@ fn test_performance_monitor_basic() {
     jit.compile_only(&block3);
 
     // 获取性能监控器并生成报告
-    let monitor = jit.get_performance_monitor().expect("Monitor should be enabled");
+    let monitor = jit
+        .get_performance_monitor()
+        .expect("Monitor should be enabled");
     let report = monitor.generate_report();
 
     // 验证报告
@@ -84,7 +86,9 @@ fn test_performance_monitor_hotspot_tracking() {
     // 注意：这需要访问内部API，实际使用中通过run()会自动触发
     // 这里我们只是验证监控器可以记录热点
 
-    let monitor = jit.get_performance_monitor().expect("Monitor should be enabled");
+    let monitor = jit
+        .get_performance_monitor()
+        .expect("Monitor should be enabled");
 
     // 手动记录一些热点事件
     monitor.record_hotspot(0x1000);
@@ -129,7 +133,9 @@ fn test_performance_monitor_enable_disable() {
     jit.compile_only(&block1);
 
     // 禁用监控并获取监控器
-    let monitor = jit.disable_performance_monitor().expect("Monitor should be returned");
+    let monitor = jit
+        .disable_performance_monitor()
+        .expect("Monitor should be returned");
 
     // 验证监控器包含数据
     let report = monitor.generate_report();
@@ -157,7 +163,9 @@ fn test_performance_monitor_multiple_blocks() {
         jit.compile_only(block);
     }
 
-    let monitor = jit.get_performance_monitor().expect("Monitor should be enabled");
+    let monitor = jit
+        .get_performance_monitor()
+        .expect("Monitor should be enabled");
     let report = monitor.generate_report();
 
     // 验证所有块都被记录

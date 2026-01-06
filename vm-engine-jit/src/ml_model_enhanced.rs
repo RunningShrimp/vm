@@ -850,7 +850,6 @@ impl FeatureExtractorEnhanced {
         let repetition_score = repeated_accesses as f64 / memory_accesses.len() as f64;
 
         // 综合评分：空间局部性 + 重复访问性
-        
 
         (avg_spatial_locality * 0.6 + repetition_score * 0.4).min(1.0_f64)
     }
@@ -1014,7 +1013,6 @@ impl FeatureExtractorEnhanced {
         let density_score = (avg_density / 10.0).min(1.0_f64); // 归一化
 
         // 综合评分：顺序访问得分 + 密集程度得分
-        
 
         (avg_sequential_score * 0.7 + density_score * 0.3).min(1.0_f64)
     }
@@ -1160,10 +1158,7 @@ impl FeatureExtractorEnhanced {
             memory_accesses,
         };
 
-        let history = self
-            .execution_history
-            .entry(block_hash)
-            .or_default();
+        let history = self.execution_history.entry(block_hash).or_default();
         history.push(record);
 
         // 限制历史大小

@@ -5,9 +5,9 @@
 //! - 测试 2/4/8/16 线程性能
 //! - 对比单线程和多线程性能
 
+use std::hint::black_box;
 use std::sync::{Arc, Barrier};
 use std::thread;
-use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use vm_core::{GuestAddr, MemoryAccess};

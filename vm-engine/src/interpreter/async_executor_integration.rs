@@ -56,7 +56,9 @@ impl AsyncExecutorWrapper {
         max_steps: u64,
     ) -> Result<ExecResult, String> {
         let mut interp = self.interpreter.lock();
-        interp.run_steps_async(mmu, block, max_steps, self.yield_interval).await
+        interp
+            .run_steps_async(mmu, block, max_steps, self.yield_interval)
+            .await
     }
 
     /// 获取统计信息

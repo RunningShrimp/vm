@@ -107,7 +107,10 @@ fn main() {
     } else {
         println!("  检测到 {} 个异常:", anomalies.len());
         for anomaly in anomalies.iter().take(5) {
-            println!("    - {:?}: 严重度 {:.2}", anomaly.anomaly_type, anomaly.severity);
+            println!(
+                "    - {:?}: 严重度 {:.2}",
+                anomaly.anomaly_type, anomaly.severity
+            );
             println!("      {}", anomaly.description);
             println!("      建议: {}", anomaly.suggested_action);
         }
@@ -117,10 +120,12 @@ fn main() {
     println!("\n📈 性能基线对比:");
     if let Some(current) = monitor.current_window() {
         if let Some(baseline) = monitor.baseline() {
-            let latency_change =
-                (current.avg_latency_ns - baseline.avg_latency_ns) / baseline.avg_latency_ns * 100.0;
-            let throughput_change =
-                (current.total_throughput - baseline.total_throughput) / baseline.total_throughput * 100.0;
+            let latency_change = (current.avg_latency_ns - baseline.avg_latency_ns)
+                / baseline.avg_latency_ns
+                * 100.0;
+            let throughput_change = (current.total_throughput - baseline.total_throughput)
+                / baseline.total_throughput
+                * 100.0;
 
             println!("  延迟变化: {:+.1}%", latency_change);
             println!("  吞吐量变化: {:+.1}%", throughput_change);

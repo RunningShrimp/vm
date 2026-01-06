@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_core::{AccessType, ExecMode, GuestAddr, GuestArch, VmConfig};
-use vm_mem::{PhysicalMemory, HybridMMU, UnifiedMmuConfigV2, UnifiedMMUV2, MemoryPool, StackPool};
+use vm_mem::{HybridMMU, MemoryPool, PhysicalMemory, StackPool, UnifiedMMUV2, UnifiedMmuConfigV2};
 
 // ============================================================================
 // Test Workloads
@@ -99,7 +99,7 @@ impl VMExecutionContext {
         let mmu_config = UnifiedMmuConfigV2::default();
 
         let mmu = HybridMMU::new(
-            config.memory_size,  // memory size
+            config.memory_size, // memory size
             mmu_config,
         );
 
@@ -116,7 +116,7 @@ impl VMExecutionContext {
         // Phase 1: Memory operations (tests cache + TLB)
         for i in 0..config.memory_operations {
             let addr = GuestAddr(0x1000 + (i as u64 % 1000) * 0x1000);
-            let _ = self.mmu.read(addr, 1);  // read 1 byte
+            let _ = self.mmu.read(addr, 1); // read 1 byte
             self.stats.memory_ops += 1;
             self.stats.tlb_lookups += 1;
         }
@@ -142,7 +142,11 @@ impl VMExecutionContext {
 fn bench_workload_execution(c: &mut Criterion) {
     let mut group = c.benchmark_group("workload_execution");
 
-    for workload in &[WorkloadConfig::memory_intensive(), WorkloadConfig::balanced(), WorkloadConfig::compute_intensive()] {
+    for workload in &[
+        WorkloadConfig::memory_intensive(),
+        WorkloadConfig::balanced(),
+        WorkloadConfig::compute_intensive(),
+    ] {
         group.bench_function(BenchmarkId::from_parameter(workload.name), |b| {
             b.iter(|| {
                 let mut ctx = VMExecutionContext::new_with_optimizations();
@@ -166,7 +170,7 @@ fn bench_memory_operations(c: &mut Criterion) {
                 let mut ctx = VMExecutionContext::new_with_optimizations();
                 for i in 0..*size {
                     let addr = GuestAddr(0x1000 + (i % 4096) * 0x100 as u64);
-                    let _ = ctx.mmu.read(addr, 1);  // read 1 byte
+                    let _ = ctx.mmu.read(addr, 1); // read 1 byte
                 }
             });
         });
@@ -249,7 +253,7 @@ fn bench_end_to_end_vm(c: &mut Criterion) {
                 for i in 0..iterations {
                     // Memory access pattern
                     let addr = GuestAddr(0x1000 + (i % 1000) * 0x100 as u64);
-                    let _ = ctx.mmu.read(addr, 1);  // read 1 byte
+                    let _ = ctx.mmu.read(addr, 1); // read 1 byte
 
                     // TLB lookup (would need mut, but just doing read here)
                     // let _ = ctx.mmu.translate(addr, AccessType::Read);

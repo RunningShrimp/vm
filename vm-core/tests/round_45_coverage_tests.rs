@@ -9,12 +9,12 @@
 
 #[cfg(test)]
 mod domain_services_tests {
+    use std::sync::Arc;
+    use vm_core::domain_event_bus::DomainEventBus;
     use vm_core::domain_services::{
         VmLifecycleDomainService,
         config::{BaseServiceConfig, ServiceConfig},
     };
-    use vm_core::domain_event_bus::DomainEventBus;
-    use std::sync::Arc;
 
     #[test]
     fn test_lifecycle_service_creation() {
