@@ -5,6 +5,8 @@
 //! - 循环展开
 //! - 归纳变量优化
 //! - 循环强度削弱
+//!
+//! **集成状态**: ✅ 已集成到vm-engine-jit优化管道 (lib.rs:1831)
 
 use vm_ir::{GuestAddr, IRBlock, IROp, RegId, Terminator};
 
