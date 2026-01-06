@@ -428,6 +428,110 @@ pub fn simd_feature_name() -> &'static str {
     }
 }
 
+/// Adaptive memory copy that automatically selects the optimal strategy
+///
+/// Based on Round 2 benchmark results, this function chooses:
+/// - **Small data (<4KB)**: SIMD memcpy (12-14% faster)
+/// - **Large data (≥4KB)**: Standard library (more efficient)
+///
+/// # Performance Characteristics
+/// - **<1KB**: SIMD +13.9% (12.096 ns vs 13.783 ns)
+/// - **1-4KB**: SIMD +5-12%
+/// - **≥4KB**: Standard library optimal
+/// - **Sequential data**: SIMD +16.8%
+///
+/// # Example
+/// ```rust
+/// use vm_mem::simd_memcpy::memcpy_adaptive;
+///
+/// let mut dst = vec![0u8; 2048];  // 2KB - will use SIMD
+/// let src = vec![42u8; 2048];
+///
+/// memcpy_adaptive(&mut dst, &src);
+/// assert_eq!(dst, src);
+/// ```
+///
+/// # Benchmarks
+/// See `benches/simd_memcpy_standalone.rs` for detailed performance data.
+pub fn memcpy_adaptive(dst: &mut [u8], src: &[u8]) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "Destination and source slices must have the same length"
+    );
+
+    let len = src.len();
+
+    // Early return for empty slices
+    if len == 0 {
+        return;
+    }
+
+    // Strategy selection based on Round 2 benchmark results
+    // Threshold: 4KB (4096 bytes)
+    // - Below threshold: SIMD is 5-14% faster
+    // - Above threshold: Standard library is more efficient
+    const ADAPTIVE_THRESHOLD: usize = 4096;
+
+    if len < ADAPTIVE_THRESHOLD {
+        // Small data: use SIMD for better performance
+        memcpy_fast(dst, src);
+    } else {
+        // Large data: use standard library (more efficient)
+        dst.copy_from_slice(src);
+    }
+}
+
+/// Adaptive memory copy with custom threshold
+///
+/// Same as [`memcpy_adaptive`] but allows custom threshold configuration.
+///
+/// # Parameters
+/// - `dst`: Destination slice
+/// - `src`: Source slice
+/// - `threshold`: Size threshold in bytes (below = SIMD, above = standard)
+///
+/// # Example
+/// ```rust
+/// use vm_mem::simd_memcpy::memcpy_adaptive_with_threshold;
+///
+/// let mut dst = vec![0u8; 8192];
+/// let src = vec![42u8; 8192];
+///
+/// // Use 8KB threshold instead of default 4KB
+/// memcpy_adaptive_with_threshold(&mut dst, &src, 8192);
+/// ```
+pub fn memcpy_adaptive_with_threshold(dst: &mut [u8], src: &[u8], threshold: usize) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "Destination and source slices must have the same length"
+    );
+
+    let len = src.len();
+
+    // Early return for empty slices
+    if len == 0 {
+        return;
+    }
+
+    // Use custom threshold
+    if len < threshold {
+        memcpy_fast(dst, src);
+    } else {
+        dst.copy_from_slice(src);
+    }
+}
+
+/// Get the default adaptive threshold (4096 bytes / 4KB)
+///
+/// This threshold is based on Round 2 benchmark results showing:
+/// - SIMD is faster for sizes < 4KB
+/// - Standard library is faster for sizes ≥ 4KB
+pub const fn adaptive_threshold() -> usize {
+    4096
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -617,5 +721,122 @@ mod tests {
         println!("NEON available: {}", has_neon());
         println!("Active SIMD: {}", simd_feature_name());
         assert!(has_neon());
+    }
+
+    // Tests for adaptive memcpy
+
+    #[test]
+    fn test_memcpy_adaptive_small() {
+        // Test small data (should use SIMD)
+        let src = vec![42u8; 2048]; // 2KB
+        let mut dst = vec![0u8; 2048];
+
+        memcpy_adaptive(&mut dst, &src);
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn test_memcpy_adaptive_large() {
+        // Test large data (should use standard library)
+        let src = vec![42u8; 8192]; // 8KB
+        let mut dst = vec![0u8; 8192];
+
+        memcpy_adaptive(&mut dst, &src);
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn test_memcpy_adaptive_threshold_boundary() {
+        // Test exactly at threshold (4KB)
+        let src = vec![42u8; 4096];
+        let mut dst = vec![0u8; 4096];
+
+        memcpy_adaptive(&mut dst, &src);
+        assert_eq!(dst, src);
+
+        // Test just below threshold
+        let src = vec![42u8; 4095];
+        let mut dst = vec![0u8; 4095];
+
+        memcpy_adaptive(&mut dst, &src);
+        assert_eq!(dst, src);
+
+        // Test just above threshold
+        let src = vec![42u8; 4097];
+        let mut dst = vec![0u8; 4097];
+
+        memcpy_adaptive(&mut dst, &src);
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn test_memcpy_adaptive_empty() {
+        // Test empty slices
+        let src: Vec<u8> = vec![];
+        let mut dst: Vec<u8> = vec![];
+
+        memcpy_adaptive(&mut dst, &src);
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn test_memcpy_adaptive_with_custom_threshold() {
+        let src = vec![42u8; 8192]; // 8KB
+        let mut dst = vec![0u8; 8192];
+
+        // Use 16KB threshold (should use SIMD)
+        memcpy_adaptive_with_threshold(&mut dst, &src, 16384);
+        assert_eq!(dst, src);
+
+        // Use 4KB threshold (should use standard library)
+        memcpy_adaptive_with_threshold(&mut dst, &src, 4096);
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn test_adaptive_threshold_constant() {
+        // Test that the threshold constant is correct
+        assert_eq!(adaptive_threshold(), 4096);
+    }
+
+    #[test]
+    fn test_memcpy_adaptive_various_sizes() {
+        // Test various sizes to ensure correctness
+        for size in [0, 1, 1024, 2048, 4096, 8192, 16384].iter() {
+            let src = vec![(*size % 256) as u8; *size];
+            let mut dst = vec![0u8; *size];
+
+            memcpy_adaptive(&mut dst, &src);
+            assert_eq!(dst, src, "Failed for size {}", size);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_memcpy_adaptive_correctness(
+            size in 0u16..10000,
+            seed in 0u32..10000
+        ) {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+
+            let size = size as usize;
+            let mut src = vec![0u8; size];
+
+            // Generate deterministic pseudo-random data
+            let mut hasher = DefaultHasher::new();
+            seed.hash(&mut hasher);
+            let mut state = hasher.finish();
+
+            for byte in src.iter_mut() {
+                state = state.wrapping_mul(1103515245).wrapping_add(12345);
+                *byte = (state >> 32) as u8;
+            }
+
+            let mut dst = vec![0u8; size];
+            memcpy_adaptive(&mut dst, &src);
+
+            prop_assert_eq!(dst, src);
+        }
     }
 }

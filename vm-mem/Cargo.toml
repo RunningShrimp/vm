@@ -66,6 +66,10 @@ name = "simd_memcpy_standalone"
 harness = false
 
 [[bench]]
+name = "adaptive_memcpy_bench"
+harness = false
+
+[[bench]]
 name = "concurrent_mmu"
 harness = false
 

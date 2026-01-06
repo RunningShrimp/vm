@@ -50,7 +50,7 @@ pub use memory::{
 };
 pub use optimization::unified::*;
 // SIMD-optimized memory operations
-pub use simd_memcpy::memcpy_fast;
+pub use simd_memcpy::{memcpy_adaptive, memcpy_adaptive_with_threshold, memcpy_fast};
 pub use tlb::BasicTlbStats as TlbStats;
 #[cfg(feature = "optimizations")]
 pub use tlb::SingleLevelTlb;
