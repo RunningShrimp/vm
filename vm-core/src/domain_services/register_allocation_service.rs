@@ -19,6 +19,7 @@ use crate::domain::RegisterAllocator;
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, OptimizationEvent};
 use crate::domain_services::rules::optimization_pipeline_rules::OptimizationPipelineBusinessRule;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Register allocation configuration
 #[derive(Debug, Clone)]
@@ -61,11 +62,11 @@ pub struct RegisterAllocationResult {
 pub struct RegisterAllocationDomainService {
     /// Business rules for register allocation
     business_rules: Vec<Box<dyn OptimizationPipelineBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// Configuration for register allocation (used for allocation strategies)
     #[allow(dead_code)] // Reserved for future allocation strategy configuration
-    config: RegisterAllocationConfig,
+    allocation_config: RegisterAllocationConfig,
     /// Register allocator (infrastructure layer implementation via trait)
     register_allocator: Arc<std::sync::Mutex<dyn RegisterAllocator>>,
 }
@@ -79,15 +80,22 @@ impl RegisterAllocationDomainService {
     /// - `event_bus`: Event bus for publishing domain events (optional)
     pub fn new(
         register_allocator: Arc<std::sync::Mutex<dyn RegisterAllocator>>,
-        config: RegisterAllocationConfig,
+        allocation_config: RegisterAllocationConfig,
         event_bus: Option<Arc<DomainEventBus>>,
     ) -> Self {
-        Self {
+        let mut service = Self {
             business_rules: Vec::new(),
-            event_bus,
-            config,
+            config: BaseServiceConfig::new(),
+            allocation_config,
             register_allocator,
+        };
+
+        // Set event bus if provided
+        if let Some(bus) = event_bus {
+            service.config.set_event_bus(bus);
         }
+
+        service
     }
 
     /// Add a business rule to the service
@@ -97,7 +105,7 @@ impl RegisterAllocationDomainService {
 
     /// Set the event bus for publishing domain events
     pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
     }
 
     /// Allocate registers for IR code
@@ -152,7 +160,7 @@ impl RegisterAllocationDomainService {
 
     /// Publish optimization event
     fn publish_optimization_event(&self, event: OptimizationEvent) -> VmResult<()> {
-        if let Some(event_bus) = &self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             let _ = event_bus.publish(&DomainEventEnum::Optimization(event));
         }
         Ok(())

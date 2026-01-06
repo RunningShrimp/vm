@@ -12,6 +12,7 @@ use crate::VmResult;
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, TranslationEvent};
 use crate::domain_services::rules::translation_rules::TranslationBusinessRule;
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 
 /// Translation strategy domain service
 ///
@@ -20,8 +21,8 @@ use crate::domain_services::rules::translation_rules::TranslationBusinessRule;
 pub struct TranslationStrategyDomainService {
     /// Business rules for translation operations
     business_rules: Vec<Box<dyn TranslationBusinessRule>>,
-    /// Event bus for publishing domain events
-    event_bus: Option<Arc<DomainEventBus>>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
 }
 
 impl TranslationStrategyDomainService {
@@ -37,7 +38,7 @@ impl TranslationStrategyDomainService {
 
         Self {
             business_rules,
-            event_bus: None,
+            config: BaseServiceConfig::new(),
         }
     }
 }
@@ -53,13 +54,13 @@ impl TranslationStrategyDomainService {
     pub fn with_rules(business_rules: Vec<Box<dyn TranslationBusinessRule>>) -> Self {
         Self {
             business_rules,
-            event_bus: None,
+            config: BaseServiceConfig::new(),
         }
     }
 
     /// Set the event bus for publishing domain events
     pub fn with_event_bus(mut self, event_bus: Arc<DomainEventBus>) -> Self {
-        self.event_bus = Some(event_bus);
+        self.config.set_event_bus(event_bus);
         self
     }
 
@@ -252,7 +253,7 @@ impl TranslationStrategyDomainService {
     /// Publish a domain event
     fn publish_event(&self, event: DomainEventEnum) -> VmResult<()> {
         // Record event in aggregate if we have one
-        if let Some(event_bus) = &self.event_bus {
+        if let Some(event_bus) = self.config.event_bus() {
             // Event publishing failures are logged but don't fail the operation
             let _ = event_bus.publish(&event);
         }
