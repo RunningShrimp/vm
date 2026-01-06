@@ -148,6 +148,7 @@ pub use crate::domain_event_bus::DomainEventBus;
 pub mod adaptive_optimization_service;
 pub mod architecture_compatibility_service;
 pub mod cache_management_service;
+pub mod config;
 pub mod cross_architecture_translation_service;
 pub mod events;
 pub mod execution_manager_service;
@@ -165,6 +166,7 @@ pub mod vm_lifecycle_service;
 pub use adaptive_optimization_service::AdaptiveOptimizationDomainService;
 pub use architecture_compatibility_service::ArchitectureCompatibilityDomainService;
 pub use cache_management_service::CacheManagementDomainService;
+pub use config::{BaseServiceConfig, ServiceConfig, ServiceConfigBuilder};
 pub use cross_architecture_translation_service::CrossArchitectureTranslationDomainService;
 pub use events::{DomainEventEnum, ExecutionEvent, PageTableEvent, TlbEvent};
 pub use execution_manager_service::{
