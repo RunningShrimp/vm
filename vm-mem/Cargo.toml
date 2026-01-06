@@ -10,6 +10,10 @@ path = "src/lib.rs"
 name = "simd_quick_verify"
 path = "bin/simd_quick_verify.rs"
 
+[[bin]]
+name = "simd_capabilities"
+path = "bin/simd_capabilities.rs"
+
 [dependencies]
 vm-core = { path = "../vm-core" }
 libc = { workspace = true }
