@@ -122,7 +122,7 @@ fn test_card_table_different_cards() {
     assert_eq!(dirty_cards.len(), 3);
 
     // 验证每个卡片都有1个对象
-    for (idx, card) in dirty_cards.iter() {
+    for (_idx, card) in dirty_cards.iter() {
         assert_eq!(card.objects.len(), 1);
     }
 }

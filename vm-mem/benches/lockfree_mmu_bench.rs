@@ -7,8 +7,9 @@
 
 use std::sync::{Arc, Barrier};
 use std::thread;
+use std::hint::black_box;
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use vm_core::{GuestAddr, MemoryAccess};
 use vm_mem::LockFreeMMU;
 

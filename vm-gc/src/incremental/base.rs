@@ -331,8 +331,8 @@ mod tests {
         // 执行增量式GC（大预算，应该完成）
         let progress = incremental.collect_with_budget(100_000).unwrap();
 
-        // pause_time_us可能为0（执行太快），使用>=0
-        assert!(progress.pause_time_us >= 0);
+        // pause_time_us可能为0（执行太快），验证合理范围
+        assert!(progress.pause_time_us <= 1_000_000); // 不超过1秒
         // 可能不完成，取决于实现
     }
 

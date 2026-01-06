@@ -14,7 +14,8 @@
 use std::sync::Arc;
 use std::thread;
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use vm_mem::{GuestAddr, LockFreeMMU, ShardedMMU, SoftMmu};
 
 /// Benchmark single-threaded translation performance

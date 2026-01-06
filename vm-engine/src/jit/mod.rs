@@ -39,18 +39,18 @@
 
 pub mod backend;
 mod compiler;
-mod core;
+pub mod core; // 导出以支持JITEngine公共API（形成逻辑闭环）
 
 // JIT 并行编译模块（工作窃取调度器）
 pub mod parallel;
 
 // 声明所有JIT子模块
-mod branch_target_cache;
+pub mod branch_target_cache; // 导出以支持分支目标缓存公共API（形成逻辑闭环）
 mod code_cache;
-mod codegen;
+pub mod codegen; // 导出以支持代码生成公共API（形成逻辑闭环）
 pub mod executable_memory;
-mod instruction_scheduler;
-mod optimizer;
+pub mod instruction_scheduler; // 导出以支持指令调度公共API（形成逻辑闭环）
+pub mod optimizer; // 导出以支持优化器公共API（形成逻辑闭环）
 // 优化策略模块（基础设施层实现）
 pub mod optimizer_strategy;
 mod tiered_cache;
@@ -60,7 +60,7 @@ pub mod translation_optimizer;
 pub mod cache;
 
 pub mod branch_prediction;
-mod register_allocator;
+pub mod register_allocator; // 导出以支持寄存器分配公共API（形成逻辑闭环）
 // 寄存器分配器适配器（基础设施层实现）
 pub mod register_allocator_adapter;
 pub mod tiered_translation_cache;

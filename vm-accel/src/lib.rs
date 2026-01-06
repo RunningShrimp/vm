@@ -8,6 +8,11 @@
 //! ```text
 //! ┌─────────────────────────────────────────────────────────┐
 //! │                    vm-accel                              │
+
+#![cfg_attr(test, allow(dead_code))]
+#![cfg_attr(test, allow(unused_imports))]
+#![cfg_attr(test, allow(unused_variables))]
+#![cfg_attr(test, allow(unused_mut))]
 //! ├─────────────────────────────────────────────────────────┤
 //! │                   Accel Trait                            │
 //! │  ┌─────────┬─────────┬─────────┬─────────┐              │

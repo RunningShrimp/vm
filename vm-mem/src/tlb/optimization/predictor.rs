@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_markov_predictor_default() {
-        let predictor = MarkovPredictor::default();
+        let predictor: MarkovPredictor = Default::default(); // 使用Default trait
         assert_eq!(predictor.n_gram, 2);
         assert_eq!(predictor.learning_rate, 0.1);
     }

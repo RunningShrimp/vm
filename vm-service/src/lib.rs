@@ -317,4 +317,14 @@ impl VmService {
             info!("JIT feature not enabled, shared pool setting ignored");
         }
     }
+
+    /// 获取执行模式（形成逻辑闭环）
+    pub fn exec_mode(&self) -> ExecMode {
+        self.exec_mode
+    }
+
+    /// 获取服务容器（形成逻辑闭环）
+    pub fn service_container(&self) -> &ServiceContainer {
+        &self.service_container
+    }
 }

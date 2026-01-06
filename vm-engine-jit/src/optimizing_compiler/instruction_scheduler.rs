@@ -8,6 +8,12 @@ pub struct InstructionScheduler {
     _private: (),
 }
 
+impl Default for InstructionScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InstructionScheduler {
     /// 创建新的指令调度器
     pub fn new() -> Self {

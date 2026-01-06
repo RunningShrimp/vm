@@ -9,6 +9,12 @@ pub struct RegisterAllocator {
     _private: (),
 }
 
+impl Default for RegisterAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RegisterAllocator {
     /// 创建新的寄存器分配器
     pub fn new() -> Self {
@@ -63,6 +69,12 @@ pub struct LinearScanAllocator {
     _private: (),
 }
 
+impl Default for LinearScanAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinearScanAllocator {
     pub fn new() -> Self {
         Self { _private: () }
@@ -73,6 +85,12 @@ impl LinearScanAllocator {
 pub struct GraphColoringAllocator {
     // Placeholder fields
     _private: (),
+}
+
+impl Default for GraphColoringAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GraphColoringAllocator {
@@ -105,6 +123,12 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
 pub struct StubGraphColoringAllocator {
     // Placeholder fields
     _private: (),
+}
+
+impl Default for StubGraphColoringAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StubGraphColoringAllocator {

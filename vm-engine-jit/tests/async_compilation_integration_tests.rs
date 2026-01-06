@@ -102,8 +102,8 @@ fn test_parallel_compiler_performance_metrics() {
     let metrics = compiler.get_performance_metrics();
 
     assert_eq!(metrics.total_blocks, 1);
-    // 代码大小可能为0（如果编译失败）
-    assert!(metrics.total_code_size >= 0);
+    // 代码大小应该大于0（成功编译）
+    assert!(metrics.total_code_size > 0);
 }
 
 #[test]
@@ -219,8 +219,8 @@ async fn test_async_precompiler_integration() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let stats = precompiler.get_stats().await;
-    // 由于编译是异步的，可能还没有完成
-    assert!(stats.compiled_blocks >= 0);
+    // 由于编译是异步的，可能还没有完成，但应该是0或正数
+    assert!(stats.compiled_blocks <= 10); // 合理的上界
 }
 
 #[tokio::test]
@@ -280,9 +280,8 @@ fn test_full_compilation_pipeline() {
 
     // 6. 验证缓存统计
     let stats = cache.stats();
-    assert!(stats.compilations >= 0);
-    assert!(stats.hits >= 0);
-    assert!(stats.misses >= 0);
+    assert!(stats.compilations <= 1000); // 合理的上界
+    assert!(stats.hits + stats.misses == stats.compilations); // 命中+未命中=总次数
 }
 
 #[tokio::test]
@@ -320,8 +319,8 @@ async fn test_async_and_incremental_integration() {
     let precompiler_stats = precompiler.get_stats().await;
     let cache_stats = cache.stats();
 
-    assert!(precompiler_stats.compiled_blocks >= 0);
-    assert!(cache_stats.compilations >= 0);
+    assert!(precompiler_stats.compiled_blocks <= 1000); // 合理的上界
+    assert!(cache_stats.compilations <= 1000); // 合理的上界
 }
 
 #[test]
@@ -440,8 +439,8 @@ fn test_comprehensive_stats() {
     let metrics = compiler.get_performance_metrics();
 
     assert_eq!(metrics.total_blocks, 2);
-    assert!(metrics.total_time_ns >= 0);
-    assert!(metrics.total_code_size >= 0);
+    assert!(metrics.total_time_ns > 0); // 实际编译应该花费时间
+    assert!(metrics.total_code_size > 0); // 应该生成了一些代码
 }
 
 #[tokio::test]
@@ -500,5 +499,5 @@ async fn test_parallel_compiler_stats_reset() {
 
     let stats = compiler.get_stats();
     // 重置后统计应该清零
-    assert!(stats.compiled_blocks >= 0);
+    assert_eq!(stats.compiled_blocks, 0); // 重置后应该是0
 }

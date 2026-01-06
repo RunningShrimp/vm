@@ -270,17 +270,19 @@ panic = "unwind"
 # ============================================================================
 # Development dependencies for the workspace
 # ============================================================================
-[workspace.dev-dependencies]
-# Optimization tools
-cargo-hakari = "0.9"
-
-# Code quality tools
-cargo-machete = "0.1"
-
-# Benchmarking and profiling
-criterion = "0.5"
-
-# Testing
-proptest = "1.0"
-quickcheck = "1.0"
+# Note: workspace.dev-dependencies is deprecated in newer Cargo versions
+# Individual packages should define their own dev-dependencies
+# [workspace.dev-dependencies]
+# # Optimization tools
+# cargo-hakari = "0.9"
+#
+# # Code quality tools
+# cargo-machete = "0.1"
+#
+# # Benchmarking and profiling
+# criterion = "0.5"
+#
+# # Testing
+# proptest = "1.0"
+# quickcheck = "1.0"
 

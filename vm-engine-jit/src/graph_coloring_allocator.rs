@@ -135,8 +135,8 @@ impl GraphColoringAllocator {
                     let (start2, end2) = *lifetime2;
                     // 检查生命周期是否重叠
                     if !(end1 < start2 || end2 < start1) {
-                        graph.entry(reg1).or_insert_with(HashSet::new).insert(reg2);
-                        graph.entry(reg2).or_insert_with(HashSet::new).insert(reg1);
+                        graph.entry(reg1).or_default().insert(reg2);
+                        graph.entry(reg2).or_default().insert(reg1);
                     }
                 }
             }
@@ -305,7 +305,7 @@ impl RegisterAllocatorTrait for GraphColoringAllocator {
         for (dst, src) in &coalesce_map {
             // 合并冲突集
             if let Some(src_conflicts) = interference_graph.remove(src) {
-                let dst_conflicts = interference_graph.entry(*dst).or_insert_with(HashSet::new);
+                let dst_conflicts = interference_graph.entry(*dst).or_default();
                 dst_conflicts.extend(src_conflicts);
                 dst_conflicts.remove(dst);
             }

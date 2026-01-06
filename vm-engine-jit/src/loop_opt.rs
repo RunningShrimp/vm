@@ -508,12 +508,11 @@ impl LoopOptimizer {
 
                 // 对于每个定义的变量，检查是否在循环中只被定义一次
                 for var in defined_vars {
-                    if let Some(defs) = data_flow.definitions.get(&var) {
-                        if defs.len() == 1 && defs[0] == insn_idx {
+                    if let Some(defs) = data_flow.definitions.get(&var)
+                        && defs.len() == 1 && defs[0] == insn_idx {
                             invariants.push(insn_idx);
                             break; // 一个指令只需要被识别为不变量一次
                         }
-                    }
                 }
             }
         }
@@ -715,7 +714,7 @@ impl LoopOptimizer {
         // 4. 没有复杂的控制流
 
         // 基本检查
-        factor >= 2 && factor <= 16 && _loop_info.blocks.len() <= 100
+        (2..=16).contains(&factor) && _loop_info.blocks.len() <= 100
     }
 
     /// 调整归纳变量

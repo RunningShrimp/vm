@@ -2,266 +2,260 @@ name: Performance Benchmarks
 
 on:
   push:
-    branches: [main, master]
-    paths:
-      - 'vm-*/src/**'
-      - 'benches/**'
-      - '.github/workflows/benchmark.yml'
+    branches: [main, develop]
   pull_request:
-    branches: [main, master]
-    paths:
-      - 'vm-*/src/**'
-      - 'benches/**'
+    branches: [main, develop]
   schedule:
-    # Run daily at 2 AM UTC
-    - cron: '0 2 * * *'
-  workflow_dispatch:
+    # Run benchmarks daily at 00:00 UTC
+    - cron: '0 0 * * *'
 
 env:
-  RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   benchmark:
     name: Run Benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        rust: [stable]
+        include:
+          - os: macos-latest
+            rust: stable
+          - os: ubuntu-latest
+            rust: stable
+            # Enable cross-arch testing
+            cross_arch: true
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for baseline comparison
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+        targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-bench-
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ libssl-dev pkg-config
+    - name: Cache cargo index
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-index-
 
-      - name: Install cargo-criterion
-        run: cargo install cargo-criterion
+    - name: Cache cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-build-target-
 
-      - name: Build release
-        run: cargo build --release --all-features
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          qemu-system-x86 \
+          qemu-system-arm \
+          qemu-kvm \
+          ovmf \
+          curl
 
-      - name: Run all benchmarks
-        run: |
-          cargo bench --workspace --all-features -- --save-baseline main
+    - name: Install dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install qemu
 
-      - name: Generate benchmark report
-        run: |
-          chmod +x scripts/run_benchmarks.sh
-          ./scripts/run_benchmarks.sh
+    - name: Build benchmarks
+      run: |
+        cargo bench --no-run --all
 
-      - name: Detect regressions
-        run: |
-          chmod +x scripts/detect_regression.py
-          python3 scripts/detect_regression.py
-        continue-on-error: true
+    - name: Run JIT benchmarks
+      if: "!matrix.cross_arch"
+      run: |
+        cargo bench --bench jit_comprehensive_benchmark -- --save-baseline ci
 
-      - name: Store benchmark results
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: 'cargo'
-          output-file-path: target/criterion/
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: false
-          alert-threshold: '200%'
-          comment-on-alert: true
-          fail-on-alert: true
-          alert-comment-cc-users: '@maintainers'
-        continue-on-error: true
+    - name: Run memory benchmarks
+      if: "!matrix.cross_arch"
+      run: |
+        cargo bench --bench memory_comprehensive_benchmark -- --save-baseline ci
 
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results-${{ github.sha }}
-          path: |
-            target/criterion/
-            benches/baselines/
-          retention-days: 30
+    - name: Run device I/O benchmarks
+      if: "!matrix.cross_arch"
+      run: |
+        cargo bench --bench device_io_comprehensive_benchmark -- --save-baseline ci
 
-      - name: Upload benchmark report
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-report-${{ github.sha }}
-          path: benchmark-report.md
-          retention-days: 30
+    - name: Run migration benchmarks
+      if: "!matrix.cross_arch"
+      run: |
+        cargo bench --bench migration_comprehensive_benchmark -- --save-baseline ci
 
-  compare:
-    name: Compare Benchmarks
-    needs: benchmark
+    - name: Run hardware acceleration benchmarks
+      if: "!matrix.cross_arch"
+      run: |
+        cargo bench --bench hardware_accel_comprehensive_benchmark -- --save-baseline ci
+
+    - name: Run cross-arch benchmarks
+      if: matrix.cross_arch
+      run: |
+        cargo bench --bench cross_arch_comprehensive_benchmark -- --save-baseline ci_cross_arch
+
+    - name: Parse benchmark results
+      run: |
+        python3 scripts/run_comprehensive_benchmarks.py \
+          --categories jit memory device migration hardware_accel \
+          --save-baseline \
+          --baseline-name ci
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results-${{ matrix.os }}-${{ matrix.rust }}
+        path: |
+          benches/results/
+          benches/reports/
+          benches/baselines/
+        retention-days: 30
+
+    - name: Generate benchmark report
+      if: matrix.os == 'ubuntu-latest' && matrix.rust == 'stable'
+      run: |
+        python3 scripts/run_comprehensive_benchmarks.py \
+          --categories all \
+          --save-baseline \
+          --baseline-name main
+
+    - name: Download baseline from main
+      if: github.event_name == 'pull_request'
+      uses: actions/checkout@v4
+      with:
+        ref: main
+        path: baseline
+
+    - name: Compare with baseline
+      if: github.event_name == 'pull_request'
+      run: |
+        # Copy baseline from main branch
+        cp -r baseline/benches/baselines/main.json benches/baselines/
+
+        # Run comparison
+        python3 scripts/run_comprehensive_benchmarks.py \
+          --categories jit memory device migration hardware_accel \
+          --baseline-name main \
+          --compare
+
+    - name: Check for performance regressions
+      if: github.event_name == 'pull_request'
+      run: |
+        # Check if regressions report exists
+        if [ -f "benches/reports/regressions.txt" ]; then
+          echo "⚠️ Performance regressions detected:"
+          cat benches/reports/regressions.txt
+          exit 1
+        else
+          echo "✓ No performance regressions detected"
+        fi
+
+    - name: Upload reports
+      if: matrix.os == 'ubuntu-latest' && matrix.rust == 'stable'
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-reports
+        path: |
+          benches/reports/*.html
+          benches/reports/*.md
+          benches/reports/*.json
+        retention-days: 90
+
+  benchmark-historical:
+    name: Historical Benchmark Comparison
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-bench-
+    - name: Install Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ libssl-dev pkg-config
-          cargo install critcmp
+    - name: Cache cargo
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Download previous benchmark results
-        uses: actions/github-script@v6
-        id: download
-        continue-on-error: true
-        with:
-          script: |
-            const fs = require('fs');
+    - name: Download historical baselines
+      uses: actions/cache@v3
+      with:
+        path: benches/baselines
+        key: historical-baselines-${{ github.sha }}
+        restore-keys: |
+          historical-baselines-
 
-            const runs = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'benchmark.yml',
-              branch: context.repo.default_branch,
-              status: 'success',
-              per_page: 5
-            });
+    - name: Run benchmarks
+      run: |
+        cargo bench --no-run --all
+        python3 scripts/run_comprehensive_benchmarks.py --categories all --save-baseline --baseline-name historical
 
-            if (runs.data.workflow_runs.length > 0) {
-              const runId = runs.data.workflow_runs[0].id;
-              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: runId
-              });
+    - name: Store historical baseline
+      run: |
+        mkdir -p benches/baselines/historical
+        cp benches/baselines/historical.json "benches/baselines/historical/$(date +%Y%m%d).json"
 
-              const benchmarkArtifact = artifacts.data.artifacts.find(
-                a => a.name.startsWith('benchmark-results-')
-              );
+    - name: Commit historical baseline
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add benches/baselines/historical/
+        git diff --quiet && git diff --staged --quiet || git commit -m "Update historical baselines [skip ci]"
+        git push
 
-              if (benchmarkArtifact) {
-                const download = await github.rest.actions.downloadArtifact({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  artifact_id: benchmarkArtifact.id,
-                  archive_format: 'zip'
-                });
-
-                fs.writeFileSync('benchmark.zip', Buffer.from(download.data));
-                return runId;
-              }
-            }
-            return null;
-
-      - name: Extract previous benchmarks
-        run: |
-          if [ -f benchmark.zip ]; then
-            unzip -q benchmark.zip -d target/criterion/previous || true
-          fi
-
-      - name: Run comparison
-        run: |
-          cargo bench --workspace --all-features -- --baseline main
-
-      - name: Generate comparison report
-        run: |
-          python3 scripts/generate_benchmark_report.py --compare || true
-
-      - name: Comment PR with results
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let comment = '## 📊 Performance Benchmark Results\n\n';
-
-            try {
-              const report = fs.readFileSync('benchmark-report.md', 'utf8');
-              comment += report;
-            } catch (e) {
-              comment += 'Could not generate detailed benchmark report.\n\n';
-              comment += 'Benchmark artifacts are available for download.\n';
-            }
-
-            comment += '\n---\n';
-            comment += '*This comment was automatically generated by the benchmark workflow.*\n';
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const botComment = comments.find(comment => {
-              return comment.user.type === 'Bot' &&
-                     comment.body.includes('📊 Performance Benchmark Results');
-            });
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: comment
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: comment
-              });
-            }
+    - name: Generate trend analysis
+      run: |
+        python3 scripts/run_comprehensive_benchmarks.py --categories all
 
   notify:
-    name: Notify Results
-    needs: [benchmark, compare]
+    name: Notify on regression
     runs-on: ubuntu-latest
-    if: always()
+    needs: benchmark
+    if: failure()
 
     steps:
-      - name: Check benchmark status
-        run: |
-          if [ "${{ needs.benchmark.result }}" == "failure" ]; then
-            echo "::error::Benchmarks failed"
-            exit 1
-          fi
-
-      - name: Create summary
-        run: |
-          echo "## Benchmark Results Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status**: ${{ needs.benchmark.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Comparison**: ${{ needs.compare.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Workflow**: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Run ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Full results available in the [artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> $GITHUB_STEP_SUMMARY
+    - name: Create issue on regression
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 Performance Regression Detected',
+            body: 'Performance benchmarks detected a regression. Please check the workflow run for details.',
+            labels: ['performance', 'regression']
+          })

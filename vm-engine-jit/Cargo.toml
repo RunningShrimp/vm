@@ -12,6 +12,7 @@ vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-mem = { path = "../vm-mem" }
 vm-accel = { path = "../vm-accel" }
+vm-monitor = { path = "../vm-monitor" }
 # vm-engine-interpreter = { path = "../vm-engine-interpreter" }  # TODO: missing crate
 log = { workspace = true }
 cranelift = "=0.110.3"
@@ -54,6 +55,10 @@ harness = false
 name = "block_chaining_bench"
 harness = false
 
+[[bench]]
+name = "simd_performance_bench"
+harness = false
+
 # [[bench]]
 # name = "gc_performance_benchmark"
 # path = "../../benches/gc_performance_benchmark.rs"
@@ -64,4 +69,7 @@ jit = []
 cranelift-backend = []
 async = ["vm-core/async"]
 cpu-detection = ["dep:raw-cpuid"]  # CPU特性检测
-default = ["cranelift-backend", "cpu-detection"]
+simd = []  # SIMD向量操作支持（实验性）
+# 默认启用SIMD以获得最佳性能
+# 如果需要最小化构建，可以使用 default-features = false 并选择性启用
+default = ["cranelift-backend", "cpu-detection", "simd"]

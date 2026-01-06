@@ -427,8 +427,8 @@ impl ABTestManager {
             rng.r#gen::<f64>() < self.config.traffic_split
         };
 
-        if use_first && self.models.len() > 0 {
-            self.models.get(0).cloned()
+        if use_first && !self.models.is_empty() {
+            self.models.first().cloned()
         } else if self.models.len() > 1 {
             self.models.get(1).cloned()
         } else {
@@ -489,7 +489,7 @@ impl ABTestManager {
         let mut records = self.performance_records.lock().unwrap();
         records
             .entry(record.model_name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(record);
     }
 

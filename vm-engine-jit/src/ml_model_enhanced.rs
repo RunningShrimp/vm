@@ -40,6 +40,12 @@ pub struct DominatorTree {
     pub immediate_dominators: HashMap<GuestAddr, GuestAddr>,
 }
 
+impl Default for DominatorTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DominatorTree {
     pub fn new() -> Self {
         Self {
@@ -682,7 +688,7 @@ impl FeatureExtractorEnhanced {
         // 检查是否是循环头
         if self.identify_loop_header(block).is_some() {
             // 计算嵌套深度
-            let addr_value = block.start_pc.0 as u64;
+            let addr_value = block.start_pc.0;
             ((addr_value / 0x1000) & 0xFF) as u8
         } else {
             0
@@ -784,8 +790,8 @@ impl FeatureExtractorEnhanced {
 
                 // 如果使用相同的基址寄存器，检查地址是否接近
                 if base1 == base2 {
-                    let addr1 = *offset1 as i64;
-                    let addr2 = *offset2 as i64;
+                    let addr1 = *offset1;
+                    let addr2 = *offset2;
                     let distance = (addr1 - addr2).abs();
 
                     // 计算访问重叠度
@@ -844,9 +850,9 @@ impl FeatureExtractorEnhanced {
         let repetition_score = repeated_accesses as f64 / memory_accesses.len() as f64;
 
         // 综合评分：空间局部性 + 重复访问性
-        let final_score = (avg_spatial_locality * 0.6 + repetition_score * 0.4).min(1.0_f64);
+        
 
-        final_score
+        (avg_spatial_locality * 0.6 + repetition_score * 0.4).min(1.0_f64)
     }
 
     /// 计算内存访问顺序性
@@ -923,8 +929,8 @@ impl FeatureExtractorEnhanced {
 
             // 只比较使用相同基址寄存器的访问
             if base1 == base2 {
-                let addr1 = offset1 as i64;
-                let addr2 = offset2 as i64;
+                let addr1 = offset1;
+                let addr2 = offset2;
 
                 // 计算地址差
                 let distance = addr2 - addr1;
@@ -1008,9 +1014,9 @@ impl FeatureExtractorEnhanced {
         let density_score = (avg_density / 10.0).min(1.0_f64); // 归一化
 
         // 综合评分：顺序访问得分 + 密集程度得分
-        let final_score = (avg_sequential_score * 0.7 + density_score * 0.3).min(1.0_f64);
+        
 
-        final_score
+        (avg_sequential_score * 0.7 + density_score * 0.3).min(1.0_f64)
     }
 
     /// 获取编译历史
@@ -1157,7 +1163,7 @@ impl FeatureExtractorEnhanced {
         let history = self
             .execution_history
             .entry(block_hash)
-            .or_insert_with(Vec::new);
+            .or_default();
         history.push(record);
 
         // 限制历史大小

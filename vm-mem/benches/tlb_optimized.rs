@@ -4,9 +4,10 @@
 
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::hint::black_box;
 use vm_core::AddressTranslator;
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use vm_core::{AccessType, GuestAddr};
 use vm_mem::{MmuOptimizationStrategy, SoftMmu, UnifiedMmu, UnifiedMmuConfig};
 

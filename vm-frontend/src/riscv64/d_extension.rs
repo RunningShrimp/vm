@@ -699,6 +699,8 @@ impl<'a> RiscvCPU<'a> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(dead_code)] // 测试辅助函数可能未使用
+
     use super::*;
     use crate::riscv64::f_extension::{FCSR, FFlags, FPRegisters, RoundingMode};
     use std::collections::HashMap;

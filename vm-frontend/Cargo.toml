@@ -28,6 +28,9 @@ riscv-a = ["riscv64"]
 all = ["x86_64", "arm64", "riscv64"]
 all-extensions = ["all", "riscv-m", "riscv-f", "riscv-d", "riscv-c", "riscv-a"]
 
+# Parallel processing support
+parallel = []
+
 # Dependencies
 vm-mem = ["dep:vm-mem"]
 vm-accel = ["dep:vm-accel"]

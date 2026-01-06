@@ -27,7 +27,8 @@ impl From<ModuleError> for CompilerError {
 
 /// Cranelift后端
 pub struct CraneliftBackend {
-    /// Cranelift上下文
+    /// Cranelift上下文（预留，未来优化使用）
+    #[allow(dead_code)]
     ctx: CodegenContext,
     /// JIT模块
     module: JITModule,

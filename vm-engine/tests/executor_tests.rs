@@ -3,9 +3,8 @@
 //! 测试执行器、协程和调度器的各种功能和场景
 
 use vm_engine::executor::{
-    AsyncExecutionContext, Coroutine, CoroutineId, CoroutineState, ExecutionResult, ExecutionStats,
-    ExecutorType, HybridExecutor, InterpreterExecutor, JitExecutor, Scheduler, VCPU, VCPUState,
-    VCPUStats,
+    AsyncExecutionContext, Coroutine, CoroutineState, ExecutorType, HybridExecutor,
+    InterpreterExecutor, JitExecutor, Scheduler, VCPU, VCPUState,
 };
 
 // ============================================================================
@@ -118,7 +117,7 @@ mod jit_executor_tests {
     /// 测试8: JIT上下文类型
     #[test]
     fn test_jit_context_type() {
-        let executor = JitExecutor::new();
+        let _executor = JitExecutor::new();
         let context = AsyncExecutionContext::new(ExecutorType::Jit);
         assert_eq!(context.executor_type, ExecutorType::Jit);
     }
@@ -195,7 +194,7 @@ mod interpreter_executor_tests {
     /// 测试14: 解释器上下文类型
     #[test]
     fn test_interpreter_context_type() {
-        let executor = InterpreterExecutor::new();
+        let _executor = InterpreterExecutor::new();
         let context = AsyncExecutionContext::new(ExecutorType::Interpreter);
         assert_eq!(context.executor_type, ExecutorType::Interpreter);
     }
@@ -574,8 +573,6 @@ mod coroutine_tests {
 
 #[cfg(test)]
 mod vcpu_tests {
-    use std::collections::VecDeque;
-
     use super::*;
 
     /// 测试41: VCPU基本创建

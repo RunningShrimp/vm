@@ -283,8 +283,7 @@ impl FeatureExtractor {
         pc: GuestAddr,
         profile: &ProfileData,
     ) -> Option<ExecutionFeatures> {
-        if let Some(block_profile) = profile.block_profiles.get(&(pc.0 as usize)) {
-            Some(ExecutionFeatures {
+        profile.block_profiles.get(&(pc.0 as usize)).map(|block_profile| ExecutionFeatures {
                 block_size: 0,          // 需要从其他地方获取
                 instr_count: 0,         // 需要从其他地方获取
                 branch_count: 0,        // 需要从其他地方获取
@@ -293,9 +292,6 @@ impl FeatureExtractor {
                 avg_block_time_us: (block_profile.avg_duration_ns as f64) / 1000.0,
                 cache_hit_rate: 0.0, // 需要从其他地方获取
             })
-        } else {
-            None
-        }
     }
 
     /// 从BlockProfile提取特征
@@ -441,6 +437,12 @@ pub struct PerformanceValidator {
     improvements: Vec<f64>,
 }
 
+impl Default for PerformanceValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PerformanceValidator {
     pub fn new() -> Self {
         Self {
@@ -460,12 +462,11 @@ impl PerformanceValidator {
         self.optimized_performance.insert(block_id, performance);
 
         // 计算改进
-        if let Some(&baseline) = self.baseline_performance.get(&block_id) {
-            if baseline > 0.0 {
+        if let Some(&baseline) = self.baseline_performance.get(&block_id)
+            && baseline > 0.0 {
                 let improvement = (baseline - performance) / baseline * 100.0;
                 self.improvements.push(improvement);
             }
-        }
     }
 
     /// 获取平均性能改进

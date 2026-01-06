@@ -27,7 +27,7 @@ pub enum CompilationDecision {
 // ============================================================================
 
 /// 决策树节点
-enum TreeNode {
+pub enum TreeNode {
     /// 叶子节点
     Leaf {
         decision: CompilationDecision,

@@ -1,0 +1,407 @@
+name: CI/CD Notifications
+
+on:
+  workflow_run:
+    workflows: ["CI", "Quality Gates", "Coverage", "Performance Regression"]
+    types:
+      - completed
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  release:
+    types: [published]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================================================
+  # CI失败通知
+  # ============================================================================
+  ci-failure:
+    name: CI Failure Notification
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure'
+    steps:
+      - name: Get PR information
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ${{ github.event.workflow_run.name }}
+          run_id: ${{ github.event.workflow_run.id }}
+          name: pr-info
+
+      - name: Send Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          # 发送Slack通知
+          curl -X POST $SLACK_WEBHOOK_URL \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "❌ CI Failed for PR #${{ github.event.workflow_run.pull_requests[0].number }}",
+              "attachments": [
+                {
+                  "color": "#ff0000",
+                  "title": "Pipeline Failed",
+                  "title_link": "${{ github.event.workflow_run.html_url }}",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "value": "${{ github.repository }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Branch",
+                      "value": "${{ github.event.workflow_run.head_branch }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Author",
+                      "value": "${{ github.event.workflow_run.head_commit.author.name }}",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "button",
+                      "text": "View Logs",
+                      "url": "${{ github.event.workflow_run.html_url }}"
+                    }
+                  ]
+                }
+              ]
+            }'
+
+      - name: Send Discord notification
+        if: env.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          # 发送Discord通知
+          curl -X POST $DISCORD_WEBHOOK_URL \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "username": "GitHub Actions",
+              "avatar_url": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+              "embeds": [
+                {
+                  "title": "❌ CI Failed",
+                  "url": "${{ github.event.workflow_run.html_url }}",
+                  "color": 15158332,
+                  "fields": [
+                    {
+                      "name": "Repository",
+                      "value": "${{ github.repository }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "PR",
+                      "value": "#${{ github.event.workflow_run.pull_requests[0].number }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Author",
+                      "value": "${{ github.event.workflow_run.head_commit.author.name }}",
+                      "inline": true
+                    }
+                  ]
+                }
+              ]
+            }'
+
+  # ============================================================================
+  # 发布成功通知
+  # ============================================================================
+  release-success:
+    name: Release Success Notification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - name: Send release notification
+        uses: 8398a7/action-slack@v3
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        with:
+          status: ${{ job.status }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow
+          text: |
+            🎉 Release published successfully!
+            
+            Version: ${{ github.event.release.tag_name }}
+            
+            Check it out: ${{ github.event.release.html_url }}
+
+      - name: Create announcement issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const version = context.ref.replace('refs/tags/', '');
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📢 Announcement: ${version} Released`,
+              body: `## 🎉 Version ${version} has been released!
+
+              ### What's new?
+              
+              See the [release notes](${{ github.event.release.html_url }}) for details.
+
+              ### Installation
+              
+              \`\`\`bash
+              cargo install vm --version ${version.replace('v', '')}
+              \`\`\`
+
+              ### Links
+              
+              - [GitHub Release](${{ github.event.release.html_url }})
+              - [CHANGELOG](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/master/CHANGELOG.md)
+              - [Documentation](https://docs.rs/vm/${version.replace('v', '')}/vm)
+              
+              ### Action Items
+              
+              - [ ] Share on social media
+              - [ ] Update website
+              - [ ] Send email announcement
+              - [ ] Monitor feedback
+              `,
+              labels: ['announcement', 'release']
+            });
+
+  # ============================================================================
+  # 安全漏洞通知
+  # ============================================================================
+  security-alert:
+    name: Security Alert Notification
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, '[SECURITY]') || contains(github.event.head_commit.message, 'security:')
+    steps:
+      - name: Send security alert
+        run: |
+          echo "## 🔐 Security Alert" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A security-related change has been detected:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Message**: ${{ github.event.head_commit.message }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Author**: ${{ github.event.head_commit.author.name }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create security issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔐 Security Review Required',
+              body: `## Security Change Detected
+
+              A security-related commit needs review.
+
+              **Commit**: ${{ github.sha }}
+              **Message**: ${{ github.event.head_commit.message }}
+              **Author**: ${{ github.event.head_commit.author.name }}
+
+              Please review the changes and ensure they follow security best practices.
+
+              ### Review Checklist
+              
+              - [ ] Changes are minimal and necessary
+              - [ ] No secrets are exposed
+              - [ ] Dependencies are up-to-date
+              - [ ] Input validation is proper
+              - [ ] Error handling is secure
+              - [ ] Documentation is updated
+              `,
+              labels: ['security', 'review-needed']
+            });
+
+  # ============================================================================
+  # 性能回归通知
+  # ============================================================================
+  performance-regression:
+    name: Performance Regression Notification
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, '[REGRESSION]') || contains(github.event.head_commit.message, 'performance:')
+    steps:
+      - name: Send performance alert
+        run: |
+          echo "## 📉 Performance Regression Detected" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A performance regression has been detected:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Message**: ${{ github.event.head_commit.message }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 📉 Performance Regression Detected
+
+              This change introduces a performance regression. Please review and optimize.
+
+              **Commit**: ${{ github.sha }}
+
+              ### Suggested Actions
+              
+              1. Profile the code to identify bottlenecks
+              2. Review algorithmic complexity
+              3. Optimize hot paths
+              4. Add caching if appropriate
+              5. Re-run benchmarks after optimization
+
+              ### Resources
+              
+              - [Rust Performance Book](https://nnethercote.github.io/perf-book/)
+              - [Cargo Profiler](https://github.com/flamegraph-rs/flamegraph)
+              `
+            });
+
+  # ============================================================================
+  # 依赖更新通知
+  # ============================================================================
+  dependency-update:
+    name: Dependency Update Notification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check for outdated dependencies
+        run: |
+          cargo install cargo-outdated
+          cargo outdated --workspace --exit-code 0 > outdated-deps.txt || true
+
+      - name: Check for security advisories
+        run: |
+          cargo install cargo-audit
+          cargo audit --json > audit-report.json 2>&1 || true
+
+      - name: Generate dependency report
+        run: |
+          echo "## 📦 Dependency Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -s outdated-deps.txt ]; then
+            echo "### Outdated Dependencies" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat outdated-deps.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All dependencies are up to date" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create dependency update issue
+        if: hashFiles('outdated-deps.txt') != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const outdated = fs.readFileSync('outdated-deps.txt', 'utf8');
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '📦 Dependency Updates Available',
+              body: `## Outdated Dependencies
+
+              The following dependencies have updates available:
+
+              \`\`\`
+              ${outdated}
+              \`\`\`
+
+              ### Action Required
+              
+              Please review and update the dependencies as needed.
+              `,
+              labels: ['dependencies', 'maintenance']
+            });
+
+  # ============================================================================
+  # 每日状态摘要
+  # ============================================================================
+  daily-summary:
+    name: Daily CI/CD Summary
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate daily summary
+        run: |
+          echo "## 📊 Daily CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date**: $(date +%Y-%m-%d)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 统计今天的提交
+          COMMITS=$(git log --since="1 day ago" --oneline | wc -l)
+          echo "- **Commits Today**: $COMMITS" >> $GITHUB_STEP_SUMMARY
+          
+          # 统计今天的PR
+          PULLS=$(gh pr list --state all --search "updated:>=today" | wc -l || echo "0")
+          echo "- **PRs Updated**: $PULLS" >> $GITHUB_STEP_SUMMARY
+          
+          # 统计Issues
+          ISSUES=$(gh issue list --state all --search "updated:>=today" | wc -l || echo "0")
+          echo "- **Issues Updated**: $ISSUES" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Recent Activity" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git log --since="1 day ago" --pretty=format:"- %s (%an)" --reverse | head -10 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Send daily email (optional)
+        if: env.NOTIFICATION_EMAIL != ''
+        env:
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+        run: |
+          # 这里可以添加邮件发送逻辑
+          # 使用mailgun、sendgrid等服务
+          echo "Daily summary would be sent to $NOTIFICATION_EMAIL"
+
+  # ============================================================================
+  # 通知汇总
+  # ============================================================================
+  notification-summary:
+    name: Notification Summary
+    runs-on: ubuntu-latest
+    needs: [ci-failure, release-success, security-alert, performance-regression, dependency-update, daily-summary]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## 🔔 Notification System Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Notification Channel | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| CI Failure Alerts | ${{ needs.ci-failure.result == 'success' && '✅ Active' || '⚪ Inactive' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Release Notifications | ${{ needs.release-success.result == 'success' && '✅ Active' || '⚪ Inactive' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Alerts | ${{ needs.security-alert.result == 'success' && '✅ Active' || '⚪ Inactive' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Performance Alerts | ${{ needs.performance-regression.result == 'success' && '✅ Active' || '⚪ Inactive' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Updates | ${{ needs.dependency-update.result == 'success' && '✅ Active' || '⚪ Inactive' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Daily Summary | ${{ needs.daily-summary.result == 'success' && '✅ Active' || '⚪ Inactive' }} |" >> $GITHUB_STEP_SUMMARY

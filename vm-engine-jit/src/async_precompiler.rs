@@ -453,8 +453,8 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let stats = precompiler.get_stats().await;
-        // 由于编译是异步的，可能还没有完成
-        assert!(stats.compiled_blocks >= 0);
+        // 由于编译是异步的，可能还没有完成，检查合理范围
+        assert!(stats.compiled_blocks <= 10);
     }
 
     #[tokio::test]
@@ -555,8 +555,8 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
         let stats = precompiler.get_stats().await;
-        // 验证至少有一些块被处理
-        assert!(stats.compiled_blocks >= 0 || stats.queued_tasks >= 0);
+        // 验证至少有一些块被处理或排队
+        assert!(stats.compiled_blocks + stats.queued_tasks as u64 > 0);
     }
 
     #[tokio::test]
@@ -572,8 +572,8 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let stats = precompiler.get_stats().await;
-        // 即使编译失败，也不应该panic
-        assert!(stats.failed_compilations >= 0);
+        // 即使编译失败，也应该有统计
+        assert!(stats.failed_compilations <= 10); // 合理的上界
     }
 
     #[tokio::test]
@@ -589,7 +589,7 @@ mod tests {
             0.0
         };
 
-        assert!(initial_hit_rate >= 0.0 && initial_hit_rate <= 1.0);
+        assert!(initial_hit_rate <= 1.0); // hit rate should be <= 1.0 (100%)
     }
 
     #[tokio::test]

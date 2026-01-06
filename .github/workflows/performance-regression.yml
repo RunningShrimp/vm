@@ -1,0 +1,387 @@
+name: Performance Regression
+
+on:
+  pull_request:
+    branches: [master, main, develop]
+    types: [opened, synchronize, reopened]
+  schedule:
+    # 每天凌晨运行
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Baseline commit SHA or tag'
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ============================================================================
+  # 性能基准测试
+  # ============================================================================
+  benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          override: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-benchmark-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-benchmark-
+            ${{ runner.os }}-cargo-
+
+      - name: Install benchmark tools
+        run: |
+          cargo install cargo-criterion
+          cargo install cargo-auditable
+
+      - name: Run benchmarks (current)
+        run: |
+          cargo bench --workspace --all-features -- --save-baseline current
+
+      - name: Run benchmarks (baseline)
+        if: github.event_name == 'pull_request'
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }}
+          cargo bench --workspace --all-features -- --save-baseline baseline
+
+      - name: Load custom baseline
+        if: github.event_name == 'workflow_dispatch' && inputs.baseline != ''
+        run: |
+          git checkout ${{ inputs.baseline }}
+          cargo bench --workspace --all-features -- --save-baseline baseline
+
+      - name: Compare benchmarks
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.baseline != '')
+        run: |
+          # 使用Criterion比较基准结果
+          cargo bench --workspace --all-features -- --baseline baseline
+
+      - name: Extract benchmark results
+        if: always()
+        run: |
+          mkdir -p benchmark-results
+          
+          # 复制所有criterion报告
+          find target/criterion -name '*.json' -exec cp {} benchmark-results/ \; 2>/dev/null || true
+          
+          # 复制基准报告
+          find target -name 'report' -type d | xargs -I {} cp -r {} benchmark-results/ 2>/dev/null || true
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results/
+          retention-days: 30
+
+      - name: Generate benchmark summary
+        if: always()
+        run: |
+          echo "## Performance Benchmark Results 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 查找基准报告
+          if [ -d "target/criterion" ]; then
+            echo "### Benchmark Reports" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # 列出所有基准
+            find target/criterion -maxdepth 2 -mindepth 2 -type d | while read dir; do
+              name=$(basename "$dir")
+              echo "- $name" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "No benchmark results found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 性能回归检测
+  # ============================================================================
+  regression:
+    name: Performance Regression Detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: benchmark
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results/
+
+      - name: Install Python dependencies
+        run: |
+          pip3 install matplotlib numpy scipy
+
+      - name: Detect regression
+        run: |
+          chmod +x scripts/detect_regression.sh
+          ./scripts/detect_regression.sh benchmark-results/
+
+      - name: Generate regression report
+        if: always()
+        run: |
+          echo "## Performance Regression Report 🔍" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "regression-report.md" ]; then
+            cat regression-report.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No regression detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            let commentBody = '## 📊 Performance Benchmark Results\n\n';
+            
+            if (fs.existsSync('regression-report.md')) {
+              const report = fs.readFileSync('regression-report.md', 'utf8');
+              commentBody += report;
+            } else {
+              commentBody += '✅ No performance regression detected.\n\n';
+            }
+            
+            commentBody += '\n---\n\n';
+            commentBody += '*This comment was automatically generated by the CI pipeline.*';
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Performance Benchmark Results')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody,
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody,
+              });
+            }
+
+      - name: Fail on regression
+        if: hashFiles('regression-detected.txt') != ''
+        run: |
+          echo "❌ Performance regression detected!"
+          exit 1
+
+  # ============================================================================
+  # 性能趋势分析
+  # ============================================================================
+  trend-analysis:
+    name: Performance Trend Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python dependencies
+        run: pip3 install matplotlib numpy scipy
+
+      - name: Get historical data
+        run: |
+          mkdir -p performance-history
+          
+          # 获取最近30天的历史数据
+          git log --since="30 days ago" --pretty=format:"%H" | head -30 | while read commit; do
+            echo "Processing commit: $commit"
+            git checkout "$commit" 2>/dev/null || continue
+            
+            # 运行基准测试并保存结果
+            cargo bench --workspace --all-features -- --save-baseline "history-$(git log -1 --format=%ct $commit)" || continue
+          done
+
+      - name: Generate trend report
+        run: |
+          chmod +x scripts/generate_benchmark_report.py
+          python3 scripts/generate_benchmark_report.py performance-history/
+
+      - name: Upload trend report
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-trend-report
+          path: performance-trend-report.png
+          retention-days: 90
+
+      - name: Update GitHub Pages
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git checkout gh-pages || git checkout --orphan gh-pages
+          mkdir -p performance
+          cp performance-trend-report.png performance/
+          
+          git add performance/
+          git commit -m "Update performance trend report" || exit 0
+          git push origin gh-pages
+
+  # ============================================================================
+  # 构建时间监控
+  # ============================================================================
+  build-time:
+    name: Build Time Monitoring
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            shell: bash
+          - os: macos-latest
+            shell: bash
+          - os: windows-latest
+            shell: powershell
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-build-time-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-build-time-
+            ${{ runner.os }}-cargo-
+
+      - name: Measure build time (debug)
+        shell: bash
+        run: |
+          START=$(date +%s)
+          cargo build --workspace --all-features
+          END=$(date +%s)
+          BUILD_TIME=$((END - START))
+          echo "DEBUG_BUILD_TIME=${BUILD_TIME}" >> $GITHUB_ENV
+          echo "Debug build time: ${BUILD_TIME}s"
+
+      - name: Measure build time (release)
+        shell: bash
+        run: |
+          START=$(date +%s)
+          cargo build --workspace --all-features --release
+          END=$(date +%s)
+          BUILD_TIME=$((END - START))
+          echo "RELEASE_BUILD_TIME=${BUILD_TIME}" >> $GITHUB_ENV
+          echo "Release build time: ${BUILD_TIME}s"
+
+      - name: Generate build time report
+        run: |
+          echo "## Build Time Report ⏱️" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| OS | Debug Build | Release Build |" >> $GITHUB_STEP_SUMMARY
+          echo "|----|-------------|---------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ${{ matrix.os }} | ${{ env.DEBUG_BUILD_TIME }}s | ${{ env.RELEASE_BUILD_TIME }}s |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check build time regression
+        run: |
+          chmod +x scripts/detect_regression.sh
+          # 检查构建时间是否超过阈值
+          if [ "${{ env.RELEASE_BUILD_TIME }}" -gt 1800 ]; then
+            echo "⚠️ Release build time exceeded 30 minutes threshold"
+            echo "## ⚠️ Build Time Warning" >> $GITHUB_STEP_SUMMARY
+            echo "Release build time exceeded 30 minutes threshold" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # 性能监控摘要
+  # ============================================================================
+  summary:
+    name: Performance Monitoring Summary
+    runs-on: ubuntu-latest
+    needs: [benchmark, regression, build-time]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# Performance Monitoring Summary 📈" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Component Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | ${{ needs.benchmark.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Regression Detection | ${{ needs.regression.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Time Monitoring | ${{ needs.build-time.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.benchmark.result }}" == "success" ] && \
+             [ "${{ needs.regression.result }}" == "success" ] && \
+             [ "${{ needs.build-time.result }}" == "success" ]; then
+            echo "## ✅ All Performance Checks Passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Your changes do not introduce performance regressions." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ⚠️ Performance Issues Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please review the failed checks above." >> $GITHUB_STEP_SUMMARY
+          fi

@@ -37,6 +37,7 @@ impl AsyncExecutorWrapper {
     }
 
     /// 异步执行单个 IR 块
+    #[allow(clippy::await_holding_lock)] // 设计限制：parking_lot::Mutex不支持async，需重构为tokio::sync::Mutex
     pub async fn execute_block_async(
         &self,
         mmu: &mut dyn MMU,
@@ -47,6 +48,7 @@ impl AsyncExecutorWrapper {
     }
 
     /// 异步执行多个步骤（带 yield）
+    #[allow(clippy::await_holding_lock)] // 设计限制：parking_lot::Mutex不支持async，需重构为tokio::sync::Mutex
     pub async fn run_steps_async(
         &self,
         mmu: &mut dyn MMU,
@@ -54,9 +56,7 @@ impl AsyncExecutorWrapper {
         max_steps: u64,
     ) -> Result<ExecResult, String> {
         let mut interp = self.interpreter.lock();
-        interp
-            .run_steps_async(mmu, block, max_steps, self.yield_interval)
-            .await
+        interp.run_steps_async(mmu, block, max_steps, self.yield_interval).await
     }
 
     /// 获取统计信息

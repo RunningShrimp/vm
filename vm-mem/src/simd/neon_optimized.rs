@@ -18,7 +18,7 @@ use std::arch::aarch64::*;
 /// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
+pub unsafe fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] { unsafe {
     let a_vec = vld1q_f32(a.as_ptr());
     let b_vec = vld1q_f32(b.as_ptr());
     let result = vaddq_f32(a_vec, b_vec);
@@ -26,7 +26,7 @@ pub unsafe fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
     let mut output = [0.0f32; 4];
     vst1q_f32(output.as_mut_ptr(), result);
     output
-}
+}}
 
 /// 标量fallback: 4元素向量加法
 #[cfg(not(target_arch = "aarch64"))]
@@ -41,9 +41,12 @@ pub fn vec4_add_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
 }
 
 /// NEON优化的4元素向量乘法
+///
+/// # Safety
+/// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
+pub unsafe fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] { unsafe {
     let a_vec = vld1q_f32(a.as_ptr());
     let b_vec = vld1q_f32(b.as_ptr());
     let result = vmulq_f32(a_vec, b_vec);
@@ -51,7 +54,7 @@ pub unsafe fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
     let mut output = [0.0f32; 4];
     vst1q_f32(output.as_mut_ptr(), result);
     output
-}
+}}
 
 /// 标量fallback: 4元素向量乘法
 #[cfg(not(target_arch = "aarch64"))]
@@ -66,9 +69,12 @@ pub fn vec4_mul_f32(a: &[f32; 4], b: &[f32; 4]) -> [f32; 4] {
 }
 
 /// NEON优化的融合乘加: a*b+c
+///
+/// # Safety
+/// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> [f32; 4] {
+pub unsafe fn vec4_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> [f32; 4] { unsafe {
     let a_vec = vld1q_f32(a.as_ptr());
     let b_vec = vld1q_f32(b.as_ptr());
     let c_vec = vld1q_f32(c.as_ptr());
@@ -80,7 +86,7 @@ pub unsafe fn vec4_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> [f32; 4]
     let mut output = [0.0f32; 4];
     vst1q_f32(output.as_mut_ptr(), result);
     output
-}
+}}
 
 /// 标量fallback: 融合乘加
 #[cfg(not(target_arch = "aarch64"))]
@@ -95,9 +101,12 @@ pub fn vec4_fma_f32(a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]) -> [f32; 4] {
 }
 
 /// NEON优化的点积运算
+///
+/// # Safety
+/// 调用者确保输入数组至少有4个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec4_dot_f32(a: &[f32; 4], b: &[f32; 4]) -> f32 {
+pub unsafe fn vec4_dot_f32(a: &[f32; 4], b: &[f32; 4]) -> f32 { unsafe {
     let a_vec = vld1q_f32(a.as_ptr());
     let b_vec = vld1q_f32(b.as_ptr());
 
@@ -107,7 +116,7 @@ pub unsafe fn vec4_dot_f32(a: &[f32; 4], b: &[f32; 4]) -> f32 {
     let mut result = [0.0f32; 4];
     vst1q_f32(result.as_mut_ptr(), mul);
     result.iter().sum()
-}
+}}
 
 /// 标量fallback: 点积
 #[cfg(not(target_arch = "aarch64"))]
@@ -117,9 +126,12 @@ pub fn vec4_dot_f32(a: &[f32; 4], b: &[f32; 4]) -> f32 {
 }
 
 /// NEON优化的16元素向量加法 (使用循环展开)
+///
+/// # Safety
+/// 调用者确保输入数组至少有16个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec16_add_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+pub unsafe fn vec16_add_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] { unsafe {
     let mut result = [0.0f32; 16];
 
     // 处理4个向量块 (4×4=16)
@@ -132,7 +144,7 @@ pub unsafe fn vec16_add_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     }
 
     result
-}
+}}
 
 /// 标量fallback: 16元素向量加法
 #[cfg(not(target_arch = "aarch64"))]
@@ -146,9 +158,12 @@ pub fn vec16_add_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
 }
 
 /// NEON优化的16元素向量乘法
+///
+/// # Safety
+/// 调用者确保输入数组至少有16个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec16_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+pub unsafe fn vec16_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] { unsafe {
     let mut result = [0.0f32; 16];
 
     for i in 0..4 {
@@ -160,7 +175,7 @@ pub unsafe fn vec16_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     }
 
     result
-}
+}}
 
 /// 标量fallback: 16元素向量乘法
 #[cfg(not(target_arch = "aarch64"))]
@@ -174,9 +189,12 @@ pub fn vec16_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
 }
 
 /// NEON优化的16元素点积
+///
+/// # Safety
+/// 调用者确保输入数组至少有16个元素
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub unsafe fn vec16_dot_f32(a: &[f32; 16], b: &[f32; 16]) -> f32 {
+pub unsafe fn vec16_dot_f32(a: &[f32; 16], b: &[f32; 16]) -> f32 { unsafe {
     let mut sum_vec = vdupq_n_f32(0.0);
 
     for i in 0..4 {
@@ -191,7 +209,7 @@ pub unsafe fn vec16_dot_f32(a: &[f32; 16], b: &[f32; 16]) -> f32 {
     let mut result = [0.0f32; 4];
     vst1q_f32(result.as_mut_ptr(), sum_vec);
     result.iter().sum()
-}
+}}
 
 /// 标量fallback: 16元素点积
 #[cfg(not(target_arch = "aarch64"))]

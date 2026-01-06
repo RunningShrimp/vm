@@ -84,11 +84,11 @@ where
 
 /// 缓存统计信息
 #[derive(Debug, Clone, Default)]
-struct CacheStatistics {
-    hits: u64,
+pub struct CacheStatistics {
+    pub hits: u64,
     #[allow(dead_code)] // JIT基础设施 - 预留用于性能统计
-    misses: u64,
-    evictions: u64,
+    pub misses: u64,
+    pub evictions: u64,
 }
 
 impl<K, V> GenericCacheManager<K, V>
@@ -269,8 +269,7 @@ where
         if let Some(entry) = self.entries.get_mut(key) {
             entry.access_count += 1;
             entry.last_access = Instant::now();
-            // LRU更新在最后进行
-            drop(entry);
+            // 更新LRU（entry在get_mut借用结束后自动释放）
             self.update_lru(key);
             self.stats.hits += 1;
             self.entries.get(key).map(|e| e.value.clone())

@@ -9,6 +9,7 @@ vm-mem = { path = "../vm-mem" }
 vm-ir = { path = "../vm-ir" }
 vm-core = { path = "../vm-core" }
 vm-cross-arch-support = { path = "../vm-cross-arch-support" }
+vm-frontend = { path = "../vm-frontend" }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -28,4 +29,9 @@ harness = false
 
 [[bench]]
 name = "cross_arch_translation"
+harness = false
+
+# Round 32: Actual Workload Testing
+[[bench]]
+name = "actual_workload_bench"
 harness = false

@@ -701,7 +701,7 @@ impl SocOptimizer {
     /// 检测CPU集群拓扑
     ///
     /// 返回集群类型的向量，基于硬件检测或预设配置
-    fn detect_cpu_topology(&self) -> Result<Vec<CpuCluster>, SocError> {
+    pub fn detect_cpu_topology(&self) -> Result<Vec<CpuCluster>, SocError> {
         #[cfg(target_os = "linux")]
         {
             use std::fs;
@@ -748,7 +748,7 @@ impl SocOptimizer {
     /// 获取指定集群的CPU列表
     ///
     /// 返回属于该集群的CPU ID列表
-    fn get_cluster_cpus(&self, cluster_id: usize) -> Result<Vec<usize>, SocError> {
+    pub fn get_cluster_cpus(&self, cluster_id: usize) -> Result<Vec<usize>, SocError> {
         if cluster_id >= self.clusters.len() {
             return Err(SocError::ClusterNotFound(cluster_id));
         }
@@ -802,7 +802,7 @@ impl SocOptimizer {
         {
             // 非Linux平台：使用简单的CPU分配
             let total_cpus = num_cpus::get();
-            let cpus_per_cluster = (total_cpus + self.clusters.len() - 1) / self.clusters.len();
+            let cpus_per_cluster = total_cpus.div_ceil(self.clusters.len());
             let start = cluster_id * cpus_per_cluster;
             let end = std::cmp::min(start + cpus_per_cluster, total_cpus);
 

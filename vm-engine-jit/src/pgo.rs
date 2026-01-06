@@ -113,6 +113,12 @@ pub struct BranchStats {
     pub taken_rate: f64,
 }
 
+impl Default for BranchStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BranchStats {
     pub fn new() -> Self {
         Self {
@@ -154,6 +160,12 @@ pub struct CallStats {
 
     /// 是否适合内联
     pub should_inline: bool,
+}
+
+impl Default for CallStats {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CallStats {
@@ -332,7 +344,7 @@ impl PGOGuidedOptimizer {
         let stats = profile
             .branch_predictions
             .entry(block_id)
-            .or_insert_with(BranchStats::new);
+            .or_default();
         stats.update(taken);
     }
 
@@ -346,7 +358,7 @@ impl PGOGuidedOptimizer {
         let stats = profile
             .function_calls
             .entry(function_name.to_string())
-            .or_insert_with(CallStats::new);
+            .or_default();
         stats.update(duration);
     }
 
@@ -469,7 +481,7 @@ impl PGOGuidedOptimizer {
             let stats = profile
                 .branch_predictions
                 .entry(block_id)
-                .or_insert_with(BranchStats::new);
+                .or_default();
             stats.taken_count += other_stats.taken_count;
             stats.not_taken_count += other_stats.not_taken_count;
             stats.total_taken += other_stats.total_taken;
@@ -481,7 +493,7 @@ impl PGOGuidedOptimizer {
             let stats = profile
                 .function_calls
                 .entry(func_name)
-                .or_insert_with(CallStats::new);
+                .or_default();
             stats.call_count += other_stats.call_count;
             // 重新计算平均时间
             if stats.avg_duration_us == 0 {
@@ -657,18 +669,16 @@ impl ProfileCollector {
         let callee_id = callee.0 as usize;
 
         // Update caller's callees list
-        if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id) {
-            if !caller_profile.callees.contains(&callee_id) {
+        if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id)
+            && !caller_profile.callees.contains(&callee_id) {
                 caller_profile.callees.push(callee_id);
             }
-        }
 
         // Update callee's callers list
-        if let Some(callee_profile) = profile.block_profiles.get_mut(&callee_id) {
-            if !callee_profile.callers.contains(&caller_id) {
+        if let Some(callee_profile) = profile.block_profiles.get_mut(&callee_id)
+            && !callee_profile.callers.contains(&caller_id) {
                 callee_profile.callers.push(caller_id);
             }
-        }
     }
 
     /// Record branch execution with target and direction
@@ -680,7 +690,7 @@ impl ProfileCollector {
         let stats = profile
             .branch_predictions
             .entry(block_id)
-            .or_insert_with(BranchStats::new);
+            .or_default();
         stats.update(taken);
 
         // Update block profile branch count
@@ -737,7 +747,7 @@ impl ProfileCollector {
         let stats = profile
             .function_calls
             .entry(function_name.clone())
-            .or_insert_with(CallStats::new);
+            .or_default();
         stats.call_count += 1;
 
         // Update average execution time
@@ -757,18 +767,16 @@ impl ProfileCollector {
             let caller_id = caller_addr.0 as usize;
 
             // Update caller's callees list
-            if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id) {
-                if !caller_profile.callees.contains(&target_id) {
+            if let Some(caller_profile) = profile.block_profiles.get_mut(&caller_id)
+                && !caller_profile.callees.contains(&target_id) {
                     caller_profile.callees.push(target_id);
                 }
-            }
 
             // Update target's callers list
-            if let Some(target_profile) = profile.block_profiles.get_mut(&target_id) {
-                if !target_profile.callers.contains(&caller_id) {
+            if let Some(target_profile) = profile.block_profiles.get_mut(&target_id)
+                && !target_profile.callers.contains(&caller_id) {
                     target_profile.callers.push(caller_id);
                 }
-            }
         }
     }
 

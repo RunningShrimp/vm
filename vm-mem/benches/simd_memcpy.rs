@@ -12,7 +12,8 @@
 //! - AVX2: 5-7x faster for large aligned copies
 //! - NEON: 4-6x faster for large aligned copies
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use std::hint::black_box;
 use vm_mem::simd_memcpy::{memcpy_fast, simd_feature_name};
 
 /// Standard library memcpy (baseline)

@@ -25,6 +25,12 @@ impl Default for AotConfig {
 
 pub struct AotLoader;
 
+impl Default for AotLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AotLoader {
     pub fn new() -> Self {
         Self

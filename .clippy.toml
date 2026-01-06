@@ -1,3 +1,4 @@
+
 # Clippy configuration for VM project
 # This configuration enforces strict code quality standards
 
@@ -30,4 +31,4 @@ too-many-lines-threshold = 100
 single-char-binding-names-threshold = 4
 
 # Documentation quality settings
-# missing-docs-in-private-items = false  # Don't require docs for private items
+missing-docs-in-crate-items = false # Don't require docs for private items

@@ -134,9 +134,7 @@ impl InputMapper {
                     if let Some(vm_code) = self.mouse_button_map.get(btn) {
                         return Some((VmInputDevice::Mouse, *vm_code));
                     }
-                }
-
-                if let Some((ax, val)) = axis {
+                } else if let Some((ax, val)) = axis {
                     return Some((
                         VmInputDevice::Mouse,
                         VmInputCode::MouseAxis {
@@ -158,21 +156,18 @@ impl InputMapper {
                         if let Some(vm_code) = mapping.button_map.get(btn) {
                             return Some((VmInputDevice::Gamepad(*device_id), *vm_code));
                         }
-                    }
-
-                    if let Some((ax, val)) = axis {
-                        if let Some(_vm_code) = mapping.axis_map.get(ax) {
-                            return Some((
-                                VmInputDevice::Gamepad(*device_id),
-                                VmInputCode::GamepadAxis {
-                                    axis: *ax,
-                                    value: *val,
-                                },
-                            ));
-                        }
+                    } else if let Some((ax, val)) = axis
+                        && let Some(_vm_code) = mapping.axis_map.get(ax)
+                    {
+                        return Some((
+                            VmInputDevice::Gamepad(*device_id),
+                            VmInputCode::GamepadAxis {
+                                axis: *ax,
+                                value: *val,
+                            },
+                        ));
                     }
                 }
-
                 None
             }
             HostInput::Touchscreen { .. } => {

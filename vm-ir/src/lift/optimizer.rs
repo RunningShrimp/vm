@@ -27,8 +27,8 @@ pub struct OptimizationPreset {
 }
 
 impl OptimizationPreset {
-    /// 创建默认优化预设
-    pub fn default() -> Self {
+    /// 创建标准优化预设（O2级别）
+    pub fn standard() -> Self {
         Self {
             level: OptimizationLevel::O2,
             enable_inline: true,
@@ -57,7 +57,11 @@ impl OptimizationPreset {
 
 impl Default for OptimizationPreset {
     fn default() -> Self {
-        Self::default()
+        Self {
+            level: OptimizationLevel::O2,
+            enable_inline: true,
+            enable_vectorization: true,
+        }
     }
 }
 
@@ -121,6 +125,6 @@ impl PassManager {
 
 impl Default for PassManager {
     fn default() -> Self {
-        Self::new(OptimizationPreset::default())
+        Self::new(OptimizationPreset::standard())
     }
 }

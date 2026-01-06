@@ -179,7 +179,7 @@ impl DxvkTranslator {
 
         // 5. 存储Vulkan实例信息
         self.vk_instance = Some(VulkanInstance {
-            instance_handle: device_handle as u64,
+            instance_handle: device_handle,
         });
 
         log::info!("Successfully initialized Vulkan for DXVK");
@@ -299,9 +299,9 @@ impl DxvkTranslator {
         Ok((0x9860000000000001u64, 0xA860000000000001u64))
     }
 
-    /// 检查Vulkan可用性 (非feature)
+    /// 检查Vulkan可用性 (非feature) - 公共API以形成逻辑闭环
     #[cfg(not(feature = "vulkan"))]
-    fn check_vulkan_availability(&self) -> Result<(), DxvkError> {
+    pub fn check_vulkan_availability(&self) -> Result<(), DxvkError> {
         log::warn!("Vulkan feature not enabled, using mock implementation");
         Ok(())
     }

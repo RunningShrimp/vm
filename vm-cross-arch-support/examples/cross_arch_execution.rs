@@ -350,7 +350,7 @@ fn example6_architecture_comparison() {
     println!("  {}", "-".repeat(55));
 
     for (name, arch) in &architectures {
-        let ctx = EncodingContext::new(*arch);
+        let _ctx = EncodingContext::new(*arch);
 
         let (reg_count, addr_modes, features) = match arch {
             Architecture::X86_64 => (

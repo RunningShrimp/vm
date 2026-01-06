@@ -1,8 +1,8 @@
 ///
 /// 测试无锁TLB实现的性能指标
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 /// 无锁TLB性能基准测试
-use vm_core::AddressTranslator;
 use vm_mem::tlb::core::lockfree::{LockFreeTlb, TlbEntry};
 
 fn bench_lockfree_tlb_lookup(c: &mut Criterion) {

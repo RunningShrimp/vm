@@ -249,7 +249,7 @@ impl AutoOptimizer {
         let std_dev = variance.sqrt();
 
         // 从实际数据计算特征
-        let allocation_frequency = if history.len() > 0 {
+        let allocation_frequency = if !history.is_empty() {
             // 估算内存分配频率 (假设10%的操作涉及显著内存分配)
             history.iter()
                 .filter(|m| m.memory_used_bytes > 10_000)
@@ -258,7 +258,7 @@ impl AutoOptimizer {
             1.0
         };
 
-        let memory_copy_size = if history.len() > 0 {
+        let memory_copy_size = if !history.is_empty() {
             // 估算平均内存拷贝大小 (基于memory_used_bytes)
             let total_memory: u64 = history.iter()
                 .map(|m| m.memory_used_bytes)
@@ -268,7 +268,7 @@ impl AutoOptimizer {
             4096.0
         };
 
-        let jit_compilation_frequency = if history.len() > 0 {
+        let jit_compilation_frequency = if !history.is_empty() {
             // 估算JIT编译频率 (基于操作时间的分布)
             // JIT编译通常比普通操作慢10-100倍
             let slow_operations = history.iter()
@@ -472,6 +472,12 @@ impl AutoOptimizer {
         let after = after_opt.last()?.operation_time_ns as f64;
 
         Some((before - after) / before * 100.0)
+    }
+}
+
+impl Default for AutoOptimizer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

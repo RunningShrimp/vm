@@ -19,7 +19,8 @@
 
 use std::sync::Arc;
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use vm_core::{AccessType, GuestAddr, GuestPhysAddr};
 use vm_mem::tlb::tlb::TlbReplacePolicy;
 use vm_mem::tlb::tlb::{MissReason as TlbMissReason, SwitchReason as TlbSwitchReason};

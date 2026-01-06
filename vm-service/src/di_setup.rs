@@ -16,6 +16,9 @@ use vm_engine::jit::optimizer_strategy::OptimizationStrategyImpl;
 use vm_engine::jit::register_allocator_adapter::{AllocationStrategy, RegisterAllocatorAdapter};
 use vm_mem::tlb::management::multilevel::MultiLevelTlbManager;
 
+/// 缓存管理器类型别名（简化复杂类型）
+pub type CacheManagerRef = Arc<std::sync::Mutex<dyn CacheManager<u64, Vec<u8>>>>;
+
 /// 服务容器
 ///
 /// 管理所有领域服务的依赖注入配置。
@@ -23,7 +26,7 @@ pub struct ServiceContainer {
     /// TLB 管理器
     pub tlb_manager: Arc<std::sync::Mutex<dyn TlbManager>>,
     /// 缓存管理器（按 tier 组织）
-    pub cache_managers: HashMap<String, Arc<std::sync::Mutex<dyn CacheManager<u64, Vec<u8>>>>>,
+    pub cache_managers: HashMap<String, CacheManagerRef>,
     /// 优化策略
     pub optimization_strategy: Arc<dyn OptimizationStrategy>,
     /// 寄存器分配器
@@ -43,30 +46,24 @@ impl ServiceContainer {
             Arc::new(std::sync::Mutex::new(MultiLevelTlbManager::new()));
 
         // 创建缓存管理器（L1, L2, L3）
-        let mut cache_managers: HashMap<
-            String,
-            Arc<std::sync::Mutex<dyn CacheManager<u64, Vec<u8>>>>,
-        > = HashMap::new();
+        let mut cache_managers: HashMap<String, CacheManagerRef> = HashMap::new();
 
         // L1 缓存（32KB）
-        let l1_cache: Arc<std::sync::Mutex<dyn CacheManager<u64, Vec<u8>>>> =
-            Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
+        let l1_cache: CacheManagerRef = Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
                 32 * 1024,
                 vm_engine::jit::cache::manager::CacheReplacementPolicy::LRU,
             )));
         cache_managers.insert("L1".to_string(), l1_cache);
 
         // L2 缓存（256KB）
-        let l2_cache: Arc<std::sync::Mutex<dyn CacheManager<u64, Vec<u8>>>> =
-            Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
+        let l2_cache: CacheManagerRef = Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
                 256 * 1024,
                 vm_engine::jit::cache::manager::CacheReplacementPolicy::LRU,
             )));
         cache_managers.insert("L2".to_string(), l2_cache);
 
         // L3 缓存（2MB）
-        let l3_cache: Arc<std::sync::Mutex<dyn CacheManager<u64, Vec<u8>>>> =
-            Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
+        let l3_cache: CacheManagerRef = Arc::new(std::sync::Mutex::new(GenericCacheManager::with_policy(
                 2 * 1024 * 1024,
                 vm_engine::jit::cache::manager::CacheReplacementPolicy::LFU,
             )));
@@ -122,6 +119,31 @@ impl ServiceContainer {
             Some(self.event_bus.clone()),
         )
     }
+
+    /// 获取TLB管理器（形成逻辑闭环）
+    pub fn tlb_manager(&self) -> &Arc<std::sync::Mutex<dyn TlbManager>> {
+        &self.tlb_manager
+    }
+
+    /// 获取缓存管理器（形成逻辑闭环）
+    pub fn cache_managers(&self) -> &HashMap<String, CacheManagerRef> {
+        &self.cache_managers
+    }
+
+    /// 获取优化策略（形成逻辑闭环）
+    pub fn optimization_strategy(&self) -> &Arc<dyn OptimizationStrategy> {
+        &self.optimization_strategy
+    }
+
+    /// 获取寄存器分配器（形成逻辑闭环）
+    pub fn register_allocator(&self) -> &Arc<std::sync::Mutex<dyn RegisterAllocator>> {
+        &self.register_allocator
+    }
+
+    /// 获取事件总线（形成逻辑闭环）
+    pub fn event_bus(&self) -> &Arc<DomainEventBus> {
+        &self.event_bus
+    }
 }
 
 impl Default for ServiceContainer {
@@ -143,7 +165,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_tlb_management_service() {
         let container = ServiceContainer::new();
-        let service = container.create_tlb_management_service();
+        let _service = container.create_tlb_management_service();
         // Service created successfully
         assert!(true);
     }
@@ -151,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_cache_management_service() {
         let container = ServiceContainer::new();
-        let service = container.create_cache_management_service();
+        let _service = container.create_cache_management_service();
         // Service created successfully
         assert!(true);
     }

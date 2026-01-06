@@ -302,8 +302,8 @@ impl Arm64Optimizer {
         }
 
         // 条件选择: CSEL
-        // Fixed: corrected bit mask from 0x3F000000 to 0x1E000000 to allow proper matching
-        if (insn & 0x1E000000) == 0x1A800000 {
+        // Fixed: 使用正确的位掩码 0x1F800000 匹配 CSEL 指令模式
+        if (insn & 0x1F800000) == 0x1A800000 {
             let cond = ((insn >> 12) & 0xF) as u8;
             if cond <= 15 {
                 return unsafe { Some(std::mem::transmute::<u8, ArmCondition>(cond)) };

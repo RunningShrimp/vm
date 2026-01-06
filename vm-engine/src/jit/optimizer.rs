@@ -85,6 +85,19 @@ pub struct DefaultIROptimizer {
     stats: OptimizationStats,
 }
 
+impl Default for DefaultIROptimizer {
+    fn default() -> Self {
+        Self {
+            name: "DefaultIROptimizer".to_string(),
+            version: "1.0.0".to_string(),
+            opt_level: OptimizationLevel::O2,
+            enabled_optimizations: HashSet::new(),
+            options: HashMap::new(),
+            stats: OptimizationStats::default(),
+        }
+    }
+}
+
 impl DefaultIROptimizer {
     /// 创建新的优化器
     pub fn new(config: crate::jit::core::JITConfig) -> Self {
@@ -125,6 +138,16 @@ impl DefaultIROptimizer {
             options: HashMap::new(),
             stats: OptimizationStats::default(),
         }
+    }
+
+    /// 获取优化级别（形成逻辑闭环）
+    pub fn opt_level(&self) -> OptimizationLevel {
+        self.opt_level
+    }
+
+    /// 获取统计信息（形成逻辑闭环）
+    pub fn stats(&self) -> &OptimizationStats {
+        &self.stats
     }
 }
 
@@ -221,8 +244,8 @@ impl IROptimizer for DefaultIROptimizer {
 }
 
 impl DefaultIROptimizer {
-    /// 创建默认优化器
-    pub fn default() -> Self {
+    /// 创建默认优化器（O2级别）
+    pub fn with_default_config() -> Self {
         let config = crate::jit::core::JITConfig::default();
         Self::new(config)
     }

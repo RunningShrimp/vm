@@ -339,8 +339,8 @@ impl CodeGenerator {
         code
     }
 
-    /// 编码比较操作
-    fn encode_compare(&self, dst: u32, src: u32, opcode: u8) -> Vec<u8> {
+    /// 编码比较操作（公共API以形成逻辑闭环）
+    pub fn encode_compare(&self, dst: u32, src: u32, opcode: u8) -> Vec<u8> {
         let mut code = Vec::with_capacity(9);
         code.push(opcode);
         code.extend_from_slice(&dst.to_le_bytes());
@@ -348,8 +348,8 @@ impl CodeGenerator {
         code
     }
 
-    /// 编码双操作数比较
-    fn encode_compare_2(&self, dst: u32, src1: u32, src2: u32, opcode: u8) -> Vec<u8> {
+    /// 编码双操作数比较（公共API以形成逻辑闭环）
+    pub fn encode_compare_2(&self, dst: u32, src1: u32, src2: u32, opcode: u8) -> Vec<u8> {
         let mut code = Vec::with_capacity(13);
         code.push(opcode);
         code.extend_from_slice(&dst.to_le_bytes());
@@ -358,20 +358,20 @@ impl CodeGenerator {
         code
     }
 
-    /// 编码跳转
+    /// 编码跳转（公共API以形成逻辑闭环）
     ///
     /// 格式: opcode(1) + target(4) = 5 bytes
-    fn encode_jump(&self, target: u32, opcode: u8) -> Vec<u8> {
+    pub fn encode_jump(&self, target: u32, opcode: u8) -> Vec<u8> {
         let mut code = Vec::with_capacity(5);
         code.push(opcode);
         code.extend_from_slice(&target.to_le_bytes());
         code
     }
 
-    /// 编码条件跳转
+    /// 编码条件跳转（公共API以形成逻辑闭环）
     ///
     /// 格式: opcode(1) + src_reg(4) + target(4) = 9 bytes
-    fn encode_branch(&self, src: u32, target: u32, opcode: u8) -> Vec<u8> {
+    pub fn encode_branch(&self, src: u32, target: u32, opcode: u8) -> Vec<u8> {
         let mut code = Vec::with_capacity(9);
         code.push(opcode);
         code.extend_from_slice(&src.to_le_bytes());

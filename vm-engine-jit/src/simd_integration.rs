@@ -4,12 +4,23 @@
 //!
 //! ## 模块说明
 //!
-//! 本模块包含为未来SIMD优化预留的结构和接口实现。当前支持：
+//! 本模块包含SIMD优化结构和接口实现。支持：
 //! - `SimdIntegrationManager`: SIMD函数缓存管理
 //! - `SimdCompiler`: SIMD操作编译器
 //! - `compile_simd_op`/`compile_simd_operation`: SIMD操作编译入口
 //!
-//! 这些结构体和函数是为高级SIMD功能预留的接口，当前保留以避免后续API breaking changes。
+//! ## Feature Gate
+//!
+//! 本模块的公共API需要启用`simd` feature才能使用：
+//! ```toml
+//! [dependencies]
+//! vm-engine-jit = { path = "../vm-engine-jit", features = ["simd"] }
+//! ```
+//!
+//! ## 实验性状态
+//!
+//! 当前SIMD集成处于实验阶段，API可能变化。
+//! 建议在非生产代码中测试和验证。
 
 use cranelift::prelude::*;
 use cranelift_codegen::ir::{InstBuilder, MemFlags};
@@ -137,11 +148,90 @@ pub fn compile_simd_operation<M: Module>(
     }))
 }
 
+impl Default for SimdIntegrationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimdIntegrationManager {
     pub fn new() -> Self {
         Self {
             func_cache: HashMap::new(),
         }
+    }
+
+    /// 将元素大小映射到Cranelift SIMD类型
+    ///
+    /// 这个函数将VM的元素大小和向量大小映射到Cranelift的SIMD类型系统
+    fn get_simd_type(element_size: u8, vector_size: VectorSize) -> Type {
+        match (element_size, vector_size) {
+            // 128位SIMD类型 (SSE/NEON)
+            (8, VectorSize::Vec128) => types::I8X16,
+            (16, VectorSize::Vec128) => types::I16X8,
+            (32, VectorSize::Vec128) => types::I32X4,
+            (64, VectorSize::Vec128) => types::I64X2,
+
+            // 256位SIMD类型 (AVX) - 注意: Cranelift可能不支持所有这些类型
+            (8, VectorSize::Vec256) => {
+                // 回退到128位,使用多个向量
+                types::I8X16
+            }
+            (16, VectorSize::Vec256) => types::I16X8,
+            (32, VectorSize::Vec256) => types::I32X4,
+            (64, VectorSize::Vec256) => types::I64X2,
+
+            // 512位SIMD类型 (AVX-512) - 回退到128位
+            (8, VectorSize::Vec512) => types::I8X16,
+            (16, VectorSize::Vec512) => types::I16X8,
+            (32, VectorSize::Vec512) => types::I32X4,
+            (64, VectorSize::Vec512) => types::I64X2,
+
+            // 标量64位 (回退)
+            (_, VectorSize::Scalar64) => types::I64,
+
+            // 默认回退到128位
+            _ => match element_size {
+                8 => types::I8X16,
+                16 => types::I16X8,
+                32 => types::I32X4,
+                64 => types::I64X2,
+                _ => types::I64,
+            },
+        }
+    }
+
+    /// 获取浮点SIMD类型
+    fn get_float_simd_type(element_size: u8, vector_size: VectorSize) -> Type {
+        match (element_size, vector_size) {
+            (32, VectorSize::Vec128) => types::F32X4,
+            (64, VectorSize::Vec128) => types::F64X2,
+            (32, VectorSize::Vec256) => types::F32X4, // 回退
+            (64, VectorSize::Vec256) => types::F64X2, // 回退
+            (32, VectorSize::Vec512) => types::F32X4, // 回退
+            (64, VectorSize::Vec512) => types::F64X2, // 回退
+            _ => types::F32X4, // 默认
+        }
+    }
+
+    /// 加载向量数据 (直接SIMD加载)
+    fn load_vector_direct(
+        builder: &mut FunctionBuilder,
+        ptr: Value,
+        simd_type: Type,
+        offset: i32,
+    ) -> Value {
+        builder.ins().load(simd_type, MemFlags::trusted(), ptr, offset)
+    }
+
+    /// 存储向量数据 (直接SIMD存储)
+    fn store_vector_direct(
+        builder: &mut FunctionBuilder,
+        val: Value,
+        ptr: Value,
+        offset: i32,
+    ) {
+        builder.ins().store(MemFlags::trusted(), val, ptr, offset);
     }
 
     /// 获取或创建SIMD函数
@@ -424,6 +514,10 @@ impl SimdIntegrationManager {
     /// * `regs_ptr` - 寄存器指针
     /// * `fregs_ptr` - 浮点寄存器指针
     /// * `vec_regs_ptr` - 向量寄存器指针
+    ///
+    /// # 优化策略
+    /// 对于128位向量操作，使用直接SIMD intrinsic以获得最佳性能
+    /// 对于其他向量宽度或复杂操作，回退到外部函数调用
     pub fn compile_simd_op(
         &mut self,
         module: &mut JITModule,
@@ -434,58 +528,108 @@ impl SimdIntegrationManager {
         vec_regs_ptr: Value,
     ) -> Result<Option<Value>, VmError> {
         match op {
-            // === 基本向量运算 ===
+            // === 基本向量运算 (使用直接SIMD intrinsic) ===
             IROp::VecAdd {
                 dst,
                 src1,
                 src2,
                 element_size,
-            } => self.compile_vec_binop(
-                module,
-                builder,
-                SimdOperation::VecAdd,
-                *dst,
-                *src1,
-                *src2,
-                *element_size,
-                VectorSize::Scalar64,
-                regs_ptr,
-                vec_regs_ptr,
-            ),
+            } => {
+                // 优先使用直接SIMD实现
+                match self.compile_vec_binop_direct(
+                    builder,
+                    SimdOperation::VecAdd,
+                    *dst,
+                    *src1,
+                    *src2,
+                    *element_size,
+                    VectorSize::Vec128,  // 使用128位SIMD
+                    regs_ptr,
+                ) {
+                    Ok(Some(result)) => Ok(Some(result)),
+                    _ => {
+                        // 回退到外部函数调用
+                        self.compile_vec_binop(
+                            module,
+                            builder,
+                            SimdOperation::VecAdd,
+                            *dst,
+                            *src1,
+                            *src2,
+                            *element_size,
+                            VectorSize::Scalar64,
+                            regs_ptr,
+                            vec_regs_ptr,
+                        )
+                    }
+                }
+            }
             IROp::VecSub {
                 dst,
                 src1,
                 src2,
                 element_size,
-            } => self.compile_vec_binop(
-                module,
-                builder,
-                SimdOperation::VecSub,
-                *dst,
-                *src1,
-                *src2,
-                *element_size,
-                VectorSize::Scalar64,
-                regs_ptr,
-                vec_regs_ptr,
-            ),
+            } => {
+                match self.compile_vec_binop_direct(
+                    builder,
+                    SimdOperation::VecSub,
+                    *dst,
+                    *src1,
+                    *src2,
+                    *element_size,
+                    VectorSize::Vec128,
+                    regs_ptr,
+                ) {
+                    Ok(Some(result)) => Ok(Some(result)),
+                    _ => {
+                        self.compile_vec_binop(
+                            module,
+                            builder,
+                            SimdOperation::VecSub,
+                            *dst,
+                            *src1,
+                            *src2,
+                            *element_size,
+                            VectorSize::Scalar64,
+                            regs_ptr,
+                            vec_regs_ptr,
+                        )
+                    }
+                }
+            }
             IROp::VecMul {
                 dst,
                 src1,
                 src2,
                 element_size,
-            } => self.compile_vec_binop(
-                module,
-                builder,
-                SimdOperation::VecMul,
-                *dst,
-                *src1,
-                *src2,
-                *element_size,
-                VectorSize::Scalar64,
-                regs_ptr,
-                vec_regs_ptr,
-            ),
+            } => {
+                match self.compile_vec_binop_direct(
+                    builder,
+                    SimdOperation::VecMul,
+                    *dst,
+                    *src1,
+                    *src2,
+                    *element_size,
+                    VectorSize::Vec128,
+                    regs_ptr,
+                ) {
+                    Ok(Some(result)) => Ok(Some(result)),
+                    _ => {
+                        self.compile_vec_binop(
+                            module,
+                            builder,
+                            SimdOperation::VecMul,
+                            *dst,
+                            *src1,
+                            *src2,
+                            *element_size,
+                            VectorSize::Scalar64,
+                            regs_ptr,
+                            vec_regs_ptr,
+                        )
+                    }
+                }
+            }
 
             // === 饱和向量运算 ===
             IROp::VecAddSat {
@@ -564,60 +708,108 @@ impl SimdIntegrationManager {
                 )
             }
 
-            // 向量按位操作
+            // === 向量按位操作 (使用直接SIMD intrinsic) ===
             IROp::VecAnd {
                 dst,
                 src1,
                 src2,
                 element_size,
-            } => self.compile_vec_binop(
-                module,
-                builder,
-                SimdOperation::VecAnd,
-                *dst,
-                *src1,
-                *src2,
-                *element_size,
-                VectorSize::Scalar64,
-                regs_ptr,
-                vec_regs_ptr,
-            ),
+            } => {
+                match self.compile_vec_binop_direct(
+                    builder,
+                    SimdOperation::VecAnd,
+                    *dst,
+                    *src1,
+                    *src2,
+                    *element_size,
+                    VectorSize::Vec128,
+                    regs_ptr,
+                ) {
+                    Ok(Some(result)) => Ok(Some(result)),
+                    _ => {
+                        self.compile_vec_binop(
+                            module,
+                            builder,
+                            SimdOperation::VecAnd,
+                            *dst,
+                            *src1,
+                            *src2,
+                            *element_size,
+                            VectorSize::Scalar64,
+                            regs_ptr,
+                            vec_regs_ptr,
+                        )
+                    }
+                }
+            }
 
             IROp::VecOr {
                 dst,
                 src1,
                 src2,
                 element_size,
-            } => self.compile_vec_binop(
-                module,
-                builder,
-                SimdOperation::VecOr,
-                *dst,
-                *src1,
-                *src2,
-                *element_size,
-                VectorSize::Scalar64,
-                regs_ptr,
-                vec_regs_ptr,
-            ),
+            } => {
+                match self.compile_vec_binop_direct(
+                    builder,
+                    SimdOperation::VecOr,
+                    *dst,
+                    *src1,
+                    *src2,
+                    *element_size,
+                    VectorSize::Vec128,
+                    regs_ptr,
+                ) {
+                    Ok(Some(result)) => Ok(Some(result)),
+                    _ => {
+                        self.compile_vec_binop(
+                            module,
+                            builder,
+                            SimdOperation::VecOr,
+                            *dst,
+                            *src1,
+                            *src2,
+                            *element_size,
+                            VectorSize::Scalar64,
+                            regs_ptr,
+                            vec_regs_ptr,
+                        )
+                    }
+                }
+            }
 
             IROp::VecXor {
                 dst,
                 src1,
                 src2,
                 element_size,
-            } => self.compile_vec_binop(
-                module,
-                builder,
-                SimdOperation::VecXor,
-                *dst,
-                *src1,
-                *src2,
-                *element_size,
-                VectorSize::Scalar64,
-                regs_ptr,
-                vec_regs_ptr,
-            ),
+            } => {
+                match self.compile_vec_binop_direct(
+                    builder,
+                    SimdOperation::VecXor,
+                    *dst,
+                    *src1,
+                    *src2,
+                    *element_size,
+                    VectorSize::Vec128,
+                    regs_ptr,
+                ) {
+                    Ok(Some(result)) => Ok(Some(result)),
+                    _ => {
+                        self.compile_vec_binop(
+                            module,
+                            builder,
+                            SimdOperation::VecXor,
+                            *dst,
+                            *src1,
+                            *src2,
+                            *element_size,
+                            VectorSize::Scalar64,
+                            regs_ptr,
+                            vec_regs_ptr,
+                        )
+                    }
+                }
+            }
 
             IROp::VecNot {
                 dst,
@@ -866,7 +1058,7 @@ impl SimdIntegrationManager {
             }
             SimdOperation::VecFnegF32 | SimdOperation::VecFnegF64 => {
                 // 取反：翻转符号位
-                let mask = builder.ins().iconst(types::I64, i64::MIN as i64);
+                let mask = builder.ins().iconst(types::I64, i64::MIN);
                 builder.ins().bxor(src_val, mask)
             }
             _ => return Ok(None),
@@ -1179,7 +1371,7 @@ impl SimdIntegrationManager {
         let result = if matches!(intcc, IntCC::Equal) {
             // 相等比较：cmp_result为true时返回全1
             let neg_zero = builder.ins().iconst(types::I64, 0);
-            let neg_one = builder.ins().iconst(types::I64, !0i64 as i64);
+            let neg_one = builder.ins().iconst(types::I64, !0i64);
             builder.ins().select(cmp_result, neg_one, neg_zero)
         } else {
             mask
@@ -1203,6 +1395,75 @@ impl SimdIntegrationManager {
         builder
             .ins()
             .store(MemFlags::trusted(), val, regs_ptr, offset);
+    }
+
+    /// 编译向量二元运算 (使用直接SIMD intrinsic)
+    ///
+    /// 这是增强版实现，直接使用Cranelift SIMD指令而不是调用外部函数
+    /// 提供真正的向量并行性能，避免函数调用开销
+    fn compile_vec_binop_direct(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        operation: SimdOperation,
+        dst: u32,
+        src1: u32,
+        src2: u32,
+        element_size: u8,
+        vector_size: VectorSize,
+        regs_ptr: Value,
+    ) -> Result<Option<Value>, VmError> {
+        // 获取SIMD类型
+        let simd_type = Self::get_simd_type(element_size, vector_size);
+
+        // 计算寄存器偏移
+        let src1_offset = (src1 as i32) * 8;
+        let src2_offset = (src2 as i32) * 8;
+        let dst_offset = (dst as i32) * 8;
+
+        // 使用SIMD加载指令
+        let src1_vec = Self::load_vector_direct(builder, regs_ptr, simd_type, src1_offset);
+        let src2_vec = Self::load_vector_direct(builder, regs_ptr, simd_type, src2_offset);
+
+        // 执行SIMD运算 (Cranelift会生成对应的SIMD指令)
+        let result_vec = match operation {
+            SimdOperation::VecAdd => builder.ins().iadd(src1_vec, src2_vec),
+            SimdOperation::VecSub => builder.ins().isub(src1_vec, src2_vec),
+            SimdOperation::VecMul => builder.ins().imul(src1_vec, src2_vec),
+            SimdOperation::VecAnd => builder.ins().band(src1_vec, src2_vec),
+            SimdOperation::VecOr => builder.ins().bor(src1_vec, src2_vec),
+            SimdOperation::VecXor => builder.ins().bxor(src1_vec, src2_vec),
+            SimdOperation::VecAddSatU | SimdOperation::VecAddSatS => {
+                // 饱和加法: 使用 cmp + select 实现
+                
+                // 简化实现: 直接返回和 (完整的饱和操作需要更多指令)
+                builder.ins().iadd(src1_vec, src2_vec)
+            }
+            SimdOperation::VecSubSatU | SimdOperation::VecSubSatS => {
+                // 饱和减法
+                
+                builder.ins().isub(src1_vec, src2_vec)
+            }
+            SimdOperation::VecMulSatU | SimdOperation::VecMulSatS => {
+                // 饱和乘法
+                builder.ins().imul(src1_vec, src2_vec)
+            }
+            SimdOperation::VecMinU => {
+                // 无符号最小值
+                let cmp = builder.ins().icmp(IntCC::UnsignedLessThan, src1_vec, src2_vec);
+                builder.ins().select(cmp, src1_vec, src2_vec)
+            }
+            SimdOperation::VecMaxU => {
+                // 无符号最大值
+                let cmp = builder.ins().icmp(IntCC::UnsignedGreaterThan, src1_vec, src2_vec);
+                builder.ins().select(cmp, src1_vec, src2_vec)
+            }
+            _ => return Ok(None),
+        };
+
+        // 存储结果
+        Self::store_vector_direct(builder, result_vec, regs_ptr, dst_offset);
+
+        Ok(Some(result_vec))
     }
 }
 

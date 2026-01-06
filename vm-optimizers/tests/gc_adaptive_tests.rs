@@ -333,7 +333,7 @@ fn test_adaptive_gc_creation() {
 #[test]
 fn test_adaptive_gc_diagnose_high_fragmentation() {
     let config = AdaptiveGCConfig::default();
-    let mut gc = AdaptiveGCTuner::new(config);
+    let gc = AdaptiveGCTuner::new(config);
 
     let metrics = GCPerformanceMetrics {
         heap_size: 1000,
@@ -357,7 +357,7 @@ fn test_adaptive_gc_diagnose_high_fragmentation() {
 #[test]
 fn test_adaptive_gc_diagnose_long_pause() {
     let config = AdaptiveGCConfig::default();
-    let mut gc = AdaptiveGCTuner::new(config);
+    let gc = AdaptiveGCTuner::new(config);
 
     let metrics = GCPerformanceMetrics {
         heap_size: 1000,
@@ -381,7 +381,7 @@ fn test_adaptive_gc_diagnose_long_pause() {
 #[test]
 fn test_adaptive_gc_diagnose_low_throughput() {
     let config = AdaptiveGCConfig::default();
-    let mut gc = AdaptiveGCTuner::new(config);
+    let gc = AdaptiveGCTuner::new(config);
 
     let metrics = GCPerformanceMetrics {
         heap_size: 1000,
@@ -405,7 +405,7 @@ fn test_adaptive_gc_diagnose_low_throughput() {
 #[test]
 fn test_adaptive_gc_diagnose_high_memory_pressure() {
     let config = AdaptiveGCConfig::default();
-    let mut gc = AdaptiveGCTuner::new(config);
+    let gc = AdaptiveGCTuner::new(config);
 
     let metrics = GCPerformanceMetrics {
         heap_size: 1000,
@@ -429,7 +429,7 @@ fn test_adaptive_gc_diagnose_high_memory_pressure() {
 #[test]
 fn test_adaptive_gc_diagnose_none() {
     let config = AdaptiveGCConfig::default();
-    let mut gc = AdaptiveGCTuner::new(config);
+    let gc = AdaptiveGCTuner::new(config);
 
     let metrics = GCPerformanceMetrics {
         heap_size: 1000,

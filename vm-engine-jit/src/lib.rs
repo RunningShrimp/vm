@@ -172,8 +172,8 @@ pub use simd_integration::{
 };
 
 // SIMD模块导出（始终可用但标记为实验性）
+// 注意：移除了#[allow(dead_code)]以便clippy能够检测未使用代码
 #[cfg(not(feature = "simd"))]
-#[allow(dead_code)]
 pub use simd_integration::SimdIntegrationManager;
 pub use tiered_compiler::{
     CompilationTier, TieredCompilationConfig, TieredCompilationStats, TieredCompiler,
@@ -448,8 +448,8 @@ impl AdaptiveThreshold {
             avg_benefit_ns: if self.exec_benefit_samples.is_empty() {
                 0
             } else {
-                (self.exec_benefit_samples.iter().sum::<i64>()
-                    / self.exec_benefit_samples.len() as i64) as i64
+                self.exec_benefit_samples.iter().sum::<i64>()
+                    / self.exec_benefit_samples.len() as i64
             },
         }
     }
@@ -484,14 +484,6 @@ pub struct JitContext<'a> {
 pub struct BlockStats {
     pub exec_count: u64,
     pub is_compiled: bool,
-}
-
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-enum SimdIntrinsic {
-    Add,
-    Sub,
-    Mul,
 }
 
 extern "C" fn jit_read(ctx: *mut JitContext, vaddr: u64, size: u8) -> u64 {
@@ -548,14 +540,13 @@ extern "C" fn jit_cas(ctx: *mut JitContext, vaddr: u64, expected: u64, new: u64,
             Err(_) => return 0,
         };
         let old = (*ctx).mmu.read(GuestAddr(pa_r.0), size).unwrap_or(0);
-        if old == expected {
-            if let Ok(pa_w) = (*ctx)
+        if old == expected
+            && let Ok(pa_w) = (*ctx)
                 .mmu
                 .translate(GuestAddr(vaddr), vm_core::AccessType::Write)
             {
                 let _ = (*ctx).mmu.write(GuestAddr(pa_w.0), new, size);
             }
-        }
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
         old
     }
@@ -625,14 +616,12 @@ impl ShardedCache {
     }
 
     /// 移除代码指针
-    #[allow(dead_code)]
     fn remove(&self, addr: GuestAddr) -> Option<CodePtr> {
         let idx = self.shard_index(addr);
         self.shards[idx].lock().remove(&addr)
     }
 
     /// 清空所有分片
-    #[allow(dead_code)]
     fn clear(&self) {
         for shard in &self.shards {
             shard.lock().clear();
@@ -640,7 +629,6 @@ impl ShardedCache {
     }
 
     /// 获取总条目数
-    #[allow(dead_code)]
     fn len(&self) -> usize {
         self.shards.iter().map(|s| s.lock().len()).sum()
     }
@@ -679,13 +667,6 @@ pub struct Jit {
     loop_optimizer: LoopOptimizer,
     /// SIMD集成管理器
     simd_integration: SimdIntegrationManager,
-    /// 缓存SIMD函数ID（预留，未来SIMD优化使用）
-    #[allow(dead_code)]
-    simd_vec_add_func: Option<cranelift_module::FuncId>,
-    #[allow(dead_code)]
-    simd_vec_sub_func: Option<cranelift_module::FuncId>,
-    #[allow(dead_code)]
-    simd_vec_mul_func: Option<cranelift_module::FuncId>,
     /// 事件总线（可选，用于发布领域事件）
     ///
     /// 注意：使用 vm_core::domain_services::DomainEventBus
@@ -792,7 +773,13 @@ impl Jit {
 
         let module = JITModule::new(builder);
         let ctx = module.make_context();
-        let jit = Self {
+        
+
+        // 默认启用ML引导优化（可通过disable_ml_guidance()禁用）
+        // 注意：enable_ml_guidance 需要 &mut self，所以使用内部可变性或在调用处处理
+        // jit.enable_ml_guidance();
+
+        Self {
             builder_context: FunctionBuilderContext::new(),
             ctx,
             module,
@@ -808,9 +795,6 @@ impl Jit {
             adaptive_threshold: AdaptiveThreshold::new(),
             loop_optimizer: LoopOptimizer::default(),
             simd_integration: SimdIntegrationManager::new(),
-            simd_vec_add_func: None,
-            simd_vec_sub_func: None,
-            simd_vec_mul_func: None,
             event_bus: None, // 事件总线可选
             vm_id: None,
             profile_collector: None,
@@ -826,13 +810,7 @@ impl Jit {
             async_compile_results: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             ir_block_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             performance_monitor: None, // 性能监控器默认禁用
-        };
-
-        // 默认启用ML引导优化（可通过disable_ml_guidance()禁用）
-        // 注意：enable_ml_guidance 需要 &mut self，所以使用内部可变性或在调用处处理
-        // jit.enable_ml_guidance();
-
-        jit
+        }
     }
 
     /// 设置事件总线（用于发布领域事件）
@@ -1120,52 +1098,6 @@ impl Jit {
         builder
             .ins()
             .store(MemFlags::trusted(), f64_val, fregs_ptr, offset);
-    }
-
-    #[allow(dead_code)]
-    fn ensure_simd_func_id(&mut self, op: SimdIntrinsic) -> FuncId {
-        let (slot, name) = match op {
-            SimdIntrinsic::Add => (&mut self.simd_vec_add_func, "jit_vec_add"),
-            SimdIntrinsic::Sub => (&mut self.simd_vec_sub_func, "jit_vec_sub"),
-            SimdIntrinsic::Mul => (&mut self.simd_vec_mul_func, "jit_vec_mul"),
-        };
-
-        if let Some(id) = slot {
-            *id
-        } else {
-            let mut sig = self.module.make_signature();
-            sig.params.push(AbiParam::new(types::I64));
-            sig.params.push(AbiParam::new(types::I64));
-            sig.params.push(AbiParam::new(types::I64));
-            sig.returns.push(AbiParam::new(types::I64));
-            let func_id = self
-                .module
-                .declare_function(name, Linkage::Import, &sig)
-                .expect("Operation failed");
-            *slot = Some(func_id);
-            func_id
-        }
-    }
-
-    #[allow(dead_code)]
-    fn get_simd_funcref(&mut self, builder: &mut FunctionBuilder, op: SimdIntrinsic) -> FuncRef {
-        let func_id = self.ensure_simd_func_id(op);
-        self.module.declare_func_in_func(func_id, builder.func)
-    }
-
-    #[allow(dead_code)]
-    fn call_simd_intrinsic(
-        &mut self,
-        builder: &mut FunctionBuilder,
-        op: SimdIntrinsic,
-        lhs: Value,
-        rhs: Value,
-        element_size: u8,
-    ) -> Value {
-        let func_ref = self.get_simd_funcref(builder, op);
-        let es = builder.ins().iconst(types::I64, element_size as i64);
-        let call = builder.ins().call(func_ref, &[lhs, rhs, es]);
-        builder.inst_results(call)[0]
     }
 
     pub fn with_pool_cache(mut self, cache: Arc<Mutex<HashMap<GuestAddr, CodePtr>>>) -> Self {

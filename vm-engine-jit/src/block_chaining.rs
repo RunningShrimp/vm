@@ -73,6 +73,7 @@ pub struct BlockChain {
 }
 
 /// 基本块链接器
+#[derive(Clone)]
 pub struct BlockChainer {
     /// 所有链接关系
     links: HashMap<(GuestAddr, GuestAddr), ChainLink>,

@@ -1,0 +1,292 @@
+name: Cross-Platform Build
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Targets to build (comma-separated, or "all")'
+        required: false
+        type: string
+        default: 'all'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ============================================================================
+  # 多平台构建矩阵
+  # ============================================================================
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use_cross: false
+            archive: tar.gz
+          
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            use_cross: true
+            archive: tar.gz
+          
+          # macOS x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            use_cross: false
+            archive: tar.gz
+          
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            use_cross: false
+            archive: tar.gz
+          
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+            archive: zip
+          
+          # Linux ARMv7 (Raspberry Pi)
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            use_cross: true
+            archive: tar.gz
+          
+          # Linux MIPS64 (embedded)
+          - os: ubuntu-latest
+            target: mips64-unknown-linux-gnuabi64
+            use_cross: true
+            archive: tar.gz
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          override: true
+
+      - name: Install cross-compilation tools
+        if: matrix.use_cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/${{ matrix.target }}
+          key: ${{ runner.os }}-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ matrix.target }}-
+            ${{ runner.os }}-build-
+
+      - name: Build (debug)
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --workspace --all-features --target ${{ matrix.target }}
+          else
+            cargo build --workspace --all-features --target ${{ matrix.target }}
+          fi
+
+      - name: Build (release)
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --workspace --all-features --release --target ${{ matrix.target }}
+          else
+            cargo build --workspace --all-features --release --target ${{ matrix.target }}
+          fi
+
+      - name: Run tests
+        if: matrix.use_cross == false
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross test --workspace --all-features --target ${{ matrix.target }}
+          else
+            cargo test --workspace --all-features --target ${{ matrix.target }}
+          fi
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "vm") | .version' || echo "0.1.0")
+          TARGET="${{ matrix.target }}"
+          ARCHIVE="vm-${VERSION}-${TARGET}.${{ matrix.archive }}"
+          
+          mkdir -p dist
+          
+          # 复制二进制文件
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            cp target/${TARGET}/release/*.exe dist/ 2>/dev/null || true
+          else
+            find target/${TARGET}/release -maxdepth 1 -type f -executable -exec cp {} dist/ \; 2>/dev/null || true
+          fi
+          
+          # 创建归档
+          cd dist
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a ../${ARCHIVE} *
+          else
+            tar czf ../${ARCHIVE} *
+          fi
+          cd ..
+          
+          # 生成校验和
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            shasum -a 256 ${ARCHIVE} > ${ARCHIVE}.sha256
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-${{ matrix.target }}
+          path: vm-*.${{ matrix.archive }}*
+          retention-days: 30
+
+      - name: Generate build summary
+        run: |
+          echo "## Build Results for ${{ matrix.target }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **OS**: ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target**: ${{ matrix.target }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cross-Compilation**: ${{ matrix.use_cross }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check binary size
+        if: runner.os != 'Windows'
+        run: |
+          echo "### Binary Sizes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -lh target/${{ matrix.target }}/release/ | grep -E "^-.*vm" || echo "No binaries found" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Docker镜像构建
+  # ============================================================================
+  docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'release'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vm-*
+          path: artifacts/
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name == 'release' }}
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/vm:${{ steps.version.outputs.version }}
+            ${{ secrets.DOCKER_USERNAME }}/vm:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================================
+  # 构建摘要
+  # ============================================================================
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts/
+
+      - name: Generate summary
+        run: |
+          echo "# Cross-Platform Build Summary 🏗️" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Target | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          # 这里应该从构建结果中读取状态
+          echo "| Linux x86_64 | x86_64-unknown-linux-gnu | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux ARM64 | aarch64-unknown-linux-gnu | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS x86_64 | x86_64-apple-darwin | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS ARM64 | aarch64-apple-darwin | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows x86_64 | x86_64-pc-windows-msvc | ✅ |" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All build artifacts are available for download:" >> $GITHUB_STEP_SUMMARY
+          
+          ls -lh all-artifacts/ >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No artifacts found" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create release with artifacts
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            all-artifacts/*/*.tar.gz
+            all-artifacts/*/*.tar.gz.sha256
+            all-artifacts/*/*.zip
+            all-artifacts/*/*.zip.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

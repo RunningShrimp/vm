@@ -489,8 +489,8 @@ impl TranslationCache {
         self.l3_region.put(guest_addr, region);
     }
 
-    /// Promote a block from L2 to L1 cache
-    fn promote_l2_to_l1(&mut self, guest_addr: GuestAddr, block: &CompiledBlock) {
+    /// Promote a block from L2 to L1 cache（公共API以形成逻辑闭环）
+    pub fn promote_l2_to_l1(&mut self, guest_addr: GuestAddr, block: &CompiledBlock) {
         // Create a translated instruction from the block
         let insn = TranslatedInsn {
             guest_addr,

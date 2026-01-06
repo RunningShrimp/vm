@@ -272,7 +272,7 @@ impl ParallelJITCompiler {
             total_blocks: stats.compiled_blocks,
             total_time_ns: stats.total_compile_time_ns,
             avg_block_size: if stats.compiled_blocks > 0 {
-                (stats.generated_code_size / stats.compiled_blocks as u64) as usize
+                (stats.generated_code_size / stats.compiled_blocks) as usize
             } else {
                 0
             },

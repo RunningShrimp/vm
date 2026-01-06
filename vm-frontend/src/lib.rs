@@ -8,6 +8,11 @@
 //! Architecture support can be enabled individually using feature flags:
 //! - "x86_64" - Enable x86_64 architecture support
 //! - "arm64" - Enable ARM64 architecture support
+
+#![cfg_attr(test, allow(dead_code))]
+#![cfg_attr(test, allow(unused_imports))]
+#![cfg_attr(test, allow(unused_variables))]
+#![cfg_attr(test, allow(unused_mut))]
 //! - "riscv64" - Enable RISC-V 64-bit architecture support (default)
 //! - "all" - Enable all architectures
 //!

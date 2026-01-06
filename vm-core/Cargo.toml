@@ -43,6 +43,11 @@ enhanced-event-sourcing = ["chrono", "tokio"]
 # Optimization application feature
 optimization_application = []
 
+# GPU acceleration features (placeholder - actual implementation in vm-passthrough)
+cuda = []
+rocm = []
+gpu = ["cuda", "rocm"]
+
 [dev-dependencies]
 proptest = "1.0"
 

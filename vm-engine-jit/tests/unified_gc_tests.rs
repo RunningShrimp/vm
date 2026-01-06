@@ -77,7 +77,8 @@ fn test_incremental_mark() {
     let (is_complete, marked_count) = gc.incremental_mark();
 
     // Should return a tuple with boolean and count
-    assert!(marked_count >= 0);
+    // marked_count is usize, always >= 0, just verify it's valid
+    assert!(marked_count <= 10000); // Reasonable upper bound
 
     if is_complete {
         gc.terminate_marking();
@@ -105,7 +106,8 @@ fn test_incremental_sweep() {
     let (_is_complete, freed_count) = gc.incremental_sweep();
 
     // Should return a tuple with boolean and count
-    assert!(freed_count >= 0);
+    // freed_count is usize, always >= 0, just verify it's valid
+    assert!(freed_count <= 10000); // Reasonable upper bound
 
     gc.finish_gc(cycle_start);
 }
@@ -131,7 +133,8 @@ fn test_minor_gc() {
     let promoted_count = gc.minor_gc(&roots);
 
     // Should have some promoted objects (or 0 if none met threshold)
-    assert!(promoted_count >= 0);
+    // promoted_count is usize, check it's reasonable
+    assert!(promoted_count <= roots.len());
 }
 
 #[test]
@@ -324,10 +327,12 @@ fn test_gc_pause_time_tracking() {
     // Check pause times were recorded
     let stats = gc.stats();
     let total_pause = stats.get_total_pause_us();
-    assert!(total_pause >= 0);
+    // Pause times are u64, so always >= 0, just check they were recorded
+    assert!(total_pause > 0);
 
     let last_pause = stats.get_last_pause_us();
-    assert!(last_pause >= 0);
+    // Last pause is u64, so always >= 0, just check it's a reasonable value
+    assert!(last_pause <= total_pause);
 }
 
 #[test]

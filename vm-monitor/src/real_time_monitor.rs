@@ -126,7 +126,7 @@ impl RealTimeMonitor {
         }
 
         // 每100条样本更新一次统计窗口
-        if history.len() % 100 == 0 {
+        if history.len().is_multiple_of(100) {
             self.update_window();
             self.detect_anomalies();
         }

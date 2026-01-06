@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 #[cfg(feature = "async")]
 use vm_core::{ExecResult, ExecStats, ExecStatus, ExecutionEngine, MMU, VmError};
 #[cfg(feature = "async")]
-use vm_ir::{IRBlock, Terminator};
+use vm_ir::IRBlock;
 
 #[cfg(feature = "async")]
 use crate::interpreter::Interpreter;
@@ -461,6 +461,7 @@ impl vm_core::MmuAsAny for MockMMU {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_ir::Terminator;
 
     #[tokio::test]
     async fn test_async_execution_context_creation() {

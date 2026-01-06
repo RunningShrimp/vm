@@ -610,13 +610,9 @@ impl VendorOptimizationStrategy {
     pub fn optimal_simd_width(&self) -> usize {
         if self.has_feature(&CpuFeature::AVX512F) {
             512
-        } else if self.has_feature(&CpuFeature::AVX2) {
+        } else if self.has_feature(&CpuFeature::AVX2) || self.has_feature(&CpuFeature::AVX) {
             256
-        } else if self.has_feature(&CpuFeature::AVX) {
-            256
-        } else if self.has_feature(&CpuFeature::SSE2) {
-            128
-        } else if self.has_feature(&CpuFeature::NEON) {
+        } else if self.has_feature(&CpuFeature::SSE2) || self.has_feature(&CpuFeature::NEON) {
             128
         } else {
             0
@@ -655,7 +651,7 @@ impl VendorOptimizationStrategy {
         let unroll_factor = l1_bytes / self.cache_line_size;
 
         // 限制在合理范围内
-        unroll_factor.min(16).max(4)
+        unroll_factor.clamp(4, 16)
     }
 }
 

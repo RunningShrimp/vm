@@ -2,7 +2,8 @@
 //!
 //! 测量块链接优化对JIT编译和执行性能的影响。
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use std::hint::black_box;
 use vm_core::GuestAddr;
 use vm_engine_jit::block_chaining::BlockChainer;
 use vm_ir::{IRBlock, IRBuilder, Terminator};

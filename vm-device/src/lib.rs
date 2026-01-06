@@ -3,6 +3,11 @@
 //! 提供虚拟机设备的完整实现，包括 VirtIO 设备、中断控制器和硬件检测。
 //!
 //! ## 模块组织
+
+#![cfg_attr(test, allow(dead_code))]
+#![cfg_attr(test, allow(unused_imports))]
+#![cfg_attr(test, allow(unused_variables))]
+#![cfg_attr(test, allow(unused_mut))]
 //!
 //! ```text
 //! vm-device

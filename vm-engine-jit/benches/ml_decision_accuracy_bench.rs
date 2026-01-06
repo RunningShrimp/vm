@@ -8,12 +8,14 @@
 //! - Feature importance analysis
 
 use std::time::Duration;
+use std::hint::black_box;
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use vm_engine_jit::ml_model_enhanced::{
     CompilationHistory, ExecutionFeaturesEnhanced, InstMixFeatures,
 };
 use vm_engine_jit::ml_random_forest::{CompilationDecision, RandomForestModel};
+use vm_core::GuestAddr;
 use vm_ir::{IRBlock, IRBuilder, IROp, Terminator};
 
 // Test parameters
@@ -23,8 +25,9 @@ const NUM_TREES: &[usize] = &[5, 10, 20, 50, 100];
 const MAX_DEPTHS: &[usize] = &[3, 5, 10, 15, 20];
 
 /// Create test IR block with specific characteristics
+#[allow(dead_code)]
 fn create_test_block(size: usize, _complexity: f64) -> IRBlock {
-    let mut builder = IRBuilder::new(0x1000);
+    let mut builder = IRBuilder::new(GuestAddr(0x1000));
 
     for i in 0..size {
         let dst = (i % 16) as u32;
@@ -78,17 +81,23 @@ fn create_test_features(
             memory_ratio: 0.3,
             branch_ratio: 0.2,
             vector_ratio: 0.1,
+            float_ratio: 0.0,
+            call_ratio: 0.0,
         },
         control_flow_complexity: complexity,
         loop_nest_depth: (complexity * 3.0) as u8,
+        has_recursion: false,
         data_locality: 0.75 + (complexity * 0.2),
+        memory_sequentiality: 0.8,
         compilation_history: CompilationHistory {
             previous_compilations: exec_count as u32 / 100,
-            avg_compilation_time: 1000.0,
+            avg_compilation_time_us: 1000.0,
             last_compile_benefit: 0.8,
+            last_compile_success: true,
         },
         register_pressure: 8.0,
         code_heat: exec_count as f64 / 10000.0,
+        code_stability: 0.9,
     }
 }
 
@@ -213,8 +222,9 @@ fn bench_model_creation(c: &mut Criterion) {
 
     for &num_trees in NUM_TREES {
         for &max_depth in MAX_DEPTHS.iter().take(3) {
+            let param_str = format!("{}_{}", num_trees, max_depth);
             group.bench_with_input(
-                BenchmarkId::new("trees", (num_trees, max_depth)),
+                BenchmarkId::new("trees", param_str),
                 &(num_trees, max_depth),
                 |b, &(num_trees, max_depth)| {
                     b.iter(|| {

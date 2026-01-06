@@ -66,8 +66,8 @@ pub struct CompilationResult {
     pub success: bool,
 }
 
-/// 本地任务队列（每个工作线程一个）
-struct LocalQueue {
+/// 本地任务队列（公共API以支持WorkStealingScheduler）
+pub struct LocalQueue {
     /// 任务队列（使用无锁队列实现）
     queue: SegQueue<CompilationTask>,
     /// 线程ID
@@ -83,8 +83,8 @@ impl LocalQueue {
         }
     }
 
-    /// 推送任务到本地队列
-    fn push(&self, task: CompilationTask) {
+    /// 推送任务到本地队列（公共API以形成逻辑闭环）
+    pub fn push(&self, task: CompilationTask) {
         self.queue.push(task);
     }
 
@@ -93,12 +93,17 @@ impl LocalQueue {
         self.queue.pop()
     }
 
-    /// 窃取任务（FIFO - 窃取时从尾部取，减少竞争）
-    fn steal(&self) -> Option<CompilationTask> {
+    /// 窃取任务（FIFO - 窃取时从尾部取，减少竞争）（公共API以形成逻辑闭环）
+    pub fn steal(&self) -> Option<CompilationTask> {
         // 注意：SegQueue 不支持高效的 FIFO steal
         // 在生产环境中应使用专门的 work-stealing deque
         // 这里简化为随机访问
         self.queue.pop()
+    }
+
+    /// 获取worker ID（形成逻辑闭环）
+    pub fn worker_id(&self) -> usize {
+        self.worker_id
     }
 }
 
@@ -387,6 +392,16 @@ impl WorkStealingScheduler {
         }
         let time_us = self.stats.total_compilation_time_us.load(Ordering::Relaxed);
         time_us as f64 / total as f64
+    }
+
+    /// 获取本地队列引用（形成逻辑闭环）
+    pub fn local_queues(&self) -> &[Arc<LocalQueue>] {
+        &self.local_queues
+    }
+
+    /// 获取代码缓存引用（形成逻辑闭环）
+    pub fn code_cache(&self) -> &Arc<std::sync::Mutex<CodeCache>> {
+        &self.code_cache
     }
 }
 

@@ -8,6 +8,12 @@ pub struct OptimizationPass {
     _private: (),
 }
 
+impl Default for OptimizationPass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OptimizationPass {
     pub fn new() -> Self {
         Self { _private: () }

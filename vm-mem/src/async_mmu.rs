@@ -551,7 +551,7 @@ pub mod async_impl {
             use crate::SoftMmu;
 
             // 创建SoftMMU实例
-            let mut soft_mmu = SoftMmu::new(1024 * 1024, false);
+            let soft_mmu = SoftMmu::new(1024 * 1024, false);
 
             // 测试Bare模式下的批量地址转换
             let async_mmu = AsyncMmuWrapper::new(Box::new(soft_mmu));

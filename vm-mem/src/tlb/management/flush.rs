@@ -1980,7 +1980,7 @@ mod tests {
         // 这里只验证不崩溃和热点页面功能
         let hot_pages = analyzer.get_hot_pages();
         // 热点页面数量可能被cleanup影响，只要不崩溃即可
-        assert!(hot_pages.len() >= 0); // 至少不崩溃
+        assert!(hot_pages.len() <= 1000); // 合理的上界检查
     }
 
     #[test]

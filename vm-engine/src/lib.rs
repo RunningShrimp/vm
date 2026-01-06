@@ -45,7 +45,33 @@ pub mod jit;
 
 // 重新导出常用类型
 pub use executor::{AsyncExecutionContext, ExecutorType};
-pub use jit::{JITCompiler, JITConfig};
+pub use jit::{
+    JITCompiler, JITConfig,
+    // 核心JIT引擎（形成逻辑闭环）
+    core::JITEngine,
+    // 缓存管理（形成逻辑闭环）
+    cache::GenericCacheManager,
+    cache::manager::CacheStatistics,
+    // 优化器相关（形成逻辑闭环）
+    optimizer::DefaultIROptimizer,
+    optimizer::OptimizationLevel,
+    // 分支目标缓存（形成逻辑闭环）
+    branch_target_cache::{
+        BranchTargetCache, BranchTargetCacheConfig, BranchTargetCacheStats,
+        BranchType, ReplacementPolicy,
+    },
+    // 代码生成（形成逻辑闭环）
+    codegen::CodeGenerator,
+    // 寄存器分配（形成逻辑闭环）
+    register_allocator::{LiveRange, LinearScanAllocator},
+    // 指令调度（形成逻辑闭环）
+    instruction_scheduler::{
+        InstructionScheduler, SchedulingStrategy, LatencyModel,
+        OptimizedSchedulerConfig, OptimizedInstructionScheduler,
+        DependencyType, DependencyEdge, InstructionLatency,
+        InstructionSchedulingStats, OptimizedSchedulingStats,
+    },
+};
 
 // 当启用jit-full feature时，重新导出vm-engine-jit的高级功能
 #[cfg(feature = "jit-full")]

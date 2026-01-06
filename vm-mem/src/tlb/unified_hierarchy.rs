@@ -301,6 +301,11 @@ impl UnifiedTlbHierarchy {
         Arc::clone(&self.stats)
     }
 
+    /// 获取替换策略（形成逻辑闭环）
+    pub fn replacement_policy(&self) -> ReplacementPolicy {
+        self.replacement_policy
+    }
+
     /// 获取各层级容量
     pub fn capacities(&self) -> (usize, usize, usize, usize) {
         (
@@ -542,6 +547,11 @@ impl AdaptiveTlbManager {
     /// 失效指定页面的所有TLB
     pub fn flush_page(&mut self, addr: GuestAddr) {
         self.hierarchy.flush_page(addr);
+    }
+
+    /// 获取调整阈值（形成逻辑闭环）
+    pub fn adjustment_threshold(&self) -> f64 {
+        self.adjustment_threshold
     }
 
     /// 获取总容量
@@ -913,7 +923,7 @@ mod tests {
             .load(std::sync::atomic::Ordering::Relaxed);
 
         assert_eq!(l1_hits, 0); // 第一次查找
-        assert!(misses >= 0);
+        assert!(misses <= 10000); // 合理的上界检查
     }
 
     #[test]

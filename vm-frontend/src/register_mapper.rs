@@ -48,9 +48,9 @@ pub enum ArchType {
     RiscV64,
 }
 
-/// 寄存器映射键
+/// 寄存器映射键（公共API以支持get_hot_registers）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct RegMapKey {
+pub struct RegMapKey {
     src_arch: ArchType,
     dst_arch: ArchType,
     src_reg: RegisterType,
