@@ -22,7 +22,7 @@ pub struct BigLittleScheduler {
 }
 
 /// 调度策略
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulingPolicy {
     /// 自动调度(根据任务类别自动选择QoS)
     Automatic,
