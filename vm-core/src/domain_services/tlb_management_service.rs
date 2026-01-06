@@ -18,6 +18,7 @@ use std::sync::Arc;
 use crate::domain::TlbManager;
 use crate::domain_event_bus::DomainEventBus;
 use crate::domain_services::events::{DomainEventEnum, TlbEvent};
+use crate::domain_services::config::{BaseServiceConfig, ServiceConfig};
 use crate::{AccessType, GuestAddr, TlbEntry, VmResult};
 
 /// TLB level (ITLB, DTLB, L2 TLB, etc.)
@@ -56,8 +57,8 @@ impl TlbLevel {
 /// - Delegates TLB operations to infrastructure layer implementation
 /// - Focuses on business logic: event publishing, coordination, statistics aggregation
 pub struct TlbManagementDomainService {
-    /// Event bus for publishing TLB events
-    event_bus: Arc<DomainEventBus>,
+    /// Service configuration (includes event bus)
+    config: BaseServiceConfig,
     /// TLB manager (infrastructure layer implementation via trait)
     tlb_manager: Arc<std::sync::Mutex<dyn TlbManager>>,
 }
@@ -73,9 +74,14 @@ impl TlbManagementDomainService {
         tlb_manager: Arc<std::sync::Mutex<dyn TlbManager>>,
     ) -> Self {
         Self {
-            event_bus,
+            config: BaseServiceConfig::new().with_event_bus(event_bus),
             tlb_manager,
         }
+    }
+
+    /// Set the event bus for publishing domain events
+    pub fn set_event_bus(&mut self, event_bus: Arc<DomainEventBus>) {
+        self.config.set_event_bus(event_bus);
     }
 
     /// Lookup TLB entry
@@ -163,7 +169,9 @@ impl TlbManagementDomainService {
 
     /// Publish domain event
     fn publish_event(&self, event: TlbEvent) {
-        let _ = self.event_bus.publish(&DomainEventEnum::Tlb(event));
+        if let Some(event_bus) = self.config.event_bus() {
+            let _ = event_bus.publish(&DomainEventEnum::Tlb(event));
+        }
     }
 }
 
