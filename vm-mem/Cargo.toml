@@ -6,6 +6,10 @@ edition = "2024"
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "simd_quick_verify"
+path = "bin/simd_quick_verify.rs"
+
 [dependencies]
 vm-core = { path = "../vm-core" }
 libc = { workspace = true }
@@ -19,6 +23,7 @@ crossbeam-skiplist = "0.1"
 async-trait = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["fs"] }
 thiserror = { workspace = true }
+rustc-hash = "2.0"  # 用于FxHashMap，优化TLB性能
 
 [dev-dependencies]
 criterion = "0.8"
@@ -58,6 +63,26 @@ harness = false
 
 [[bench]]
 name = "concurrent_mmu"
+harness = false
+
+# Round 29: 分配器基准测试
+[[bench]]
+name = "allocator_bench"
+harness = false
+
+# Round 24: TLB管理器基准测试
+[[bench]]
+name = "tlb_manager_bench"
+harness = false
+
+# Round 25: 缓存优化基准测试
+[[bench]]
+name = "cache_optimization_bench"
+harness = false
+
+# Round 33: 组合工作负载基准测试
+[[bench]]
+name = "combined_workload_bench"
 harness = false
 
 [features]
