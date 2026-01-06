@@ -9,7 +9,6 @@
 //! - 动态性能调优
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};

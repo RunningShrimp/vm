@@ -12,12 +12,11 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use vm_core::{
     Config, ConfigBuilder, CoreError, DeviceError, ExecMode, ExecutionError, ExecutionManager,
-    GuestAddr, GuestArch, GuestPhysAddr, GuestRegs, LifecycleManager, MMU, MemoryError,
-    PageTableWalker, SyscallHandler, TlbEntry, TlbManager, VmConfig, VmError as CoreVmError,
+    GuestAddr, GuestArch, GuestPhysAddr, GuestRegs, MMU, MemoryError,
+    PageTableWalker, syscall::SyscallHandler, TlbEntry, TlbManager, VmConfig, VmError as CoreVmError,
     VmLifecycleState, VmState,
 };
 

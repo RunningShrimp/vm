@@ -40,6 +40,9 @@ riscv64 = []
 # Event sourcing feature
 enhanced-event-sourcing = ["chrono", "tokio"]
 
+# Optimization application feature
+optimization_application = []
+
 [dev-dependencies]
 proptest = "1.0"
 
