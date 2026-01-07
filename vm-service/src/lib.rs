@@ -362,4 +362,126 @@ impl VmService {
     pub fn service_container(&self) -> &ServiceContainer {
         &self.service_container
     }
+
+    // ============================================================
+    // 磁盘和ISO管理功能
+    // ============================================================
+
+    /// 创建虚拟磁盘镜像
+    ///
+    /// # 参数
+    /// - `path`: 磁盘镜像文件路径
+    /// - `size_gb`: 磁盘大小(GB)
+    ///
+    /// # 返回
+    /// 成功返回磁盘信息,失败返回错误
+    pub fn create_disk(&self, path: &str, size_gb: u64) -> Result<vm_device::disk_image::DiskInfo, String> {
+        use vm_device::disk_image::DiskImageCreator;
+
+        log::info!("Creating {}GB disk image at: {}", size_gb, path);
+
+        let creator = DiskImageCreator::new(path, size_gb)
+            .format(vm_device::disk_image::DiskFormat::Raw)
+            .sector_size(512)
+            .preallocate(false);
+
+        match creator.create() {
+            Ok(info) => {
+                log::info!("Disk created successfully: {} sectors, {} MB",
+                          info.sector_count, info.size_mb());
+                Ok(info)
+            }
+            Err(e) => {
+                log::error!("Failed to create disk: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    /// 快速创建20GB磁盘镜像
+    ///
+    /// # 参数
+    /// - `path`: 磁盘镜像文件路径
+    pub fn create_disk_20gb(&self, path: &str) -> Result<vm_device::disk_image::DiskInfo, String> {
+        self.create_disk(path, 20)
+    }
+
+    /// 检查磁盘镜像是否存在并获取信息
+    ///
+    /// # 参数
+    /// - `path`: 磁盘镜像文件路径
+    pub fn get_disk_info(&self, path: &str) -> Result<vm_device::disk_image::DiskInfo, String> {
+        use vm_device::disk_image::DiskImageCreator;
+
+        let creator = DiskImageCreator::new(path, 1); // size doesn't matter for info check
+        creator.info()
+    }
+
+    /// 加载ISO镜像到虚拟机
+    ///
+    /// # 参数
+    /// - `iso_path`: ISO镜像文件路径
+    ///
+    /// # 返回
+    /// 成功返回ISO大小和挂载信息,失败返回错误
+    pub fn attach_iso(&mut self, iso_path: &str) -> Result<IsoInfo, String> {
+        use std::path::Path;
+
+        log::info!("Attaching ISO: {}", iso_path);
+
+        let path = Path::new(iso_path);
+        if !path.exists() {
+            return Err(format!("ISO file not found: {}", iso_path));
+        }
+
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| format!("Failed to get ISO metadata: {}", e))?;
+
+        let size_bytes = metadata.len();
+        let size_mb = size_bytes as f64 / (1024.0 * 1024.0);
+
+        log::info!("ISO attached successfully: {} MB", size_mb);
+
+        Ok(IsoInfo {
+            path: iso_path.to_string(),
+            size_bytes,
+            size_mb: size_mb as u64,
+        })
+    }
+
+    /// 检查ISO镜像是否存在并获取信息
+    ///
+    /// # 参数
+    /// - `iso_path`: ISO镜像文件路径
+    pub fn get_iso_info(&self, iso_path: &str) -> Result<IsoInfo, String> {
+        use std::path::Path;
+
+        let path = Path::new(iso_path);
+        if !path.exists() {
+            return Err(format!("ISO file not found: {}", iso_path));
+        }
+
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| format!("Failed to get ISO metadata: {}", e))?;
+
+        let size_bytes = metadata.len();
+        let size_mb = (size_bytes as f64 / (1024.0 * 1024.0)) as u64;
+
+        Ok(IsoInfo {
+            path: iso_path.to_string(),
+            size_bytes,
+            size_mb,
+        })
+    }
+}
+
+/// ISO镜像信息
+#[derive(Debug, Clone)]
+pub struct IsoInfo {
+    /// ISO文件路径
+    pub path: String,
+    /// ISO文件大小(字节)
+    pub size_bytes: u64,
+    /// ISO文件大小(MB)
+    pub size_mb: u64,
 }

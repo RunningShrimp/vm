@@ -39,11 +39,13 @@ name = "actual_workload_bench"
 harness = false
 
 # Comprehensive Performance Testing
-[[bench]]
-name = "comprehensive_performance"
-harness = false
+# Temporarily disabled - file not found
+#[[bench]]
+#name = "comprehensive_performance"
+#harness = false
 
 # SIMD Memory Comparison Testing
-[[bench]]
-name = "simd_memory_comparison"
-harness = false
+# Temporarily disabled - file not found
+#[[bench]]
+#name = "simd_memory_comparison"
+#harness = false

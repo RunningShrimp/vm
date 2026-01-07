@@ -14,6 +14,11 @@ use vm_osal::{host_arch, host_os};
 use vm_service::VmService;
 use serde::{Deserialize, Serialize};
 
+// Command modules
+mod commands {
+    pub mod install_debian;
+}
+
 /// Validation helper for CLI parameters
 struct Validator;
 
@@ -198,6 +203,29 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Install Debian from ISO
+    InstallDebian {
+        /// Debian ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 20]
+        #[arg(long, default_value = "20")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 3072]
+        #[arg(long, default_value = "3072")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 1]
+        #[arg(long, default_value = "1")]
+        vcpus: usize,
+    },
+
     /// Run a VM with the specified kernel
     Run {
         /// Kernel image path
@@ -415,6 +443,56 @@ async fn main() {
     }
 
     match cli.command {
+        Commands::InstallDebian {
+            iso,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            // Use install_debian command
+            use commands::install_debian::DebianInstallCommand;
+
+            // Validate ISO exists
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid Debian ISO path");
+                eprintln!("  Example: --iso /Users/didi/Downloads/debian-13.2.0-amd64-netinst.iso");
+                process::exit(1);
+            }
+
+            // Create and run installer
+            let mut installer = DebianInstallCommand::new(&iso);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run() {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Kernel loaded: {}", result.kernel_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                    println!("  Instructions executed: {}", result.instructions_executed);
+                    println!("  Final mode: {}", result.final_mode);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
         Commands::Run {
             kernel,
             disk: _,
