@@ -124,3 +124,4 @@ async fn test_cross_arch_jit() {
     // JIT 模式可能在某些配置下不可用，所以只验证创建是否成功
     assert!(vm.is_ok(), "Failed to create VM service with JIT mode");
 }
+
