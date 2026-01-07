@@ -97,3 +97,109 @@ impl<B: 'static> Clone for VirtualMachineState<B> {
         }
     }
 }
+
+/// ============================================================================
+/// 测试模块
+/// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vm_lifecycle_state_default() {
+        // Test that VmLifecycleState has the expected variants
+        let _created = VmLifecycleState::Created;
+        let _running = VmLifecycleState::Running;
+        let _paused = VmLifecycleState::Paused;
+        let _stopped = VmLifecycleState::Stopped;
+    }
+
+    #[test]
+    fn test_vm_lifecycle_state_clone() {
+        let state = VmLifecycleState::Running;
+        let cloned = state.clone();
+        assert_eq!(state, cloned);
+    }
+
+    #[test]
+    fn test_vm_lifecycle_state_partial_eq() {
+        assert_eq!(VmLifecycleState::Created, VmLifecycleState::Created);
+        assert_eq!(VmLifecycleState::Running, VmLifecycleState::Running);
+        assert_ne!(VmLifecycleState::Created, VmLifecycleState::Running);
+    }
+
+    #[test]
+    fn test_exec_stats_default() {
+        let stats = ExecStats::default();
+        assert_eq!(stats.executed_ops, 0);
+        assert_eq!(stats.executed_insns, 0);
+        assert_eq!(stats.mem_accesses, 0);
+        assert_eq!(stats.exec_time_ns, 0);
+        assert_eq!(stats.tlb_hits, 0);
+        assert_eq!(stats.tlb_misses, 0);
+    }
+
+    #[test]
+    fn test_exec_stats_clone() {
+        let mut stats = ExecStats::default();
+        stats.executed_insns = 100;
+        stats.mem_accesses = 50;
+
+        let cloned = stats.clone();
+        assert_eq!(cloned.executed_insns, 100);
+        assert_eq!(cloned.mem_accesses, 50);
+    }
+
+    #[test]
+    fn test_snapshot_metadata_manager_in_state() {
+        // Test that snapshot manager is correctly initialized
+        let manager = SnapshotMetadataManager::new();
+        assert_eq!(manager.snapshots.len(), 0);
+        assert!(manager.current_snapshot.is_none());
+    }
+
+    #[test]
+    fn test_template_manager_in_state() {
+        // Test that template manager is correctly initialized
+        let manager = TemplateManager::new();
+        assert_eq!(manager.templates.len(), 0);
+    }
+
+    #[test]
+    fn test_managers_default() {
+        // Test Default trait for managers
+        let snapshot_mgr = SnapshotMetadataManager::default();
+        assert_eq!(snapshot_mgr.snapshots.len(), 0);
+
+        let template_mgr = TemplateManager::default();
+        assert_eq!(template_mgr.templates.len(), 0);
+    }
+
+    #[test]
+    fn test_managers_clone() {
+        let mut snapshot_mgr = SnapshotMetadataManager::new();
+        snapshot_mgr.snapshots.insert(
+            "test".to_string(),
+            crate::snapshot::Snapshot {
+                id: "test".to_string(),
+                parent_id: None,
+                name: "Test".to_string(),
+                description: "Test snapshot".to_string(),
+                memory_dump_path: "/test".to_string(),
+            },
+        );
+
+        let cloned = snapshot_mgr.clone();
+        assert_eq!(cloned.snapshots.len(), 1);
+
+        let mut template_mgr = TemplateManager::new();
+        let id = template_mgr.create_template(
+            "Test".to_string(),
+            "Description".to_string(),
+            "snapshot-1".to_string(),
+        );
+
+        let cloned = template_mgr.clone();
+        assert!(cloned.get_template(&id).is_some());
+    }
+}

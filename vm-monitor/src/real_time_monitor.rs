@@ -10,7 +10,6 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::Instant;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -99,8 +98,6 @@ pub struct RealTimeMonitor {
     anomalies: Arc<Mutex<Vec<PerformanceAnomaly>>>,
     /// 性能基线
     baseline: Arc<Mutex<Option<PerformanceWindow>>>,
-    /// 监控开始时间
-    start_time: Instant,
 }
 
 impl RealTimeMonitor {
@@ -111,7 +108,6 @@ impl RealTimeMonitor {
             current_window: Arc::new(Mutex::new(None)),
             anomalies: Arc::new(Mutex::new(Vec::new())),
             baseline: Arc::new(Mutex::new(None)),
-            start_time: Instant::now(),
         }
     }
 

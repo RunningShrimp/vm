@@ -1132,3 +1132,322 @@ impl IntoVmError for std::io::Error {
         VmError::Io(format!("{}: {}", context.into(), self))
     }
 }
+
+/// ============================================================================
+/// 测试模块
+/// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vm_error_display_io() {
+        let err = VmError::Io("Test error".to_string());
+        let display = format!("{}", err);
+        assert!(display.contains("Test error"));
+    }
+
+    #[test]
+    fn test_vm_error_debug() {
+        let err = VmError::Io("Test error".to_string());
+        let debug = format!("{:?}", err);
+        assert!(!debug.is_empty());
+        assert!(debug.contains("Io"));
+    }
+
+    #[test]
+    fn test_vm_error_clone() {
+        let err1 = VmError::Io("Test error".to_string());
+        let err2 = err1.clone();
+        assert_eq!(err1.to_string(), err2.to_string());
+    }
+
+    #[test]
+    fn test_vm_error_partial_eq() {
+        let err1 = VmError::Io("Test".to_string());
+        let err2 = VmError::Io("Test".to_string());
+        let err3 = VmError::Io("Different".to_string());
+
+        assert_eq!(err1, err2);
+        assert_ne!(err1, err3);
+    }
+
+    // Test String -> VmError conversion
+    // Note: From<String> creates VmError::Core(CoreError::Internal), not VmError::Io
+    #[test]
+    fn test_string_into_vm_error() {
+        let str_err = "Test error".to_string();
+        let vm_err: VmError = str_err.into();
+        assert!(matches!(vm_err, VmError::Core(CoreError::Internal { .. })));
+    }
+
+    // Test &str -> VmError conversion
+    // Note: From<&str> creates VmError::Core(CoreError::Internal), not VmError::Io
+    #[test]
+    fn test_str_into_vm_error() {
+        let str_err: &str = "Test error";
+        let vm_err: VmError = str_err.into();
+        assert!(matches!(vm_err, VmError::Core(CoreError::Internal { .. })));
+    }
+
+    #[test]
+    fn test_into_vm_error_with_context_string() {
+        let str_err = "Base error".to_string();
+        let vm_err = str_err.into_vm_error_with_context("During operation");
+
+        let display = format!("{}", vm_err);
+        assert!(display.contains("During operation"));
+        assert!(display.contains("Base error"));
+    }
+
+    #[test]
+    fn test_into_vm_error_with_context_str() {
+        let str_err: &str = "Base error";
+        let vm_err = str_err.into_vm_error_with_context("During operation");
+
+        let display = format!("{}", vm_err);
+        assert!(display.contains("During operation"));
+        assert!(display.contains("Base error"));
+    }
+
+    #[test]
+    fn test_into_vm_error_identity() {
+        let vm_err = VmError::Io("Test".to_string());
+        let converted = vm_err.clone().into_vm_error();
+        assert_eq!(vm_err, converted);
+    }
+
+    #[test]
+    fn test_error_collector_new() {
+        let collector = ErrorCollector::new();
+        assert_eq!(collector.len(), 0);
+        assert!(collector.is_empty());
+    }
+
+    #[test]
+    fn test_error_collector_default() {
+        let collector = ErrorCollector::default();
+        assert_eq!(collector.len(), 0);
+    }
+
+    #[test]
+    fn test_error_collector_push() {
+        let mut collector = ErrorCollector::new();
+        collector.push(VmError::Io("Error 1".to_string()));
+
+        assert_eq!(collector.len(), 1);
+        assert!(!collector.is_empty());
+    }
+
+    #[test]
+    fn test_error_collector_push_multiple() {
+        let mut collector = ErrorCollector::new();
+        collector.push(VmError::Io("Error 1".to_string()));
+        collector.push(VmError::Io("Error 2".to_string()));
+        collector.push(VmError::Io("Error 3".to_string()));
+
+        assert_eq!(collector.len(), 3);
+    }
+
+    #[test]
+    fn test_error_collector_clear() {
+        let mut collector = ErrorCollector::new();
+        collector.push(VmError::Io("Error 1".to_string()));
+
+        collector.clear();
+        assert_eq!(collector.len(), 0);
+        assert!(collector.is_empty());
+    }
+
+    #[test]
+    fn test_error_collector_len() {
+        let mut collector = ErrorCollector::new();
+
+        assert_eq!(collector.len(), 0);
+
+        collector.push(VmError::Io("Error".to_string()));
+        assert_eq!(collector.len(), 1);
+
+        collector.push(VmError::Io("Error".to_string()));
+        assert_eq!(collector.len(), 2);
+    }
+
+    #[test]
+    fn test_error_collector_is_empty() {
+        let mut collector = ErrorCollector::new();
+
+        assert!(collector.is_empty());
+
+        collector.push(VmError::Io("Error".to_string()));
+        assert!(!collector.is_empty());
+    }
+
+    #[test]
+    fn test_vm_error_multiple() {
+        let errors = vec![
+            VmError::Io("Error 1".to_string()),
+            VmError::Io("Error 2".to_string()),
+            VmError::Io("Error 3".to_string()),
+        ];
+        let vm_err = VmError::Multiple(errors);
+
+        let display = format!("{}", vm_err);
+        assert!(display.contains("Error 1"));
+        assert!(display.contains("Error 2"));
+        assert!(display.contains("Error 3"));
+    }
+
+    #[test]
+    fn test_vm_error_with_context() {
+        let inner = Box::new(VmError::Io("Base error".to_string()));
+        let err = VmError::WithContext {
+            error: inner,
+            context: "During initialization".to_string(),
+            backtrace: None,
+        };
+
+        let display = format!("{}", err);
+        assert!(display.contains("During initialization"));
+        assert!(display.contains("Base error"));
+    }
+
+    #[test]
+    fn test_vm_error_source_with_context() {
+        let inner = Box::new(VmError::Io("Inner error".to_string()));
+        let err = VmError::WithContext {
+            error: inner,
+            context: "Context".to_string(),
+            backtrace: None,
+        };
+
+        let source = err.source();
+        assert!(source.is_some());
+    }
+
+    #[test]
+    fn test_vm_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let vm_err: VmError = io_err.into();
+
+        assert!(matches!(vm_err, VmError::Io(_)));
+    }
+
+    #[test]
+    fn test_display_formats_error() {
+        let err = VmError::Io("Test error message".to_string());
+        let display = format!("{}", err);
+
+        assert!(!display.is_empty());
+        assert!(display.len() > 0);
+    }
+
+    #[test]
+    fn test_debug_format_includes_type() {
+        let err = VmError::Io("Test error".to_string());
+        let debug = format!("{:?}", err);
+
+        assert!(debug.contains("Io"));
+    }
+
+    #[test]
+    fn test_vm_error_multiple_empty() {
+        let errors = vec![];
+        let vm_err = VmError::Multiple(errors);
+
+        let display = format!("{}", vm_err);
+        assert!(!display.is_empty());
+    }
+
+    #[test]
+    fn test_vm_error_clone_with_context() {
+        let inner = Box::new(VmError::Io("Test".to_string()));
+        let err1 = VmError::WithContext {
+            error: inner,
+            context: "Context".to_string(),
+            backtrace: None,
+        };
+
+        let err2 = err1.clone();
+        assert_eq!(err1.to_string(), err2.to_string());
+    }
+
+    #[test]
+    fn test_vm_error_clone_multiple() {
+        let errors = vec![
+            VmError::Io("Error 1".to_string()),
+            VmError::Io("Error 2".to_string()),
+        ];
+        let err1 = VmError::Multiple(errors);
+
+        let err2 = err1.clone();
+        assert_eq!(err1.to_string(), err2.to_string());
+    }
+
+    #[test]
+    fn test_error_collector_push_result_ok() {
+        let mut collector = ErrorCollector::new();
+        let result: Result<(), VmError> = Ok(());
+
+        let value = collector.push_result(result);
+        assert!(value.is_some());
+        assert_eq!(collector.len(), 0);
+    }
+
+    #[test]
+    fn test_error_collector_push_result_err() {
+        let mut collector = ErrorCollector::new();
+        let result: Result<(), VmError> = Err(VmError::Io("Test error".to_string()));
+
+        let value = collector.push_result(result);
+        assert!(value.is_none());
+        assert_eq!(collector.len(), 1);
+    }
+
+    #[test]
+    fn test_into_vm_error_with_context_empty_string() {
+        let str_err = "Base error".to_string();
+        let vm_err = str_err.into_vm_error_with_context("");
+
+        let display = format!("{}", vm_err);
+        assert!(display.contains("Base error"));
+    }
+
+    // Test that String -> VmError conversion preserves the message
+    // Note: From<String> creates CoreError::Internal, not Io error
+    #[test]
+    fn test_vm_error_string_conversion() {
+        let original = "Test error".to_string();
+        let vm_err: VmError = original.clone().into();
+
+        match vm_err {
+            VmError::Core(CoreError::Internal { message, module }) => {
+                assert_eq!(message, original);
+                assert_eq!(module, "unknown");
+            }
+            _ => panic!("Expected CoreError::Internal variant"),
+        }
+    }
+
+    #[test]
+    fn test_error_collector_accumulation() {
+        let mut collector = ErrorCollector::new();
+
+        for i in 0..10 {
+            collector.push(VmError::Io(format!("Error {}", i)));
+        }
+
+        assert_eq!(collector.len(), 10);
+    }
+
+    #[test]
+    fn test_vm_error_consistent_clone() {
+        let err = VmError::Io("Test".to_string());
+
+        // Multiple clones should be equal
+        let clone1 = err.clone();
+        let clone2 = err.clone();
+
+        assert_eq!(clone1, clone2);
+        assert_eq!(err, clone1);
+    }
+}

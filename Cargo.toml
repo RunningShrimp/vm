@@ -253,19 +253,21 @@ opt-level = 3
 debug = false
 debug-assertions = false
 overflow-checks = false
-lto = "thin"
+lto = "fat"  # 优化: 使用fat LTO获得更好的性能
 incremental = false
-codegen-units = 1
+codegen-units = 1  # 保持1以获得最佳优化
+strip = false  # 保留符号以便profiling
 
 [profile.release]
 opt-level = 3
 debug = false
 debug-assertions = false
 overflow-checks = false
-lto = "thin"
+lto = "fat"  # 优化: 使用fat LTO获得最佳性能
 incremental = false
-codegen-units = 1
+codegen-units = 1  # 保持1以获得最佳优化
 panic = "unwind"
+strip = true  # 优化: 生产环境移除符号以减小二进制大小
 
 # ============================================================================
 # Development dependencies for the workspace

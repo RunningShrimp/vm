@@ -3,7 +3,7 @@
 //! Compares adaptive strategy vs standard library vs pure SIMD
 //! to verify the adaptive approach provides optimal performance.
 
-use criterion::{black_box, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use vm_mem::simd_memcpy::{memcpy_adaptive, memcpy_fast};
 
 /// Standard library memcpy (baseline)

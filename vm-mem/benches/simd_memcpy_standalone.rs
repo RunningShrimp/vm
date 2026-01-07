@@ -3,7 +3,7 @@
 //! This benchmark only tests the SIMD memcpy functionality
 //! without dependencies on other vm-mem modules.
 
-use criterion::{black_box, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // Import only the SIMD module directly
 mod simd_memcpy {

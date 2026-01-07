@@ -7,6 +7,8 @@ authors = ["VM Team <team@vm-project.org>"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 vm-core = { path = "../vm-core" }
 serde = { workspace = true }
 # vm-debug uses tokio for async networking (GDB stub) and synchronization

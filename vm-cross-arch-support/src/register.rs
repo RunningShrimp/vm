@@ -742,4 +742,696 @@ mod tests {
         let vm_err: VmError = err.into();
         assert!(matches!(vm_err, VmError::Core(_)));
     }
+
+    // ========== New Comprehensive Tests for Coverage Enhancement ==========
+
+    #[test]
+    fn test_register_info_builder_methods() {
+        // Test with_caller_saved
+        let info = RegisterInfo::new(
+            RegId(0),
+            "rax",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        )
+        .with_caller_saved();
+        assert!(info.caller_saved);
+        assert!(!info.callee_saved);
+
+        // Test with_callee_saved
+        let info = RegisterInfo::new(
+            RegId(1),
+            "rbx",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        )
+        .with_callee_saved();
+        assert!(info.callee_saved);
+        assert!(!info.caller_saved);
+
+        // Test with_volatile
+        let info = RegisterInfo::new(
+            RegId(2),
+            "rcx",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        )
+        .with_volatile();
+        assert!(info.volatile);
+
+        // Test with_reserved
+        let info = RegisterInfo::new(
+            RegId(3),
+            "rsp",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        )
+        .with_reserved();
+        assert!(info.reserved);
+
+        // Test with_alias
+        let info = RegisterInfo::new(
+            RegId(4),
+            "r4",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        )
+        .with_alias(RegId(5));
+        assert_eq!(info.aliases, vec![RegId(5)]);
+
+        // Test with_overlapping
+        let info = RegisterInfo::new(
+            RegId(6),
+            "r6",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        )
+        .with_overlapping(RegId(7));
+        assert_eq!(info.overlapping, vec![RegId(7)]);
+    }
+
+    #[test]
+    fn test_register_set_all_classes() {
+        let mut set = RegisterSet::new(Architecture::ARM64);
+
+        // Add registers of all classes
+        set.add_register(
+            RegisterInfo::new(
+                RegId(0),
+                "x0",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_caller_saved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(1),
+                "d0",
+                RegisterClass::FloatingPoint,
+                RegisterType::Float { width: 64 },
+            )
+            .with_caller_saved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(2),
+                "v0",
+                RegisterClass::Vector,
+                RegisterType::Vector {
+                    width: 128,
+                    lanes: 4,
+                },
+            )
+            .with_caller_saved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(3),
+                "pc",
+                RegisterClass::Special,
+                RegisterType::Special,
+            )
+            .with_reserved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(4),
+                "cpsr",
+                RegisterClass::Control,
+                RegisterType::Special,
+            )
+            .with_reserved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(5),
+                "nzcv",
+                RegisterClass::Status,
+                RegisterType::Special,
+            )
+            .with_reserved(),
+        );
+
+        // Verify all registers are added
+        assert_eq!(set.general_purpose.len(), 1);
+        assert_eq!(set.floating_point.len(), 1);
+        assert_eq!(set.vector.len(), 1);
+        assert_eq!(set.special.len(), 1);
+        assert_eq!(set.control.len(), 1);
+        assert_eq!(set.status.len(), 1);
+    }
+
+    #[test]
+    fn test_get_register_by_name() {
+        let mut set = RegisterSet::new(Architecture::X86_64);
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(0),
+                "rax",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_caller_saved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(1),
+                "rbx",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_callee_saved(),
+        );
+
+        // Test finding by name
+        let rax = set.get_register_by_name("rax");
+        assert!(rax.is_some());
+        assert_eq!(rax.unwrap().id, RegId(0));
+
+        let rbx = set.get_register_by_name("rbx");
+        assert!(rbx.is_some());
+        assert_eq!(rbx.unwrap().id, RegId(1));
+
+        // Test not found
+        let rcx = set.get_register_by_name("rcx");
+        assert!(rcx.is_none());
+    }
+
+    #[test]
+    fn test_get_registers_by_class() {
+        let mut set = RegisterSet::new(Architecture::X86_64);
+
+        for i in 0..8 {
+            set.add_register(
+                RegisterInfo::new(
+                    RegId(i),
+                    format!("r{}", i),
+                    RegisterClass::GeneralPurpose,
+                    RegisterType::Integer { width: 64 },
+                )
+                .with_caller_saved(),
+            );
+        }
+
+        for i in 8..16 {
+            set.add_register(
+                RegisterInfo::new(
+                    RegId(i),
+                    format!("r{}", i),
+                    RegisterClass::FloatingPoint,
+                    RegisterType::Float { width: 64 },
+                )
+                .with_caller_saved(),
+            );
+        }
+
+        // Test getting GP registers
+        let gp_regs = set.get_registers_by_class(RegisterClass::GeneralPurpose);
+        assert_eq!(gp_regs.len(), 8);
+
+        // Test getting FP registers
+        let fp_regs = set.get_registers_by_class(RegisterClass::FloatingPoint);
+        assert_eq!(fp_regs.len(), 8);
+
+        // Test empty class
+        let vec_regs = set.get_registers_by_class(RegisterClass::Vector);
+        assert_eq!(vec_regs.len(), 0);
+    }
+
+    #[test]
+    fn test_get_available_registers_filters_reserved() {
+        let mut set = RegisterSet::new(Architecture::X86_64);
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(0),
+                "r0",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_caller_saved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(1),
+                "r1",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_reserved(),
+        );
+
+        set.add_register(
+            RegisterInfo::new(
+                RegId(2),
+                "r2",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_caller_saved(),
+        );
+
+        let available = set.get_available_registers(RegisterClass::GeneralPurpose);
+        assert_eq!(available.len(), 2); // r0 and r2, not r1 (reserved)
+    }
+
+    #[test]
+    fn test_with_virtual_registers() {
+        let set = RegisterSet::with_virtual_registers(Architecture::RISCV64, 10);
+
+        // Should have 10 virtual registers
+        let vregs = set.get_registers_by_class(RegisterClass::GeneralPurpose);
+        assert_eq!(vregs.len(), 10);
+
+        // Verify naming pattern
+        for (i, reg) in vregs.iter().enumerate() {
+            assert_eq!(reg.name, format!("v{}", i));
+            assert_eq!(reg.id, RegId(i as u16));
+        }
+    }
+
+    #[test]
+    fn test_register_mapper_reservation() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Reserve a register
+        mapper.reserve_register(RegId(5)).unwrap();
+
+        // Try to allocate the reserved register
+        let result = mapper.map_register(RegId(5));
+        // Should succeed but map to a different register since 5 is reserved
+        assert!(result.is_ok());
+        assert_ne!(result.unwrap(), RegId(5));
+
+        // Release reservation
+        mapper.release_reservation(RegId(5));
+
+        // Now should be able to allocate
+        let result = mapper.map_register(RegId(5));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_register_mapper_reserve_already_allocated() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Allocate a register
+        let _ = mapper.map_register(RegId(0)).unwrap();
+
+        // Try to reserve it - should fail
+        let result = mapper.reserve_register(RegId(0));
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RegisterError::RegisterAlreadyAllocated(_)
+        ));
+    }
+
+    #[test]
+    fn test_register_mapper_free_register() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Allocate a register
+        let mapped = mapper.map_register(RegId(0)).unwrap();
+        assert!(mapper.is_allocated(mapped));
+
+        // Free it
+        mapper.free_register(mapped).unwrap();
+        assert!(!mapper.is_allocated(mapped));
+
+        // Try to free again - should fail
+        let result = mapper.free_register(mapped);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RegisterError::InvalidRegister(_)
+        ));
+    }
+
+    #[test]
+    fn test_register_mapper_free_all() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Allocate multiple registers
+        let r1 = mapper.map_register(RegId(0)).unwrap();
+        let r2 = mapper.map_register(RegId(1)).unwrap();
+        let r3 = mapper.map_register(RegId(2)).unwrap();
+
+        assert!(mapper.is_allocated(r1));
+        assert!(mapper.is_allocated(r2));
+        assert!(mapper.is_allocated(r3));
+
+        // Free all
+        mapper.free_all();
+
+        assert!(!mapper.is_allocated(r1));
+        assert!(!mapper.is_allocated(r2));
+        assert!(!mapper.is_allocated(r3));
+    }
+
+    #[test]
+    fn test_register_mapper_reverse_map() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Map a register
+        let source_reg = RegId(5);
+        let target_reg = mapper.map_register(source_reg).unwrap();
+
+        // Reverse map
+        let reversed = mapper.reverse_map(target_reg);
+        assert_eq!(reversed, Some(source_reg));
+
+        // Try reverse mapping non-existent register
+        let non_existent = mapper.reverse_map(RegId(99));
+        assert_eq!(non_existent, None);
+    }
+
+    #[test]
+    fn test_register_mapper_get_stats() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Allocate some registers
+        let _ = mapper.map_register(RegId(0)).unwrap();
+        let _ = mapper.map_register(RegId(1)).unwrap();
+        mapper.reserve_register(RegId(2)).unwrap();
+
+        // Get stats
+        let stats = mapper.get_stats();
+        assert_eq!(stats.total_mappings, 2);
+        assert_eq!(stats.allocated_registers, 2);
+        assert_eq!(stats.reserved_registers, 1);
+        assert_eq!(stats.strategy, MappingStrategy::Direct);
+    }
+
+    #[test]
+    fn test_register_mapper_map_nonexistent_register() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mut mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Try to map a register that doesn't exist
+        let result = mapper.map_register(RegId(999));
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RegisterError::RegisterNotFound(_)
+        ));
+    }
+
+    #[test]
+    fn test_register_allocator_spill_mechanism() {
+        let mut set = RegisterSet::new(Architecture::X86_64);
+
+        // Add only one register
+        set.add_register(
+            RegisterInfo::new(
+                RegId(0),
+                "r0",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_caller_saved(),
+        );
+
+        let mut allocator = RegisterAllocator::new(set);
+
+        // Allocate the only register
+        let reg1 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
+
+        // Try to allocate another - should trigger spill and succeed
+        let reg2 = allocator.allocate(RegisterClass::GeneralPurpose);
+        assert!(reg2.is_ok());
+
+        // The spilled register should be the same as the first one
+        assert_eq!(reg1, reg2.unwrap());
+    }
+
+    #[test]
+    fn test_register_allocator_unsupported_class() {
+        let set = RegisterSet::new(Architecture::X86_64);
+        let mut allocator = RegisterAllocator::new(set);
+
+        // Try to allocate from an unsupported class (no free list initialized)
+        // The allocator should create a free list for the class if registers exist
+        // But if no registers exist, it should return an error
+
+        // Let's test with System registers which are likely to be empty
+        let result = allocator.allocate(RegisterClass::System);
+        // Since we have no system registers, this should fail
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_register_allocator_free_nonexistent() {
+        let set = create_test_register_set();
+        let mut allocator = RegisterAllocator::new(set);
+
+        // Try to free a register that was never allocated
+        let result = allocator.free(RegId(999));
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RegisterError::InvalidRegister(_)
+        ));
+    }
+
+    #[test]
+    fn test_register_allocator_mark_used() {
+        let set = create_test_register_set();
+        let mut allocator = RegisterAllocator::new(set);
+
+        // Allocate a register
+        let reg = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
+
+        // Mark as used
+        allocator.mark_used(reg, 12345);
+
+        // Free it
+        allocator.free(reg).unwrap();
+
+        // Mark used again after reallocation
+        let reg2 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
+        allocator.mark_used(reg2, 67890);
+    }
+
+    #[test]
+    fn test_register_allocator_set_spill_cost() {
+        let set = create_test_register_set();
+        let mut allocator = RegisterAllocator::new(set);
+
+        // Allocate registers
+        let reg1 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
+        let reg2 = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
+
+        // Set spill costs
+        allocator.set_spill_cost(reg1, 100.0);
+        allocator.set_spill_cost(reg2, 1.0);
+    }
+
+    #[test]
+    fn test_register_allocator_spill() {
+        let mut set = RegisterSet::new(Architecture::X86_64);
+
+        // Add only one register
+        set.add_register(
+            RegisterInfo::new(
+                RegId(0),
+                "r0",
+                RegisterClass::GeneralPurpose,
+                RegisterType::Integer { width: 64 },
+            )
+            .with_caller_saved(),
+        );
+
+        let mut allocator = RegisterAllocator::new(set);
+
+        // Allocate the only register
+        let _ = allocator.allocate(RegisterClass::GeneralPurpose).unwrap();
+
+        // Try to allocate another - should trigger spill
+        let result = allocator.allocate(RegisterClass::GeneralPurpose);
+
+        // Should succeed after spilling
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mapping_strategy_windowed() {
+        let strategy = MappingStrategy::Windowed {
+            window_size: 8,
+            window_count: 4,
+        };
+
+        assert!(matches!(
+            strategy,
+            MappingStrategy::Windowed {
+                window_size: 8,
+                window_count: 4
+            }
+        ));
+    }
+
+    #[test]
+    fn test_mapping_strategy_stack_based() {
+        let strategy = MappingStrategy::StackBased { stack_size: 16 };
+
+        assert!(matches!(
+            strategy,
+            MappingStrategy::StackBased { stack_size: 16 }
+        ));
+    }
+
+    #[test]
+    fn test_register_type_default() {
+        let reg_type: RegisterType = Default::default();
+        assert!(matches!(reg_type, RegisterType::Integer { width: 64 }));
+    }
+
+    #[test]
+    fn test_register_error_partial_eq() {
+        let err1 = RegisterError::InvalidRegister(RegId(5));
+        let err2 = RegisterError::InvalidRegister(RegId(5));
+        let err3 = RegisterError::InvalidRegister(RegId(6));
+
+        assert_eq!(err1, err2);
+        assert_ne!(err1, err3);
+    }
+
+    #[test]
+    fn test_register_mapper_strategies() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+
+        // Test Direct strategy
+        let mapper1 = RegisterMapper::new(
+            source_set.clone(),
+            target_set.clone(),
+            MappingStrategy::Direct,
+        );
+        assert_eq!(mapper1.mapping_strategy, MappingStrategy::Direct);
+
+        // Test Optimized strategy
+        let mapper2 = RegisterMapper::new(
+            source_set.clone(),
+            target_set.clone(),
+            MappingStrategy::Optimized,
+        );
+        assert_eq!(mapper2.mapping_strategy, MappingStrategy::Optimized);
+
+        // Test Virtual strategy
+        let mapper3 = RegisterMapper::new(
+            source_set.clone(),
+            target_set.clone(),
+            MappingStrategy::Virtual,
+        );
+        assert_eq!(mapper3.mapping_strategy, MappingStrategy::Virtual);
+
+        // Test Custom strategy
+        let mapper4 = RegisterMapper::new(source_set, target_set, MappingStrategy::Custom);
+        assert_eq!(mapper4.mapping_strategy, MappingStrategy::Custom);
+    }
+
+    #[test]
+    fn test_register_set_multiple_architectures() {
+        // Test X86_64
+        let x86_set = RegisterSet::new(Architecture::X86_64);
+        assert_eq!(x86_set.architecture, Architecture::X86_64);
+
+        // Test ARM64
+        let arm_set = RegisterSet::new(Architecture::ARM64);
+        assert_eq!(arm_set.architecture, Architecture::ARM64);
+
+        // Test RISC-V
+        let riscv_set = RegisterSet::new(Architecture::RISCV64);
+        assert_eq!(riscv_set.architecture, Architecture::RISCV64);
+    }
+
+    #[test]
+    fn test_register_compatibility() {
+        let source_set = create_test_register_set();
+        let target_set = create_test_register_set();
+        let mapper = RegisterMapper::new(source_set, target_set, MappingStrategy::Direct);
+
+        // Test compatible registers (both Integer 64-bit)
+        let source_info = RegisterInfo::new(
+            RegId(0),
+            "r0",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        );
+
+        let target_info_64 = RegisterInfo::new(
+            RegId(0),
+            "r0",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        );
+
+        let target_info_32 = RegisterInfo::new(
+            RegId(1),
+            "r1",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 32 },
+        );
+
+        assert!(mapper.is_compatible(&source_info, &target_info_64));
+        assert!(!mapper.is_compatible(&source_info, &target_info_32));
+    }
+
+    #[test]
+    fn test_register_info_clone() {
+        let info1 = RegisterInfo::new(
+            RegId(0),
+            "rax",
+            RegisterClass::GeneralPurpose,
+            RegisterType::Integer { width: 64 },
+        )
+        .with_caller_saved()
+        .with_alias(RegId(1));
+
+        let info2 = info1.clone();
+
+        assert_eq!(info1.id, info2.id);
+        assert_eq!(info1.name, info2.name);
+        assert_eq!(info1.class, info2.class);
+        assert_eq!(info1.caller_saved, info2.caller_saved);
+        assert_eq!(info1.aliases, info2.aliases);
+    }
+
+    #[test]
+    fn test_register_class_copy() {
+        let class1 = RegisterClass::GeneralPurpose;
+        let class2 = class1;
+
+        assert_eq!(class1, class2);
+    }
+
+    #[test]
+    fn test_register_type_copy() {
+        let type1 = RegisterType::Integer { width: 64 };
+        let type2 = type1;
+
+        assert_eq!(type1, type2);
+    }
 }

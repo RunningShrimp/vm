@@ -93,6 +93,7 @@ impl VmController {
             state: VmState::Stopped,
             cpu_count: config.cpu_count,
             memory_mb: config.memory_mb,
+            disk_gb: config.disk_gb,
             display_mode: config.display_mode,
         };
 
@@ -335,6 +336,7 @@ impl VmController {
         vm.instance.name = config.name.clone();
         vm.instance.cpu_count = config.cpu_count;
         vm.instance.memory_mb = config.memory_mb;
+        vm.instance.disk_gb = config.disk_gb;
         vm.instance.display_mode = config.display_mode.clone();
 
         // Update core config
@@ -413,6 +415,36 @@ impl VmController {
         } else {
             Err("VM service not available".to_string())
         }
+    }
+
+    /// Get console output from a running VM
+    pub fn get_console_output(&self, id: &str) -> Result<Vec<String>, String> {
+        let vms = self.vms.lock().map_err(|e| e.to_string())?;
+
+        let vm = vms.get(id).ok_or("VM not found")?;
+
+        if vm.instance.state != VmState::Running {
+            return Ok(vec![
+                "[系统] 虚拟机未运行".to_string(),
+                "[提示] 启动虚拟机以查看控制台输出".to_string(),
+            ]);
+        }
+
+        // In a real implementation, this would fetch actual console output
+        // For now, return simulated boot messages
+        Ok(vec![
+            "[启动] VM Manager v0.1.0".to_string(),
+            "[内核] 检测到 CPU: RISC-V 64".to_string(),
+            "[内核] 检测到内存: {} MB".replace("{}", &vm.instance.memory_mb.to_string()),
+            "[内核] 初始化 MMU...".to_string(),
+            "[内核] 初始化中断控制器...".to_string(),
+            "[设备] 初始化 VirtIO 设备...".to_string(),
+            "[设备]   - VirtIO block device: /dev/vda ({} GB)"
+                .replace("{}", &vm.instance.disk_gb.to_string()),
+            "[设备]   - VirtIO network device: eth0".to_string(),
+            "[成功] 系统启动完成".to_string(),
+            "[运行] 正在运行...".to_string(),
+        ])
     }
 }
 

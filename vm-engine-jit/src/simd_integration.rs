@@ -116,6 +116,12 @@ pub type VectorOperation = SimdOperation;
 
 pub struct SimdCompiler;
 
+impl Default for SimdCompiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimdCompiler {
     pub fn new() -> Self {
         Self

@@ -74,19 +74,19 @@ mod tests {
     #[test]
     fn test_create_template() {
         let mut manager = TemplateManager::new();
-        
+
         let id = manager.create_template(
             "Test Template".to_string(),
             "A test template".to_string(),
             "snapshot-123".to_string(),
         );
-        
+
         // ID应该被生成
         assert!(!id.is_empty());
-        
+
         // 模板应该被存储
         assert_eq!(manager.templates.len(), 1);
-        
+
         // 验证模板内容
         let template = manager.get_template(&id).unwrap();
         assert_eq!(template.name, "Test Template");
@@ -98,13 +98,13 @@ mod tests {
     #[test]
     fn test_get_template_exists() {
         let mut manager = TemplateManager::new();
-        
+
         let id = manager.create_template(
             "Test".to_string(),
             "Description".to_string(),
             "snapshot-1".to_string(),
         );
-        
+
         let template = manager.get_template(&id);
         assert!(template.is_some());
         assert_eq!(template.unwrap().name, "Test");
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn test_get_template_not_exists() {
         let manager = TemplateManager::new();
-        
+
         let template = manager.get_template("non-existent-id");
         assert!(template.is_none());
     }
@@ -122,33 +122,33 @@ mod tests {
     fn test_list_templates_empty() {
         let manager = TemplateManager::new();
         let templates = manager.list_templates();
-        
+
         assert_eq!(templates.len(), 0);
     }
 
     #[test]
     fn test_list_templates_multiple() {
         let mut manager = TemplateManager::new();
-        
+
         // 创建3个模板
         let _id1 = manager.create_template(
             "Template 1".to_string(),
             "Description 1".to_string(),
             "snapshot-1".to_string(),
         );
-        
+
         let _id2 = manager.create_template(
             "Template 2".to_string(),
             "Description 2".to_string(),
             "snapshot-2".to_string(),
         );
-        
+
         let _id3 = manager.create_template(
             "Template 3".to_string(),
             "Description 3".to_string(),
             "snapshot-3".to_string(),
         );
-        
+
         let templates = manager.list_templates();
         assert_eq!(templates.len(), 3);
     }
@@ -156,22 +156,22 @@ mod tests {
     #[test]
     fn test_multiple_templates_unique_ids() {
         let mut manager = TemplateManager::new();
-        
+
         let id1 = manager.create_template(
             "Template 1".to_string(),
             "Description 1".to_string(),
             "snapshot-1".to_string(),
         );
-        
+
         let id2 = manager.create_template(
             "Template 2".to_string(),
             "Description 2".to_string(),
             "snapshot-2".to_string(),
         );
-        
+
         // ID应该是唯一的
         assert_ne!(id1, id2);
-        
+
         // 两个模板都应该存在
         assert!(manager.get_template(&id1).is_some());
         assert!(manager.get_template(&id2).is_some());
@@ -185,7 +185,7 @@ mod tests {
             description: "Test Description".to_string(),
             base_snapshot_id: "snapshot-123".to_string(),
         };
-        
+
         let cloned = template.clone();
         assert_eq!(cloned.id, template.id);
         assert_eq!(cloned.name, template.name);
@@ -196,13 +196,13 @@ mod tests {
     #[test]
     fn test_template_manager_clone() {
         let mut manager = TemplateManager::new();
-        
+
         let _id = manager.create_template(
             "Test".to_string(),
             "Description".to_string(),
             "snapshot-1".to_string(),
         );
-        
+
         let cloned = manager.clone();
         assert_eq!(cloned.templates.len(), manager.templates.len());
     }
@@ -215,11 +215,11 @@ mod tests {
             description: "Test Description".to_string(),
             base_snapshot_id: "snapshot-123".to_string(),
         };
-        
+
         // 测试序列化/反序列化
         let serialized = serde_json::to_string(&template).unwrap();
         let deserialized: VmTemplate = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.id, template.id);
         assert_eq!(deserialized.name, template.name);
     }
@@ -227,17 +227,17 @@ mod tests {
     #[test]
     fn test_template_manager_serialization() {
         let mut manager = TemplateManager::new();
-        
+
         let _id = manager.create_template(
             "Test".to_string(),
             "Description".to_string(),
             "snapshot-1".to_string(),
         );
-        
+
         // 测试序列化/反序列化
         let serialized = serde_json::to_string(&manager).unwrap();
         let deserialized: TemplateManager = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.templates.len(), 1);
     }
 }

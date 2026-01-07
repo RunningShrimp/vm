@@ -52,7 +52,10 @@ use super::{PassthroughError, PciAddress};
 
 // 导入vm-core的GPU类型以实现trait
 #[cfg(feature = "cuda")]
-use vm_core::gpu::{GpuBuffer, GpuCompute, GpuDeviceInfo, GpuExecutionResult, GpuKernel, GpuArg, GpuResult, GpuError};
+use vm_core::gpu::{
+    GpuArg, GpuBuffer, GpuCompute, GpuDeviceInfo, GpuError, GpuExecutionResult, GpuKernel,
+    GpuResult,
+};
 
 /// CUDA 设备指针
 #[derive(Debug, Clone, Copy)]
@@ -423,9 +426,10 @@ impl CudaAccelerator {
                     // 但当前API签名使用src: &[u8]，这在DeviceToDevice情况下不太合适
                     // 这是一个临时解决方案，更好的做法是改变API签名
                     return Err(PassthroughError::DriverBindingFailed(
-                        "Device-to-device memcpy requires special API. Use memcpy_d2d() instead.".to_string(),
+                        "Device-to-device memcpy requires special API. Use memcpy_d2d() instead."
+                            .to_string(),
                     ));
-                }
+                },
             }
 
             log::trace!(
@@ -656,9 +660,10 @@ impl GpuKernel {
 
             // 检查内核是否已加载
             if self.kernel_ptr == 0 {
-                return Err(PassthroughError::DriverBindingFailed(
-                    format!("Kernel '{}' not loaded. Call load_from_ptx() first.", self.name)
-                ));
+                return Err(PassthroughError::DriverBindingFailed(format!(
+                    "Kernel '{}' not loaded. Call load_from_ptx() first.",
+                    self.name
+                )));
             }
 
             unsafe {
@@ -679,7 +684,7 @@ impl GpuKernel {
                     block_dim.0,
                     block_dim.1,
                     block_dim.2,
-                    0, // sharedMemBytes - 暂不支持动态共享内存
+                    0,                    // sharedMemBytes - 暂不支持动态共享内存
                     std::ptr::null_mut(), // hStream - 使用默认流
                     std::ptr::null_mut(), // kernelParams - 暂不支持参数传递
                     std::ptr::null_mut(), // extra - 暂不支持额外参数
@@ -755,16 +760,13 @@ impl GpuKernel {
             unsafe {
                 // 加载 PTX 模块
                 let mut module = std::ptr::null_mut();
-                result::cuModuleLoadData(
-                    &mut module,
-                    ptx_code.as_ptr() as *const std::ffi::c_void,
-                )
-                .map_err(|e| {
-                    PassthroughError::DriverBindingFailed(format!(
-                        "Failed to load PTX module for kernel '{}': {:?}",
-                        kernel_name, e
-                    ))
-                })?;
+                result::cuModuleLoadData(&mut module, ptx_code.as_ptr() as *const std::ffi::c_void)
+                    .map_err(|e| {
+                        PassthroughError::DriverBindingFailed(format!(
+                            "Failed to load PTX module for kernel '{}': {:?}",
+                            kernel_name, e
+                        ))
+                    })?;
 
                 // 获取内核函数指针
                 let mut kernel_ptr = 0u64;
@@ -961,24 +963,27 @@ impl GpuCompute for CudaAccelerator {
             let multiprocessor_count = unsafe {
                 result::cuDeviceGetAttribute(
                     self.device_id,
-                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT
-                ).unwrap_or(0) as u32
+                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                )
+                .unwrap_or(0) as u32
             };
 
             // Query clock rate
             let clock_rate_khz = unsafe {
                 result::cuDeviceGetAttribute(
                     self.device_id,
-                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_CLOCK_RATE
-                ).unwrap_or(0) as u32
+                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_CLOCK_RATE,
+                )
+                .unwrap_or(0) as u32
             };
 
             // Query L2 cache size
             let l2_cache_size = unsafe {
                 result::cuDeviceGetAttribute(
                     self.device_id,
-                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE
-                ).unwrap_or(0) as usize
+                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE,
+                )
+                .unwrap_or(0) as usize
             };
 
             // Detect unified memory support (CUDA 6.0+)
@@ -994,7 +999,10 @@ impl GpuCompute for CudaAccelerator {
                 clock_rate_khz,
                 l2_cache_size,
                 supports_unified_memory,
-                compute_capability: format!("{}.{}", self.compute_capability.0, self.compute_capability.1),
+                compute_capability: format!(
+                    "{}.{}",
+                    self.compute_capability.0, self.compute_capability.1
+                ),
             }
         }
 
@@ -1010,7 +1018,10 @@ impl GpuCompute for CudaAccelerator {
                 clock_rate_khz: 0,
                 l2_cache_size: 0,
                 supports_unified_memory: false,
-                compute_capability: format!("{}.{}", self.compute_capability.0, self.compute_capability.1),
+                compute_capability: format!(
+                    "{}.{}",
+                    self.compute_capability.0, self.compute_capability.1
+                ),
             }
         }
     }
@@ -1057,39 +1068,54 @@ impl GpuCompute for CudaAccelerator {
 
             // Create NVRTC program
             let program = unsafe {
-                result::nvrtcCreateProgram(source.as_ptr() as *const i8, ptr::null(), 0, ptr::null(), ptr::null())
-                    .map_err(|e| GpuError::CompilationFailed {
-                        kernel: kernel_name.to_string(),
-                        message: format!("Failed to create NVRTC program: {:?}", e),
-                    })?
+                result::nvrtcCreateProgram(
+                    source.as_ptr() as *const i8,
+                    ptr::null(),
+                    0,
+                    ptr::null(),
+                    ptr::null(),
+                )
+                .map_err(|e| GpuError::CompilationFailed {
+                    kernel: kernel_name.to_string(),
+                    message: format!("Failed to create NVRTC program: {:?}", e),
+                })?
             };
 
             // Get compute capability for compilation options
-            let compute_capability = format!("-arch=sm_{}", self.compute_capability.0 * 10 + self.compute_capability.1);
+            let compute_capability = format!(
+                "-arch=sm_{}",
+                self.compute_capability.0 * 10 + self.compute_capability.1
+            );
 
             // Compile the program
             let compilation_options = [compute_capability.as_str()];
             unsafe {
-                result::nvrtcCompileProgram(program, compilation_options.len() as i32,
-                    compilation_options.as_ptr() as *const *const i8)
-                    .map_err(|e| {
-                        // Get compilation log if available
-                        let log_size = result::nvrtcGetProgramLogSize(program).unwrap_or(0);
-                        if log_size > 0 {
-                            let mut log = vec![0u8; log_size];
-                            result::nvrtcGetProgramLog(program, log.as_mut_ptr()).ok();
-                            let log_str = String::from_utf8_lossy(&log);
-                            GpuError::CompilationFailed {
-                                kernel: kernel_name.to_string(),
-                                message: format!("NVRTC compilation failed: {:?}\nLog:\n{}", e, log_str),
-                            }
-                        } else {
-                            GpuError::CompilationFailed {
-                                kernel: kernel_name.to_string(),
-                                message: format!("NVRTC compilation failed: {:?}", e),
-                            }
+                result::nvrtcCompileProgram(
+                    program,
+                    compilation_options.len() as i32,
+                    compilation_options.as_ptr() as *const *const i8,
+                )
+                .map_err(|e| {
+                    // Get compilation log if available
+                    let log_size = result::nvrtcGetProgramLogSize(program).unwrap_or(0);
+                    if log_size > 0 {
+                        let mut log = vec![0u8; log_size];
+                        result::nvrtcGetProgramLog(program, log.as_mut_ptr()).ok();
+                        let log_str = String::from_utf8_lossy(&log);
+                        GpuError::CompilationFailed {
+                            kernel: kernel_name.to_string(),
+                            message: format!(
+                                "NVRTC compilation failed: {:?}\nLog:\n{}",
+                                e, log_str
+                            ),
                         }
-                    })?;
+                    } else {
+                        GpuError::CompilationFailed {
+                            kernel: kernel_name.to_string(),
+                            message: format!("NVRTC compilation failed: {:?}", e),
+                        }
+                    }
+                })?;
             }
 
             // Get PTX size
@@ -1103,30 +1129,39 @@ impl GpuCompute for CudaAccelerator {
             // Get PTX code
             let mut ptx = vec![0u8; ptx_size];
             unsafe {
-                result::nvrtcGetPTX(program, ptx.as_mut_ptr()).map_err(|e| GpuError::CompilationFailed {
-                    kernel: kernel_name.to_string(),
-                    message: format!("Failed to get PTX: {:?}", e),
+                result::nvrtcGetPTX(program, ptx.as_mut_ptr()).map_err(|e| {
+                    GpuError::CompilationFailed {
+                        kernel: kernel_name.to_string(),
+                        message: format!("Failed to get PTX: {:?}", e),
+                    }
                 })?;
             }
 
             // Destroy the program
             unsafe {
-                result::nvrtcDestroyProgram(&program).map_err(|e| {
-                    log::warn!("Failed to destroy NVRTC program: {:?}", e);
-                    // Non-fatal error, continue
-                }).ok();
+                result::nvrtcDestroyProgram(&program)
+                    .map_err(|e| {
+                        log::warn!("Failed to destroy NVRTC program: {:?}", e);
+                        // Non-fatal error, continue
+                    })
+                    .ok();
             }
 
-            // Create kernel metadata
+            // Create kernel metadata with parsed information
+            // 从源代码解析参数数量和共享内存使用
+            let (num_params, shared_memory_size) = Self::parse_kernel_metadata(source, kernel_name);
+
             let metadata = vm_core::gpu::KernelMetadata {
                 name: kernel_name.to_string(),
                 source: Some(source.to_string()),
-                compiled_at: Some(std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()),
-                num_params: 0, // TODO: Parse from source
-                shared_memory_size: 0, // TODO: Parse from source
+                compiled_at: Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                ),
+                num_params,
+                shared_memory_size,
             };
 
             Ok(GpuKernel {
@@ -1161,35 +1196,40 @@ impl GpuCompute for CudaAccelerator {
             let start = std::time::Instant::now();
 
             // Load PTX module
-            let ptx_cstring = CString::new(kernel.binary.clone()).map_err(|e| GpuError::ExecutionFailed {
-                kernel: kernel.name.clone(),
-                message: format!("Failed to create PTX CString: {}", e),
-            })?;
+            let ptx_cstring =
+                CString::new(kernel.binary.clone()).map_err(|e| GpuError::ExecutionFailed {
+                    kernel: kernel.name.clone(),
+                    message: format!("Failed to create PTX CString: {}", e),
+                })?;
 
             let mut module = std::ptr::null_mut();
             unsafe {
-                result::cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const _).map_err(|e| GpuError::ExecutionFailed {
-                    kernel: kernel.name.clone(),
-                    message: format!("Failed to load PTX module: {:?}", e),
-                })?;
+                result::cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const _).map_err(
+                    |e| GpuError::ExecutionFailed {
+                        kernel: kernel.name.clone(),
+                        message: format!("Failed to load PTX module: {:?}", e),
+                    },
+                )?;
             }
 
             // Get kernel function
-            let kernel_name_cstring = CString::new(kernel.name.as_str()).map_err(|e| GpuError::ExecutionFailed {
-                kernel: kernel.name.clone(),
-                message: format!("Failed to create kernel name CString: {}", e),
-            })?;
+            let kernel_name_cstring =
+                CString::new(kernel.name.as_str()).map_err(|e| GpuError::ExecutionFailed {
+                    kernel: kernel.name.clone(),
+                    message: format!("Failed to create kernel name CString: {}", e),
+                })?;
 
             let mut kernel_func = std::ptr::null_mut();
             unsafe {
-                result::cuModuleGetFunction(&mut kernel_func, module, kernel_name_cstring.as_ptr()).map_err(|e| {
-                    // Cleanup module on error
-                    result::cuModuleUnload(module).ok();
-                    GpuError::ExecutionFailed {
-                        kernel: kernel.name.clone(),
-                        message: format!("Failed to get kernel function: {:?}", e),
-                    }
-                })?;
+                result::cuModuleGetFunction(&mut kernel_func, module, kernel_name_cstring.as_ptr())
+                    .map_err(|e| {
+                        // Cleanup module on error
+                        result::cuModuleUnload(module).ok();
+                        GpuError::ExecutionFailed {
+                            kernel: kernel.name.clone(),
+                            message: format!("Failed to get kernel function: {:?}", e),
+                        }
+                    })?;
             }
 
             // Prepare kernel arguments
@@ -1209,20 +1249,26 @@ impl GpuCompute for CudaAccelerator {
                     GpuArg::Buffer(buf) => buf.ptr.to_le_bytes().to_vec(),
                 };
                 kernel_args.push(arg_bytes);
-                kernel_arg_ptrs.push(kernel_args.last().unwrap().as_ptr() as *const std::ffi::c_void);
+                kernel_arg_ptrs
+                    .push(kernel_args.last().unwrap().as_ptr() as *const std::ffi::c_void);
             }
 
             // Launch kernel
             unsafe {
                 result::cuLaunchKernel(
                     kernel_func,
-                    grid_dim.0, grid_dim.1, grid_dim.2,  // grid dim
-                    block_dim.0, block_dim.1, block_dim.2,  // block dim
-                    shared_memory_size as u32,  // shared memory bytes
-                    self.stream.stream,  // stream
-                    kernel_arg_ptrs.as_mut_ptr() as *mut *mut _,  // kernel arguments
-                    std::ptr::null_mut(),  // extra (optional)
-                ).map_err(|e| {
+                    grid_dim.0,
+                    grid_dim.1,
+                    grid_dim.2, // grid dim
+                    block_dim.0,
+                    block_dim.1,
+                    block_dim.2,                                 // block dim
+                    shared_memory_size as u32,                   // shared memory bytes
+                    self.stream.stream,                          // stream
+                    kernel_arg_ptrs.as_mut_ptr() as *mut *mut _, // kernel arguments
+                    std::ptr::null_mut(),                        // extra (optional)
+                )
+                .map_err(|e| {
                     // Cleanup on error
                     result::cuModuleUnload(module).ok();
                     GpuError::ExecutionFailed {
@@ -1234,17 +1280,22 @@ impl GpuCompute for CudaAccelerator {
 
             // Cleanup module (kernel can still be used)
             unsafe {
-                result::cuModuleUnload(module).map_err(|e| {
-                    log::warn!("Failed to unload module: {:?}", e);
-                }).ok();
+                result::cuModuleUnload(module)
+                    .map_err(|e| {
+                        log::warn!("Failed to unload module: {:?}", e);
+                    })
+                    .ok();
             }
 
             let elapsed = start.elapsed();
 
+            // 跟踪实际内存传输量
+            let bytes_transferred = Self::estimate_memory_transfer(args);
+
             Ok(GpuExecutionResult {
                 kernel_name: kernel.name.clone(),
                 execution_time_us: elapsed.as_micros() as u64,
-                bytes_transferred: 0, // TODO: Track actual memory transfers
+                bytes_transferred,
             })
         }
 
@@ -1259,5 +1310,105 @@ impl GpuCompute for CudaAccelerator {
 
     fn synchronize(&self) -> GpuResult<()> {
         Ok(())
+    }
+}
+
+// ============================================================================
+// CUDA Helper Functions
+// ============================================================================
+
+impl CudaAccelerator {
+    /// 从CUDA内核源代码解析元数据
+    ///
+    /// 返回 (参数数量, 共享内存大小)
+    fn parse_kernel_metadata(source: &str, kernel_name: &str) -> (u32, usize) {
+        // 查找目标内核函数
+        let kernel_pattern = format!("__global__ void {}(", kernel_name);
+
+        // 查找内核定义的起始位置
+        let kernel_start = match source.find(&kernel_pattern) {
+            Some(pos) => pos,
+            None => {
+                log::warn!("Could not find kernel function: {}", kernel_name);
+                return (0, 0);
+            }
+        };
+
+        // 提取参数列表部分
+        let params_start = kernel_start + kernel_pattern.len();
+        let params_end = match source[params_start..].find(')') {
+            Some(pos) => params_start + pos,
+            None => {
+                log::warn!("Could not parse kernel parameters for: {}", kernel_name);
+                return (0, 0);
+            }
+        };
+
+        let params_str = &source[params_start..params_end];
+
+        // 计算参数数量 (按逗号分隔，过滤空字符串)
+        let num_params = if params_str.trim().is_empty() {
+            0
+        } else {
+            params_str
+                .split(',')
+                .filter(|s| !s.trim().is_empty())
+                .count() as u32
+        };
+
+        // 查找共享内存声明
+        // 共享内存通常声明为: __shared__ type name[size];
+        let shared_memory_size = if let Some(shared_pos) = source.find("__shared__") {
+            // 从__shared__位置开始查找数组大小
+            let shared_section = &source[shared_pos..];
+            // 查找数组定义模式: __shared__ type name[size]
+            if let Some(bracket_start) = shared_section.find('[') {
+                if let Some(bracket_end) = shared_section[bracket_start + 1..].find(']') {
+                    let size_str =
+                        &shared_section[bracket_start + 1..bracket_start + 1 + bracket_end];
+                    // 尝试解析数组大小
+                    if let Ok(size) = size_str.trim().parse::<usize>() {
+                        // 估算类型大小 (指针通常4或8字节，这里假设8字节)
+                        size * 8
+                    } else {
+                        // 如果不是常量，无法静态确定大小
+                        log::debug!("Dynamic shared memory size detected for: {}", kernel_name);
+                        0
+                    }
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        (num_params, shared_memory_size)
+    }
+
+    /// 跟踪内核执行的内存传输量
+    ///
+    /// 根据参数估算内存传输大小
+    fn estimate_memory_transfer(args: &[GpuArg]) -> usize {
+        let mut total_bytes = 0;
+
+        for arg in args {
+            match arg {
+                GpuArg::Buffer(buffer) => {
+                    total_bytes += buffer.size;
+                }
+                GpuArg::Constant(size) => {
+                    total_bytes += *size;
+                }
+                GpuArg::Scalar(_) => {
+                    // 标量值通常很小 (4-8字节)
+                    total_bytes += 8;
+                }
+            }
+        }
+
+        total_bytes
     }
 }

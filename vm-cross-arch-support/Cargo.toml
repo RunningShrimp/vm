@@ -5,6 +5,8 @@ edition = "2024"
 description = "Consolidated cross-architecture support utilities for VM translation"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 thiserror = { workspace = true }

@@ -532,6 +532,25 @@ pub use whp::{WHPX_VERSION, WhpxFeatures};
 #[cfg(feature = "smmu")]
 pub use crate::accel::{AccelManagerError, AccelerationManager};
 
+// Common vCPU abstractions
+pub mod vcpu_common;
+pub use vcpu_common::{FpuRegs, VcpuExit, VcpuOps, VcpuResult};
+
+// Platform abstraction layer
+pub mod platform;
+pub use platform::PlatformBackend;
+
+// Code generation macros
+mod macros;
+
+// Consolidated FFI bindings
+pub mod ffi;
+
+// Error handling utilities
+pub mod error;
+// Macros are exported at crate root via #[macro_export]
+pub use error::{ErrorContext, AccelResult};
+
 pub struct NoAccel;
 impl Accel for NoAccel {
     fn init(&mut self) -> Result<(), AccelError> {

@@ -1,0 +1,96 @@
+# Cargo Hakari配置文件
+# 用于优化VM项目的依赖编译
+
+# Hakari版本
+hakari-version = "0.9"
+
+# 工作区成员包的路径前缀
+# 这些包将被包含在Hakari管理中
+workspace-members = [
+    "vm-core",
+    "vm-cross-arch-support",
+    "vm-ir",
+    "vm-frontend",
+    "vm-mem",
+    "vm-device",
+    "vm-accel",
+    "vm-engine",
+    "vm-engine-jit",
+    "vm-optimizers",
+    "vm-gc",
+    "vm-boot",
+    "vm-service",
+    "vm-platform",
+    "vm-smmu",
+    "vm-passthrough",
+    "vm-soc",
+    "vm-graphics",
+    "vm-plugin",
+    "vm-osal",
+    "vm-codegen",
+    "vm-cli",
+    "vm-monitor",
+    "vm-debug",
+    "vm-desktop",
+    "security-sandbox",
+    "syscall-compat",
+    "perf-bench",
+    "tiered-compiler",
+    "parallel-jit",
+    "vm-build-deps",
+]
+
+# 排除的包(可选)
+# 这些包不会被包含在Hakari分析中
+excluded-packages = []
+
+# 依赖管理包
+dep-packages = ["vm-build-deps"]
+
+# 工作区解析器
+# 应该与Cargo.toml中的resolver匹配
+resolver = "2"
+
+# 平台特定设置
+# 为不同目标平台生成不同的依赖集合
+
+# 目标三元组列表
+# 这些平台将被单独处理以优化依赖
+target-triples = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+# 是否为每个目标三元组单独生成依赖
+# 这会增加vm-build-deps的大小,但可以进一步优化编译
+per-version-overrides = true
+
+# 包含的依赖类别
+# 这些类别的依赖将被Hakari管理
+
+# 包含构建依赖(build-dependencies)
+include-build-dependencies = true
+
+# 包含开发依赖(dev-dependencies)
+include-dev-dependencies = false
+
+# 包含目标特定依赖
+target-specific = true
+
+# Hakari输出格式
+output-format = "toml"
+
+# vm-build-deps包的相对路径
+# 这告诉Hakari在哪里生成依赖
+relative-paths = true
+
+# 跳过某些依赖
+# 这些依赖不会被Hakari优化
+skip-dependencies = []
+
+# 调试选项
+# 启用后可以看到Hakari正在做什么
+verbose = false

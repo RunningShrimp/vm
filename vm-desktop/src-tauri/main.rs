@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tauri::State;
 use vm_desktop::{
     AppState, MonitoringService, VmController,
-    ipc::{VmConfig, VmInstance, VmMetrics},
+    ipc::{SystemMetrics, VmConfig, VmInstance, VmMetrics},
 };
 
 #[tauri::command]
@@ -80,6 +80,11 @@ async fn get_all_metrics(state: State<'_, Arc<AppState>>) -> Result<Vec<VmMetric
 }
 
 #[tauri::command]
+async fn get_system_metrics(state: State<'_, Arc<AppState>>) -> Result<SystemMetrics, String> {
+    state.monitoring.get_system_metrics().await
+}
+
+#[tauri::command]
 async fn set_kernel_path(
     state: State<'_, Arc<AppState>>,
     id: String,
@@ -133,6 +138,14 @@ async fn list_snapshots(
     state.vm_controller.list_snapshots(&id).await
 }
 
+#[tauri::command]
+async fn get_console_output(
+    state: State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<Vec<String>, String> {
+    state.vm_controller.get_console_output(&id)
+}
+
 fn main() {
     let app_state = Arc::new(AppState {
         vm_controller: VmController::new(),
@@ -153,11 +166,13 @@ fn main() {
             update_vm_config,
             get_vm_metrics,
             get_all_metrics,
+            get_system_metrics,
             set_kernel_path,
             set_start_pc,
             create_snapshot,
             restore_snapshot,
             list_snapshots,
+            get_console_output,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

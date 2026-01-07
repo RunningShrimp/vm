@@ -18,6 +18,111 @@ pub struct WhpxVcpu {
     _index: u32,
 }
 
+/// WHPX vCPU with partition handle for VcpuOps
+///
+/// This wrapper holds both the vCPU and the partition handle needed
+/// for register operations.
+pub struct WhpxVcpuWithPartition {
+    vcpu: WhpxVcpu,
+    #[cfg(all(target_os = "windows", feature = "whpx"))]
+    partition: WHV_PARTITION_HANDLE,
+    #[cfg(not(all(target_os = "windows", feature = "whpx")))]
+    _partition: std::marker::PhantomData<*const ()>,
+}
+
+impl WhpxVcpuWithPartition {
+    #[cfg(all(target_os = "windows", feature = "whpx"))]
+    pub fn new(vcpu: WhpxVcpu, partition: WHV_PARTITION_HANDLE) -> Self {
+        Self { vcpu, partition }
+    }
+
+    #[cfg(not(all(target_os = "windows", feature = "whpx")))]
+    pub fn new(vcpu: WhpxVcpu, _partition: ()) -> Self {
+        Self {
+            vcpu,
+            _partition: std::marker::PhantomData,
+        }
+    }
+
+    #[cfg(all(target_os = "windows", feature = "whpx"))]
+    pub fn get_id(&self) -> u32 {
+        self.vcpu.index
+    }
+
+    #[cfg(not(all(target_os = "windows", feature = "whpx")))]
+    pub fn get_id(&self) -> u32 {
+        self.vcpu._index
+    }
+}
+
+// Implement VcpuOps trait for unified vCPU interface
+impl crate::vcpu_common::VcpuOps for WhpxVcpuWithPartition {
+    fn get_id(&self) -> u32 {
+        self.get_id()
+    }
+
+    fn run(&mut self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::VcpuExit> {
+        #[cfg(all(target_os = "windows", feature = "whpx"))]
+        {
+            self.vcpu
+                .run(&self.partition)
+                .map(|_| crate::vcpu_common::VcpuExit::Unknown)
+        }
+
+        #[cfg(not(all(target_os = "windows", feature = "whpx")))]
+        {
+            self.vcpu
+                .run()
+                .map(|_| crate::vcpu_common::VcpuExit::Unknown)
+        }
+    }
+
+    fn get_regs(&self) -> crate::vcpu_common::VcpuResult<vm_core::GuestRegs> {
+        #[cfg(all(target_os = "windows", feature = "whpx"))]
+        {
+            self.vcpu.get_regs(&self.partition)
+        }
+
+        #[cfg(not(all(target_os = "windows", feature = "whpx")))]
+        {
+            self.vcpu.get_regs()
+        }
+    }
+
+    fn set_regs(&mut self, regs: &vm_core::GuestRegs) -> crate::vcpu_common::VcpuResult<()> {
+        #[cfg(all(target_os = "windows", feature = "whpx"))]
+        {
+            self.vcpu.set_regs(&self.partition, regs)
+        }
+
+        #[cfg(not(all(target_os = "windows", feature = "whpx")))]
+        {
+            self.vcpu.set_regs(regs)
+        }
+    }
+
+    fn get_fpu_regs(&self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::FpuRegs> {
+        // WHPX supports XMM registers via WHV_REGISTER_NAME_XMM0-15
+        // This would require using WHvGetVirtualProcessorRegisters with XMM register names
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
+            feature: "WHPX FPU register access".to_string(),
+            module: "vm-accel::whpx".to_string(),
+        }))
+    }
+
+    fn set_fpu_regs(
+        &mut self,
+        _regs: &crate::vcpu_common::FpuRegs,
+    ) -> crate::vcpu_common::VcpuResult<()> {
+        // WHPX supports XMM registers via WHvSetVirtualProcessorRegisters
+        // This would require using WHV_REGISTER_NAME_XMM0-15
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
+            feature: "WHPX FPU register access".to_string(),
+            module: "vm-accel::whpx".to_string(),
+        }))
+    }
+}
+
 impl WhpxVcpu {
     pub fn new(index: u32) -> Result<Self, AccelError> {
         #[cfg(all(target_os = "windows", feature = "whpx"))]
@@ -544,6 +649,46 @@ impl Accel for AccelWhpx {
 
     fn name(&self) -> &str {
         "WHPX"
+    }
+}
+
+impl AccelWhpx {
+    /// Create vCPU and return VcpuOps trait object
+    ///
+    /// This creates a new vCPU and returns it as a trait object with the partition handle.
+    pub fn create_vcpu_ops(&mut self, id: u32) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
+        #[cfg(all(target_os = "windows", feature = "whpx"))]
+        {
+            let partition = self.partition.as_ref().ok_or_else(|| {
+                VmError::Platform(PlatformError::InitializationFailed(
+                    "Partition not initialized".to_string(),
+                ))
+            })?;
+
+            // SAFETY: WHvCreateVirtualProcessor is a Windows Hypervisor Platform API function
+            // Preconditions: partition is a valid WHV_PARTITION_HANDLE, id is valid vCPU ID
+            // Invariants: Creates a new virtual processor in the partition
+            unsafe {
+                WHvCreateVirtualProcessor(*partition, id, 0).map_err(|e| {
+                    VmError::Platform(PlatformError::ResourceAllocationFailed(format!(
+                        "WHvCreateVirtualProcessor failed: {:?}",
+                        e
+                    )))
+                })?;
+            }
+
+            let vcpu = WhpxVcpu::new(id)?;
+            // Don't add to Vec - return directly with partition handle
+            log::info!("Created WHPX vCPU {}", id);
+            Ok(Box::new(WhpxVcpuWithPartition::new(vcpu, *partition)))
+        }
+
+        #[cfg(not(all(target_os = "windows", feature = "whpx")))]
+        {
+            Err(VmError::Platform(PlatformError::UnsupportedOperation(
+                "WHPX not available on this platform".to_string(),
+            )))
+        }
     }
 }
 

@@ -6,7 +6,7 @@
 //! - Batch operations for performance
 //! - Error handling (circular references, chain too long)
 
-use vm_core::{CoreError, GuestAddr, MMU, VmError};
+use vm_core::{AccessType, CoreError, GuestAddr, GuestPhysAddr, MemoryAccess, VmError};
 use vm_device::virtio::*;
 
 /// Mock MMU with configurable queue memory layout
@@ -116,7 +116,7 @@ impl QueueMmu {
     }
 }
 
-impl MMU for QueueMmu {
+impl MemoryAccess for QueueMmu {
     fn read(&self, addr: GuestAddr, size: u8) -> Result<u64, VmError> {
         if self.fail_reads {
             return Err(VmError::Core(CoreError::Internal {
@@ -194,73 +194,36 @@ impl MMU for QueueMmu {
         }))
     }
 
-    fn read_bulk(&self, addr: GuestAddr, data: &mut [u8]) -> Result<(), VmError> {
-        if self.fail_reads {
-            return Err(VmError::Core(CoreError::Internal {
-                message: "Bulk read failure".to_string(),
-                module: "test".to_string(),
-            }));
+    // Note: Removed read_bulk, write_bulk, read_u16, read_u32, read_u64, write_u16, write_u32, flush
+    // These methods are not part of the new MemoryAccess trait
+
+    // Implement remaining MemoryAccess trait methods with minimal/mock implementations
+    fn fetch_insn(&self, pc: GuestAddr) -> Result<u64, VmError> {
+        // Mock implementation - return instruction from data buffer
+        self.read(pc, 4)
+    }
+
+    fn memory_size(&self) -> usize {
+        // Total size: desc_table + avail_ring + used_ring + data_buffer
+        self.desc_table.len() + self.avail_ring.len() + self.used_ring.len() + self.data_buffer.len()
+    }
+
+    fn dump_memory(&self) -> Vec<u8> {
+        let mut memory = Vec::new();
+        memory.extend_from_slice(&self.desc_table);
+        memory.extend_from_slice(&self.avail_ring);
+        memory.extend_from_slice(&self.used_ring);
+        memory.extend_from_slice(&self.data_buffer);
+        memory
+    }
+
+    fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
+        // Simple mock implementation - just verify data fits
+        let total_size = self.desc_table.len() + self.avail_ring.len() + self.used_ring.len() + self.data_buffer.len();
+        if data.len() != total_size {
+            return Err(format!("Data size mismatch: expected {}, got {}", total_size, data.len()));
         }
-
-        let addr = addr.0 as usize;
-
-        // Data buffer at 0x4000
-        if addr >= 0x4000 && addr + data.len() <= 0x4000 + self.data_buffer.len() {
-            let offset = addr - 0x4000;
-            data.copy_from_slice(&self.data_buffer[offset..offset + data.len()]);
-            return Ok(());
-        }
-
-        Err(VmError::Core(CoreError::Internal {
-            message: "Bulk read out of bounds".to_string(),
-            module: "test".to_string(),
-        }))
-    }
-
-    fn write_bulk(&mut self, addr: GuestAddr, data: &[u8]) -> Result<(), VmError> {
-        if self.fail_writes {
-            return Err(VmError::Core(CoreError::Internal {
-                message: "Bulk write failure".to_string(),
-                module: "test".to_string(),
-            }));
-        }
-
-        let addr = addr.0 as usize;
-
-        // Data buffer at 0x4000
-        if addr >= 0x4000 && addr + data.len() <= 0x4000 + self.data_buffer.len() {
-            let offset = addr - 0x4000;
-            self.data_buffer[offset..offset + data.len()].copy_from_slice(data);
-            return Ok(());
-        }
-
-        Err(VmError::Core(CoreError::Internal {
-            message: "Bulk write out of bounds".to_string(),
-            module: "test".to_string(),
-        }))
-    }
-
-    fn read_u16(&self, addr: u64) -> Result<u16, VmError> {
-        self.read(GuestAddr(addr), 2).map(|v| v as u16)
-    }
-
-    fn read_u32(&self, addr: u64) -> Result<u32, VmError> {
-        self.read(GuestAddr(addr), 4).map(|v| v as u32)
-    }
-
-    fn read_u64(&self, addr: u64) -> Result<u64, VmError> {
-        self.read(GuestAddr(addr), 8)
-    }
-
-    fn write_u16(&mut self, addr: u64, val: u16) -> Result<(), VmError> {
-        self.write(GuestAddr(addr), val as u64, 2)
-    }
-
-    fn write_u32(&mut self, addr: u64, val: u32) -> Result<(), VmError> {
-        self.write(GuestAddr(addr), val as u64, 4)
-    }
-
-    fn flush(&mut self) -> Result<(), VmError> {
+        // For simplicity, we won't actually restore (tests don't need this)
         Ok(())
     }
 }

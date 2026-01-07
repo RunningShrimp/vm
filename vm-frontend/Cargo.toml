@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-mem = { path = "../vm-mem", optional = true }

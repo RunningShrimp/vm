@@ -24,12 +24,202 @@ description = """
 3. 统一管理第三方依赖版本
 """
 
+### BEGIN HAKARI SECTION
 [dependencies]
-# 此处将由cargo-hakari自动填充所有依赖的重导出
-# 示例：
-# tokio = { workspace = true, features = ["full"] }
-# serde = { workspace = true }
-# 等等...
+bitflags-dff4ba8e3ae991db = { package = "bitflags", version = "1" }
+bitflags-f595c2ba2a3f28df = { package = "bitflags", version = "2", default-features = false, features = ["serde"] }
+byteorder = { version = "1" }
+clap = { version = "4", default-features = false, features = ["help", "std"] }
+clap_builder = { version = "4", default-features = false, features = ["help", "std"] }
+crossbeam-channel = { version = "0.5" }
+crossbeam-deque = { version = "0.8" }
+crossbeam-epoch = { version = "0.9" }
+crossbeam-utils = { version = "0.8" }
+dpi = { version = "0.1", features = ["serde"] }
+either = { version = "1", features = ["use_std"] }
+form_urlencoded = { version = "1" }
+futures-channel = { version = "0.3", features = ["sink"] }
+futures-core = { version = "0.3" }
+futures-sink = { version = "0.3", default-features = false, features = ["std"] }
+futures-task = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { version = "0.3", default-features = false, features = ["async-await-macro", "channel", "io", "sink"] }
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+half = { version = "2" }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
+log = { version = "0.4", default-features = false, features = ["std"] }
+memchr = { version = "2" }
+num-traits = { version = "0.2", features = ["i128"] }
+percent-encoding = { version = "2" }
+phf_shared-93f6ce9d446188ac = { package = "phf_shared", version = "0.10", default-features = false, features = ["std"] }
+phf_shared-a6292c17cd707f01 = { package = "phf_shared", version = "0.11" }
+ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+profiling = { version = "1" }
+rand = { version = "0.8", features = ["small_rng"] }
+regex = { version = "1" }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-syntax = { version = "0.8" }
+schemars = { version = "0.8", features = ["preserve_order", "url", "uuid1"] }
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", features = ["alloc", "rc"] }
+serde_json = { version = "1", features = ["alloc", "raw_value", "unbounded_depth"] }
+smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
+stable_deref_trait = { version = "1" }
+sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
+tauri-utils = { version = "2", default-features = false, features = ["build", "compression", "resources"] }
+tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "test-util"] }
+tracing = { version = "0.1", features = ["log"] }
+tracing-core = { version = "0.1" }
+uuid = { version = "1", features = ["serde", "v4"] }
+zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+
+[build-dependencies]
+bitflags-dff4ba8e3ae991db = { package = "bitflags", version = "1" }
+byteorder = { version = "1" }
+form_urlencoded = { version = "1" }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
+log = { version = "0.4", default-features = false, features = ["std"] }
+memchr = { version = "2" }
+percent-encoding = { version = "2" }
+phf_shared-93f6ce9d446188ac = { package = "phf_shared", version = "0.10", default-features = false, features = ["std"] }
+phf_shared-a6292c17cd707f01 = { package = "phf_shared", version = "0.11" }
+ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+rand = { version = "0.8", features = ["small_rng"] }
+regex = { version = "1" }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-syntax = { version = "0.8" }
+schemars = { version = "0.8", features = ["preserve_order", "url", "uuid1"] }
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", features = ["alloc", "rc"] }
+serde_json = { version = "1", features = ["alloc", "raw_value", "unbounded_depth"] }
+smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
+stable_deref_trait = { version = "1" }
+syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+tauri-utils = { version = "2", default-features = false, features = ["build", "compression", "resources"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+
+[target.x86_64-unknown-linux-gnu.dependencies]
+ahash = { version = "0.8", features = ["no-rng"] }
+bitflags-f595c2ba2a3f28df = { package = "bitflags", version = "2", default-features = false, features = ["std"] }
+bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "derive", "extern_crate_alloc", "min_const_generics"] }
+futures-executor = { version = "0.3" }
+futures-io = { version = "0.3" }
+futures-sink = { version = "0.3" }
+futures-util = { version = "0.3" }
+hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+rustix = { version = "1", features = ["event", "net", "pipe", "process", "shm", "system", "time"] }
+simd-adler32 = { version = "0.3" }
+toml = { version = "0.8" }
+tower = { version = "0.5", default-features = false, features = ["log", "make", "retry", "timeout"] }
+tower-http = { version = "0.6", features = ["cors", "follow-redirect"] }
+
+[target.x86_64-unknown-linux-gnu.build-dependencies]
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+simd-adler32 = { version = "0.3" }
+toml = { version = "0.8" }
+
+[target.x86_64-apple-darwin.dependencies]
+bitflags-f595c2ba2a3f28df = { package = "bitflags", version = "2", default-features = false, features = ["std"] }
+futures-sink = { version = "0.3" }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+scopeguard = { version = "1" }
+simd-adler32 = { version = "0.3" }
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+tower = { version = "0.5", default-features = false, features = ["log", "make", "retry", "timeout"] }
+tower-http = { version = "0.6", features = ["cors", "follow-redirect"] }
+
+[target.x86_64-apple-darwin.build-dependencies]
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+scopeguard = { version = "1" }
+simd-adler32 = { version = "0.3" }
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+
+[target.aarch64-apple-darwin.dependencies]
+bitflags-f595c2ba2a3f28df = { package = "bitflags", version = "2", default-features = false, features = ["std"] }
+futures-sink = { version = "0.3" }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+scopeguard = { version = "1" }
+simd-adler32 = { version = "0.3" }
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+tower = { version = "0.5", default-features = false, features = ["log", "make", "retry", "timeout"] }
+tower-http = { version = "0.6", features = ["cors", "follow-redirect"] }
+
+[target.aarch64-apple-darwin.build-dependencies]
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+scopeguard = { version = "1" }
+simd-adler32 = { version = "0.3" }
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+
+[target.aarch64-unknown-linux-gnu.dependencies]
+ahash = { version = "0.8", features = ["no-rng"] }
+bitflags-f595c2ba2a3f28df = { package = "bitflags", version = "2", default-features = false, features = ["std"] }
+bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "derive", "extern_crate_alloc", "min_const_generics"] }
+futures-executor = { version = "0.3" }
+futures-io = { version = "0.3" }
+futures-sink = { version = "0.3" }
+futures-util = { version = "0.3" }
+hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+rustix = { version = "1", features = ["event", "net", "pipe", "process", "shm", "system", "time"] }
+simd-adler32 = { version = "0.3" }
+toml = { version = "0.8" }
+tower = { version = "0.5", default-features = false, features = ["log", "make", "retry", "timeout"] }
+tower-http = { version = "0.6", features = ["cors", "follow-redirect"] }
+
+[target.aarch64-unknown-linux-gnu.build-dependencies]
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+miniz_oxide = { version = "0.8", features = ["simd"] }
+simd-adler32 = { version = "0.3" }
+toml = { version = "0.8" }
+
+[target.x86_64-pc-windows-msvc.dependencies]
+bytemuck = { version = "1", default-features = false, features = ["derive", "extern_crate_alloc", "min_const_generics"] }
+futures-sink = { version = "0.3" }
+hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
+tower = { version = "0.5", default-features = false, features = ["log", "make", "retry", "timeout"] }
+tower-http = { version = "0.6", features = ["cors", "follow-redirect"] }
+winapi = { version = "0.3", default-features = false, features = ["basetsd", "memoryapi", "minwindef", "sysinfoapi", "winnt"] }
+windows = { version = "0.62", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_System_Hypervisor"] }
+windows-result = { version = "0.4" }
+windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60", features = ["Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Networking_WinSock", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Accessibility", "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys-73dcd821b1037cfd = { package = "windows-sys", version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Time", "Win32_UI_WindowsAndMessaging"] }
+windows-sys-b21d60becc0929df = { package = "windows-sys", version = "0.52", features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Media", "Win32_Security", "Win32_System_Com_StructuredStorage", "Win32_System_Diagnostics_Debug", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Accessibility", "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Input_Ime", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_Pointer", "Win32_UI_Input_Touch", "Win32_UI_Shell", "Win32_UI_TextServices", "Win32_UI_WindowsAndMessaging"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[target.x86_64-pc-windows-msvc.build-dependencies]
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+windows-sys-73dcd821b1037cfd = { package = "windows-sys", version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Time", "Win32_UI_WindowsAndMessaging"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+### END HAKARI SECTION
 
 [lib]
 path = "lib.rs"

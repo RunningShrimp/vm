@@ -49,6 +49,7 @@ pub mod branch_target_cache; // 导出以支持分支目标缓存公共API（形
 mod code_cache;
 pub mod codegen; // 导出以支持代码生成公共API（形成逻辑闭环）
 pub mod executable_memory;
+mod hotspot_detector;
 pub mod instruction_scheduler; // 导出以支持指令调度公共API（形成逻辑闭环）
 pub mod optimizer; // 导出以支持优化器公共API（形成逻辑闭环）
 // 优化策略模块（基础设施层实现）

@@ -9,6 +9,12 @@ pub mod lifecycle;
 pub mod performance;
 pub mod service;
 pub mod snapshot_manager;
+pub mod vga;
+pub mod x86_boot;
+pub mod x86_boot_exec;
+pub mod realmode;
+pub mod bios;
+pub mod mode_trans;
 
 #[cfg(feature = "smmu")]
 pub mod smmu;

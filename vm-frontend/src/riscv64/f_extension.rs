@@ -22,14 +22,21 @@
 use vm_core::{VmError, VmResult};
 
 /// 浮点寄存器（32个，f0-f31）
+///
+/// 支持F扩展（f32）和D扩展（f64）的寄存器存储。
 #[derive(Debug, Clone)]
 pub struct FPRegisters {
     regs: [f32; 32],
+    /// D扩展专用的f64寄存器（仅在使用D扩展时使用）
+    regs64: [f64; 32],
 }
 
 impl Default for FPRegisters {
     fn default() -> Self {
-        Self { regs: [0.0; 32] }
+        Self {
+            regs: [0.0; 32],
+            regs64: [0.0; 32],
+        }
     }
 }
 
@@ -52,6 +59,26 @@ impl FPRegisters {
     /// 从位表示设置浮点寄存器
     pub fn set_bits(&mut self, idx: usize, bits: u32) {
         self.regs[idx] = f32::from_bits(bits);
+    }
+
+    // ========== D扩展：双精度浮点寄存器访问 ==========
+
+    /// 获取双精度浮点寄存器值
+    ///
+    /// **修复**: 使用独立的f64存储，避免与f32寄存器冲突。
+    pub fn get_f64(&self, idx: usize) -> f64 {
+        if idx >= 32 {
+            return 0.0;
+        }
+        self.regs64[idx]
+    }
+
+    /// 设置双精度浮点寄存器值
+    pub fn set_f64(&mut self, idx: usize, val: f64) {
+        if idx >= 32 {
+            return;
+        }
+        self.regs64[idx] = val;
     }
 }
 

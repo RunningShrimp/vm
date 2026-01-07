@@ -10,6 +10,7 @@ use vm_core::error::CoreError;
 use vm_core::{GuestRegs, MMU, VmError};
 
 use super::{Accel, AccelError};
+use crate::error::ErrorContext; // Import ErrorContext trait
 
 // Hypervisor.framework FFI 绑定
 #[cfg(target_os = "macos")]
@@ -273,10 +274,14 @@ impl HvfVcpu {
         let ret = unsafe { hv_vcpu_create(&mut vcpu_id, ptr::null_mut(), ptr::null_mut()) };
 
         if ret != HV_SUCCESS {
-            return Err(VmError::Core(CoreError::Internal {
-                message: format!("hv_vcpu_create failed: 0x{:x}", ret),
-                module: "vm-accel".to_string(),
-            }));
+            return Err(crate::error_context!(
+                VmError::Core(CoreError::Internal {
+                    message: format!("hv_vcpu_create failed: 0x{:x}", ret),
+                    module: "vm-accel::hvf".to_string(),
+                }),
+                "vm-accel::hvf",
+                "vcpu_create"
+            ));
         }
 
         Ok(Self { id: vcpu_id })
@@ -422,10 +427,14 @@ impl HvfVcpu {
         let ret = unsafe { hv_vcpu_run(self.id) };
 
         if ret != HV_SUCCESS {
-            return Err(VmError::Core(CoreError::Internal {
-                message: format!("hv_vcpu_run failed: 0x{:x}", ret),
-                module: "vm-accel".to_string(),
-            }));
+            return Err(crate::error_context!(
+                VmError::Core(CoreError::Internal {
+                    message: format!("hv_vcpu_run failed: 0x{:x}", ret),
+                    module: "vm-accel::hvf".to_string(),
+                }),
+                "vm-accel::hvf",
+                "vcpu_run"
+            ));
         }
 
         Ok(())
@@ -436,6 +445,57 @@ impl HvfVcpu {
         Err(VmError::Core(CoreError::NotSupported {
             feature: "HVF run".to_string(),
             module: "vm-accel".to_string(),
+        }))
+    }
+}
+
+impl HvfVcpu {
+    #[cfg(target_os = "macos")]
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn get_id(&self) -> u32 {
+        self._id
+    }
+}
+
+// Implement VcpuOps trait for unified vCPU interface
+impl crate::vcpu_common::VcpuOps for HvfVcpu {
+    fn get_id(&self) -> u32 {
+        self.get_id()
+    }
+
+    fn run(&mut self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::VcpuExit> {
+        self.run().map(|_| crate::vcpu_common::VcpuExit::Unknown)
+    }
+
+    fn get_regs(&self) -> crate::vcpu_common::VcpuResult<vm_core::GuestRegs> {
+        self.get_regs()
+    }
+
+    fn set_regs(&mut self, regs: &vm_core::GuestRegs) -> crate::vcpu_common::VcpuResult<()> {
+        self.set_regs(regs)
+    }
+
+    fn get_fpu_regs(&self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::FpuRegs> {
+        // HVF doesn't expose direct FPU register access via Hypervisor.framework
+        // This would require using x86_thread_state64 or ARM64 thread state
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
+            feature: "HVF FPU register access".to_string(),
+            module: "vm-accel::hvf".to_string(),
+        }))
+    }
+
+    fn set_fpu_regs(
+        &mut self,
+        _regs: &crate::vcpu_common::FpuRegs,
+    ) -> crate::vcpu_common::VcpuResult<()> {
+        // HVF doesn't expose direct FPU register access via Hypervisor.framework
+        Err(VmError::Core(vm_core::CoreError::NotSupported {
+            feature: "HVF FPU register access".to_string(),
+            module: "vm-accel::hvf".to_string(),
         }))
     }
 }
@@ -749,10 +809,14 @@ impl Accel for AccelHvf {
             let ret = unsafe { hv_vm_create(ptr::null_mut()) };
 
             if ret != HV_SUCCESS {
-                return Err(VmError::Core(CoreError::Internal {
-                    message: format!("hv_vm_create failed: 0x{:x}", ret),
-                    module: "vm-accel::hvf".to_string(),
-                }));
+                return Err(crate::error_context!(
+                    VmError::Core(CoreError::Internal {
+                        message: format!("hv_vm_create failed: 0x{:x}", ret),
+                        module: "vm-accel::hvf".to_string(),
+                    }),
+                    "vm-accel::hvf",
+                    "vm_create"
+                ));
             }
 
             self.initialized = true;
@@ -792,10 +856,14 @@ impl Accel for AccelHvf {
                 unsafe { hv_vm_map(hva as *const std::ffi::c_void, gpa, size as usize, hv_flags) };
 
             if ret != HV_SUCCESS {
-                return Err(VmError::Core(CoreError::Internal {
-                    message: format!("hv_vm_map failed: 0x{:x}", ret),
-                    module: "vm-accel".to_string(),
-                }));
+                return Err(crate::error_context!(
+                    VmError::Core(CoreError::Internal {
+                        message: format!("hv_vm_map failed: 0x{:x}", ret),
+                        module: "vm-accel::hvf".to_string(),
+                    }),
+                    "vm-accel::hvf",
+                    "map_memory"
+                ));
             }
 
             self.memory_regions.insert(gpa, size);
@@ -821,10 +889,14 @@ impl Accel for AccelHvf {
             let ret = unsafe { hv_vm_unmap(gpa, size as usize) };
 
             if ret != HV_SUCCESS {
-                return Err(VmError::Core(CoreError::Internal {
-                    message: format!("hv_vm_unmap failed: 0x{:x}", ret),
-                    module: "vm-accel".to_string(),
-                }));
+                return Err(crate::error_context!(
+                    VmError::Core(CoreError::Internal {
+                        message: format!("hv_vm_unmap failed: 0x{:x}", ret),
+                        module: "vm-accel::hvf".to_string(),
+                    }),
+                    "vm-accel::hvf",
+                    "unmap_memory"
+                ));
             }
 
             self.memory_regions.remove(&gpa);
@@ -877,6 +949,22 @@ impl Accel for AccelHvf {
 
     fn name(&self) -> &str {
         "HVF"
+    }
+}
+
+impl AccelHvf {
+    /// Create vCPU and return VcpuOps trait object
+    ///
+    /// This creates a new vCPU and returns it as a trait object, removing it
+    /// from the internal HashMap. This is used for the unified vCPU interface.
+    pub fn create_vcpu_ops(&mut self, id: u32) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
+        // Remove from HashMap if it exists (avoiding duplicates)
+        self.vcpus.remove(&id);
+
+        let vcpu = HvfVcpu::new(id)?;
+        // Don't insert into HashMap - return directly
+        log::info!("Created HVF vCPU {}", id);
+        Ok(Box::new(vcpu))
     }
 }
 

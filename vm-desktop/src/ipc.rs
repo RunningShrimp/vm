@@ -11,6 +11,7 @@ pub struct VmInstance {
     pub state: VmState,
     pub cpu_count: u32,
     pub memory_mb: u32,
+    pub disk_gb: u32,
     pub display_mode: DisplayMode,
 }
 
@@ -59,6 +60,18 @@ pub struct VmMetrics {
     pub network_rx_mb_s: f32,
     pub network_tx_mb_s: f32,
     pub uptime_secs: u64,
+}
+
+/// System-wide performance metrics
+#[derive(Debug, Clone, Serialize)]
+pub struct SystemMetrics {
+    pub total_vms: u32,
+    pub running_vms: u32,
+    pub total_cpu_usage: f32,
+    pub total_memory_mb: u32,
+    pub used_memory_mb: u32,
+    pub total_disk_io_mb_s: f32,
+    pub total_network_mb_s: f32,
 }
 
 #[derive(Debug, Serialize)]

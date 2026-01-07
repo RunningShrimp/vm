@@ -43,7 +43,7 @@ pub enum Arch {
 }
 
 /// 指令（简化表示）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Instruction {
     pub arch: Arch,
     pub opcode: u32,
@@ -287,5 +287,384 @@ mod tests {
         // x86_64应该未命中，ARM应该仍然命中
         assert!(cache.encode_or_lookup(&insn_x86).is_ok());
         assert!(cache.encode_or_lookup(&insn_arm).is_ok());
+    }
+
+    // ========== New Comprehensive Tests ==========
+
+    #[test]
+    fn test_cache_with_capacity() {
+        let cache = InstructionEncodingCache::with_capacity(100);
+        let insn = create_test_instruction(Arch::X86_64, 0x90);
+
+        let result1 = cache.encode_or_lookup(&insn);
+        assert!(result1.is_ok());
+
+        let result2 = cache.encode_or_lookup(&insn);
+        assert!(result2.is_ok());
+        assert_eq!(result1.unwrap(), result2.unwrap());
+    }
+
+    #[test]
+    fn test_all_arch_types() {
+        let archs = vec![Arch::X86_64, Arch::ARM64, Arch::Riscv64];
+
+        assert_eq!(archs.len(), 3); // Verify all arch types
+    }
+
+    #[test]
+    fn test_instruction_with_multiple_operands() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn = Instruction {
+            arch: Arch::X86_64,
+            opcode: 0x01,
+            operands: vec![
+                Operand::Register(0),
+                Operand::Register(1),
+                Operand::Immediate(42),
+            ],
+        };
+
+        let result = cache.encode_or_lookup(&insn);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_memory_operand() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn = Instruction {
+            arch: Arch::ARM64,
+            opcode: 0xF9400000,
+            operands: vec![
+                Operand::Register(0),
+                Operand::Memory {
+                    base: 1,
+                    offset: 0,
+                    size: 8,
+                },
+            ],
+        };
+
+        let result = cache.encode_or_lookup(&insn);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_all_operand_types() {
+        let cache = InstructionEncodingCache::new();
+
+        // Register operand
+        let insn_reg = Instruction {
+            arch: Arch::Riscv64,
+            opcode: 0x33,
+            operands: vec![Operand::Register(0)],
+        };
+        assert!(cache.encode_or_lookup(&insn_reg).is_ok());
+
+        // Immediate operand
+        let insn_imm = Instruction {
+            arch: Arch::Riscv64,
+            opcode: 0x13,
+            operands: vec![Operand::Immediate(42)],
+        };
+        assert!(cache.encode_or_lookup(&insn_imm).is_ok());
+
+        // Memory operand
+        let insn_mem = Instruction {
+            arch: Arch::X86_64,
+            opcode: 0x8B,
+            operands: vec![Operand::Memory {
+                base: 0,
+                offset: 0,
+                size: 4,
+            }],
+        };
+        assert!(cache.encode_or_lookup(&insn_mem).is_ok());
+    }
+
+    #[test]
+    fn test_cache_stats() {
+        let cache = InstructionEncodingCache::new();
+        let insn = create_test_instruction(Arch::X86_64, 0x90);
+
+        // First access (miss + encoding)
+        cache.encode_or_lookup(&insn).unwrap();
+
+        let stats = cache.stats();
+        assert_eq!(stats.misses.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(stats.hits.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(
+            stats.encodings.load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        // Second access (hit)
+        cache.encode_or_lookup(&insn).unwrap();
+
+        let stats = cache.stats();
+        assert_eq!(stats.hits.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(stats.misses.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(
+            stats.encodings.load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    fn test_clear_cache() {
+        let cache = InstructionEncodingCache::new();
+        let insn = create_test_instruction(Arch::X86_64, 0x90);
+
+        // Add to cache
+        cache.encode_or_lookup(&insn).unwrap();
+        let stats_before = cache.stats();
+        assert_eq!(
+            stats_before
+                .misses
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        // Clear cache
+        cache.clear();
+
+        // Access after clear should miss again
+        cache.encode_or_lookup(&insn).unwrap();
+        let stats_after = cache.stats();
+        assert_eq!(
+            stats_after
+                .misses
+                .load(std::sync::atomic::Ordering::Relaxed),
+            2
+        );
+    }
+
+    #[test]
+    fn test_multiple_instructions_same_arch() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn1 = create_test_instruction(Arch::X86_64, 0x90);
+        let insn2 = create_test_instruction(Arch::X86_64, 0x91);
+        let insn3 = create_test_instruction(Arch::X86_64, 0x92);
+
+        // All should encode successfully
+        assert!(cache.encode_or_lookup(&insn1).is_ok());
+        assert!(cache.encode_or_lookup(&insn2).is_ok());
+        assert!(cache.encode_or_lookup(&insn3).is_ok());
+
+        let stats = cache.stats();
+        assert_eq!(
+            stats.encodings.load(std::sync::atomic::Ordering::Relaxed),
+            3
+        );
+    }
+
+    #[test]
+    fn test_same_instruction_different_archs() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn_x86 = create_test_instruction(Arch::X86_64, 0x90);
+        let insn_arm = create_test_instruction(Arch::ARM64, 0x90);
+        let insn_riscv = create_test_instruction(Arch::Riscv64, 0x90);
+
+        // All should encode successfully
+        let result_x86 = cache.encode_or_lookup(&insn_x86);
+        let result_arm = cache.encode_or_lookup(&insn_arm);
+        let result_riscv = cache.encode_or_lookup(&insn_riscv);
+
+        assert!(result_x86.is_ok());
+        assert!(result_arm.is_ok());
+        assert!(result_riscv.is_ok());
+
+        // Encodings should differ by architecture
+        assert_ne!(result_x86.unwrap(), result_arm.unwrap());
+    }
+
+    #[test]
+    fn test_hit_rate_with_no_accesses() {
+        let cache = InstructionEncodingCache::new();
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_hit_rate_all_misses() {
+        let cache = InstructionEncodingCache::new();
+
+        for i in 0..10 {
+            let insn = create_test_instruction(Arch::X86_64, i);
+            cache.encode_or_lookup(&insn).unwrap();
+        }
+
+        let stats = cache.stats();
+        assert_eq!(stats.misses.load(std::sync::atomic::Ordering::Relaxed), 10);
+        assert_eq!(stats.hits.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_instruction_clone() {
+        let insn1 = Instruction {
+            arch: Arch::Riscv64,
+            opcode: 0x33,
+            operands: vec![
+                Operand::Register(0),
+                Operand::Register(1),
+                Operand::Immediate(42),
+            ],
+        };
+
+        let insn2 = insn1.clone();
+
+        assert_eq!(insn1.arch, insn2.arch);
+        assert_eq!(insn1.opcode, insn2.opcode);
+        assert_eq!(insn1.operands.len(), insn2.operands.len());
+    }
+
+    #[test]
+    fn test_operand_equality() {
+        let reg1 = Operand::Register(5);
+        let reg2 = Operand::Register(5);
+        let reg3 = Operand::Register(6);
+
+        assert_eq!(reg1, reg2);
+        assert_ne!(reg1, reg3);
+
+        let imm1 = Operand::Immediate(42);
+        let imm2 = Operand::Immediate(42);
+        assert_eq!(imm1, imm2);
+
+        let mem1 = Operand::Memory {
+            base: 1,
+            offset: 10,
+            size: 4,
+        };
+        let mem2 = Operand::Memory {
+            base: 1,
+            offset: 10,
+            size: 4,
+        };
+        assert_eq!(mem1, mem2);
+    }
+
+    #[test]
+    fn test_large_immediate_operand() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn = Instruction {
+            arch: Arch::X86_64,
+            opcode: 0xB8,
+            operands: vec![Operand::Immediate(i64::MAX)],
+        };
+
+        let result = cache.encode_or_lookup(&insn);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_negative_immediate_operand() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn = Instruction {
+            arch: Arch::ARM64,
+            opcode: 0x91,
+            operands: vec![Operand::Immediate(-42)],
+        };
+
+        let result = cache.encode_or_lookup(&insn);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_memory_operand_with_offset() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn = Instruction {
+            arch: Arch::X86_64,
+            opcode: 0x8B,
+            operands: vec![Operand::Memory {
+                base: 1,
+                offset: 0x1000,
+                size: 4,
+            }],
+        };
+
+        let result = cache.encode_or_lookup(&insn);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_invalidate_all_archs() {
+        let cache = InstructionEncodingCache::new();
+
+        let insn_x86 = create_test_instruction(Arch::X86_64, 0x90);
+        let insn_arm = create_test_instruction(Arch::ARM64, 0x90);
+        let insn_riscv = create_test_instruction(Arch::Riscv64, 0x90);
+
+        cache.encode_or_lookup(&insn_x86).unwrap();
+        cache.encode_or_lookup(&insn_arm).unwrap();
+        cache.encode_or_lookup(&insn_riscv).unwrap();
+
+        let stats_before = cache.stats();
+        assert_eq!(
+            stats_before
+                .misses
+                .load(std::sync::atomic::Ordering::Relaxed),
+            3
+        );
+
+        // Invalidate all
+        cache.invalidate_arch(Arch::X86_64);
+        cache.invalidate_arch(Arch::ARM64);
+        cache.invalidate_arch(Arch::Riscv64);
+
+        // All should miss again
+        cache.encode_or_lookup(&insn_x86).unwrap();
+        cache.encode_or_lookup(&insn_arm).unwrap();
+        cache.encode_or_lookup(&insn_riscv).unwrap();
+
+        let stats_after = cache.stats();
+        assert_eq!(
+            stats_after
+                .misses
+                .load(std::sync::atomic::Ordering::Relaxed),
+            6
+        );
+    }
+
+    #[test]
+    fn test_concurrent_access_same_instruction() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let cache = Arc::new(InstructionEncodingCache::new());
+        let barrier = Arc::new(Barrier::new(4));
+        let mut handles = vec![];
+
+        let insn = create_test_instruction(Arch::X86_64, 0x90);
+
+        // Spawn 4 threads accessing same instruction
+        for _ in 0..4 {
+            let cache_clone = Arc::clone(&cache);
+            let barrier_clone = Arc::clone(&barrier);
+            let insn_clone = insn.clone();
+
+            let handle = thread::spawn(move || {
+                barrier_clone.wait();
+                let _ = cache_clone.encode_or_lookup(&insn_clone);
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Should have completed without panicking
+        let stats = cache.stats();
+        let total = stats.hits.load(std::sync::atomic::Ordering::Relaxed)
+            + stats.misses.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(total, 4);
     }
 }

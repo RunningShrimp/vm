@@ -929,7 +929,7 @@ mod execution_tests {
 
     #[tokio::test]
     async fn test_execution_disable_tracing() {
-        let service = ExecutionService::new(create_test_config()).await;
+        let service: ExecutionService = ExecutionService::new(create_test_config()).await;
         service.start().await.unwrap();
 
         service.enable_tracing(0).await.unwrap();
@@ -940,7 +940,7 @@ mod execution_tests {
 
     #[tokio::test]
     async fn test_execution_get_trace_data() {
-        let service = ExecutionService::new(create_test_config()).await;
+        let service: ExecutionService = ExecutionService::new(create_test_config()).await;
         service.start().await.unwrap();
 
         service.enable_tracing(0).await.unwrap();

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 vm-engine = { path = "../vm-engine", features = ["executor", "jit"] }
 vm-mem = { path = "../vm-mem" }
 vm-ir = { path = "../vm-ir" }
@@ -34,4 +36,14 @@ harness = false
 # Round 32: Actual Workload Testing
 [[bench]]
 name = "actual_workload_bench"
+harness = false
+
+# Comprehensive Performance Testing
+[[bench]]
+name = "comprehensive_performance"
+harness = false
+
+# SIMD Memory Comparison Testing
+[[bench]]
+name = "simd_memory_comparison"
 harness = false

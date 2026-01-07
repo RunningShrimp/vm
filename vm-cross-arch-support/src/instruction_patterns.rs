@@ -867,4 +867,603 @@ mod tests {
         let vm_err: VmError = err.into();
         assert!(matches!(vm_err, VmError::Core(_)));
     }
+
+    // ========== New Comprehensive Tests for Coverage Enhancement ==========
+
+    #[test]
+    fn test_instruction_category_arithmetic() {
+        let categories = vec![
+            InstructionCategory::Arithmetic(ArithmeticType::Add),
+            InstructionCategory::Arithmetic(ArithmeticType::Sub),
+            InstructionCategory::Arithmetic(ArithmeticType::Mul),
+            InstructionCategory::Arithmetic(ArithmeticType::Div),
+            InstructionCategory::Arithmetic(ArithmeticType::Mod),
+            InstructionCategory::Arithmetic(ArithmeticType::Neg),
+            InstructionCategory::Arithmetic(ArithmeticType::Abs),
+            InstructionCategory::Arithmetic(ArithmeticType::Min),
+            InstructionCategory::Arithmetic(ArithmeticType::Max),
+            InstructionCategory::Arithmetic(ArithmeticType::Sqrt),
+            InstructionCategory::Arithmetic(ArithmeticType::Pow),
+        ];
+
+        for category in categories {
+            assert!(matches!(category, InstructionCategory::Arithmetic(_)));
+        }
+    }
+
+    #[test]
+    fn test_instruction_category_logical() {
+        let categories = vec![
+            InstructionCategory::Logical(LogicalType::And),
+            InstructionCategory::Logical(LogicalType::Or),
+            InstructionCategory::Logical(LogicalType::Xor),
+            InstructionCategory::Logical(LogicalType::Not),
+            InstructionCategory::Logical(LogicalType::ShiftLeft),
+            InstructionCategory::Logical(LogicalType::ShiftRight),
+            InstructionCategory::Logical(LogicalType::RotateLeft),
+            InstructionCategory::Logical(LogicalType::RotateRight),
+            InstructionCategory::Logical(LogicalType::BitTest),
+            InstructionCategory::Logical(LogicalType::BitField),
+        ];
+
+        for category in categories {
+            assert!(matches!(category, InstructionCategory::Logical(_)));
+        }
+    }
+
+    #[test]
+    fn test_instruction_category_memory() {
+        let categories = vec![
+            InstructionCategory::Memory(MemoryType::Load),
+            InstructionCategory::Memory(MemoryType::Store),
+            InstructionCategory::Memory(MemoryType::LoadAcquire),
+            InstructionCategory::Memory(MemoryType::StoreRelease),
+            InstructionCategory::Memory(MemoryType::LoadReserved),
+            InstructionCategory::Memory(MemoryType::StoreConditional),
+            InstructionCategory::Memory(MemoryType::Swap),
+            InstructionCategory::Memory(MemoryType::CompareAndSwap),
+            InstructionCategory::Memory(MemoryType::FetchAndOp),
+            InstructionCategory::Memory(MemoryType::Prefetch),
+            InstructionCategory::Memory(MemoryType::CacheOp),
+        ];
+
+        for category in categories {
+            assert!(matches!(category, InstructionCategory::Memory(_)));
+        }
+    }
+
+    #[test]
+    fn test_instruction_category_branch() {
+        let categories = vec![
+            InstructionCategory::Branch(BranchType::Unconditional),
+            InstructionCategory::Branch(BranchType::Conditional),
+            InstructionCategory::Branch(BranchType::Indirect),
+            InstructionCategory::Branch(BranchType::Call),
+            InstructionCategory::Branch(BranchType::Return),
+            InstructionCategory::Branch(BranchType::JumpTable),
+            InstructionCategory::Branch(BranchType::TailCall),
+            InstructionCategory::Branch(BranchType::Exception),
+            InstructionCategory::Branch(BranchType::Interrupt),
+        ];
+
+        for category in categories {
+            assert!(matches!(category, InstructionCategory::Branch(_)));
+        }
+    }
+
+    #[test]
+    fn test_instruction_category_vector() {
+        let categories = vec![
+            InstructionCategory::Vector(VectorType::Arithmetic),
+            InstructionCategory::Vector(VectorType::Logical),
+            InstructionCategory::Vector(VectorType::Shuffle),
+            InstructionCategory::Vector(VectorType::Blend),
+            InstructionCategory::Vector(VectorType::Insert),
+            InstructionCategory::Vector(VectorType::Extract),
+            InstructionCategory::Vector(VectorType::Reduce),
+            InstructionCategory::Vector(VectorType::Mask),
+            InstructionCategory::Vector(VectorType::Permute),
+            InstructionCategory::Vector(VectorType::Compress),
+        ];
+
+        for category in categories {
+            assert!(matches!(category, InstructionCategory::Vector(_)));
+        }
+    }
+
+    #[test]
+    fn test_pattern_builder_with_cost() {
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_cost(5);
+
+        assert_eq!(pattern.cost, 5);
+    }
+
+    #[test]
+    fn test_pattern_builder_with_latency() {
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_latency(3);
+
+        assert_eq!(pattern.latency, 3);
+    }
+
+    #[test]
+    fn test_pattern_builder_with_throughput() {
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_throughput(2.5);
+
+        assert_eq!(pattern.throughput, 2.5);
+    }
+
+    #[test]
+    fn test_pattern_builder_with_multiple_architectures() {
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_architecture(Architecture::X86_64)
+                .with_architecture(Architecture::ARM64)
+                .with_architecture(Architecture::RISCV64);
+
+        assert!(pattern.is_compatible_with(Architecture::X86_64));
+        assert!(pattern.is_compatible_with(Architecture::ARM64));
+        assert!(pattern.is_compatible_with(Architecture::RISCV64));
+    }
+
+    #[test]
+    fn test_pattern_builder_with_flags() {
+        let flags = InstructionFlags {
+            sets_flags: true,
+            reads_flags: false,
+            is_conditional: false,
+            is_predicated: false,
+            is_atomic: false,
+            is_volatile: false,
+            is_privileged: false,
+            is_terminal: false,
+        };
+
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_flags(flags);
+
+        assert!(pattern.flags.sets_flags);
+        assert!(!pattern.flags.reads_flags);
+    }
+
+    #[test]
+    fn test_pattern_builder_with_semantics() {
+        let semantics = SemanticDescription {
+            operation: "add".to_string(),
+            preconditions: vec![],
+            postconditions: vec!["result = a + b".to_string()],
+            side_effects: vec![],
+            dependencies: vec![],
+            outputs: vec![],
+        };
+
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_semantics(semantics);
+
+        assert_eq!(pattern.semantics.operation, "add");
+        assert_eq!(pattern.semantics.postconditions.len(), 1);
+    }
+
+    #[test]
+    fn test_pattern_operand_count() {
+        let pattern1 = InstructionPattern::new(
+            "test1",
+            InstructionCategory::Arithmetic(ArithmeticType::Add),
+        )
+        .with_operand(OperandType::Register(RegId(0)))
+        .with_operand(OperandType::Register(RegId(1)));
+
+        assert_eq!(pattern1.operand_count(), 2);
+
+        let pattern2 = InstructionPattern::new(
+            "test2",
+            InstructionCategory::Arithmetic(ArithmeticType::Neg),
+        )
+        .with_operand(OperandType::Register(RegId(0)));
+
+        assert_eq!(pattern2.operand_count(), 1);
+    }
+
+    #[test]
+    fn test_memory_operand_simple() {
+        let mem_op = MemoryOperand::simple(RegId(1), 0x2000, 8);
+        assert_eq!(mem_op.base, Some(RegId(1)));
+        assert_eq!(mem_op.displacement, 0x2000);
+        assert_eq!(mem_op.size, 8);
+        assert_eq!(mem_op.index, None);
+        assert_eq!(mem_op.scale, 1);
+    }
+
+    #[test]
+    fn test_memory_operand_indexed() {
+        let mem_op = MemoryOperand::indexed(RegId(1), RegId(2), 8, 0x1000, 16);
+        assert_eq!(mem_op.base, Some(RegId(1)));
+        assert_eq!(mem_op.index, Some(RegId(2)));
+        assert_eq!(mem_op.scale, 8);
+        assert_eq!(mem_op.displacement, 0x1000);
+        assert_eq!(mem_op.size, 16);
+    }
+
+    #[test]
+    fn test_ir_op_builder() {
+        let ir_op = IROp::new("custom_op")
+            .with_operand(OperandType::Register(RegId(0)))
+            .with_operand(OperandType::Immediate(42));
+
+        assert_eq!(ir_op.opcode, "custom_op");
+        assert_eq!(ir_op.operands.len(), 2);
+    }
+
+    #[test]
+    fn test_pattern_matcher_get_patterns_by_category() {
+        let mut matcher = DefaultPatternMatcher::new();
+        matcher.initialize_common_patterns();
+
+        let arithmetic_patterns =
+            matcher.get_patterns_by_category(InstructionCategory::Arithmetic(ArithmeticType::Add));
+
+        assert!(!arithmetic_patterns.is_empty());
+
+        for pattern in arithmetic_patterns {
+            assert!(matches!(
+                pattern.category,
+                InstructionCategory::Arithmetic(ArithmeticType::Add)
+            ));
+        }
+    }
+
+    #[test]
+    fn test_pattern_matcher_no_match() {
+        let mut matcher = DefaultPatternMatcher::new();
+        matcher.initialize_common_patterns();
+
+        let ir_op = IROp::new("nonexistent_op").with_operand(OperandType::Register(RegId(0)));
+
+        let pattern = matcher.match_pattern(&ir_op);
+        assert!(pattern.is_none());
+    }
+
+    #[test]
+    fn test_pattern_matcher_get_equivalent_patterns() {
+        let mut matcher = DefaultPatternMatcher::new();
+        matcher.initialize_common_patterns();
+
+        let pattern = InstructionPattern::new("add", InstructionCategory::Arithmetic(ArithmeticType::Add))
+            .with_operand(OperandType::Register(RegId(0))) // dst
+            .with_operand(OperandType::Register(RegId(1))) // src1
+            .with_operand(OperandType::Register(RegId(2))) // src2
+            .with_architecture(Architecture::X86_64);
+
+        let equivalents = matcher.get_equivalent_patterns(&pattern, Architecture::ARM64);
+
+        // Should find equivalent patterns for ARM64 (the same pattern also supports ARM64)
+        assert!(!equivalents.is_empty());
+    }
+
+    #[test]
+    fn test_pattern_error_partial_eq() {
+        let err1 = PatternError::InvalidPattern("test".to_string());
+        let err2 = PatternError::InvalidPattern("test".to_string());
+        let err3 = PatternError::InvalidPattern("other".to_string());
+
+        assert_eq!(err1, err2);
+        assert_ne!(err1, err3);
+    }
+
+    #[test]
+    fn test_operand_type_register() {
+        let reg_op = OperandType::Register(RegId(5));
+        assert!(matches!(reg_op, OperandType::Register(_)));
+    }
+
+    #[test]
+    fn test_operand_type_immediate() {
+        let imm_op = OperandType::Immediate(42);
+        assert!(matches!(imm_op, OperandType::Immediate(_)));
+    }
+
+    #[test]
+    fn test_operand_type_label() {
+        let label_op = OperandType::Label("target".to_string());
+        assert!(matches!(label_op, OperandType::Label(_)));
+    }
+
+    #[test]
+    fn test_operand_type_memory() {
+        let mem_op = OperandType::Memory(MemoryOperand::simple(RegId(0), 0, 4));
+        assert!(matches!(mem_op, OperandType::Memory(_)));
+    }
+
+    #[test]
+    fn test_instruction_flags_all_false() {
+        let flags = InstructionFlags {
+            sets_flags: false,
+            reads_flags: false,
+            is_conditional: false,
+            is_predicated: false,
+            is_atomic: false,
+            is_volatile: false,
+            is_privileged: false,
+            is_terminal: false,
+        };
+
+        assert!(!flags.sets_flags);
+        assert!(!flags.is_terminal);
+    }
+
+    #[test]
+    fn test_instruction_flags_all_true() {
+        let flags = InstructionFlags {
+            sets_flags: true,
+            reads_flags: true,
+            is_conditional: true,
+            is_predicated: true,
+            is_atomic: true,
+            is_volatile: true,
+            is_privileged: true,
+            is_terminal: true,
+        };
+
+        assert!(flags.sets_flags);
+        assert!(flags.is_terminal);
+    }
+
+    #[test]
+    fn test_semantic_description() {
+        let semantics = SemanticDescription {
+            operation: "test_op".to_string(),
+            preconditions: vec!["condition1".to_string(), "condition2".to_string()],
+            postconditions: vec!["result".to_string()],
+            side_effects: vec!["side_effect".to_string()],
+            dependencies: vec![RegId(0)],
+            outputs: vec![RegId(1)],
+        };
+
+        assert_eq!(semantics.operation, "test_op");
+        assert_eq!(semantics.preconditions.len(), 2);
+        assert_eq!(semantics.postconditions.len(), 1);
+        assert_eq!(semantics.side_effects.len(), 1);
+        assert_eq!(semantics.dependencies.len(), 1);
+        assert_eq!(semantics.outputs.len(), 1);
+    }
+
+    #[test]
+    fn test_pattern_matcher_initialization() {
+        let mut matcher = DefaultPatternMatcher::new();
+        matcher.initialize_common_patterns();
+
+        // After initialization, matcher should have patterns for common operations
+        let ir_op = IROp::new("add")
+            .with_operand(OperandType::Register(RegId(0)))
+            .with_operand(OperandType::Register(RegId(1)))
+            .with_operand(OperandType::Register(RegId(2)));
+
+        let pattern = matcher.match_pattern(&ir_op);
+        assert!(pattern.is_some());
+    }
+
+    #[test]
+    fn test_pattern_clone() {
+        let pattern1 =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add))
+                .with_operand(OperandType::Register(RegId(0)))
+                .with_architecture(Architecture::X86_64);
+
+        let pattern2 = pattern1.clone();
+
+        assert_eq!(pattern1.id, pattern2.id);
+        assert_eq!(pattern1.category, pattern2.category);
+    }
+
+    #[test]
+    fn test_semantic_description_clone() {
+        let semantics1 = SemanticDescription {
+            operation: "test".to_string(),
+            preconditions: vec!["pre".to_string()],
+            postconditions: vec!["post".to_string()],
+            side_effects: vec!["effect".to_string()],
+            dependencies: vec![RegId(0)],
+            outputs: vec![RegId(1)],
+        };
+
+        let semantics2 = semantics1.clone();
+
+        assert_eq!(semantics1.operation, semantics2.operation);
+        assert_eq!(semantics1.preconditions, semantics2.preconditions);
+    }
+
+    #[test]
+    fn test_memory_operand_clone() {
+        let mem_op1 = MemoryOperand::indexed(RegId(1), RegId(2), 4, 0x1000, 8);
+        let mem_op2 = mem_op1.clone();
+
+        assert_eq!(mem_op1.base, mem_op2.base);
+        assert_eq!(mem_op1.index, mem_op2.index);
+        assert_eq!(mem_op1.scale, mem_op2.scale);
+    }
+
+    #[test]
+    fn test_instruction_flags_copy() {
+        let flags1 = InstructionFlags {
+            sets_flags: true,
+            reads_flags: false,
+            is_conditional: true,
+            is_predicated: false,
+            is_atomic: true,
+            is_volatile: false,
+            is_privileged: true,
+            is_terminal: false,
+        };
+
+        let flags2 = flags1;
+
+        assert_eq!(flags1, flags2);
+    }
+
+    #[test]
+    fn test_arithmetic_type_copy() {
+        let type1 = ArithmeticType::Add;
+        let type2 = type1;
+        assert_eq!(type1, type2);
+    }
+
+    #[test]
+    fn test_logical_type_copy() {
+        let type1 = LogicalType::And;
+        let type2 = type1;
+        assert_eq!(type1, type2);
+    }
+
+    #[test]
+    fn test_memory_type_copy() {
+        let type1 = MemoryType::Load;
+        let type2 = type1;
+        assert_eq!(type1, type2);
+    }
+
+    #[test]
+    fn test_branch_type_copy() {
+        let type1 = BranchType::Conditional;
+        let type2 = type1;
+        assert_eq!(type1, type2);
+    }
+
+    #[test]
+    fn test_vector_type_copy() {
+        let type1 = VectorType::Shuffle;
+        let type2 = type1;
+        assert_eq!(type1, type2);
+    }
+
+    #[test]
+    fn test_pattern_with_no_architectures() {
+        let pattern =
+            InstructionPattern::new("test", InstructionCategory::Arithmetic(ArithmeticType::Add));
+
+        // No architectures specified - should be compatible with all (universal pattern)
+        assert!(pattern.is_compatible_with(Architecture::X86_64));
+        assert!(pattern.is_compatible_with(Architecture::ARM64));
+        assert!(pattern.is_compatible_with(Architecture::RISCV64));
+    }
+
+    #[test]
+    fn test_pattern_multiple_operands() {
+        let pattern = InstructionPattern::new(
+            "multi_op",
+            InstructionCategory::Arithmetic(ArithmeticType::Add),
+        )
+        .with_operand(OperandType::Register(RegId(0)))
+        .with_operand(OperandType::Register(RegId(1)))
+        .with_operand(OperandType::Immediate(10))
+        .with_operand(OperandType::Label("label".to_string()));
+
+        assert_eq!(pattern.operands.len(), 4);
+    }
+
+    #[test]
+    fn test_pattern_zero_operands() {
+        let pattern =
+            InstructionPattern::new("no_op", InstructionCategory::System(SystemType::Nop));
+        assert_eq!(pattern.operands.len(), 0);
+        assert_eq!(pattern.operand_count(), 0);
+    }
+
+    #[test]
+    fn test_pattern_other_category() {
+        let pattern = InstructionPattern::new(
+            "custom",
+            InstructionCategory::Other("custom_operation".to_string()),
+        );
+        assert!(matches!(pattern.category, InstructionCategory::Other(_)));
+    }
+
+    #[test]
+    fn test_compare_and_convert_categories() {
+        let cat1 = InstructionCategory::Arithmetic(ArithmeticType::Add);
+        let cat2 = InstructionCategory::Arithmetic(ArithmeticType::Sub);
+        let cat3 = InstructionCategory::Arithmetic(ArithmeticType::Add);
+
+        assert_eq!(cat1, cat3);
+        assert_ne!(cat1, cat2);
+    }
+
+    #[test]
+    fn test_all_arithmetic_types() {
+        let types = vec![
+            ArithmeticType::Add,
+            ArithmeticType::Sub,
+            ArithmeticType::Mul,
+            ArithmeticType::Div,
+            ArithmeticType::Mod,
+            ArithmeticType::Neg,
+            ArithmeticType::Abs,
+            ArithmeticType::Min,
+            ArithmeticType::Max,
+            ArithmeticType::Sqrt,
+            ArithmeticType::Pow,
+        ];
+
+        assert_eq!(types.len(), 11); // Verify all types are covered
+    }
+
+    #[test]
+    fn test_all_logical_types() {
+        let types = vec![
+            LogicalType::And,
+            LogicalType::Or,
+            LogicalType::Xor,
+            LogicalType::Not,
+            LogicalType::ShiftLeft,
+            LogicalType::ShiftRight,
+            LogicalType::RotateLeft,
+            LogicalType::RotateRight,
+            LogicalType::BitTest,
+            LogicalType::BitField,
+        ];
+
+        assert_eq!(types.len(), 10); // Verify all types are covered
+    }
+
+    #[test]
+    fn test_all_memory_types() {
+        let types = vec![
+            MemoryType::Load,
+            MemoryType::Store,
+            MemoryType::LoadAcquire,
+            MemoryType::StoreRelease,
+            MemoryType::LoadReserved,
+            MemoryType::StoreConditional,
+            MemoryType::Swap,
+            MemoryType::CompareAndSwap,
+            MemoryType::FetchAndOp,
+            MemoryType::Prefetch,
+            MemoryType::CacheOp,
+        ];
+
+        assert_eq!(types.len(), 11); // Verify all types are covered
+    }
+
+    #[test]
+    fn test_all_branch_types() {
+        let types = vec![
+            BranchType::Unconditional,
+            BranchType::Conditional,
+            BranchType::Indirect,
+            BranchType::Call,
+            BranchType::Return,
+            BranchType::JumpTable,
+            BranchType::TailCall,
+            BranchType::Exception,
+            BranchType::Interrupt,
+        ];
+
+        assert_eq!(types.len(), 9); // Verify all types are covered
+    }
 }

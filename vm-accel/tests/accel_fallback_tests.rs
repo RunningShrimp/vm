@@ -3,25 +3,58 @@
 //! Tests for the acceleration fallback manager
 
 use vm_accel::accel_fallback::{AccelFallbackManager, ExecResult};
-use vm_core::{GuestRegs, MMU, VmError};
+use vm_core::{AccessType, GuestAddr, GuestPhysAddr, MmioDevice, MmuAsAny};
+use vm_core::{AddressTranslator, MMU, MemoryAccess, MmioManager, VmError};
 
 /// Mock MMU for testing
 struct MockMMU;
-impl MMU for MockMMU {
-    fn read(&mut self, addr: vm_core::GuestAddr, size: usize) -> Result<Vec<u8>, VmError> {
-        Ok(vec![0; size])
+
+impl vm_core::MmuAsAny for MockMMU {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+impl AddressTranslator for MockMMU {
+    fn translate(&mut self, _va: GuestAddr, _access: AccessType) -> Result<GuestPhysAddr, VmError> {
+        Ok(GuestPhysAddr(0))
     }
 
-    fn write(&mut self, _addr: vm_core::GuestAddr, _data: &[u8]) -> Result<(), VmError> {
+    fn flush_tlb(&mut self) {}
+}
+
+impl MemoryAccess for MockMMU {
+    fn read(&self, _pa: GuestAddr, size: u8) -> Result<u64, VmError> {
+        Ok(0)
+    }
+
+    fn write(&mut self, _pa: GuestAddr, _val: u64, _size: u8) -> Result<(), VmError> {
         Ok(())
     }
 
-    fn fetch(&mut self, _addr: vm_core::GuestAddr) -> Result<Vec<u8>, VmError> {
-        Ok(vec![0; 4])
+    fn fetch_insn(&self, _pc: GuestAddr) -> Result<u64, VmError> {
+        Ok(0)
     }
 
-    fn translate(&mut self, _addr: vm_core::GuestAddr) -> Result<u64, VmError> {
-        Ok(0)
+    fn memory_size(&self) -> usize {
+        0
+    }
+
+    fn dump_memory(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn restore_memory(&mut self, _data: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl MmioManager for MockMMU {
+    fn map_mmio(&self, _base: GuestAddr, _size: u64, _device: Box<dyn MmioDevice>) {
+        // Mock implementation
     }
 }
 
@@ -36,64 +69,53 @@ fn test_fallback_manager_creation() {
 #[test]
 fn test_fallback_execution_result() {
     let result = ExecResult {
-        cycles: 100,
-        executed: true,
+        success: true,
+        error: None,
+        pc: GuestAddr(0),
     };
 
-    assert_eq!(result.cycles, 100);
-    assert!(result.executed);
+    assert!(result.success);
+    assert!(result.error.is_none());
     println!("Execution result created");
 }
 
 /// Test fallback manager execution
 #[test]
 fn test_fallback_manager_execution() {
-    let mut manager = AccelFallbackManager::new();
-    let mut mmu = MockMMU;
-
-    // Try to execute some instructions
-    let result = manager.execute(&mut mmu, 0x1000, 10);
-
-    match result {
-        Ok(exec_result) => {
-            println!(
-                "Executed {} cycles, executed: {}",
-                exec_result.cycles, exec_result.executed
-            );
-        }
-        Err(e) => {
-            println!("Execution failed: {:?}", e);
-        }
-    }
+    let manager = AccelFallbackManager::new();
+    // Test recording a failure
+    manager.record_failure(FallbackError::UnsupportedInstruction);
+    println!("Fallback manager failure recording test completed");
 }
 
 /// Test fallback manager with different instruction counts
 #[test]
 fn test_fallback_manager_instruction_counts() {
-    let mut manager = AccelFallbackManager::new();
-    let mut mmu = MockMMU;
+    let manager = AccelFallbackManager::new();
 
-    let counts = vec![1, 10, 100, 1000];
+    // Test recording multiple failures
+    let errors = vec![
+        FallbackError::UnsupportedInstruction,
+        FallbackError::MemoryError,
+        FallbackError::IoError,
+    ];
 
-    for count in counts {
-        let result = manager.execute(&mut mmu, 0x1000, count);
-        println!(
-            "Execution with {} instructions: {:?}",
-            count,
-            result.is_ok()
-        );
+    for error in errors {
+        manager.record_failure(error);
+        println!("Recorded error: {:?}", error);
     }
 }
 
 /// Test fallback manager error handling
 #[test]
 fn test_fallback_manager_error_handling() {
-    let mut manager = AccelFallbackManager::new();
-    let mut mmu = MockMMU;
+    let manager = AccelFallbackManager::new();
 
-    // Try with invalid address
-    let result = manager.execute(&mut mmu, 0xFFFF_FFFF_F000, 10);
-    println!("Execution with invalid address: {:?}", result.is_err());
+    // Test error handling
+    manager.record_failure(FallbackError::InterruptError);
+    manager.record_failure(FallbackError::Other("Test error".to_string()));
+
+    println!("Error handling test completed");
 }
 
 /// Test fallback manager state management

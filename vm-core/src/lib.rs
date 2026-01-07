@@ -38,6 +38,7 @@ use std::sync::{Arc, Mutex};
 
 // 模块定义
 pub mod aggregate_root;
+pub mod common;
 pub mod config;
 pub mod constants;
 pub mod device_emulation;
@@ -46,6 +47,7 @@ pub mod domain_event_bus;
 pub mod domain_services;
 pub mod domain_type_safety;
 pub mod error;
+pub mod foundation;
 pub mod gc;
 pub mod gdb;
 pub mod gpu;
@@ -59,12 +61,13 @@ pub mod scheduling; // Round 38: 大小核调度
 pub mod snapshot;
 pub mod syscall;
 pub mod template;
+pub mod unified_executor; // Ralph Loop: 统一执行器 - 主流程集成
 pub mod value_objects;
 pub mod vm_state;
 
 // Merged modules (from vm-common and vm-foundation)
-pub mod common;
-pub mod foundation;
+// pub mod common;
+// pub mod foundation;
 
 // 重新导出系统调用相关类型
 pub use syscall::SyscallResult;

@@ -162,6 +162,33 @@ impl<B: 'static> VirtualMachineService<B> {
         super::kernel_loader::load_kernel(mmu, &data, load_addr)
     }
 
+    /// Load bzImage kernel and return entry point
+    ///
+    /// This method is specifically for Linux bzImage kernels. It:
+    /// 1. Loads the kernel at the specified address
+    /// 2. Parses the boot protocol header
+    /// 3. Returns the correct entry point (bypassing real-mode setup)
+    pub fn load_bzimage_kernel_file(&self, path: &str, load_addr: GuestAddr) -> VmResult<GuestAddr> {
+        let data = super::kernel_loader::load_kernel_file(path, load_addr)?;
+
+        // Get MMU from state
+        let state = self.state.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire state lock".to_string(),
+            })
+        })?;
+
+        let mmu = state.mmu();
+        drop(state);
+
+        // Load bzImage and get entry point
+        let entry_point = super::kernel_loader::load_bzimage_kernel(mmu, &data, load_addr)?;
+
+        log::info!("bzImage loaded, entry point: 0x{:x}", entry_point.0);
+
+        Ok(entry_point)
+    }
+
     /// 使用异步I/O从文件加载内核（需要 performance feature）
     #[cfg(feature = "performance")]
     pub fn load_kernel_file_async(&self, path: &str, load_addr: GuestAddr) -> VmResult<()> {
@@ -461,6 +488,55 @@ impl<B: 'static> VirtualMachineService<B> {
     pub fn request_resume(&self) {
         request_resume(&self.pause_flag);
     }
+
+    /// 获取MMU的Arc引用（用于x86启动等特殊操作）
+    ///
+    /// # Safety
+    /// 此方法提供对底层MMU Arc的访问，仅应用于高级操作如x86启动器
+    pub fn mmu_arc(&self) -> VmResult<Arc<std::sync::Mutex<Box<dyn vm_core::MMU>>>> {
+        let state = self.state.lock().map_err(|_| {
+            VmError::Core(vm_core::CoreError::Internal {
+                message: "Failed to lock state".to_string(),
+                module: "VirtualMachineService".to_string(),
+            })
+        })?;
+
+        Ok(state.mmu())
+    }
+
+    /// 启动x86内核（使用real-mode启动器）
+    ///
+    /// 此方法专门用于x86_64内核的启动流程：
+    /// 1. 使用X86BootExecutor执行real-mode启动代码
+    /// 2. 处理模式转换（Real → Protected → Long）
+    /// 3. 返回64位内核入口点或启动结果
+    pub fn boot_x86_kernel(&mut self) -> VmResult<super::x86_boot_exec::X86BootResult> {
+        use super::x86_boot_exec::X86BootExecutor;
+
+        log::info!("=== Starting x86 Boot Sequence ===");
+
+        // Get MMU access
+        let mmu_arc = self.mmu_arc()?;
+        let mut mmu_guard = mmu_arc.lock().map_err(|_| {
+            VmError::Memory(vm_core::MemoryError::MmuLockFailed {
+                message: "Failed to lock MMU".to_string(),
+            })
+        })?;
+
+        // Create boot executor
+        let mut executor = X86BootExecutor::new();
+
+        // Execute boot sequence from real-mode entry point (0x10000)
+        let entry_point = 0x10000;
+        log::info!("Boot entry point: {:#010X}", entry_point);
+
+        let result = executor.boot(&mut **mmu_guard, entry_point)?;
+
+        log::info!("=== Boot Sequence Complete ===");
+        Ok(result)
+    }
+
+
 
     /// 列出所有快照
     pub fn list_snapshots(&self) -> VmResult<Vec<String>> {

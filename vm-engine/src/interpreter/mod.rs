@@ -165,44 +165,128 @@ fn vec_sub_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
     result
 }
 
-fn vec256_add_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-    let mut result = [0u64; 4];
-    for (i, result_item) in result.iter_mut().enumerate() {
-        *result_item = vec_add_sat_s(src_a[i], src_b[i], element_size);
+/// SIMD饱和乘法运算（有符号）
+fn vec_mul_sat_s(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+
+        // 有符号乘法并饱和
+        let signed_max: i64 = match lane_bits {
+            8 => i8::MAX as i64,
+            16 => i16::MAX as i64,
+            32 => i32::MAX as i64,
+            64 => i64::MAX,
+            _ => i64::MAX,
+        };
+
+        let signed_min: i64 = match lane_bits {
+            8 => i8::MIN as i64,
+            16 => i16::MIN as i64,
+            32 => i32::MIN as i64,
+            64 => i64::MIN,
+            _ => i64::MIN,
+        };
+
+        // 转换为有符号数
+        let av_signed = extend_to_signed(av, lane_bits);
+        let bv_signed = extend_to_signed(bv, lane_bits);
+
+        // 乘法并饱和
+        let product = av_signed.saturating_mul(bv_signed);
+        let clamped = product.clamp(signed_min, signed_max) as u64;
+
+        result |= (clamped << shift);
     }
     result
+}
+
+/// SIMD饱和乘法运算（无符号）
+fn vec_mul_sat_u(a: u64, b: u64, element_size: u8) -> u64 {
+    let es = element_size as u64;
+    let lane_bits = es * 8;
+    let lanes = 64 / lane_bits;
+    let mut result = 0u64;
+
+    for i in 0..lanes {
+        let shift = i * lane_bits;
+        let mask = ((1u64 << lane_bits) - 1) << shift;
+        let av = (a & mask) >> shift;
+        let bv = (b & mask) >> shift;
+
+        // 无符号乘法并饱和到最大值
+        let max_val = mask;
+        let product = av.saturating_mul(bv);
+        let clamped = product.min(max_val);
+
+        result |= clamped << shift;
+    }
+    result
+}
+
+/// 辅助函数：将无符号数扩展为有符号数
+fn extend_to_signed(val: u64, bits: u64) -> i64 {
+    if bits == 64 {
+        val as i64
+    } else {
+        // 符号扩展
+        let sign_bit = 1u64 << (bits - 1);
+        if val & sign_bit != 0 {
+            // 负数：高位填充1
+            (val | (!0u64 << bits)) as i64
+        } else {
+            val as i64
+        }
+    }
+}
+
+// ============================================================================
+// SIMD宏优化 - 减少重复代码
+// ============================================================================
+
+/// 通用向量运算宏 - 应用于所有256位向量操作
+macro_rules! vec256_op {
+    ($func:ident, $src_a:expr, $src_b:expr, $element_size:expr) => {{
+        let mut result = [0u64; 4];
+        for (i, r) in result.iter_mut().enumerate() {
+            *r = $func($src_a[i], $src_b[i], $element_size);
+        }
+        result
+    }};
+}
+
+// SIMD饱和算术运算 - 使用优化的宏实现
+fn vec256_add_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
+    vec256_op!(vec_add_sat_s, src_a, src_b, element_size)
 }
 
 fn vec256_add_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-    let mut result = [0u64; 4];
-    for (i, result_item) in result.iter_mut().enumerate() {
-        *result_item = vec_add_sat_u(src_a[i], src_b[i], element_size);
-    }
-    result
+    vec256_op!(vec_add_sat_u, src_a, src_b, element_size)
 }
 
 fn vec256_sub_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-    let mut result = [0u64; 4];
-    for (i, result_item) in result.iter_mut().enumerate() {
-        *result_item = vec_sub_sat_s(src_a[i], src_b[i], element_size);
-    }
-    result
+    vec256_op!(vec_sub_sat_s, src_a, src_b, element_size)
 }
 
 fn vec256_sub_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
-    let mut result = [0u64; 4];
-    for (i, result_item) in result.iter_mut().enumerate() {
-        *result_item = vec_sub_sat_u(src_a[i], src_b[i], element_size);
-    }
-    result
+    vec256_op!(vec_sub_sat_u, src_a, src_b, element_size)
 }
 
-fn vec256_mul_sat_s(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
-    [0u64; 4]
+/// SIMD饱和乘法运算（有符号）
+fn vec256_mul_sat_s(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
+    vec256_op!(vec_mul_sat_s, src_a, src_b, element_size)
 }
 
-fn vec256_mul_sat_u(_src_a: [u64; 4], _src_b: [u64; 4], _element_size: u8) -> [u64; 4] {
-    [0u64; 4]
+/// SIMD饱和乘法运算（无符号）
+fn vec256_mul_sat_u(src_a: [u64; 4], src_b: [u64; 4], element_size: u8) -> [u64; 4] {
+    vec256_op!(vec_mul_sat_u, src_a, src_b, element_size)
 }
 
 /// 异步设备I/O模块

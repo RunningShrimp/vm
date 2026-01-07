@@ -13,19 +13,19 @@ pub use inkwell::values::BasicValueEnum;
 #[cfg(feature = "llvm")]
 pub use inkwell::values::FunctionValue;
 
-use super::{LiftError, LiftResult};
+use super::LiftResult;
 
 /// Inkwell 代码生成器
 #[cfg(feature = "llvm")]
-pub struct InkwellCodeGenerator {
+pub struct InkwellCodeGenerator<'ctx> {
     context: InkwellContext,
-    module: InkwellModule,
-    builder: InkwellBuilder,
-    functions: Vec<FunctionValue>,
+    module: InkwellModule<'ctx>,
+    builder: InkwellBuilder<'ctx>,
+    functions: Vec<FunctionValue<'ctx>>,
 }
 
 #[cfg(feature = "llvm")]
-impl InkwellCodeGenerator {
+impl<'ctx> InkwellCodeGenerator<'ctx> {
     /// 创建新的代码生成器
     pub fn new(module_name: &str) -> Self {
         let context = InkwellContext::create();
@@ -56,7 +56,7 @@ impl InkwellCodeGenerator {
     /// 添加返回指令
     pub fn add_return(&self, value: i64) -> LiftResult<()> {
         let i64_type = self.context.i64_type();
-        let const_value = i64_type.const_int(value, false);
+        let const_value = i64_type.const_int(value as u64, false);
         self.builder.build_return(Some(&const_value));
         Ok(())
     }
@@ -64,12 +64,12 @@ impl InkwellCodeGenerator {
     /// 添加加法指令
     pub fn add_add(&self, left: i64, right: i64) -> LiftResult<()> {
         let i64_type = self.context.i64_type();
-        let left_val = i64_type.const_int(left, false);
-        let right_val = i64_type.const_int(right, false);
+        let left_val = i64_type.const_int(left as u64, false);
+        let right_val = i64_type.const_int(right as u64, false);
         let add = self.builder.build_int_add(left_val, right_val, "addtmp");
 
         // 存储结果以便后续使用
-        let result_ptr = self.builder.build_alloca(i64_type, "result");
+        let result_ptr = self.builder.build_alloca(i64_type, "result").unwrap();
         self.builder.build_store(result_ptr, add);
 
         Ok(())
@@ -78,12 +78,12 @@ impl InkwellCodeGenerator {
     /// 添加减法指令
     pub fn add_sub(&self, left: i64, right: i64) -> LiftResult<()> {
         let i64_type = self.context.i64_type();
-        let left_val = i64_type.const_int(left, false);
-        let right_val = i64_type.const_int(right, false);
+        let left_val = i64_type.const_int(left as u64, false);
+        let right_val = i64_type.const_int(right as u64, false);
         let sub = self.builder.build_int_sub(left_val, right_val, "subtmp");
 
         // 存储结果以便后续使用
-        let result_ptr = self.builder.build_alloca(i64_type, "result");
+        let result_ptr = self.builder.build_alloca(i64_type, "result").unwrap();
         self.builder.build_store(result_ptr, sub);
 
         Ok(())
@@ -91,9 +91,7 @@ impl InkwellCodeGenerator {
 
     /// 生成 LLVM IR 文本
     pub fn generate_ir(&self) -> LiftResult<String> {
-        self.module
-            .print_to_string()
-            .map_err(|e| LiftError::IRGenError(format!("Failed to generate LLVM IR: {}", e)))
+        Ok(self.module.print_to_string().to_string())
     }
 
     /// 验证模块

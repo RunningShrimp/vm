@@ -10,6 +10,16 @@ const AppState = {
 };
 
 // ========================================
+// 控制台状态
+// ========================================
+const ConsoleState = {
+    activeVmId: null,
+    autoScroll: true,
+    consoleInterval: null,
+    maxLines: 1000 // Maximum lines to keep in console
+};
+
+// ========================================
 // 初始化
 // ========================================
 document.addEventListener('DOMContentLoaded', async () => {
@@ -58,6 +68,13 @@ function setupEventListeners() {
     // 快速操作
     document.getElementById('quickStartAll').addEventListener('click', handleStartAll);
     document.getElementById('quickStopAll').addEventListener('click', handleStopAll);
+
+    // 控制台按钮
+    document.getElementById('btnClearConsole').addEventListener('click', clearConsole);
+    document.getElementById('btnScrollConsole').addEventListener('click', toggleAutoScroll);
+    document.getElementById('chkAutoScroll').addEventListener('change', (e) => {
+        ConsoleState.autoScroll = e.target.checked;
+    });
 
     // 点击模态框外部关闭
     document.querySelectorAll('.modal').forEach(modal => {
@@ -363,9 +380,9 @@ function showVMDetail(vmId) {
     document.getElementById('metricUptime').textContent = vm.state === 'Running' ? `${Math.floor(Math.random() * 24)}h` : '0h';
 
     // 设置按钮事件
-    document.getElementById('btnStartVm').onclick = () => { startVM(vmId); closeVMDetailModal(); };
-    document.getElementById('btnPauseVm').onclick = () => { pauseVM(vmId); closeVMDetailModal(); };
-    document.getElementById('btnStopVm').onclick = () => { stopVM(vmId); closeVMDetailModal(); };
+    document.getElementById('btnStartVm').onclick = () => { startVM(vmId); };
+    document.getElementById('btnPauseVm').onclick = () => { pauseVM(vmId); };
+    document.getElementById('btnStopVm').onclick = () => { stopVM(vmId); };
     document.getElementById('btnDeleteVm').onclick = () => {
         if (confirm('确定要删除这个虚拟机吗？')) {
             deleteVM(vmId);
@@ -373,11 +390,20 @@ function showVMDetail(vmId) {
         }
     };
 
+    // 启动控制台流（如果VM正在运行）
+    if (vm.state === 'Running') {
+        startConsoleStreaming(vmId);
+    } else {
+        clearConsole();
+        appendConsoleLine('虚拟机未运行，无法显示控制台输出', 'warning');
+    }
+
     document.getElementById('vmDetailModal').classList.add('active');
 }
 
 function closeVMDetailModal() {
     document.getElementById('vmDetailModal').classList.remove('active');
+    stopConsoleStreaming();
     AppState.selectedVmId = null;
 }
 
@@ -442,10 +468,17 @@ function addActivity(text) {
 
     const activityItem = document.createElement('div');
     activityItem.className = 'activity-item';
-    activityItem.innerHTML = `
-        <span class="activity-time">${timeStr}</span>
-        <span class="activity-text">${text}</span>
-    `;
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'activity-time';
+    timeSpan.textContent = timeStr;
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'activity-text';
+    textSpan.textContent = text;
+
+    activityItem.appendChild(timeSpan);
+    activityItem.appendChild(textSpan);
 
     activityList.insertBefore(activityItem, activityList.firstChild);
 
@@ -459,10 +492,8 @@ function addActivity(text) {
 // 通知
 // ========================================
 function showNotification(message, type = 'info') {
-    // 简单的通知实现
     console.log(`[${type.toUpperCase()}] ${message}`);
 
-    // 可以在这里添加更复杂的通知UI
     const notification = document.createElement('div');
     notification.style.cssText = `
         position: fixed;
@@ -498,6 +529,139 @@ function getVMName(vmId) {
 }
 
 // ========================================
+// 控制台功能
+// ========================================
+
+// 清空控制台
+function clearConsole() {
+    const consoleOutput = document.getElementById('consoleOutput');
+    while (consoleOutput.firstChild) {
+        consoleOutput.removeChild(consoleOutput.firstChild);
+    }
+}
+
+// 切换自动滚动
+function toggleAutoScroll() {
+    ConsoleState.autoScroll = !ConsoleState.autoScroll;
+    document.getElementById('chkAutoScroll').checked = ConsoleState.autoScroll;
+}
+
+// 格式化时间戳
+function formatTimestamp() {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+}
+
+// 添加控制台行（XSS安全 - 使用textContent）
+function appendConsoleLine(message, type = 'user') {
+    const consoleOutput = document.getElementById('consoleOutput');
+
+    // 创建控制台行元素
+    const line = document.createElement('div');
+    line.className = `console-line console-${type}`;
+
+    // 添加时间戳
+    const timestamp = document.createElement('span');
+    timestamp.className = 'console-timestamp';
+    timestamp.textContent = formatTimestamp();
+    line.appendChild(timestamp);
+
+    // 添加消息（使用textContent防止XSS）
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message;
+    line.appendChild(messageSpan);
+
+    consoleOutput.appendChild(line);
+
+    // 限制最大行数
+    while (consoleOutput.children.length > ConsoleState.maxLines) {
+        consoleOutput.removeChild(consoleOutput.firstChild);
+    }
+
+    // 自动滚动
+    if (ConsoleState.autoScroll) {
+        consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+}
+
+// 启动控制台流
+async function startConsoleStreaming(vmId) {
+    stopConsoleStreaming();
+    ConsoleState.activeVmId = vmId;
+
+    clearConsole();
+    appendConsoleLine('正在连接到虚拟机控制台...', 'info');
+
+    if (window.__TAURI__) {
+        try {
+            const vm = AppState.vms.find(v => v.id === vmId);
+            if (vm && vm.state === 'Running') {
+                appendConsoleLine(`已连接到虚拟机: ${vm.name}`, 'success');
+                appendConsoleLine('等待控制台输出...', 'info');
+
+                // 启动轮询（需要后端实现get_console_output命令）
+                ConsoleState.consoleInterval = setInterval(async () => {
+                    await pollConsoleOutput(vmId);
+                }, 500);
+            } else {
+                appendConsoleLine('虚拟机未运行，无法显示控制台输出', 'warning');
+            }
+        } catch (error) {
+            console.error('启动控制台流失败:', error);
+            appendConsoleLine('无法连接到控制台: ' + error.message, 'error');
+        }
+    } else {
+        // 开发模式模拟数据
+        appendConsoleLine('开发模式: 使用模拟数据', 'info');
+        setTimeout(() => {
+            appendConsoleLine('VM Manager v0.1.0 启动中...', 'boot');
+        }, 300);
+        setTimeout(() => {
+            appendConsoleLine('检测到 CPU: x86_64 (4 cores)', 'kernel');
+            appendConsoleLine('检测到内存: 2048 MB', 'kernel');
+        }, 600);
+        setTimeout(() => {
+            appendConsoleLine('初始化 VirtIO 设备...', 'boot');
+            appendConsoleLine('  - VirtIO block device: /dev/vda (100 GB)', 'info');
+            appendConsoleLine('  - VirtIO network device: eth0', 'info');
+        }, 900);
+        setTimeout(() => {
+            appendConsoleLine('内核启动完成', 'success');
+            appendConsoleLine('正在启动 init 进程...', 'boot');
+        }, 1200);
+    }
+}
+
+// 轮询控制台输出
+async function pollConsoleOutput(vmId) {
+    if (!window.__TAURI__) return;
+
+    try {
+        // TODO: 需要在后端实现get_console_output命令
+        // const output = await window.__TAURI__.invoke('get_console_output', { id: vmId });
+        // if (output && output.length > 0) {
+        //     output.forEach(line => {
+        //         appendConsoleLine(line.text, line.type);
+        //     });
+        // }
+    } catch (error) {
+        console.error('获取控制台输出失败:', error);
+    }
+}
+
+// 停止控制台流
+function stopConsoleStreaming() {
+    if (ConsoleState.consoleInterval) {
+        clearInterval(ConsoleState.consoleInterval);
+        ConsoleState.consoleInterval = null;
+    }
+    ConsoleState.activeVmId = null;
+}
+
+// ========================================
 // 定期更新
 // ========================================
 function startPeriodicUpdates() {
@@ -505,6 +669,283 @@ function startPeriodicUpdates() {
     setInterval(async () => {
         await loadVMs();
     }, 5000);
+
+    // 每 1 秒更新一次性能指标 (Session 13 - XSS安全实现)
+    setInterval(async () => {
+        await updateMetrics();
+    }, 1000);
+}
+
+// ========================================
+// 实时性能指标更新 (Session 13 - XSS安全实现)
+// ========================================
+
+// 缓存当前指标数据
+const MetricsCache = {
+    vmMetrics: new Map(), // vmId -> VmMetrics
+    systemMetrics: null,  // SystemMetrics
+    lastUpdate: 0
+};
+
+// 主更新函数
+async function updateMetrics() {
+    try {
+        // 并行获取所有指标
+        const [allMetrics, systemMetrics] = await Promise.all([
+            getAllMetrics(),
+            getSystemMetrics()
+        ]);
+
+        // 更新缓存
+        MetricsCache.vmMetrics.clear();
+        allMetrics.forEach(metric => {
+            MetricsCache.vmMetrics.set(metric.id, metric);
+        });
+        MetricsCache.systemMetrics = systemMetrics;
+        MetricsCache.lastUpdate = Date.now();
+
+        // 根据当前视图更新UI
+        updateDashboardMetrics(systemMetrics);
+
+        if (AppState.currentView === 'monitoring') {
+            updateMonitoringCharts(allMetrics);
+        }
+
+        // 如果有选中的VM，更新详情页指标
+        if (AppState.selectedVmId) {
+            updateVMDetailMetrics(AppState.selectedVmId);
+        }
+
+    } catch (error) {
+        console.error('更新性能指标失败:', error);
+    }
+}
+
+// 获取所有VM指标
+async function getAllMetrics() {
+    if (window.__TAURI__) {
+        try {
+            return await window.__TAURI__.invoke('get_all_metrics');
+        } catch (error) {
+            console.error('获取VM指标失败:', error);
+            return [];
+        }
+    } else {
+        // 开发模式 - 模拟数据
+        return AppState.vms.map(vm => ({
+            id: vm.id,
+            cpu_usage: vm.state === 'Running' ? Math.random() * 50 + 10 : 0,
+            memory_usage_mb: vm.state === 'Running' ? Math.floor(vm.memory_mb * (Math.random() * 0.5 + 0.3)) : 0,
+            disk_io_read_mb_s: vm.state === 'Running' ? Math.random() * 10 : 0,
+            disk_io_write_mb_s: vm.state === 'Running' ? Math.random() * 5 : 0,
+            network_rx_mb_s: vm.state === 'Running' ? Math.random() * 2 : 0,
+            network_tx_mb_s: vm.state === 'Running' ? Math.random() * 1 : 0,
+            uptime_secs: vm.state === 'Running' ? Math.floor(Math.random() * 86400) : 0
+        }));
+    }
+}
+
+// 获取系统指标
+async function getSystemMetrics() {
+    if (window.__TAURI__) {
+        try {
+            return await window.__TAURI__.invoke('get_system_metrics');
+        } catch (error) {
+            console.error('获取系统指标失败:', error);
+            return null;
+        }
+    } else {
+        // 开发模式 - 聚合模拟数据
+        const runningVMs = AppState.vms.filter(vm => vm.state === 'Running');
+        const totalCPU = runningVMs.reduce((sum, vm) => sum + (Math.random() * 50 + 10), 0);
+        const totalMemory = runningVMs.reduce((sum, vm) => sum + vm.memory_mb, 0);
+
+        return {
+            total_vms: AppState.vms.length,
+            running_vms: runningVMs.length,
+            total_cpu_usage: totalCPU,
+            total_memory_mb: totalMemory,
+            used_memory_mb: totalMemory,
+            total_disk_io_mb_s: runningVMs.reduce((sum, vm) => sum + Math.random() * 10, 0),
+            total_network_mb_s: runningVMs.reduce((sum, vm) => sum + Math.random() * 2, 0)
+        };
+    }
+}
+
+// 更新仪表板统计卡片 (XSS安全 - 使用textContent)
+function updateDashboardMetrics(systemMetrics) {
+    if (!systemMetrics) return;
+
+    // 总VM数
+    const statTotalVms = document.getElementById('statTotalVms');
+    if (statTotalVms) {
+        statTotalVms.textContent = systemMetrics.total_vms;
+    }
+
+    // 运行中VM数
+    const statRunningVms = document.getElementById('statRunningVms');
+    if (statRunningVms) {
+        statRunningVms.textContent = systemMetrics.running_vms;
+    }
+
+    // 总内存
+    const statTotalMemory = document.getElementById('statTotalMemory');
+    if (statTotalMemory) {
+        const memoryGB = (systemMetrics.total_memory_mb / 1024).toFixed(1);
+        statTotalMemory.textContent = `${memoryGB} GB`;
+    }
+
+    // CPU使用率
+    const statCpuUsage = document.getElementById('vmCount');
+    if (statCpuUsage) {
+        statCpuUsage.textContent = systemMetrics.running_vms;
+    }
+}
+
+// 更新监控图表 (XSS安全 - 使用createElement)
+function updateMonitoringCharts(allMetrics) {
+    updateCPUChart(allMetrics);
+    updateMemoryChart(allMetrics);
+}
+
+// CPU使用率图表 (XSS安全实现)
+function updateCPUChart(allMetrics) {
+    const container = document.getElementById('cpuChartContainer');
+    if (!container) return;
+
+    // 清空容器
+    while (container.firstChild) {
+        container.removeChild(container.firstChild);
+    }
+
+    // 创建图表标题
+    const title = document.createElement('div');
+    title.className = 'chart-title';
+    title.textContent = 'CPU 使用率';
+    container.appendChild(title);
+
+    // 为每个VM创建指标行
+    allMetrics.forEach(vm => {
+        const vmRow = createVMMetricRow(vm.id, vm.cpu_usage, '%', [
+            { threshold: 80, color: '#ef4444' },  // 红色 - 高负载
+            { threshold: 50, color: '#f59e0b' },  // 橙色 - 中等
+            { threshold: 0, color: '#10b981' }    // 绿色 - 正常
+        ]);
+        container.appendChild(vmRow);
+    });
+}
+
+// 内存使用率图表 (XSS安全实现)
+function updateMemoryChart(allMetrics) {
+    const container = document.getElementById('memoryChartContainer');
+    if (!container) return;
+
+    // 清空容器
+    while (container.firstChild) {
+        container.removeChild(container.firstChild);
+    }
+
+    // 创建图表标题
+    const title = document.createElement('div');
+    title.className = 'chart-title';
+    title.textContent = '内存使用';
+    container.appendChild(title);
+
+    // 为每个VM创建指标行
+    allMetrics.forEach(vm => {
+        const memoryGB = (vm.memory_usage_mb / 1024).toFixed(1);
+        const vmRow = createVMMetricRow(vm.id, vm.memory_usage_mb, ' MB', [
+            { threshold: 80 * 1024, color: '#ef4444' },  // 80GB以上 - 红色
+            { threshold: 50 * 1024, color: '#f59e0b' },  // 50GB以上 - 橙色
+            { threshold: 0, color: '#10b981' }          // 其他 - 绿色
+        ], memoryGB);
+        container.appendChild(vmRow);
+    });
+}
+
+// 创建VM指标行 (XSS安全辅助函数)
+function createVMMetricRow(vmId, value, unit, thresholds, displayValue = null) {
+    const row = document.createElement('div');
+    row.className = 'vm-metric-row';
+
+    // VM名称
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'vm-name';
+    nameDiv.textContent = vmId;
+    row.appendChild(nameDiv);
+
+    // 指标条容器
+    const barContainer = document.createElement('div');
+    barContainer.className = 'metric-bar-container';
+
+    // 指标条背景
+    const barBg = document.createElement('div');
+    barBg.className = 'metric-bar-bg';
+
+    // 指标条填充
+    const barFill = document.createElement('div');
+    barFill.className = 'metric-fill';
+
+    // 根据阈值确定颜色
+    const color = thresholds.find(t => value >= t.threshold)?.color || thresholds[thresholds.length - 1].color;
+    barFill.style.backgroundColor = color;
+
+    // 计算宽度百分比
+    const maxValue = Math.max(...thresholds.map(t => t.threshold));
+    const widthPercent = Math.min((value / maxValue) * 100, 100);
+    barFill.style.width = `${widthPercent}%`;
+
+    barBg.appendChild(barFill);
+    barContainer.appendChild(barBg);
+    row.appendChild(barContainer);
+
+    // 指标值文本
+    const valueText = document.createElement('div');
+    valueText.className = 'metric-value';
+    valueText.textContent = displayValue !== null ? `${displayValue}${unit}` : `${value.toFixed(1)}${unit}`;
+    row.appendChild(valueText);
+
+    return row;
+}
+
+// 更新VM详情页指标 (XSS安全实现)
+function updateVMDetailMetrics(vmId) {
+    const metrics = MetricsCache.vmMetrics.get(vmId);
+    if (!metrics) return;
+
+    // CPU使用率
+    const metricCpu = document.getElementById('metricCpu');
+    if (metricCpu) {
+        metricCpu.textContent = `${metrics.cpu_usage.toFixed(0)}%`;
+    }
+
+    // 内存使用
+    const metricMemory = document.getElementById('metricMemory');
+    if (metricMemory) {
+        metricMemory.textContent = `${metrics.memory_usage_mb} MB`;
+    }
+
+    // 运行时间
+    const metricUptime = document.getElementById('metricUptime');
+    if (metricUptime) {
+        const hours = Math.floor(metrics.uptime_secs / 3600);
+        const minutes = Math.floor((metrics.uptime_secs % 3600) / 60);
+        metricUptime.textContent = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    }
+
+    // 磁盘I/O (如果元素存在)
+    const metricDisk = document.getElementById('metricDisk');
+    if (metricDisk) {
+        const diskTotal = (metrics.disk_io_read_mb_s + metrics.disk_io_write_mb_s).toFixed(2);
+        metricDisk.textContent = `${diskTotal} MB/s`;
+    }
+
+    // 网络I/O (如果元素存在)
+    const metricNetwork = document.getElementById('metricNetwork');
+    if (metricNetwork) {
+        const networkTotal = (metrics.network_rx_mb_s + metrics.network_tx_mb_s).toFixed(2);
+        metricNetwork.textContent = `${networkTotal} MB/s`;
+    }
 }
 
 // ========================================

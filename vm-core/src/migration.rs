@@ -64,4 +64,3 @@ mod tests {
         assert_eq!(state.memory_dump[4], 5);
     }
 }
-

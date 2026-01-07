@@ -38,6 +38,10 @@ impl VzVcpu {
         Ok(Self { id })
     }
 
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
     /// 获取寄存器 (Virtualization.framework 不直接支持)
     pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
         // Virtualization.framework 是高层 API，不直接暴露寄存器访问
@@ -52,6 +56,51 @@ impl VzVcpu {
         Err(AccelError::NotSupported(
             "Direct register access not supported in Virtualization.framework".to_string(),
         ))
+    }
+
+    /// 运行 vCPU (Virtualization.framework 运行整个 VM)
+    pub fn run(&mut self) -> Result<(), AccelError> {
+        // Virtualization.framework 在 AccelVz 中运行整个 VM
+        // 单个 vCPU 的 run 是空操作
+        Ok(())
+    }
+}
+
+// Implement VcpuOps trait for unified vCPU interface
+impl crate::vcpu_common::VcpuOps for VzVcpu {
+    fn get_id(&self) -> u32 {
+        self.get_id()
+    }
+
+    fn run(&mut self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::VcpuExit> {
+        self.run().map(|_| crate::vcpu_common::VcpuExit::Unknown)
+    }
+
+    fn get_regs(&self) -> crate::vcpu_common::VcpuResult<vm_core::GuestRegs> {
+        self.get_regs()
+    }
+
+    fn set_regs(&mut self, regs: &vm_core::GuestRegs) -> crate::vcpu_common::VcpuResult<()> {
+        self.set_regs(regs)
+    }
+
+    fn get_fpu_regs(&self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::FpuRegs> {
+        // Virtualization.framework doesn't expose direct FPU register access
+        Err(vm_core::VmError::Core(vm_core::CoreError::NotSupported {
+            feature: "VZ FPU register access".to_string(),
+            module: "vm-accel::vz".to_string(),
+        }))
+    }
+
+    fn set_fpu_regs(
+        &mut self,
+        _regs: &crate::vcpu_common::FpuRegs,
+    ) -> crate::vcpu_common::VcpuResult<()> {
+        // Virtualization.framework doesn't expose direct FPU register access
+        Err(vm_core::VmError::Core(vm_core::CoreError::NotSupported {
+            feature: "VZ FPU register access".to_string(),
+            module: "vm-accel::vz".to_string(),
+        }))
     }
 }
 
@@ -253,6 +302,25 @@ impl Accel for AccelVz {
 
     fn name(&self) -> &str {
         "Virtualization.framework"
+    }
+}
+
+impl AccelVz {
+    /// Create vCPU and return VcpuOps trait object
+    ///
+    /// This creates a new vCPU and returns it as a trait object.
+    pub fn create_vcpu_ops(&mut self, id: u32) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
+        if id >= self.cpu_count {
+            return Err(AccelError::CreateVcpuFailed(format!(
+                "vCPU {} exceeds configured count {}",
+                id, self.cpu_count
+            )));
+        }
+
+        let vcpu = VzVcpu::new(id)?;
+        // Don't add to Vec - return directly
+        log::info!("Created VZ vCPU {}", id);
+        Ok(Box::new(vcpu))
     }
 }
 

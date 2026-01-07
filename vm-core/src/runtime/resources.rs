@@ -273,3 +273,410 @@ impl Default for ResourceManager {
         Self::new()
     }
 }
+
+/// ============================================================================
+/// 测试模块
+/// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resource_type_equality() {
+        assert_eq!(ResourceType::Cpu, ResourceType::Cpu);
+        assert_eq!(ResourceType::Memory, ResourceType::Memory);
+        assert_ne!(ResourceType::Cpu, ResourceType::Memory);
+    }
+
+    #[test]
+    fn test_resource_type_clone() {
+        let rtype = ResourceType::Cpu;
+        let cloned = rtype;
+        assert_eq!(rtype, cloned);
+    }
+
+    #[test]
+    fn test_resource_descriptor_new() {
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        assert_eq!(descriptor.resource_id, 0x100);
+        assert_eq!(descriptor.resource_type, ResourceType::Memory);
+        assert_eq!(descriptor.total, 1024);
+        assert_eq!(descriptor.allocated, 0);
+        assert_eq!(descriptor.available, 1024);
+    }
+
+    #[test]
+    fn test_resource_descriptor_utilization() {
+        let mut descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        // Initial utilization should be 0
+        assert_eq!(descriptor.utilization(), 0.0);
+
+        // Allocate 512 bytes
+        descriptor.allocated = 512;
+        descriptor.available = 512;
+
+        assert!((descriptor.utilization() - 0.5).abs() < 0.001);
+
+        // Fully allocated
+        descriptor.allocated = 1024;
+        descriptor.available = 0;
+
+        assert_eq!(descriptor.utilization(), 1.0);
+    }
+
+    #[test]
+    fn test_resource_descriptor_utilization_zero_total() {
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 0);
+        assert_eq!(descriptor.utilization(), 0.0);
+    }
+
+    #[test]
+    fn test_resource_descriptor_is_available() {
+        let mut descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        // Initially available
+        assert!(descriptor.is_available());
+
+        // Half allocated
+        descriptor.allocated = 512;
+        descriptor.available = 512;
+        assert!(descriptor.is_available());
+
+        // Fully allocated
+        descriptor.allocated = 1024;
+        descriptor.available = 0;
+        assert!(!descriptor.is_available());
+    }
+
+    #[test]
+    fn test_resource_descriptor_clone() {
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        let cloned = descriptor.clone();
+        assert_eq!(cloned.resource_id, descriptor.resource_id);
+        assert_eq!(cloned.resource_type, descriptor.resource_type);
+        assert_eq!(cloned.total, descriptor.total);
+    }
+
+    #[test]
+    fn test_resource_request_new() {
+        let request = ResourceRequest::new(0x100, ResourceType::Memory, 512);
+
+        assert_eq!(request.resource_id, 0x100);
+        assert_eq!(request.resource_type, ResourceType::Memory);
+        assert_eq!(request.amount, 512);
+        assert!(request.timestamp > 0);
+    }
+
+    #[test]
+    fn test_resource_request_clone() {
+        let request = ResourceRequest::new(0x100, ResourceType::Memory, 512);
+
+        let cloned = request.clone();
+        assert_eq!(cloned.resource_id, request.resource_id);
+        assert_eq!(cloned.resource_type, request.resource_type);
+        assert_eq!(cloned.amount, request.amount);
+        assert_eq!(cloned.timestamp, request.timestamp);
+    }
+
+    #[test]
+    fn test_resource_manager_new() {
+        let manager = ResourceManager::new();
+
+        // Check initial state
+        let resources = manager.resources.lock().unwrap();
+        assert_eq!(resources.len(), 0);
+        drop(resources);
+
+        let history = manager.request_history.lock().unwrap();
+        assert_eq!(history.len(), 0);
+        drop(history);
+
+        let count = manager.allocation_count.lock().unwrap();
+        assert_eq!(*count, 0);
+    }
+
+    #[test]
+    fn test_resource_manager_default() {
+        let manager = ResourceManager::default();
+
+        let resources = manager.resources.lock().unwrap();
+        assert_eq!(resources.len(), 0);
+    }
+
+    #[test]
+    fn test_add_resource() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        let resources = manager.resources.lock().unwrap();
+        assert_eq!(resources.len(), 1);
+        assert!(resources.contains_key(&0x100));
+    }
+
+    #[test]
+    fn test_allocate_success() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Allocate 512 bytes
+        let result = manager.allocate(0x100, 512);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 512);
+
+        // Check state
+        let resource = manager.get_resource(0x100).unwrap();
+        assert_eq!(resource.allocated, 512);
+        assert_eq!(resource.available, 512);
+
+        // Check allocation count
+        assert_eq!(manager.get_allocation_count(), 1);
+    }
+
+    #[test]
+    fn test_allocate_insufficient_resources() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Try to allocate more than available
+        let result = manager.allocate(0x100, 2048);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Insufficient resources"));
+
+        // Check state unchanged
+        let resource = manager.get_resource(0x100).unwrap();
+        assert_eq!(resource.allocated, 0);
+        assert_eq!(resource.available, 1024);
+    }
+
+    #[test]
+    fn test_allocate_resource_not_found() {
+        let manager = ResourceManager::new();
+
+        // Try to allocate from non-existent resource
+        let result = manager.allocate(0x100, 512);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_release_success() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Allocate first
+        manager.allocate(0x100, 512).unwrap();
+
+        // Release 256 bytes
+        let result = manager.release(0x100, 256);
+        assert!(result.is_ok());
+
+        // Check state
+        let resource = manager.get_resource(0x100).unwrap();
+        assert_eq!(resource.allocated, 256);
+        assert_eq!(resource.available, 768);
+    }
+
+    #[test]
+    fn test_release_insufficient_allocated() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Allocate 512 bytes
+        manager.allocate(0x100, 512).unwrap();
+
+        // Try to release more than allocated
+        let result = manager.release(0x100, 1024);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Insufficient allocated resources")
+        );
+    }
+
+    #[test]
+    fn test_release_resource_not_found() {
+        let manager = ResourceManager::new();
+
+        // Try to release from non-existent resource
+        let result = manager.release(0x100, 512);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_get_resource_exists() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor.clone());
+
+        let resource = manager.get_resource(0x100);
+        assert!(resource.is_some());
+        assert_eq!(resource.unwrap().resource_id, 0x100);
+    }
+
+    #[test]
+    fn test_get_resource_not_exists() {
+        let manager = ResourceManager::new();
+
+        let resource = manager.get_resource(0x100);
+        assert!(resource.is_none());
+    }
+
+    #[test]
+    fn test_get_all_resources() {
+        let manager = ResourceManager::new();
+
+        // Add multiple resources
+        manager.add_resource(ResourceDescriptor::new(0x100, ResourceType::Memory, 1024));
+        manager.add_resource(ResourceDescriptor::new(0x101, ResourceType::Cpu, 4));
+        manager.add_resource(ResourceDescriptor::new(0x102, ResourceType::Disk, 1024));
+
+        let resources = manager.get_all_resources();
+        assert_eq!(resources.len(), 3);
+    }
+
+    #[test]
+    fn test_get_all_resources_empty() {
+        let manager = ResourceManager::new();
+
+        let resources = manager.get_all_resources();
+        assert_eq!(resources.len(), 0);
+    }
+
+    #[test]
+    fn test_clear_resources() {
+        let manager = ResourceManager::new();
+
+        // Add resources and allocate
+        manager.add_resource(ResourceDescriptor::new(0x100, ResourceType::Memory, 1024));
+        manager.allocate(0x100, 512).unwrap();
+
+        // Clear
+        manager.clear_resources();
+
+        // Check all cleared
+        let resources = manager.get_all_resources();
+        assert_eq!(resources.len(), 0);
+
+        assert_eq!(manager.get_allocation_count(), 0);
+    }
+
+    #[test]
+    fn test_get_allocation_count() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Initial count
+        assert_eq!(manager.get_allocation_count(), 0);
+
+        // After allocations
+        manager.allocate(0x100, 256).unwrap();
+        assert_eq!(manager.get_allocation_count(), 1);
+
+        manager.allocate(0x100, 256).unwrap();
+        assert_eq!(manager.get_allocation_count(), 2);
+    }
+
+    #[test]
+    fn test_multiple_allocations_and_releases() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Multiple allocations
+        manager.allocate(0x100, 256).unwrap();
+        manager.allocate(0x100, 256).unwrap();
+        manager.allocate(0x100, 256).unwrap();
+
+        let resource = manager.get_resource(0x100).unwrap();
+        assert_eq!(resource.allocated, 768);
+        assert_eq!(resource.available, 256);
+
+        // Multiple releases
+        manager.release(0x100, 128).unwrap();
+        manager.release(0x100, 128).unwrap();
+
+        let resource = manager.get_resource(0x100).unwrap();
+        assert_eq!(resource.allocated, 512);
+        assert_eq!(resource.available, 512);
+    }
+
+    #[test]
+    fn test_all_resource_types() {
+        let manager = ResourceManager::new();
+
+        manager.add_resource(ResourceDescriptor::new(0x100, ResourceType::Cpu, 4));
+        manager.add_resource(ResourceDescriptor::new(0x101, ResourceType::Memory, 1024));
+        manager.add_resource(ResourceDescriptor::new(0x102, ResourceType::Disk, 1024));
+        manager.add_resource(ResourceDescriptor::new(0x103, ResourceType::Network, 100));
+        manager.add_resource(ResourceDescriptor::new(0x104, ResourceType::Gpu, 1));
+
+        let resources = manager.get_all_resources();
+        assert_eq!(resources.len(), 5);
+
+        // Verify each type
+        let cpu = resources
+            .iter()
+            .find(|r| r.resource_type == ResourceType::Cpu);
+        assert!(cpu.is_some());
+        assert_eq!(cpu.unwrap().total, 4);
+
+        let memory = resources
+            .iter()
+            .find(|r| r.resource_type == ResourceType::Memory);
+        assert!(memory.is_some());
+        assert_eq!(memory.unwrap().total, 1024);
+    }
+
+    #[test]
+    fn test_allocate_all_available() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Allocate all
+        let result = manager.allocate(0x100, 1024);
+        assert!(result.is_ok());
+
+        let resource = manager.get_resource(0x100).unwrap();
+        assert_eq!(resource.available, 0);
+        assert_eq!(resource.allocated, 1024);
+        assert!(!resource.is_available());
+    }
+
+    #[test]
+    fn test_release_all_allocated() {
+        let manager = ResourceManager::new();
+        let descriptor = ResourceDescriptor::new(0x100, ResourceType::Memory, 1024);
+
+        manager.add_resource(descriptor);
+
+        // Allocate and release all
+        manager.allocate(0x100, 1024).unwrap();
+        manager.release(0x100, 1024).unwrap();
+
+        let resource = manager.get_resource(0x100).unwrap();
+        assert_eq!(resource.available, 1024);
+        assert_eq!(resource.allocated, 0);
+        assert!(resource.is_available());
+    }
+}

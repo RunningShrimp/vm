@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 raw-cpuid = { workspace = true, optional = true }
 num_cpus = { workspace = true }
 log = { workspace = true }

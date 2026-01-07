@@ -8,6 +8,8 @@ path = "src/lib.rs"
 required-features = ["jit"]
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 vm-mem = { path = "../vm-mem" }

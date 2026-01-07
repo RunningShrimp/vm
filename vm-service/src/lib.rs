@@ -61,7 +61,31 @@ impl VmService {
         tinfo!(guest_arch=?config.guest_arch, vcpus=?config.vcpu_count, mem=?config.memory_size, exec=?config.exec_mode, "service:new");
 
         // Create MMU - use Arc<SoftMmu> to share with device service
-        let mmu = Arc::new(SoftMmu::new(config.memory_size, false));
+        // For x86_64, increase physical memory to accommodate high load addresses (0x80000000+)
+        // This allows Bare mode (identity mapping) to work for kernel loading
+        let mmu_memory_size = match config.guest_arch {
+            vm_core::GuestArch::X86_64 => std::cmp::max(config.memory_size, 3 * 1024 * 1024 * 1024), // Min 3GB for x86_64
+            _ => config.memory_size,
+        };
+
+        let mut mmu = SoftMmu::new(mmu_memory_size, false);
+
+        // Set paging mode based on guest architecture
+        use vm_mem::PagingMode;
+        let paging_mode = match config.guest_arch {
+            vm_core::GuestArch::Riscv64 => PagingMode::Sv39,
+            vm_core::GuestArch::Arm64 => PagingMode::Arm64,
+            vm_core::GuestArch::X86_64 => {
+                // x86_64 MMU is now implemented - use X86_64 paging mode
+                PagingMode::X86_64
+            }
+            _ => PagingMode::Bare,
+        };
+        mmu.set_paging_mode(paging_mode);
+        info!("MMU paging mode set to {:?} for guest architecture {:?} (physical memory: {} MB)",
+              paging_mode, config.guest_arch, mmu_memory_size / (1024 * 1024));
+
+        let mmu = Arc::new(mmu);
         let vm_state: VirtualMachineState<IRBlock> =
             VirtualMachineState::new(config.clone(), Box::new((*mmu).clone()));
 
@@ -157,6 +181,17 @@ impl VmService {
         info!("Loading kernel from {} to {:#x}", path, addr);
         self.vm_service
             .load_kernel_file(path, vm_core::GuestAddr(addr))
+    }
+
+    /// Boot x86 kernel using real-mode boot executor
+    ///
+    /// This method uses the X86BootExecutor to handle the complete x86 boot sequence:
+    /// 1. Real-mode execution
+    /// 2. Mode transitions (Real → Protected → Long)
+    /// 3. Returns 64-bit kernel entry point
+    pub fn boot_x86_kernel(&mut self) -> Result<vm_service::x86_boot_exec::X86BootResult, VmError> {
+        info!("Booting x86 kernel with real-mode executor");
+        self.vm_service.boot_x86_kernel()
     }
 
     pub fn load_test_program(&mut self, code_base: u64) -> Result<(), VmError> {

@@ -22,6 +22,7 @@ pub mod encoding;
 pub mod encoding_cache;
 pub mod instruction_patterns;
 pub mod memory_access;
+pub mod optimized_pattern_cache;
 pub mod pattern_cache;
 pub mod register;
 pub mod translation_pipeline;
@@ -47,6 +48,7 @@ pub use memory_access::{
     FixCost, FixType, IssueSeverity, MemoryAccessAnalyzer, MemoryAccessOptimizer,
     MemoryAccessPattern, MemoryError, MemoryFlags, OptimizationType, OptimizedPattern,
 };
+pub use optimized_pattern_cache::OptimizedPatternMatchCache;
 pub use pattern_cache::{
     Arch as PatternArch, CacheStats, InstructionPattern as PatternInstructionPattern,
     OperandType as PatternOperandType, PatternFeatures, PatternMatchCache,

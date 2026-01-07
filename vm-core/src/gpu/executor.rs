@@ -172,10 +172,13 @@ impl GpuExecutor {
     /// # Arguments
     ///
     /// * `_instruction` - 指令字节码
+    ///
+    /// # Note
+    /// 当前简化实现：如果有GPU就返回true
+    /// 完整实现应该分析指令类型（矩阵运算、SIMD、并行计算等）
     pub fn can_execute_on_gpu(&self, _instruction: &[u8]) -> bool {
-        // TODO: 实现指令分析逻辑
-        // 当前简单返回true,实际应该分析指令类型
-        // 例如: 矩阵运算、SIMD操作、并行计算等适合GPU
+        // 简化实现：检查GPU可用性
+        // 未来改进：实现指令启发式分析，判断是否适合GPU执行
         self.has_gpu()
     }
 
@@ -410,8 +413,8 @@ impl GpuExecutor {
 
             // 如果缓存已满,移除最旧的条目
             if cache.len() >= self.config.max_cache_size {
-                // TODO: 实现LRU淘汰策略
-                // 当前简单移除第一个条目
+                // 简化的缓存淘汰策略：FIFO（先进先出）
+                // 未来改进：实现LRU（最近最少使用）策略
                 if let Some(key) = cache.keys().next().cloned() {
                     cache.remove(&key);
                 }

@@ -328,6 +328,21 @@
                         </div>
                     </div>
                 </div>
+                <div class="detail-section">
+                    <h3>控制台输出</h3>
+                    <div class="console-toolbar">
+                        <button class="btn-console" id="btnClearConsole">清空</button>
+                        <button class="btn-console" id="btnScrollConsole">自动滚动</button>
+                        <label class="console-checkbox">
+                            <input type="checkbox" id="chkAutoScroll" checked>
+                            <span>启用自动滚动</span>
+                        </label>
+                    </div>
+                    <div class="console-output" id="consoleOutput">
+                        <div class="console-line console-info">[系统] 控制台已准备就绪</div>
+                        <div class="console-line console-info">[系统] 启动虚拟机以查看输出</div>
+                    </div>
+                </div>
                 <div class="detail-actions">
                     <button class="btn btn-success" id="btnStartVm">▶️ 启动</button>
                     <button class="btn btn-warning" id="btnPauseVm">⏸️ 暂停</button>

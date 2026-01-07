@@ -63,6 +63,8 @@ pub use optimizer::{OptimizationLevel, OptimizationPreset, OptimizationStats, Pa
 // LLVMModule,     LLVMPassExecutor, OptimizationRunStats,
 // };
 #[cfg(feature = "llvm")]
+pub use inkwell::values::FunctionValue;
+#[cfg(feature = "llvm")]
 pub use inkwell_integration::{
     InkwellBuilder, InkwellCodeGenerator, InkwellContext, InkwellModule,
 };
@@ -109,6 +111,7 @@ impl LiftingContext {
 }
 
 pub type LiftResult<T> = Result<T, VmError>;
+pub type LiftError = VmError;
 
 #[cfg(test)]
 mod tests {

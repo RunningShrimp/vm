@@ -17,6 +17,8 @@ name = "vm_desktop"
 path = "src/lib.rs"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 tauri = "2.0"
 serde = { workspace = true }
 serde_json = { workspace = true }

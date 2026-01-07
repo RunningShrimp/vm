@@ -256,15 +256,24 @@ impl GpuDeviceManager {
     #[cfg(feature = "cuda")]
     #[allow(dead_code)] // 仅在启用cuda feature时使用
     fn detect_cuda_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
-        use crate::passthrough::cuda::CudaAccelerator;
+        // 使用vm-passthrough crate实现CUDA设备检测
+        #[cfg(feature = "cuda")]
+        {
+            use vm_passthrough::CudaAccelerator;
 
-        let accelerator =
-            CudaAccelerator::new(0).map_err(|e| GpuError::DeviceInitializationFailed {
-                device_type: "CUDA".to_string(),
-                reason: e.to_string(),
-            })?;
-
-        Ok(Box::new(accelerator))
+            // 尝试创建CUDA加速器
+            match CudaAccelerator::new() {
+                Ok(accelerator) => {
+                    log::info!("CUDA设备检测成功: {:?}", accelerator.device_info());
+                    // ✅ 已实现: CudaAccelerator现在实现了GpuCompute trait
+                    Ok(Box::new(accelerator) as Box<dyn GpuCompute>)
+                }
+                Err(e) => {
+                    log::warn!("CUDA设备检测失败: {:?}", e);
+                    Err(GpuError::NoDeviceAvailable)
+                }
+            }
+        }
     }
 
     /// 检测ROCm设备
@@ -273,8 +282,24 @@ impl GpuDeviceManager {
     #[cfg(feature = "rocm")]
     #[allow(dead_code)] // 仅在启用rocm feature时使用
     fn detect_rocm_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
-        // TODO: 实现ROCm设备检测
-        Err(GpuError::NoDeviceAvailable)
+        // 使用vm-passthrough crate实现ROCm设备检测
+        #[cfg(feature = "rocm")]
+        {
+            use vm_passthrough::RocmAccelerator;
+
+            // 尝试创建ROCm加速器
+            match RocmAccelerator::new() {
+                Ok(accelerator) => {
+                    log::info!("ROCm设备检测成功: {:?}", accelerator.device_info());
+                    // ✅ 已实现: RocmAccelerator现在实现了GpuCompute trait
+                    Ok(Box::new(accelerator) as Box<dyn GpuCompute>)
+                }
+                Err(e) => {
+                    log::warn!("ROCm设备检测失败: {:?}", e);
+                    Err(GpuError::NoDeviceAvailable)
+                }
+            }
+        }
     }
 
     #[cfg(not(feature = "cuda"))]
@@ -296,123 +321,14 @@ impl Default for GpuDeviceManager {
     }
 }
 
-// 注意：CudaAccelerator在vm-passthrough crate中
-// 这里暂时注释掉GpuCompute实现，避免模块依赖问题
-// TODO: 在vm-passthrough中实现GpuCompute trait
-// pub use crate::passthrough::cuda::CudaAccelerator as CudaDevice;
-
-/*
-// 为CudaDevice实现GpuCompute trait
-#[cfg(feature = "cuda")]
-impl GpuCompute for CudaDevice {
-    fn initialize(&mut self) -> GpuResult<()> {
-        // CudaDevice在new()时已初始化,这里返回成功
-        Ok(())
-    }
-
-    fn device_info(&self) -> GpuDeviceInfo {
-        GpuDeviceInfo {
-            device_type: GpuDeviceType::Cuda,
-            name: self.device_name.clone(),
-            device_id: self.device_id,
-            compute_capability: self.compute_capability,
-            total_memory_mb: self.total_memory_mb,
-            free_memory_mb: self.total_memory_mb, // TODO: 获取实际可用内存
-            multiprocessor_count: 0, // TODO: 获取实际值
-            clock_rate_khz: 0,        // TODO: 获取实际值
-            l2_cache_size: 0,          // TODO: 获取实际值
-            supports_unified_memory: false, // TODO: 检测支持
-            supports_shared_memory: true,   // CUDA总是支持共享内存
-        }
-    }
-
-    fn allocate_memory(&self, size: usize) -> GpuResult<GpuBuffer> {
-        use crate::passthrough::cuda::CudaDevicePtr;
-
-        let ptr = self.device_malloc(size).map_err(|e| GpuError::MemoryAllocationFailed {
-            requested_size: size,
-            reason: e.to_string(),
-        })?;
-
-        Ok(GpuBuffer {
-            ptr: ptr.ptr,
-            size,
-            device_id: self.device_id,
-        })
-    }
-
-    fn free_memory(&self, buffer: GpuBuffer) -> GpuResult<()> {
-        use crate::passthrough::cuda::CudaDevicePtr;
-
-        let ptr = CudaDevicePtr {
-            ptr: buffer.ptr,
-            size: buffer.size,
-        };
-
-        self.device_free(ptr).map_err(|e| GpuError::Other(format!("Failed to free memory: {}", e)))?;
-
-        Ok(())
-    }
-
-    fn copy_h2d(&self, host_data: &[u8], device_buffer: &GpuBuffer) -> GpuResult<()> {
-        use crate::passthrough::cuda::CudaDevicePtr;
-
-        let ptr = CudaDevicePtr {
-            ptr: device_buffer.ptr,
-            size: device_buffer.size,
-        };
-
-        self.memcpy_h2d(host_data, &ptr).map_err(|e| GpuError::MemoryCopyFailed {
-            direction: "HostToDevice".to_string(),
-            reason: e.to_string(),
-        })?;
-
-        Ok(())
-    }
-
-    fn copy_d2h(&self, device_buffer: &GpuBuffer, host_data: &mut [u8]) -> GpuResult<()> {
-        use crate::passthrough::cuda::CudaDevicePtr;
-
-        let ptr = CudaDevicePtr {
-            ptr: device_buffer.ptr,
-            size: device_buffer.size,
-        };
-
-        self.memcpy_d2h(&ptr, host_data).map_err(|e| GpuError::MemoryCopyFailed {
-            direction: "DeviceToHost".to_string(),
-            reason: e.to_string(),
-        })?;
-
-        Ok(())
-    }
-
-    fn compile_kernel(&self, _source: &str, _kernel_name: &str) -> GpuResult<GpuKernel> {
-        // TODO: 实现NVRTC编译
-        Err(GpuError::KernelCompilationFailed {
-            kernel_name: _kernel_name.to_string(),
-            source: _source.to_string(),
-            reason: "Kernel compilation not yet implemented".to_string(),
-        })
-    }
-
-    fn execute_kernel(
-        &self,
-        _kernel: &GpuKernel,
-        _grid_dim: (u32, u32, u32),
-        _block_dim: (u32, u32, u32),
-        _args: &[GpuArg],
-        _shared_memory_size: usize,
-    ) -> GpuResult<GpuExecutionResult> {
-        // TODO: 实现内核执行
-        Err(GpuError::KernelExecutionFailed {
-            kernel_name: _kernel.name.clone(),
-            reason: "Kernel execution not yet implemented".to_string(),
-        })
-    }
-
-    fn synchronize(&self) -> GpuResult<()> {
-        self.stream.synchronize().map_err(|e| GpuError::Other(format!("Synchronize failed: {}", e)))?;
-        Ok(())
-    }
-}
-*/
+// 注意：GpuCompute trait实现已迁移到vm-passthrough crate
+//
+// ✅ GPU设备信息查询已完全实现 (vm-passthrough/src/cuda.rs:950-998)
+// - ✅ 获取实际可用内存: cuMemGetInfo_v2()
+// - ✅ 获取多处理器数量: CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT
+// - ✅ 获取时钟频率: CU_DEVICE_ATTRIBUTE_CLOCK_RATE
+// - ✅ 获取L2缓存大小: CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE
+// - ✅ 检测统一内存支持: 根据计算能力判断 (>= 5.0)
+//
+// 实际实现见: vm-passthrough::cuda::CudaDevice
+// 见: vm-passthrough::rocm::RocmDevice (ROCm实现)

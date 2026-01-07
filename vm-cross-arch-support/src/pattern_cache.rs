@@ -711,4 +711,388 @@ mod tests {
         assert_eq!(cache.len(), 0);
         assert!(cache.is_empty());
     }
+
+    // ========== New Comprehensive Tests ==========
+
+    #[test]
+    fn test_all_arch_enum_variants() {
+        let archs = vec![
+            Arch::Unknown,
+            Arch::X86_64,
+            Arch::Riscv64,
+            Arch::AArch64,
+            Arch::Arm,
+        ];
+
+        assert_eq!(archs.len(), 5); // Verify all variants
+    }
+
+    #[test]
+    fn test_arch_default() {
+        let arch = Arch::default();
+        assert_eq!(arch, Arch::Unknown);
+    }
+
+    #[test]
+    fn test_pattern_features_all_true() {
+        let features = PatternFeatures {
+            has_load: true,
+            has_store: true,
+            has_branch: true,
+            has_arithmetic: true,
+            has_logic: true,
+            has_vector: true,
+            has_float: true,
+            operand_count: 5,
+            instruction_length: 16,
+            is_compressed: true,
+        };
+
+        assert!(features.has_load);
+        assert!(features.has_store);
+        assert!(features.has_branch);
+        assert!(features.has_arithmetic);
+        assert!(features.has_logic);
+        assert!(features.has_vector);
+        assert!(features.has_float);
+        assert_eq!(features.operand_count, 5);
+        assert_eq!(features.instruction_length, 16);
+        assert!(features.is_compressed);
+    }
+
+    #[test]
+    fn test_pattern_features_all_false() {
+        let features = PatternFeatures {
+            has_load: false,
+            has_store: false,
+            has_branch: false,
+            has_arithmetic: false,
+            has_logic: false,
+            has_vector: false,
+            has_float: false,
+            operand_count: 0,
+            instruction_length: 0,
+            is_compressed: false,
+        };
+
+        assert!(!features.has_load);
+        assert!(!features.has_store);
+        assert!(!features.has_branch);
+        assert!(!features.has_arithmetic);
+        assert!(!features.has_logic);
+        assert!(!features.has_vector);
+        assert!(!features.has_float);
+        assert_eq!(features.operand_count, 0);
+        assert_eq!(features.instruction_length, 0);
+        assert!(!features.is_compressed);
+    }
+
+    #[test]
+    fn test_pattern_features_clone() {
+        let features1 = PatternFeatures {
+            has_load: true,
+            has_store: false,
+            has_branch: false,
+            has_arithmetic: false,
+            has_logic: false,
+            has_vector: false,
+            has_float: false,
+            operand_count: 2,
+            instruction_length: 4,
+            is_compressed: false,
+        };
+
+        let features2 = features1.clone();
+        assert_eq!(features1, features2);
+        assert_eq!(features1.hash(), features2.hash());
+    }
+
+    #[test]
+    fn test_all_operand_types() {
+        let types = vec![
+            OperandType::Register,
+            OperandType::Immediate,
+            OperandType::Memory,
+            OperandType::Float,
+            OperandType::Vector,
+            OperandType::Unknown,
+        ];
+
+        assert_eq!(types.len(), 6); // Verify all variants
+    }
+
+    #[test]
+    fn test_instruction_pattern_creation() {
+        let pattern = InstructionPattern {
+            name: "test_pattern".to_string(),
+            arch: Arch::X86_64,
+            features: PatternFeatures {
+                has_load: true,
+                has_store: false,
+                has_branch: false,
+                has_arithmetic: false,
+                has_logic: false,
+                has_vector: false,
+                has_float: false,
+                operand_count: 2,
+                instruction_length: 4,
+                is_compressed: false,
+            },
+            operand_types: vec![OperandType::Register, OperandType::Memory],
+            is_memory: true,
+            is_control_flow: false,
+        };
+
+        assert_eq!(pattern.name, "test_pattern");
+        assert_eq!(pattern.arch, Arch::X86_64);
+        assert!(pattern.is_memory);
+        assert!(!pattern.is_control_flow);
+        assert_eq!(pattern.operand_types.len(), 2);
+    }
+
+    #[test]
+    fn test_instruction_pattern_clone() {
+        let pattern1 = InstructionPattern {
+            name: "test".to_string(),
+            arch: Arch::Riscv64,
+            features: PatternFeatures {
+                has_load: false,
+                has_store: false,
+                has_branch: true,
+                has_arithmetic: false,
+                has_logic: false,
+                has_vector: false,
+                has_float: false,
+                operand_count: 1,
+                instruction_length: 4,
+                is_compressed: false,
+            },
+            operand_types: vec![OperandType::Register],
+            is_memory: false,
+            is_control_flow: true,
+        };
+
+        let pattern2 = pattern1.clone();
+        assert_eq!(pattern1.name, pattern2.name);
+        assert_eq!(pattern1.arch, pattern2.arch);
+        assert_eq!(pattern1.is_control_flow, pattern2.is_control_flow);
+    }
+
+    #[test]
+    fn test_cache_eviction_when_full() {
+        let mut cache = PatternMatchCache::new(3); // Small cache
+
+        // Add 4 different patterns (should evict one)
+        for i in 0..4 {
+            let insn: u32 = 0x00000000 + (i as u32);
+            let bytes = insn.to_le_bytes();
+            cache.match_or_analyze(Arch::Riscv64, &bytes[..4]);
+        }
+
+        // Cache should not grow beyond max_entries
+        assert!(cache.len() <= 3);
+    }
+
+    #[test]
+    fn test_multiple_architectures_in_cache() {
+        let mut cache = PatternMatchCache::new(100);
+
+        let insn: u32 = 0x00000303;
+        let bytes = insn.to_le_bytes();
+
+        // Add same instruction for different architectures
+        cache.match_or_analyze(Arch::Riscv64, &bytes[..4]);
+        cache.match_or_analyze(Arch::X86_64, &bytes[..4]);
+        cache.match_or_analyze(Arch::AArch64, &bytes[..4]);
+        cache.match_or_analyze(Arch::Arm, &bytes[..4]);
+
+        // Each architecture should have its own entry
+        assert_eq!(cache.len(), 4);
+    }
+
+    #[test]
+    fn test_cache_stats_after_operations() {
+        let mut cache = PatternMatchCache::new(100);
+
+        let insn1: u32 = 0x00000303;
+        let insn2: u32 = 0x0010A023;
+        let bytes1 = insn1.to_le_bytes();
+        let bytes2 = insn2.to_le_bytes();
+
+        // First access (miss)
+        cache.match_or_analyze(Arch::Riscv64, &bytes1[..4]);
+        // Second access (hit)
+        cache.match_or_analyze(Arch::Riscv64, &bytes1[..4]);
+        // Third access (miss)
+        cache.match_or_analyze(Arch::Riscv64, &bytes2[..4]);
+        // Fourth access (hit)
+        cache.match_or_analyze(Arch::Riscv64, &bytes1[..4]);
+
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 2);
+        assert_eq!(stats.misses, 2);
+        assert!((stats.hit_rate - 0.5).abs() < 0.01);
+        assert_eq!(stats.hits + stats.misses, 4);
+    }
+
+    #[test]
+    fn test_hit_rate_with_no_accesses() {
+        let cache = PatternMatchCache::new(100);
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+        assert_eq!(stats.hit_rate, 0.0);
+    }
+
+    #[test]
+    fn test_invalidate_nonexistent_arch() {
+        let mut cache = PatternMatchCache::new(100);
+
+        let insn: u32 = 0x00000303;
+        let bytes = insn.to_le_bytes();
+        cache.match_or_analyze(Arch::Riscv64, &bytes[..4]);
+
+        let len_before = cache.len();
+        cache.invalidate_arch(Arch::X86_64); // This arch has no entries
+        assert_eq!(cache.len(), len_before); // Should not change
+    }
+
+    #[test]
+    fn test_invalidate_all_archs() {
+        let mut cache = PatternMatchCache::new(100);
+
+        let insn: u32 = 0x00000303;
+        let bytes = insn.to_le_bytes();
+
+        cache.match_or_analyze(Arch::Riscv64, &bytes[..4]);
+        cache.match_or_analyze(Arch::X86_64, &bytes[..4]);
+        cache.match_or_analyze(Arch::AArch64, &bytes[..4]);
+
+        assert_eq!(cache.len(), 3);
+
+        // Invalidate all
+        cache.invalidate_arch(Arch::Riscv64);
+        cache.invalidate_arch(Arch::X86_64);
+        cache.invalidate_arch(Arch::AArch64);
+
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_empty_cache_operations() {
+        let cache = PatternMatchCache::new(100);
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+
+        // Clearing empty cache should not panic
+        let mut cache = PatternMatchCache::new(100);
+        cache.clear();
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_x86_64_pattern_detection() {
+        let mut cache = PatternMatchCache::new(100);
+
+        // MOV EAX, [EBX] - load instruction
+        let mov_insn: u32 = 0x8B03; // Simplified x86 instruction
+        let bytes = mov_insn.to_le_bytes();
+
+        let pattern = cache.match_or_analyze(Arch::X86_64, &bytes[..2]);
+
+        // Should detect it as some kind of pattern
+        assert!(!pattern.name.is_empty());
+        assert_eq!(pattern.arch, Arch::X86_64);
+    }
+
+    #[test]
+    fn test_aarch64_pattern_detection() {
+        let mut cache = PatternMatchCache::new(100);
+
+        // LDR X0, [X1] - load instruction
+        let ldr_insn: u32 = 0xF9400000; // AArch64 LDR instruction
+        let bytes = ldr_insn.to_le_bytes();
+
+        let pattern = cache.match_or_analyze(Arch::AArch64, &bytes[..4]);
+
+        // Should detect it as some kind of pattern
+        assert!(!pattern.name.is_empty());
+        assert_eq!(pattern.arch, Arch::AArch64);
+    }
+
+    #[test]
+    fn test_arm_pattern_detection() {
+        let mut cache = PatternMatchCache::new(100);
+
+        // LDR R0, [R1] - ARM load instruction
+        let ldr_insn: u32 = 0xE5910000; // ARM LDR instruction
+        let bytes = ldr_insn.to_le_bytes();
+
+        let pattern = cache.match_or_analyze(Arch::Arm, &bytes[..4]);
+
+        // Should detect it as some kind of pattern
+        assert!(!pattern.name.is_empty());
+        assert_eq!(pattern.arch, Arch::Arm);
+    }
+
+    #[test]
+    fn test_pattern_with_memory_operands() {
+        let mut cache = PatternMatchCache::new(100);
+
+        // Load instruction should have memory operands
+        let insn: u32 = 0x00000303; // LB
+        let bytes = insn.to_le_bytes();
+
+        let pattern = cache.match_or_analyze(Arch::Riscv64, &bytes[..4]);
+
+        assert!(pattern.is_memory);
+        assert!(pattern.features.has_load);
+        assert!(!pattern.features.has_store);
+    }
+
+    #[test]
+    fn test_pattern_with_control_flow() {
+        let mut cache = PatternMatchCache::new(100);
+
+        // Branch instruction
+        let insn: u32 = 0x00000063; // BEQ
+        let bytes = insn.to_le_bytes();
+
+        let pattern = cache.match_or_analyze(Arch::Riscv64, &bytes[..4]);
+
+        assert!(pattern.is_control_flow);
+        assert!(pattern.features.has_branch);
+    }
+
+    #[test]
+    fn test_pattern_operand_types() {
+        let mut cache = PatternMatchCache::new(100);
+
+        let insn: u32 = 0x00000303; // LB with register operands
+        let bytes = insn.to_le_bytes();
+
+        let pattern = cache.match_or_analyze(Arch::Riscv64, &bytes[..4]);
+
+        // Should have some operand types
+        assert!(!pattern.operand_types.is_empty());
+    }
+
+    #[test]
+    fn test_different_instruction_lengths() {
+        let mut cache = PatternMatchCache::new(100);
+
+        // 4-byte instruction
+        let insn4: u32 = 0x00000303;
+        let bytes4 = insn4.to_le_bytes();
+        let pattern4 = cache.match_or_analyze(Arch::Riscv64, &bytes4[..4]);
+        assert_eq!(pattern4.features.instruction_length, 4);
+
+        // 2-byte compressed instruction
+        let insn2: u16 = 0x0001;
+        let bytes2 = insn2.to_le_bytes();
+        let pattern2 = cache.match_or_analyze(Arch::Riscv64, &bytes2[..2]);
+        assert_eq!(pattern2.features.instruction_length, 2);
+    }
 }

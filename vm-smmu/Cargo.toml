@@ -6,13 +6,12 @@ rust-version = "1.85"
 description = "ARM SMMUv3 Implementation for Virtual Machine DMA Virtualization"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 vm-core = { path = "../vm-core" }
 vm-platform = { path = "../vm-platform" }
 log = { workspace = true }
 thiserror = { workspace = true }
-anyhow = { workspace = true }
-parking_lot = { workspace = true }
-serde = { workspace = true }
 
 [lib]
 name = "vm_smmu"

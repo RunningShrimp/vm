@@ -46,6 +46,13 @@ use std::ptr;
 
 use super::{PassthroughError, PciAddress};
 
+// 导入vm-core的GPU类型以实现trait
+#[cfg(feature = "rocm")]
+use vm_core::gpu::{
+    GpuArg, GpuBuffer, GpuCompute, GpuDeviceInfo, GpuError, GpuExecutionResult, GpuKernel,
+    GpuResult,
+};
+
 // HIP Error codes
 pub const HIP_SUCCESS: c_int = 0;
 pub const HIP_ERROR_OUT_OF_MEMORY: c_int = 2;
@@ -501,5 +508,156 @@ mod tests {
 
         // 清理
         let _ = accelerator.free(d_ptr);
+    }
+}
+
+// ============================================================================
+// GpuCompute trait 实现
+// ============================================================================
+
+#[cfg(feature = "rocm")]
+impl GpuCompute for RocmAccelerator {
+    fn initialize(&mut self) -> GpuResult<()> {
+        // RocmAccelerator在创建时已经初始化
+        Ok(())
+    }
+
+    fn device_info(&self) -> GpuDeviceInfo {
+        // 获取实际GPU设备信息
+        // 注意: 这些值在实际硬件上应该通过ROCm API查询
+        // 当前实现返回基于架构信息的估算值
+
+        // 根据架构估算CU数量和缓存大小
+        let (cu_count, clock_rate, l2_cache) = match self.architecture.as_str() {
+            "gfx900" | "gfx906" | "gfx908" | "gfx90a" => {
+                // Vega 10 / Vega 20 / CDNA / CDNA2
+                (64, 1700, 4 * 1024) // 64 CUs, ~1.7GHz, 4MB L2
+            }
+            "gfx1030" | "gfx1031" | "gfx1032" | "gfx1034" | "gfx1035" => {
+                // RDNA2 (RX 6000 series)
+                (40, 2500, 1 * 1024) // 40 CUs, ~2.5GHz, 1MB L2
+            }
+            "gfx1100" | "gfx1101" | "gfx1102" | "gfx1103" => {
+                // RDNA3 (RX 7000 series)
+                (48, 2800, 2 * 1024) // 48 CUs, ~2.8GHz, 2MB L2
+            }
+            _ => {
+                // 保守的默认值
+                (32, 1500, 1 * 1024)
+            }
+        };
+
+        GpuDeviceInfo {
+            device_id: self.device_id as u32,
+            device_name: self.device_name.clone(),
+            vendor: "AMD".to_string(),
+            total_memory_mb: self.total_memory_mb,
+            free_memory_mb: self.total_memory_mb.saturating_sub(512), // 估算: 预留512MB给驱动
+            multiprocessor_count: cu_count,
+            clock_rate_khz: clock_rate * 1000,
+            l2_cache_size: l2_cache * 1024, // 转换为字节
+            supports_unified_memory: true,  // AMD GPU通常支持
+            compute_capability: self.architecture.clone(),
+        }
+    }
+
+    fn allocate_memory(&self, size: usize) -> GpuResult<GpuBuffer> {
+        let ptr = self.malloc(size)?;
+        Ok(GpuBuffer {
+            ptr: ptr.ptr,
+            size: ptr.size,
+        })
+    }
+
+    fn free_memory(&self, buffer: GpuBuffer) -> GpuResult<()> {
+        let device_ptr = RocmDevicePtr {
+            ptr: buffer.ptr,
+            size: buffer.size,
+        };
+        self.free(device_ptr)?;
+        Ok(())
+    }
+
+    fn copy_h2d(&self, host_data: &[u8], device_buffer: &GpuBuffer) -> GpuResult<()> {
+        let device_ptr = RocmDevicePtr {
+            ptr: device_buffer.ptr,
+            size: device_buffer.size,
+        };
+        self.memcpy_sync(device_ptr, host_data)?;
+        Ok(())
+    }
+
+    fn copy_d2h(&self, device_buffer: &GpuBuffer, host_data: &mut [u8]) -> GpuResult<()> {
+        // 实现device到host的内存复制
+        let device_ptr = RocmDevicePtr {
+            ptr: device_buffer.ptr,
+            size: device_buffer.size,
+        };
+
+        // 确保缓冲区大小匹配
+        if host_data.len() != device_buffer.size {
+            return Err(GpuError::MemoryTransferFailed {
+                message: format!(
+                    "Size mismatch: host buffer {} bytes, device buffer {} bytes",
+                    host_data.len(),
+                    device_buffer.size
+                ),
+            });
+        }
+
+        // 使用hipMemcpy从设备复制到主机
+        // HIP_DEVICE_TO_HOST = 2
+        unsafe {
+            let hip_result = hip
+                - runtime
+                - sys::hipMemcpy(
+                    host_data.as_mut_ptr() as *mut core::ffi::c_void,
+                    device_ptr.ptr,
+                    device_buffer.size,
+                    2, // hipMemcpyDeviceToHost
+                );
+
+            if hip_result != hip - runtime - sys::hipError_t::hipSuccess {
+                return Err(GpuError::MemoryTransferFailed {
+                    message: format!("hipMemcpy D2H failed with error: {:?}", hip_result),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    fn compile_kernel(&self, source: &str, kernel_name: &str) -> GpuResult<GpuKernel> {
+        // TODO: 实现HIPRTC编译
+        // 这需要集成HIP Runtime Compilation API
+        log::warn!(
+            "HIPRTC compilation not yet implemented for kernel: {}",
+            kernel_name
+        );
+        Err(GpuError::CompilationFailed {
+            kernel: kernel_name.to_string(),
+            message: "HIPRTC compilation not yet implemented".to_string(),
+        })
+    }
+
+    fn execute_kernel(
+        &self,
+        kernel: &GpuKernel,
+        grid_dim: (u32, u32, u32),
+        block_dim: (u32, u32, u32),
+        args: &[GpuArg],
+        shared_memory_size: usize,
+    ) -> GpuResult<GpuExecutionResult> {
+        // TODO: 实现内核执行
+        // 这需要hipLaunchKernel API
+        log::warn!("Kernel execution not yet implemented for: {}", kernel.name);
+        Err(GpuError::ExecutionFailed {
+            kernel: kernel.name.clone(),
+            message: "Kernel execution not yet implemented".to_string(),
+        })
+    }
+
+    fn synchronize(&self) -> GpuResult<()> {
+        Ok(())
     }
 }

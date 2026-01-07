@@ -727,4 +727,674 @@ mod tests {
         let vm_err: VmError = err.into();
         assert!(matches!(vm_err, VmError::Core(_)));
     }
+
+    // ========== New Comprehensive Tests for Coverage Enhancement ==========
+
+    #[test]
+    fn test_memory_access_pattern_builder_methods() {
+        // Test with_alignment
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1000, AccessWidth::Word)
+            .with_alignment(Alignment::Aligned4);
+        assert_eq!(pattern.alignment, Alignment::Aligned4);
+
+        // Test with_access_type
+        let pattern = pattern.with_access_type(AccessType::Write);
+        assert_eq!(pattern.access_type, AccessType::Write);
+
+        // Test with_flags
+        let flags = MemoryFlags {
+            is_volatile: true,
+            is_atomic: true,
+            ..Default::default()
+        };
+        let pattern = pattern.with_flags(flags);
+        assert!(pattern.flags.is_volatile);
+        assert!(pattern.flags.is_atomic);
+
+        // Test with_repeat
+        let pattern = pattern.with_repeat(10);
+        assert_eq!(pattern.repeat_count, Some(10));
+    }
+
+    #[test]
+    fn test_access_width_sizes() {
+        assert_eq!(
+            MemoryAccessPattern::new(RegId(0), 0, AccessWidth::Byte).size(),
+            1
+        );
+        assert_eq!(
+            MemoryAccessPattern::new(RegId(0), 0, AccessWidth::HalfWord).size(),
+            2
+        );
+        assert_eq!(
+            MemoryAccessPattern::new(RegId(0), 0, AccessWidth::Word).size(),
+            4
+        );
+        assert_eq!(
+            MemoryAccessPattern::new(RegId(0), 0, AccessWidth::DoubleWord).size(),
+            8
+        );
+        assert_eq!(
+            MemoryAccessPattern::new(RegId(0), 0, AccessWidth::QuadWord).size(),
+            16
+        );
+        assert_eq!(
+            MemoryAccessPattern::new(RegId(0), 0, AccessWidth::Vector(32)).size(),
+            32
+        );
+    }
+
+    #[test]
+    fn test_alignment_requirements() {
+        let pattern = MemoryAccessPattern::new(RegId(0), 0, AccessWidth::Word)
+            .with_alignment(Alignment::Unaligned);
+        assert_eq!(pattern.required_alignment(), 1);
+
+        let pattern = pattern.with_alignment(Alignment::Aligned2);
+        assert_eq!(pattern.required_alignment(), 2);
+
+        let pattern = pattern.with_alignment(Alignment::Aligned4);
+        assert_eq!(pattern.required_alignment(), 4);
+
+        let pattern = pattern.with_alignment(Alignment::Aligned8);
+        assert_eq!(pattern.required_alignment(), 8);
+
+        let pattern = pattern.with_alignment(Alignment::Aligned16);
+        assert_eq!(pattern.required_alignment(), 16);
+
+        let pattern = pattern.with_alignment(Alignment::Natural);
+        assert_eq!(pattern.required_alignment(), 4); // Word is 4 bytes
+
+        let pattern = pattern.with_alignment(Alignment::Strict);
+        assert_eq!(pattern.required_alignment(), 4); // Word is 4 bytes
+    }
+
+    #[test]
+    fn test_memory_flags_default() {
+        let flags = MemoryFlags::default();
+        assert!(!flags.is_volatile);
+        assert!(!flags.is_atomic);
+        assert!(!flags.is_acquire);
+        assert!(!flags.is_release);
+        assert!(!flags.is_locked);
+        assert!(!flags.is_cacheable);
+        assert!(!flags.is_privileged);
+        assert!(!flags.is_endian_aware);
+    }
+
+    #[test]
+    fn test_access_type_copy() {
+        let access1 = AccessType::Read;
+        let access2 = access1;
+        assert_eq!(access1, access2);
+    }
+
+    #[test]
+    fn test_access_width_copy() {
+        let width1 = AccessWidth::Word;
+        let width2 = width1;
+        assert_eq!(width1, width2);
+    }
+
+    #[test]
+    fn test_alignment_copy() {
+        let align1 = Alignment::Aligned4;
+        let align2 = align1;
+        assert_eq!(align1, align2);
+    }
+
+    #[test]
+    fn test_memory_error_partial_eq() {
+        let err1 = MemoryError::AlignmentViolation(0x1000, 4);
+        let err2 = MemoryError::AlignmentViolation(0x1000, 4);
+        let err3 = MemoryError::AlignmentViolation(0x1004, 4);
+
+        assert_eq!(err1, err2);
+        assert_ne!(err1, err3);
+    }
+
+    #[test]
+    fn test_all_alignment_values() {
+        let pattern = MemoryAccessPattern::new(RegId(0), 0, AccessWidth::Word);
+
+        // Test all alignment values
+        let alignments = vec![
+            Alignment::Natural,
+            Alignment::Unaligned,
+            Alignment::Aligned1,
+            Alignment::Aligned2,
+            Alignment::Aligned4,
+            Alignment::Aligned8,
+            Alignment::Aligned16,
+            Alignment::Aligned32,
+            Alignment::Aligned64,
+            Alignment::Strict,
+        ];
+
+        for alignment in alignments {
+            let pattern = pattern.clone().with_alignment(alignment);
+            assert!(pattern.required_alignment() >= 1);
+        }
+    }
+
+    #[test]
+    fn test_all_access_types() {
+        let access_types = vec![
+            AccessType::Read,
+            AccessType::Write,
+            AccessType::ReadWrite,
+            AccessType::Execute,
+            AccessType::AtomicRead,
+            AccessType::AtomicWrite,
+            AccessType::AtomicReadWrite,
+        ];
+
+        for access_type in access_types {
+            let pattern = MemoryAccessPattern::new(RegId(0), 0, AccessWidth::Word)
+                .with_access_type(access_type);
+            assert_eq!(pattern.access_type, access_type);
+        }
+    }
+
+    #[test]
+    fn test_vector_access_width() {
+        let pattern = MemoryAccessPattern::new(RegId(0), 0, AccessWidth::Vector(16));
+        assert_eq!(pattern.size(), 16);
+        assert_eq!(pattern.required_alignment(), 16); // Natural alignment
+    }
+
+    #[test]
+    fn test_default_memory_access_optimizer_all_architectures() {
+        // Test X86_64
+        let optimizer_x86 = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+        assert_eq!(optimizer_x86.name(), "DefaultMemoryAccessOptimizer");
+        assert_eq!(optimizer_x86.cache_line_size, 64);
+        assert_eq!(optimizer_x86.vector_width, 32);
+
+        // Test ARM64
+        let optimizer_arm = DefaultMemoryAccessOptimizer::new(Architecture::ARM64);
+        assert_eq!(optimizer_arm.cache_line_size, 64);
+        assert_eq!(optimizer_arm.vector_width, 32);
+
+        // Test RISCV64
+        let optimizer_riscv = DefaultMemoryAccessOptimizer::new(Architecture::RISCV64);
+        assert_eq!(optimizer_riscv.cache_line_size, 64);
+        assert_eq!(optimizer_riscv.vector_width, 32);
+    }
+
+    #[test]
+    fn test_optimizer_vectorization_opportunity() {
+        let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+
+        // Create a pattern with repeat count > 1 (vectorization opportunity)
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1000, AccessWidth::Word).with_repeat(10);
+
+        let result = optimizer.optimize_access_pattern(&pattern);
+
+        // Should detect vectorization opportunity
+        assert!(result.performance_gain > 0.0);
+        assert_ne!(result.optimization_type, OptimizationType::NoOptimization);
+    }
+
+    #[test]
+    fn test_optimizer_cache_line_optimization() {
+        let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+
+        // Create a pattern with unaligned cache line address
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1041, AccessWidth::Word); // Not cache line aligned
+
+        let result = optimizer.optimize_access_pattern(&pattern);
+
+        // Should optimize for cache line alignment
+        assert!(result.performance_gain > 0.0);
+    }
+
+    #[test]
+    fn test_detect_alignment_issues() {
+        let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+
+        // Create a pattern with misaligned address
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1001, AccessWidth::Word)
+            .with_alignment(Alignment::Aligned4);
+
+        let issues = optimizer.detect_alignment_issues(&pattern);
+
+        assert!(!issues.is_empty());
+        assert_eq!(issues[0].required_alignment, 4);
+    }
+
+    #[test]
+    fn test_detect_alignment_issues_atomic_critical() {
+        let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+
+        // Create a pattern with atomic access and misalignment
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1001, AccessWidth::Word)
+            .with_alignment(Alignment::Aligned4);
+        let mut flags = MemoryFlags::default();
+        flags.is_atomic = true;
+        let pattern = pattern.with_flags(flags);
+
+        let issues = optimizer.detect_alignment_issues(&pattern);
+
+        assert!(!issues.is_empty());
+        assert_eq!(issues[0].severity, IssueSeverity::Critical);
+    }
+
+    #[test]
+    fn test_detect_alignment_issues_quadword() {
+        let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+
+        // Create a pattern with QuadWord and misalignment
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1001, AccessWidth::QuadWord)
+            .with_alignment(Alignment::Natural);
+
+        let issues = optimizer.detect_alignment_issues(&pattern);
+
+        assert!(!issues.is_empty());
+        assert_eq!(issues[0].severity, IssueSeverity::Error);
+    }
+
+    #[test]
+    fn test_suggest_fixes() {
+        let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1001, AccessWidth::Word)
+            .with_alignment(Alignment::Aligned4);
+
+        let issues = optimizer.detect_alignment_issues(&pattern);
+        let fixes = optimizer.suggest_fixes(&issues);
+
+        assert!(!fixes.is_empty());
+        // For Warning severity, it suggests UseUnalignedAccess which is the default
+        assert!(matches!(
+            fixes[0].fix_type,
+            FixType::UseUnalignedAccess | FixType::AdjustOffset | FixType::AlignAddress
+        ));
+    }
+
+    #[test]
+    fn test_suggest_fixes_critical_severity() {
+        let optimizer = DefaultMemoryAccessOptimizer::new(Architecture::X86_64);
+
+        let mut flags = MemoryFlags::default();
+        flags.is_atomic = true;
+
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1001, AccessWidth::Word)
+            .with_alignment(Alignment::Aligned4)
+            .with_flags(flags);
+
+        let issues = optimizer.detect_alignment_issues(&pattern);
+        let fixes = optimizer.suggest_fixes(&issues);
+
+        assert_eq!(fixes[0].fix_type, FixType::AlignAddress);
+        assert_eq!(fixes[0].cost_estimate, FixCost::Medium);
+    }
+
+    #[test]
+    fn test_endianness_same_endian_conversion() {
+        let converter = EndiannessConverter::new(
+            Endianness::Little,
+            Endianness::Little,
+            ConversionStrategy::Direct,
+        );
+
+        let mut data = vec![0x12, 0x34, 0x56, 0x78];
+        converter.convert(&mut data).unwrap();
+
+        // Should remain unchanged
+        assert_eq!(data, vec![0x12, 0x34, 0x56, 0x78]);
+    }
+
+    #[test]
+    fn test_endianness_big_to_little() {
+        let converter = EndiannessConverter::new(
+            Endianness::Big,
+            Endianness::Little,
+            ConversionStrategy::Direct,
+        );
+
+        let mut data = vec![0x12, 0x34, 0x56, 0x78];
+        converter.convert(&mut data).unwrap();
+
+        assert_eq!(data, vec![0x78, 0x56, 0x34, 0x12]);
+    }
+
+    #[test]
+    fn test_endianness_optimized_conversion() {
+        let converter = EndiannessConverter::new(
+            Endianness::Little,
+            Endianness::Big,
+            ConversionStrategy::Optimized,
+        );
+
+        // Test 2-byte conversion
+        let mut data2 = vec![0x12, 0x34];
+        converter.convert(&mut data2).unwrap();
+        assert_eq!(data2, vec![0x34, 0x12]);
+
+        // Test 4-byte conversion
+        let mut data4 = vec![0x12, 0x34, 0x56, 0x78];
+        converter.convert(&mut data4).unwrap();
+        assert_eq!(data4, vec![0x78, 0x56, 0x34, 0x12]);
+
+        // Test 8-byte conversion
+        let mut data8 = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        converter.convert(&mut data8).unwrap();
+        assert_eq!(data8, vec![0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]);
+    }
+
+    #[test]
+    fn test_endianness_16byte_optimized_conversion() {
+        let converter = EndiannessConverter::new(
+            Endianness::Little,
+            Endianness::Big,
+            ConversionStrategy::Optimized,
+        );
+
+        let mut data = vec![
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+            0x0F, 0x10,
+        ];
+        converter.convert(&mut data).unwrap();
+
+        assert_eq!(
+            data,
+            vec![
+                0x10, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03,
+                0x02, 0x01
+            ]
+        );
+    }
+
+    #[test]
+    fn test_endianness_lazy_conversion() {
+        let converter = EndiannessConverter::new(
+            Endianness::Little,
+            Endianness::Big,
+            ConversionStrategy::Lazy,
+        );
+
+        let mut data = vec![0x12, 0x34, 0x56, 0x78];
+        let result = converter.convert(&mut data);
+
+        // Lazy conversion should succeed (deferred)
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_endianness_precomputed_conversion() {
+        let converter = EndiannessConverter::new(
+            Endianness::Little,
+            Endianness::Big,
+            ConversionStrategy::Precomputed,
+        );
+
+        let mut data = vec![0x12, 0x34, 0x56, 0x78];
+        converter.convert(&mut data).unwrap();
+
+        // Should perform conversion (falls back to direct)
+        assert_eq!(data, vec![0x78, 0x56, 0x34, 0x12]);
+    }
+
+    #[test]
+    fn test_endianness_copy() {
+        let endian1 = Endianness::Little;
+        let endian2 = endian1;
+        assert_eq!(endian1, endian2);
+    }
+
+    #[test]
+    fn test_conversion_strategy_copy() {
+        let strategy1 = ConversionStrategy::Optimized;
+        let strategy2 = strategy1;
+        assert_eq!(strategy1, strategy2);
+    }
+
+    #[test]
+    fn test_memory_access_analyzer_unaligned_tracking() {
+        let mut analyzer = MemoryAccessAnalyzer::new();
+
+        // Add unaligned access
+        analyzer.add_pattern(
+            MemoryAccessPattern::new(RegId(0), 0x1001, AccessWidth::Word)
+                .with_alignment(Alignment::Unaligned),
+        );
+
+        // Add aligned access
+        analyzer.add_pattern(
+            MemoryAccessPattern::new(RegId(1), 0x1000, AccessWidth::Word)
+                .with_alignment(Alignment::Aligned4),
+        );
+
+        let result = analyzer.analyze();
+        assert_eq!(result.unaligned_accesses, 1);
+        assert_eq!(result.total_accesses, 2);
+        assert!(result.unaligned_percentage > 0.0);
+    }
+
+    #[test]
+    fn test_memory_access_analyzer_atomic_tracking() {
+        let mut analyzer = MemoryAccessAnalyzer::new();
+
+        // Add atomic access
+        let mut flags = MemoryFlags::default();
+        flags.is_atomic = true;
+
+        analyzer.add_pattern(
+            MemoryAccessPattern::new(RegId(0), 0x1000, AccessWidth::Word).with_flags(flags),
+        );
+
+        let result = analyzer.analyze();
+        assert_eq!(result.atomic_accesses, 1);
+        assert_eq!(result.total_accesses, 1);
+        assert!(result.atomic_percentage > 0.0);
+    }
+
+    #[test]
+    fn test_memory_access_analyzer_vector_tracking() {
+        let mut analyzer = MemoryAccessAnalyzer::new();
+
+        // Add vector access
+        analyzer.add_pattern(MemoryAccessPattern::new(
+            RegId(0),
+            0x1000,
+            AccessWidth::Vector(16),
+        ));
+
+        let result = analyzer.analyze();
+        assert_eq!(result.vector_accesses, 1);
+        assert_eq!(result.total_accesses, 1);
+        assert!(result.vector_percentage > 0.0);
+    }
+
+    #[test]
+    fn test_memory_access_analyzer_size_distribution() {
+        let mut analyzer = MemoryAccessAnalyzer::new();
+
+        analyzer.add_pattern(MemoryAccessPattern::new(
+            RegId(0),
+            0x1000,
+            AccessWidth::Byte,
+        ));
+        analyzer.add_pattern(MemoryAccessPattern::new(
+            RegId(1),
+            0x1004,
+            AccessWidth::Word,
+        ));
+        analyzer.add_pattern(MemoryAccessPattern::new(
+            RegId(2),
+            0x1008,
+            AccessWidth::Word,
+        ));
+        analyzer.add_pattern(MemoryAccessPattern::new(
+            RegId(3),
+            0x1010,
+            AccessWidth::DoubleWord,
+        ));
+
+        let result = analyzer.analyze();
+
+        assert_eq!(result.total_accesses, 4);
+        assert_eq!(result.size_distribution.get(&1), Some(&1));
+        assert_eq!(result.size_distribution.get(&4), Some(&2));
+        assert_eq!(result.size_distribution.get(&8), Some(&1));
+        assert_eq!(result.most_common_size, Some(4)); // Word appears twice
+    }
+
+    #[test]
+    fn test_issue_severity_levels() {
+        let severities = vec![
+            IssueSeverity::Warning,
+            IssueSeverity::Error,
+            IssueSeverity::Critical,
+        ];
+
+        for severity in severities {
+            assert!(matches!(
+                severity,
+                IssueSeverity::Warning | IssueSeverity::Error | IssueSeverity::Critical
+            ));
+        }
+    }
+
+    #[test]
+    fn test_fix_type_all_values() {
+        let fix_types = vec![
+            FixType::UseUnalignedAccess,
+            FixType::AlignAddress,
+            FixType::AdjustOffset,
+            FixType::ChangeAccessWidth,
+            FixType::InsertPadding,
+            FixType::RestructureAccess,
+        ];
+
+        for fix_type in fix_types {
+            assert!(matches!(
+                fix_type,
+                FixType::UseUnalignedAccess
+                    | FixType::AlignAddress
+                    | FixType::AdjustOffset
+                    | FixType::ChangeAccessWidth
+                    | FixType::InsertPadding
+                    | FixType::RestructureAccess
+            ));
+        }
+    }
+
+    #[test]
+    fn test_fix_cost_levels() {
+        let costs = vec![
+            FixCost::None,
+            FixCost::Low,
+            FixCost::Medium,
+            FixCost::High,
+            FixCost::Unknown,
+        ];
+
+        for cost in costs {
+            assert!(matches!(
+                cost,
+                FixCost::None | FixCost::Low | FixCost::Medium | FixCost::High | FixCost::Unknown
+            ));
+        }
+    }
+
+    #[test]
+    fn test_optimization_type_all_values() {
+        let opt_types = vec![
+            OptimizationType::NoOptimization,
+            OptimizationType::AlignedAccess,
+            OptimizationType::CombinedAccess,
+            OptimizationType::VectorizedAccess,
+            OptimizationType::Prefetch,
+            OptimizationType::CacheLineOptimized,
+            OptimizationType::BurstAccess,
+        ];
+
+        for opt_type in opt_types {
+            assert!(matches!(
+                opt_type,
+                OptimizationType::NoOptimization
+                    | OptimizationType::AlignedAccess
+                    | OptimizationType::CombinedAccess
+                    | OptimizationType::VectorizedAccess
+                    | OptimizationType::Prefetch
+                    | OptimizationType::CacheLineOptimized
+                    | OptimizationType::BurstAccess
+            ));
+        }
+    }
+
+    #[test]
+    fn test_optimized_pattern_clone() {
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1000, AccessWidth::Word);
+
+        let optimized = OptimizedPattern {
+            original: pattern.clone(),
+            optimized: pattern,
+            optimization_type: OptimizationType::AlignedAccess,
+            performance_gain: 0.25,
+        };
+
+        let cloned = optimized.clone();
+        assert_eq!(cloned.performance_gain, optimized.performance_gain);
+    }
+
+    #[test]
+    fn test_alignment_issue_clone() {
+        let issue = AlignmentIssue {
+            address: 0x1001,
+            required_alignment: 4,
+            actual_alignment: 1,
+            severity: IssueSeverity::Warning,
+            description: "Test issue".to_string(),
+        };
+
+        let cloned = issue.clone();
+        assert_eq!(cloned.address, issue.address);
+        assert_eq!(cloned.severity, issue.severity);
+    }
+
+    #[test]
+    fn test_memory_access_pattern_clone() {
+        let pattern = MemoryAccessPattern::new(RegId(0), 0x1000, AccessWidth::Word)
+            .with_alignment(Alignment::Aligned4)
+            .with_access_type(AccessType::Read);
+
+        let cloned = pattern.clone();
+        assert_eq!(cloned.base_reg, pattern.base_reg);
+        assert_eq!(cloned.alignment, pattern.alignment);
+        assert_eq!(cloned.access_type, pattern.access_type);
+    }
+
+    #[test]
+    fn test_memory_flags_clone() {
+        let flags = MemoryFlags {
+            is_volatile: true,
+            is_atomic: true,
+            ..Default::default()
+        };
+
+        let cloned = flags.clone();
+        assert_eq!(cloned.is_volatile, flags.is_volatile);
+        assert_eq!(cloned.is_atomic, flags.is_atomic);
+    }
+
+    #[test]
+    fn test_analysis_result_default() {
+        let result = AnalysisResult {
+            total_accesses: 0,
+            unaligned_accesses: 0,
+            atomic_accesses: 0,
+            vector_accesses: 0,
+            unaligned_percentage: 0.0,
+            atomic_percentage: 0.0,
+            vector_percentage: 0.0,
+            size_distribution: HashMap::new(),
+            most_common_size: None,
+        };
+
+        assert_eq!(result.total_accesses, 0);
+        assert!(result.size_distribution.is_empty());
+    }
 }
