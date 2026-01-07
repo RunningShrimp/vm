@@ -50,6 +50,10 @@ use std::time::Instant;
 
 use super::{PassthroughError, PciAddress};
 
+// 导入vm-core的GPU类型以实现trait
+#[cfg(feature = "cuda")]
+use vm_core::gpu::{GpuBuffer, GpuCompute, GpuDeviceInfo, GpuExecutionResult, GpuKernel, GpuArg, GpuResult, GpuError};
+
 /// CUDA 设备指针
 #[derive(Debug, Clone, Copy)]
 pub struct CudaDevicePtr {
@@ -414,9 +418,12 @@ impl CudaAccelerator {
                         ))
                     })?;
                 },
-                CudaMemcpyKind::DeviceToDevice => {
+                CudaMemcpyKind::DeviceToDevice => unsafe {
+                    // 注意: 这里dst和src都应该解释为CudaDevicePtr
+                    // 但当前API签名使用src: &[u8]，这在DeviceToDevice情况下不太合适
+                    // 这是一个临时解决方案，更好的做法是改变API签名
                     return Err(PassthroughError::DriverBindingFailed(
-                        "Device-to-device memcpy not yet implemented".to_string(),
+                        "Device-to-device memcpy requires special API. Use memcpy_d2d() instead.".to_string(),
                     ));
                 }
             }
@@ -436,6 +443,129 @@ impl CudaAccelerator {
                 kind,
                 src.len().min(dst.size)
             );
+        }
+
+        Ok(())
+    }
+
+    /// 设备到设备的内存复制
+    ///
+    /// 在GPU设备内存之间复制数据，比Host中转更高效。
+    ///
+    /// # Arguments
+    ///
+    /// * `dst` - 目标设备指针
+    /// * `src` - 源设备指针
+    /// * `size` - 要复制的字节数
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let accel = CudaAccelerator::new(0)?;
+    /// let src = accel.malloc(1024)?;
+    /// let dst = accel.malloc(1024)?;
+    /// // 直接在GPU内存间复制，无需Host中转
+    /// accel.memcpy_d2d(dst, src, 1024)?;
+    /// ```
+    pub fn memcpy_d2d(
+        &self,
+        dst: CudaDevicePtr,
+        src: CudaDevicePtr,
+        size: usize,
+    ) -> Result<(), PassthroughError> {
+        log::trace!("Device-to-device memcpy: {} bytes", size);
+
+        #[cfg(feature = "cuda")]
+        {
+            use cudarc::driver::result;
+
+            let start = Instant::now();
+            let copy_size = std::cmp::min(size, std::cmp::min(dst.size, src.size));
+
+            unsafe {
+                result::cuMemcpyDtoD_v2(
+                    dst.ptr as *mut std::ffi::c_void,
+                    src.ptr as *const std::ffi::c_void,
+                    copy_size,
+                )
+                .map_err(|e| {
+                    PassthroughError::DriverBindingFailed(format!(
+                        "CUDA D2D memcpy failed: {:?}",
+                        e
+                    ))
+                })?;
+            }
+
+            log::trace!("D2D memcpy: {} bytes in {:?}", copy_size, start.elapsed());
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            log::trace!("Mock D2D memcpy: {} bytes", size);
+        }
+
+        Ok(())
+    }
+
+    /// 异步设备到设备内存复制
+    ///
+    /// 异步版本，在指定的CUDA流上执行复制操作。
+    ///
+    /// # Arguments
+    ///
+    /// * `dst` - 目标设备指针
+    /// * `src` - 源设备指针
+    /// * `size` - 要复制的字节数
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let accel = CudaAccelerator::new(0)?;
+    /// let src = accel.malloc(1024)?;
+    /// let dst = accel.memcpy_d2d_async(dst, src, 1024).await?;
+    /// // 等待操作完成
+    /// accel.stream.synchronize()?;
+    /// ```
+    pub async fn memcpy_d2d_async(
+        &self,
+        dst: CudaDevicePtr,
+        src: CudaDevicePtr,
+        size: usize,
+    ) -> Result<(), PassthroughError> {
+        log::trace!("Async device-to-device memcpy: {} bytes", size);
+
+        #[cfg(feature = "cuda")]
+        {
+            use cudarc::driver::result;
+
+            let start = Instant::now();
+            let copy_size = std::cmp::min(size, std::cmp::min(dst.size, src.size));
+
+            unsafe {
+                result::cuMemcpyDtoDAsync_v2(
+                    dst.ptr as *mut std::ffi::c_void,
+                    src.ptr as *const std::ffi::c_void,
+                    copy_size,
+                    self.stream.stream.as_ptr(),
+                )
+                .map_err(|e| {
+                    PassthroughError::DriverBindingFailed(format!(
+                        "CUDA async D2D memcpy failed: {:?}",
+                        e
+                    ))
+                })?;
+            }
+
+            log::trace!(
+                "Async D2D memcpy: {} bytes in {:?}",
+                copy_size,
+                start.elapsed()
+            );
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            log::trace!("Mock async D2D memcpy: {} bytes", size);
         }
 
         Ok(())
@@ -493,34 +623,190 @@ impl GpuKernel {
     }
 
     /// 执行内核
+    ///
+    /// 使用 cuLaunchKernel API 启动 CUDA 内核
+    ///
+    /// # Arguments
+    ///
+    /// * `grid_dim` - 网格维度 (x, y, z)
+    /// * `block_dim` - 块维度 (x, y, z)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let kernel = GpuKernel::new("my_kernel".to_string());
+    /// // 启动内核：1个块，每个块32个线程
+    /// kernel.launch((1, 1, 1), (32, 1, 1))?;
+    /// ```
     pub fn launch(
         &self,
-        _grid_dim: (u32, u32, u32),
-        _block_dim: (u32, u32, u32),
+        grid_dim: (u32, u32, u32),
+        block_dim: (u32, u32, u32),
     ) -> Result<(), PassthroughError> {
-        log::debug!("Launching GPU kernel: {}", self.name);
+        log::debug!(
+            "Launching GPU kernel '{}' with grid {:?} and block {:?}",
+            self.name,
+            grid_dim,
+            block_dim
+        );
 
         #[cfg(feature = "cuda")]
         {
-            // #[cfg(feature = "cuda")]
-            // WIP: 实现CUDA内核启动逻辑
-            //
-            // 当前状态: API stub已定义，等待完整实现
-            // 依赖: cuda-rs驱动绑定（需要维护者支持）
-            // 优先级: P2（平台特定功能）
-            // 跟踪: https://github.com/project/vm/issues/[待创建]
-            //
-            // 实现要点:
-            // - 使用cuLaunchKernel API启动内核
-            // - 处理网格和块配置
-            // - 管理内核参数
-            // - 处理异步执行和同步
-            log::warn!("GPU kernel launch not yet implemented");
+            use cudarc::driver::result;
+
+            // 检查内核是否已加载
+            if self.kernel_ptr == 0 {
+                return Err(PassthroughError::DriverBindingFailed(
+                    format!("Kernel '{}' not loaded. Call load_from_ptx() first.", self.name)
+                ));
+            }
+
+            unsafe {
+                // 启动内核
+                // 参数说明:
+                // - f: 内核函数指针
+                // - gridDimX/Y/Z: 网格维度
+                // - blockDimX/Y/Z: 块维度
+                // - sharedMemBytes: 共享内存大小 (bytes)
+                // - hStream: CUDA 流
+                // - kernelParams: 内核参数数组
+                // - extra: 额外参数
+                result::cuLaunchKernel(
+                    self.kernel_ptr as *mut std::ffi::c_void,
+                    grid_dim.0,
+                    grid_dim.1,
+                    grid_dim.2,
+                    block_dim.0,
+                    block_dim.1,
+                    block_dim.2,
+                    0, // sharedMemBytes - 暂不支持动态共享内存
+                    std::ptr::null_mut(), // hStream - 使用默认流
+                    std::ptr::null_mut(), // kernelParams - 暂不支持参数传递
+                    std::ptr::null_mut(), // extra - 暂不支持额外参数
+                )
+                .map_err(|e| {
+                    PassthroughError::DriverBindingFailed(format!(
+                        "Failed to launch kernel '{}': {:?}",
+                        self.name, e
+                    ))
+                })?;
+
+                log::trace!(
+                    "Kernel '{}' launched successfully (grid: {:?}, block: {:?})",
+                    self.name,
+                    grid_dim,
+                    block_dim
+                );
+            }
         }
 
         #[cfg(not(feature = "cuda"))]
         {
-            log::warn!("GPU kernel launch called but CUDA not enabled");
+            log::warn!(
+                "GPU kernel launch called but CUDA not enabled (kernel: '{}')",
+                self.name
+            );
+        }
+
+        Ok(())
+    }
+
+    /// 从 PTX (Parallel Thread Execution) 代码加载内核
+    ///
+    /// PTX 是 CUDA 的汇编语言，需要从 PTX 代码中加载内核才能执行。
+    ///
+    /// # Arguments
+    ///
+    /// * `accelerator` - CUDA 加速器引用
+    /// * `ptx_code` - PTX 代码字符串
+    /// * `kernel_name` - 要加载的内核名称
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let accelerator = CudaAccelerator::new(0)?;
+    /// let mut kernel = GpuKernel::new("my_kernel".to_string());
+    /// let ptx = r#"
+    ///     .version 7.5
+    ///     .target sm_50
+    ///     .address_size 64
+    ///
+    ///     .visible .entry my_kernel(
+    ///         .param .u64 .ptr .global .align 8 input
+    ///     )
+    ///     {
+    ///         ret;
+    ///     }
+    /// "#;
+    /// kernel.load_from_ptx(&accelerator, ptx, "my_kernel")?;
+    /// ```
+    pub fn load_from_ptx(
+        &mut self,
+        accelerator: &CudaAccelerator,
+        ptx_code: &str,
+        kernel_name: &str,
+    ) -> Result<(), PassthroughError> {
+        log::info!("Loading CUDA kernel '{}' from PTX", kernel_name);
+
+        #[cfg(feature = "cuda")]
+        {
+            use cudarc::driver::result;
+
+            unsafe {
+                // 加载 PTX 模块
+                let mut module = std::ptr::null_mut();
+                result::cuModuleLoadData(
+                    &mut module,
+                    ptx_code.as_ptr() as *const std::ffi::c_void,
+                )
+                .map_err(|e| {
+                    PassthroughError::DriverBindingFailed(format!(
+                        "Failed to load PTX module for kernel '{}': {:?}",
+                        kernel_name, e
+                    ))
+                })?;
+
+                // 获取内核函数指针
+                let mut kernel_ptr = 0u64;
+                result::cuModuleGetFunction(
+                    &mut kernel_ptr as *mut u64 as *mut *mut std::ffi::c_void,
+                    module,
+                    std::ffi::CString::new(kernel_name)
+                        .map_err(|e| {
+                            PassthroughError::DriverBindingFailed(format!(
+                                "Invalid kernel name '{}': {}",
+                                kernel_name, e
+                            ))
+                        })?
+                        .as_ptr(),
+                )
+                .map_err(|e| {
+                    PassthroughError::DriverBindingFailed(format!(
+                        "Failed to get kernel '{}' from module: {:?}",
+                        kernel_name, e
+                    ))
+                })?;
+
+                self.kernel_ptr = kernel_ptr;
+                self.name = kernel_name.to_string();
+
+                log::info!(
+                    "Kernel '{}' loaded successfully (ptr: 0x{:x})",
+                    kernel_name,
+                    kernel_ptr
+                );
+
+                // 注意: 这里不立即卸载模块，因为内核需要它
+                // 在实际生产代码中，应该在 GpuKernel 的 Drop 中处理模块卸载
+            }
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            log::warn!(
+                "load_from_ptx called but CUDA not enabled (kernel: '{}')",
+                kernel_name
+            );
         }
 
         Ok(())
@@ -605,7 +891,373 @@ mod tests {
         let kernel = GpuKernel::new("test_kernel".to_string());
         assert_eq!(kernel.name, "test_kernel");
 
+        // 测试内核启动（在未加载时应该失败）
         let result = kernel.launch((1, 1, 1), (32, 1, 1));
+        #[cfg(feature = "cuda")]
+        assert!(result.is_err()); // 内核未加载，应该失败
+        #[cfg(not(feature = "cuda"))]
+        assert!(result.is_ok()); // Mock模式总是成功
+    }
+
+    #[test]
+    fn test_memcpy_d2d() {
+        let accelerator = CudaAccelerator::new(0).unwrap();
+
+        // 分配两个设备内存区域
+        let src = accelerator.malloc(1024).unwrap();
+        let dst = accelerator.malloc(1024).unwrap();
+
+        // 测试设备到设备复制
+        let result = accelerator.memcpy_d2d(dst, src, 1024);
         assert!(result.is_ok());
+
+        // 清理
+        let _ = accelerator.free(src);
+        let _ = accelerator.free(dst);
+    }
+
+    #[test]
+    fn test_cuda_device_info() {
+        let accelerator = CudaAccelerator::new(0).unwrap();
+        let info = accelerator.get_device_info();
+
+        assert_eq!(info.device_id, 0);
+        assert!(!info.name.is_empty());
+        assert!(info.total_memory_mb > 0);
+
+        // 验证计算能力格式合理
+        assert!(info.compute_capability.0 >= 5); // 至少是5.x
+        assert!(info.compute_capability.0 <= 9); // 不超过9.x (当前最新)
+        assert!(info.compute_capability.1 <= 9);
+    }
+}
+
+// ============================================================================
+// GpuCompute trait 实现
+// ============================================================================
+
+#[cfg(feature = "cuda")]
+impl GpuCompute for CudaAccelerator {
+    fn initialize(&mut self) -> GpuResult<()> {
+        // CudaAccelerator在创建时已经初始化，这里只需确认
+        Ok(())
+    }
+
+    fn device_info(&self) -> GpuDeviceInfo {
+        #[cfg(feature = "cuda")]
+        {
+            use cudarc::driver::result;
+            use cudarc::driver::sys;
+
+            // Query actual free memory
+            let free_memory_mb = unsafe {
+                match result::cuMemGetInfo_v2() {
+                    Ok((free, _total)) => free / (1024 * 1024),
+                    Err(_) => self.total_memory_mb, // Fallback to total if query fails
+                }
+            };
+
+            // Query multiprocessor count
+            let multiprocessor_count = unsafe {
+                result::cuDeviceGetAttribute(
+                    self.device_id,
+                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT
+                ).unwrap_or(0) as u32
+            };
+
+            // Query clock rate
+            let clock_rate_khz = unsafe {
+                result::cuDeviceGetAttribute(
+                    self.device_id,
+                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_CLOCK_RATE
+                ).unwrap_or(0) as u32
+            };
+
+            // Query L2 cache size
+            let l2_cache_size = unsafe {
+                result::cuDeviceGetAttribute(
+                    self.device_id,
+                    sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE
+                ).unwrap_or(0) as usize
+            };
+
+            // Detect unified memory support (CUDA 6.0+)
+            let supports_unified_memory = self.compute_capability >= (5, 0);
+
+            GpuDeviceInfo {
+                device_id: self.device_id as u32,
+                device_name: self.device_name.clone(),
+                vendor: "NVIDIA".to_string(),
+                total_memory_mb: self.total_memory_mb,
+                free_memory_mb,
+                multiprocessor_count,
+                clock_rate_khz,
+                l2_cache_size,
+                supports_unified_memory,
+                compute_capability: format!("{}.{}", self.compute_capability.0, self.compute_capability.1),
+            }
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            GpuDeviceInfo {
+                device_id: self.device_id as u32,
+                device_name: self.device_name.clone(),
+                vendor: "NVIDIA".to_string(),
+                total_memory_mb: self.total_memory_mb,
+                free_memory_mb: self.total_memory_mb,
+                multiprocessor_count: 0,
+                clock_rate_khz: 0,
+                l2_cache_size: 0,
+                supports_unified_memory: false,
+                compute_capability: format!("{}.{}", self.compute_capability.0, self.compute_capability.1),
+            }
+        }
+    }
+
+    fn allocate_memory(&self, size: usize) -> GpuResult<GpuBuffer> {
+        let ptr = self.malloc(size)?;
+        Ok(GpuBuffer {
+            ptr: ptr.ptr,
+            size: ptr.size,
+        })
+    }
+
+    fn free_memory(&self, buffer: GpuBuffer) -> GpuResult<()> {
+        let device_ptr = CudaDevicePtr {
+            ptr: buffer.ptr,
+            size: buffer.size,
+        };
+        self.free(device_ptr)?;
+        Ok(())
+    }
+
+    fn copy_h2d(&self, host_data: &[u8], device_buffer: &GpuBuffer) -> GpuResult<()> {
+        let device_ptr = CudaDevicePtr {
+            ptr: device_buffer.ptr,
+            size: device_buffer.size,
+        };
+        self.memcpy_h2d(device_ptr, host_data)?;
+        Ok(())
+    }
+
+    fn copy_d2h(&self, device_buffer: &GpuBuffer, host_data: &mut [u8]) -> GpuResult<()> {
+        let device_ptr = CudaDevicePtr {
+            ptr: device_buffer.ptr,
+            size: device_buffer.size,
+        };
+        self.memcpy_d2h(host_data, device_ptr)?;
+        Ok(())
+    }
+
+    fn compile_kernel(&self, source: &str, kernel_name: &str) -> GpuResult<GpuKernel> {
+        #[cfg(feature = "cuda")]
+        {
+            use cudarc::nvrtc::result;
+
+            // Create NVRTC program
+            let program = unsafe {
+                result::nvrtcCreateProgram(source.as_ptr() as *const i8, ptr::null(), 0, ptr::null(), ptr::null())
+                    .map_err(|e| GpuError::CompilationFailed {
+                        kernel: kernel_name.to_string(),
+                        message: format!("Failed to create NVRTC program: {:?}", e),
+                    })?
+            };
+
+            // Get compute capability for compilation options
+            let compute_capability = format!("-arch=sm_{}", self.compute_capability.0 * 10 + self.compute_capability.1);
+
+            // Compile the program
+            let compilation_options = [compute_capability.as_str()];
+            unsafe {
+                result::nvrtcCompileProgram(program, compilation_options.len() as i32,
+                    compilation_options.as_ptr() as *const *const i8)
+                    .map_err(|e| {
+                        // Get compilation log if available
+                        let log_size = result::nvrtcGetProgramLogSize(program).unwrap_or(0);
+                        if log_size > 0 {
+                            let mut log = vec![0u8; log_size];
+                            result::nvrtcGetProgramLog(program, log.as_mut_ptr()).ok();
+                            let log_str = String::from_utf8_lossy(&log);
+                            GpuError::CompilationFailed {
+                                kernel: kernel_name.to_string(),
+                                message: format!("NVRTC compilation failed: {:?}\nLog:\n{}", e, log_str),
+                            }
+                        } else {
+                            GpuError::CompilationFailed {
+                                kernel: kernel_name.to_string(),
+                                message: format!("NVRTC compilation failed: {:?}", e),
+                            }
+                        }
+                    })?;
+            }
+
+            // Get PTX size
+            let ptx_size = unsafe {
+                result::nvrtcGetPTXSize(program).map_err(|e| GpuError::CompilationFailed {
+                    kernel: kernel_name.to_string(),
+                    message: format!("Failed to get PTX size: {:?}", e),
+                })?
+            };
+
+            // Get PTX code
+            let mut ptx = vec![0u8; ptx_size];
+            unsafe {
+                result::nvrtcGetPTX(program, ptx.as_mut_ptr()).map_err(|e| GpuError::CompilationFailed {
+                    kernel: kernel_name.to_string(),
+                    message: format!("Failed to get PTX: {:?}", e),
+                })?;
+            }
+
+            // Destroy the program
+            unsafe {
+                result::nvrtcDestroyProgram(&program).map_err(|e| {
+                    log::warn!("Failed to destroy NVRTC program: {:?}", e);
+                    // Non-fatal error, continue
+                }).ok();
+            }
+
+            // Create kernel metadata
+            let metadata = vm_core::gpu::KernelMetadata {
+                name: kernel_name.to_string(),
+                source: Some(source.to_string()),
+                compiled_at: Some(std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()),
+                num_params: 0, // TODO: Parse from source
+                shared_memory_size: 0, // TODO: Parse from source
+            };
+
+            Ok(GpuKernel {
+                name: kernel_name.to_string(),
+                binary: ptx,
+                metadata,
+            })
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            Err(GpuError::CompilationFailed {
+                kernel: kernel_name.to_string(),
+                message: "CUDA feature not enabled".to_string(),
+            })
+        }
+    }
+
+    fn execute_kernel(
+        &self,
+        kernel: &GpuKernel,
+        grid_dim: (u32, u32, u32),
+        block_dim: (u32, u32, u32),
+        args: &[GpuArg],
+        shared_memory_size: usize,
+    ) -> GpuResult<GpuExecutionResult> {
+        #[cfg(feature = "cuda")]
+        {
+            use cudarc::driver::result;
+            use std::ffi::CString;
+
+            let start = std::time::Instant::now();
+
+            // Load PTX module
+            let ptx_cstring = CString::new(kernel.binary.clone()).map_err(|e| GpuError::ExecutionFailed {
+                kernel: kernel.name.clone(),
+                message: format!("Failed to create PTX CString: {}", e),
+            })?;
+
+            let mut module = std::ptr::null_mut();
+            unsafe {
+                result::cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const _).map_err(|e| GpuError::ExecutionFailed {
+                    kernel: kernel.name.clone(),
+                    message: format!("Failed to load PTX module: {:?}", e),
+                })?;
+            }
+
+            // Get kernel function
+            let kernel_name_cstring = CString::new(kernel.name.as_str()).map_err(|e| GpuError::ExecutionFailed {
+                kernel: kernel.name.clone(),
+                message: format!("Failed to create kernel name CString: {}", e),
+            })?;
+
+            let mut kernel_func = std::ptr::null_mut();
+            unsafe {
+                result::cuModuleGetFunction(&mut kernel_func, module, kernel_name_cstring.as_ptr()).map_err(|e| {
+                    // Cleanup module on error
+                    result::cuModuleUnload(module).ok();
+                    GpuError::ExecutionFailed {
+                        kernel: kernel.name.clone(),
+                        message: format!("Failed to get kernel function: {:?}", e),
+                    }
+                })?;
+            }
+
+            // Prepare kernel arguments
+            // Convert GpuArg enum to raw pointers
+            let mut kernel_args: Vec<Vec<u8>> = Vec::new();
+            let mut kernel_arg_ptrs: Vec<*const std::ffi::c_void> = Vec::new();
+
+            for arg in args {
+                let arg_bytes = match arg {
+                    GpuArg::U8(v) => v.to_le_bytes().to_vec(),
+                    GpuArg::U32(v) => v.to_le_bytes().to_vec(),
+                    GpuArg::U64(v) => v.to_le_bytes().to_vec(),
+                    GpuArg::I32(v) => v.to_le_bytes().to_vec(),
+                    GpuArg::I64(v) => v.to_le_bytes().to_vec(),
+                    GpuArg::F32(v) => v.to_le_bytes().to_vec(),
+                    GpuArg::F64(v) => v.to_le_bytes().to_vec(),
+                    GpuArg::Buffer(buf) => buf.ptr.to_le_bytes().to_vec(),
+                };
+                kernel_args.push(arg_bytes);
+                kernel_arg_ptrs.push(kernel_args.last().unwrap().as_ptr() as *const std::ffi::c_void);
+            }
+
+            // Launch kernel
+            unsafe {
+                result::cuLaunchKernel(
+                    kernel_func,
+                    grid_dim.0, grid_dim.1, grid_dim.2,  // grid dim
+                    block_dim.0, block_dim.1, block_dim.2,  // block dim
+                    shared_memory_size as u32,  // shared memory bytes
+                    self.stream.stream,  // stream
+                    kernel_arg_ptrs.as_mut_ptr() as *mut *mut _,  // kernel arguments
+                    std::ptr::null_mut(),  // extra (optional)
+                ).map_err(|e| {
+                    // Cleanup on error
+                    result::cuModuleUnload(module).ok();
+                    GpuError::ExecutionFailed {
+                        kernel: kernel.name.clone(),
+                        message: format!("Failed to launch kernel: {:?}", e),
+                    }
+                })?;
+            }
+
+            // Cleanup module (kernel can still be used)
+            unsafe {
+                result::cuModuleUnload(module).map_err(|e| {
+                    log::warn!("Failed to unload module: {:?}", e);
+                }).ok();
+            }
+
+            let elapsed = start.elapsed();
+
+            Ok(GpuExecutionResult {
+                kernel_name: kernel.name.clone(),
+                execution_time_us: elapsed.as_micros() as u64,
+                bytes_transferred: 0, // TODO: Track actual memory transfers
+            })
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            Err(GpuError::ExecutionFailed {
+                kernel: kernel.name.clone(),
+                message: "CUDA feature not enabled".to_string(),
+            })
+        }
+    }
+
+    fn synchronize(&self) -> GpuResult<()> {
+        Ok(())
     }
 }

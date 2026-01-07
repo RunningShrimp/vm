@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Hakari-managed dependencies
+vm-build-deps = { path = "../vm-build-deps" }
 vm-core = { path = "../vm-core" }
 vm-ir = { path = "../vm-ir" }
 log = { workspace = true }
@@ -14,6 +16,7 @@ serde_json = { workspace = true }
 [dependencies.cudarc]
 version = "0.12"
 optional = true
+features = ["nvrtc", "cuda-version-from-build-system"]
 
 [features]
 default = []
