@@ -1,22 +1,23 @@
 use std::fmt;
+use std::fs;
 use std::path::PathBuf;
 use std::process;
-use std::fs;
 use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum, command};
-use clap_complete::{generate, Shell as ClapShell};
+use clap_complete::{Shell as ClapShell, generate};
 use colored::Colorize;
 use log::{error, info, warn};
+use serde::{Deserialize, Serialize};
 use vm_core::{ExecMode, GuestArch, VmConfig};
 use vm_device::hw_detect::HardwareDetector;
 use vm_osal::{host_arch, host_os};
 use vm_service::VmService;
-use serde::{Deserialize, Serialize};
 
 // Command modules
 mod commands {
     pub mod install_debian;
+    pub mod install_ubuntu;
 }
 
 /// Validation helper for CLI parameters
@@ -27,10 +28,7 @@ impl Validator {
     fn validate_kernel(path: &Option<PathBuf>) -> Result<(), String> {
         if let Some(kernel_path) = path {
             if !kernel_path.exists() {
-                return Err(format!(
-                    "Kernel file not found: {}",
-                    kernel_path.display()
-                ));
+                return Err(format!("Kernel file not found: {}", kernel_path.display()));
             }
             if !kernel_path.is_file() {
                 return Err(format!(
@@ -46,16 +44,10 @@ impl Validator {
     fn validate_disk(path: &Option<PathBuf>) -> Result<(), String> {
         if let Some(disk_path) = path {
             if !disk_path.exists() {
-                return Err(format!(
-                    "Disk file not found: {}",
-                    disk_path.display()
-                ));
+                return Err(format!("Disk file not found: {}", disk_path.display()));
             }
             if !disk_path.is_file() {
-                return Err(format!(
-                    "Disk path is not a file: {}",
-                    disk_path.display()
-                ));
+                return Err(format!("Disk path is not a file: {}", disk_path.display()));
             }
         }
         Ok(())
@@ -173,8 +165,8 @@ impl ConfigFile {
         let contents = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read config file: {}", e))?;
 
-        let config: ConfigFile = toml::from_str(&contents)
-            .map_err(|e| format!("Failed to parse config file: {}", e))?;
+        let config: ConfigFile =
+            toml::from_str(&contents).map_err(|e| format!("Failed to parse config file: {}", e))?;
 
         Ok(Some(config))
     }
@@ -190,7 +182,13 @@ impl ConfigFile {
 #[command(about = "High-performance virtual machine with multi-architecture support", long_about = None)]
 struct Cli {
     /// Architecture to emulate
-    #[arg(long, short = 'a', global = true, value_enum, default_value = "riscv64")]
+    #[arg(
+        long,
+        short = 'a',
+        global = true,
+        value_enum,
+        default_value = "riscv64"
+    )]
     arch: Architecture,
 
     /// Enable debug output
@@ -219,6 +217,29 @@ enum Commands {
 
         /// Memory size in MB [default: 3072]
         #[arg(long, default_value = "3072")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 1]
+        #[arg(long, default_value = "1")]
+        vcpus: usize,
+    },
+
+    /// Install Ubuntu from ISO
+    InstallUbuntu {
+        /// Ubuntu ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 30]
+        #[arg(long, default_value = "30")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 4096]
+        #[arg(long, default_value = "4096")]
         memory_mb: usize,
 
         /// Number of VCPUs [default: 1]
@@ -431,15 +452,15 @@ fn parse_memory_size(s: &str) -> usize {
 
 #[tokio::main]
 async fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("RUST_LOG", "info")).init();
-    if std::env::var("VM_TRACING").ok().as_deref() == Some("1") {
-        let _ = tracing_subscriber::fmt::try_init();
-    }
-
     let cli = Cli::parse();
 
-    if cli.debug {
-        env_logger::Builder::from_env(env_logger::Env::default().filter_or("RUST_LOG", "debug")).init();
+    // Initialize logger with appropriate level based on debug flag
+    let log_level = if cli.debug { "debug" } else { "info" };
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("RUST_LOG", log_level))
+        .init();
+
+    if std::env::var("VM_TRACING").ok().as_deref() == Some("1") {
+        let _ = tracing_subscriber::fmt::try_init();
     }
 
     match cli.command {
@@ -473,7 +494,57 @@ async fn main() {
                 .memory_mb(memory_mb)
                 .vcpus(vcpus);
 
-            match installer.run() {
+            match installer.run().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Kernel loaded: {}", result.kernel_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                    println!("  Instructions executed: {}", result.instructions_executed);
+                    println!("  Final mode: {}", result.final_mode);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::InstallUbuntu {
+            iso,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            // Use install_ubuntu command
+            use commands::install_ubuntu::UbuntuInstallCommand;
+
+            // Validate ISO exists
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid Ubuntu ISO path");
+                eprintln!("  Example: --iso /Users/Downloads/ubuntu-25.10-desktop-amd64.iso");
+                process::exit(1);
+            }
+
+            // Create and run installer
+            let mut installer = UbuntuInstallCommand::new(&iso);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run().await {
                 Ok(result) => {
                     println!();
                     println!("{} Installation completed successfully!", "✓".green());
@@ -535,11 +606,7 @@ async fn main() {
             let _ = Validator::check_arch_compatibility(&cli.arch);
 
             // Start timing if requested
-            let vm_start = if timing {
-                Some(Instant::now())
-            } else {
-                None
-            };
+            let vm_start = if timing { Some(Instant::now()) } else { None };
 
             let memory_size = memory
                 .as_deref()
@@ -640,9 +707,9 @@ async fn main() {
 
                 // Select load address based on architecture
                 let load_addr = match cli.arch {
-                    Architecture::X8664 => 0x10000,        // x86 real-mode entry
-                    Architecture::Riscv64 => 0x8000_0000,  // RISC-V standard
-                    Architecture::Arm64 => 0x8000_0000,    // ARM64 standard
+                    Architecture::X8664 => 0x10000,       // x86 real-mode entry
+                    Architecture::Riscv64 => 0x8000_0000, // RISC-V standard
+                    Architecture::Arm64 => 0x8000_0000,   // ARM64 standard
                 };
 
                 if let Err(e) = service.load_kernel(kernel_path_str, load_addr) {
@@ -652,12 +719,19 @@ async fn main() {
 
                 if timing && !effective_quiet {
                     if let Some(load_time) = load_start {
-                        println!("{} Kernel loaded in {:.2?}", "⏱".bright_black(), load_time.elapsed());
+                        println!(
+                            "{} Kernel loaded in {:.2?}",
+                            "⏱".bright_black(),
+                            load_time.elapsed()
+                        );
                     }
                 }
 
                 if verbose && !effective_quiet {
-                    println!("{}", format!("✓ Kernel loaded at {:#010X}", load_addr).green());
+                    println!(
+                        "{}",
+                        format!("✓ Kernel loaded at {:#010X}", load_addr).green()
+                    );
                     println!("{}", "→ Starting VM execution...".cyan());
                 }
 
@@ -666,7 +740,11 @@ async fn main() {
                 // x86_64 requires special boot sequence (real → protected → long mode)
                 if guest_arch == vm_core::GuestArch::X86_64 {
                     if verbose && !effective_quiet {
-                        println!("{}", "→ Starting x86_64 boot sequence (real → protected → long mode)...".cyan());
+                        println!(
+                            "{}",
+                            "→ Starting x86_64 boot sequence (real → protected → long mode)..."
+                                .cyan()
+                        );
                     }
 
                     if let Err(e) = service.boot_x86_kernel() {
@@ -687,7 +765,11 @@ async fn main() {
 
                 if timing && !effective_quiet {
                     if let Some(exec_time) = exec_start {
-                        println!("{} VM execution completed in {:.2?}", "⏱".bright_black(), exec_time.elapsed());
+                        println!(
+                            "{} VM execution completed in {:.2?}",
+                            "⏱".bright_black(),
+                            exec_time.elapsed()
+                        );
                     }
                 }
 
@@ -717,9 +799,19 @@ async fn main() {
             // Show total timing if requested
             if timing && !effective_quiet {
                 if let Some(start) = vm_start {
-                    println!("{}", "═══════════════════════════════════════".bright_black());
-                    println!("{} Total VM runtime: {:.2?}", "⏱".bright_black(), start.elapsed());
-                    println!("{}", "═══════════════════════════════════════".bright_black());
+                    println!(
+                        "{}",
+                        "═══════════════════════════════════════".bright_black()
+                    );
+                    println!(
+                        "{} Total VM runtime: {:.2?}",
+                        "⏱".bright_black(),
+                        start.elapsed()
+                    );
+                    println!(
+                        "{}",
+                        "═══════════════════════════════════════".bright_black()
+                    );
                 }
             }
 
@@ -769,20 +861,69 @@ async fn main() {
                 .subcommand(
                     Command::new("run")
                         .about("Run a VM with the specified kernel")
-                        .arg(clap::Arg::new("kernel").short('k').long("kernel").value_name("KERNEL").help("Kernel image path"))
-                        .arg(clap::Arg::new("disk").short('d').long("disk").value_name("DISK").help("Disk image path"))
-                        .arg(clap::Arg::new("memory").short('m').long("memory").value_name("SIZE").help("Memory size (e.g., 256M, 1G)"))
-                        .arg(clap::Arg::new("vcpus").short('c').long("vcpus").value_name("NUM").help("Number of vCPUs"))
-                        .arg(clap::Arg::new("mode").long("mode").value_parser(["interpreter", "jit", "hybrid", "hardware"]).default_value("interpreter").help("Execution mode"))
-                        .arg(clap::Arg::new("accel").long("accel").action(clap::ArgAction::SetTrue).help("Enable hardware acceleration"))
-                        .arg(clap::Arg::new("gpu_backend").long("gpu-backend").value_name("NAME").help("GPU backend selection"))
+                        .arg(
+                            clap::Arg::new("kernel")
+                                .short('k')
+                                .long("kernel")
+                                .value_name("KERNEL")
+                                .help("Kernel image path"),
+                        )
+                        .arg(
+                            clap::Arg::new("disk")
+                                .short('d')
+                                .long("disk")
+                                .value_name("DISK")
+                                .help("Disk image path"),
+                        )
+                        .arg(
+                            clap::Arg::new("memory")
+                                .short('m')
+                                .long("memory")
+                                .value_name("SIZE")
+                                .help("Memory size (e.g., 256M, 1G)"),
+                        )
+                        .arg(
+                            clap::Arg::new("vcpus")
+                                .short('c')
+                                .long("vcpus")
+                                .value_name("NUM")
+                                .help("Number of vCPUs"),
+                        )
+                        .arg(
+                            clap::Arg::new("mode")
+                                .long("mode")
+                                .value_parser(["interpreter", "jit", "hybrid", "hardware"])
+                                .default_value("interpreter")
+                                .help("Execution mode"),
+                        )
+                        .arg(
+                            clap::Arg::new("accel")
+                                .long("accel")
+                                .action(clap::ArgAction::SetTrue)
+                                .help("Enable hardware acceleration"),
+                        )
+                        .arg(
+                            clap::Arg::new("gpu_backend")
+                                .long("gpu-backend")
+                                .value_name("NAME")
+                                .help("GPU backend selection"),
+                        ),
                 )
-                .subcommand(Command::new("detect-hw").about("Detect and display hardware capabilities"))
-                .subcommand(Command::new("list-arch").about("List available architectures and their features"))
+                .subcommand(
+                    Command::new("detect-hw").about("Detect and display hardware capabilities"),
+                )
+                .subcommand(
+                    Command::new("list-arch")
+                        .about("List available architectures and their features"),
+                )
                 .subcommand(
                     Command::new("completions")
                         .about("Generate shell completion scripts")
-                        .arg(clap::Arg::new("shell").value_parser(["bash", "zsh", "fish", "elvish"]).help("Shell type"))
+                        .arg(
+                            clap::Arg::new("shell")
+                                .value_parser(["bash", "zsh", "fish", "elvish"])
+                                .help("Shell type"),
+                        ),
                 );
 
             generate(clap_shell, &mut cmd, "vm-cli", &mut std::io::stdout());
@@ -828,7 +969,10 @@ async fn main() {
             println!("             Production-ready: Partial (needs MMU integration)");
         }
 
-        Commands::Config { generate, show_path } => {
+        Commands::Config {
+            generate,
+            show_path,
+        } => {
             if show_path {
                 let config_path = dirs::home_dir()
                     .map(|p| p.join(".vm-cli.toml"))
@@ -906,27 +1050,70 @@ jit_share_pool = true
             println!("{}", "System Information\n".bold());
             println!("{} {}", "OS:".green(), host_os());
             println!("{} {}", "Host Architecture:".green(), host_arch());
-            println!("{} {}", "Rust Version:".green(), env!("CARGO_PKG_RUST_VERSION"));
+            println!(
+                "{} {}",
+                "Rust Version:".green(),
+                env!("CARGO_PKG_RUST_VERSION")
+            );
             println!("{} {}", "CLI Version:".green(), env!("CARGO_PKG_VERSION"));
 
             // VM Configuration
             println!("\n{}", "Supported Architectures\n".bold());
-            println!("{} {} ({})", "RISC-V 64-bit:".cyan(), "97.5% complete".green(), "production-ready ✅");
-            println!("{} {} ({})", "x86_64 / AMD64:".cyan(), "45% complete".yellow(), "decoder only ⚠️");
-            println!("{} {} ({})", "ARM64 / AArch64:".cyan(), "45% complete".yellow(), "decoder only ⚠️");
+            println!(
+                "{} {} ({})",
+                "RISC-V 64-bit:".cyan(),
+                "97.5% complete".green(),
+                "production-ready ✅"
+            );
+            println!(
+                "{} {} ({})",
+                "x86_64 / AMD64:".cyan(),
+                "45% complete".yellow(),
+                "decoder only ⚠️"
+            );
+            println!(
+                "{} {} ({})",
+                "ARM64 / AArch64:".cyan(),
+                "45% complete".yellow(),
+                "decoder only ⚠️"
+            );
 
             // Execution Modes
             println!("\n{}", "Execution Modes\n".bold());
-            println!("{} {}", "Interpreter:".cyan(), "Slowest, most compatible".white());
-            println!("{} {}", "JIT:".cyan(), "Fast, requires hot code detection".white());
-            println!("{} {}", "Hybrid:".cyan(), "Interpreter + JIT combination".white());
-            println!("{} {}", "Hardware:".cyan(), "Fastest, requires HVF/KVM/WHPX".white());
+            println!(
+                "{} {}",
+                "Interpreter:".cyan(),
+                "Slowest, most compatible".white()
+            );
+            println!(
+                "{} {}",
+                "JIT:".cyan(),
+                "Fast, requires hot code detection".white()
+            );
+            println!(
+                "{} {}",
+                "Hybrid:".cyan(),
+                "Interpreter + JIT combination".white()
+            );
+            println!(
+                "{} {}",
+                "Hardware:".cyan(),
+                "Fastest, requires HVF/KVM/WHPX".white()
+            );
 
             // Features
             println!("\n{}", "Available Features\n".bold());
-            println!("{} {}", "✓".green(), "Multi-architecture support (RISC-V, x86_64, ARM64)");
+            println!(
+                "{} {}",
+                "✓".green(),
+                "Multi-architecture support (RISC-V, x86_64, ARM64)"
+            );
             println!("{} {}", "✓".green(), "JIT and AOT compilation");
-            println!("{} {}", "✓".green(), "Hardware acceleration (HVF, KVM, WHPX)");
+            println!(
+                "{} {}",
+                "✓".green(),
+                "Hardware acceleration (HVF, KVM, WHPX)"
+            );
             println!("{} {}", "✓".green(), "GPU support (WGPU, Passthrough)");
             println!("{} {}", "✓".green(), "Advanced TLB with prefetching");
             println!("{} {}", "✓".green(), "Cross-architecture translation");
@@ -942,16 +1129,40 @@ jit_share_pool = true
                 println!("{} {}", "Status:".green(), "Loaded".bold());
             } else {
                 println!("{} {}", "Config file:".green(), config_path.display());
-                println!("{} {}", "Status:".yellow(), "Not found (run 'vm-cli config --generate')".yellow());
+                println!(
+                    "{} {}",
+                    "Status:".yellow(),
+                    "Not found (run 'vm-cli config --generate')".yellow()
+                );
             }
 
             // Tips
             println!("\n{}", "Quick Tips\n".bold());
-            println!("{} {}", "•".cyan(), "Use '--verbose' to see detailed execution progress");
-            println!("{} {}", "•".cyan(), "Use '--timing' to measure execution performance");
-            println!("{} {}", "•".cyan(), "Use '--quiet' to suppress all output except errors");
-            println!("{} {}", "•".cyan(), "Use '--help' to see all available options");
-            println!("{} {}", "•".cyan(), "Run 'vm-cli examples' to see usage examples");
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Use '--verbose' to see detailed execution progress"
+            );
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Use '--timing' to measure execution performance"
+            );
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Use '--quiet' to suppress all output except errors"
+            );
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Use '--help' to see all available options"
+            );
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Run 'vm-cli examples' to see usage examples"
+            );
         }
 
         Commands::Version => {
@@ -962,67 +1173,203 @@ jit_share_pool = true
             println!("{} {}", "Release:".green(), "2026-01-07");
 
             println!("\n{}", "Project Information\n".bold());
-            println!("{} {}", "Name:".green(), "VM CLI - Virtual Machine Command-Line Interface");
-            println!("{} {}", "Description:".green(), "High-performance VM with multi-architecture support");
+            println!(
+                "{} {}",
+                "Name:".green(),
+                "VM CLI - Virtual Machine Command-Line Interface"
+            );
+            println!(
+                "{} {}",
+                "Description:".green(),
+                "High-performance VM with multi-architecture support"
+            );
             println!("{} {}", "License:".green(), "MIT");
             println!("{} {}", "Authors:".green(), "VM Team");
 
             println!("\n{}", "Key Features\n".bold());
-            println!("{} {}", "✓".green(), "Multi-architecture VM (RISC-V 97.5%, x86_64/ARM64 45%)");
-            println!("{} {}", "✓".green(), "JIT and AOT compilation with Cranelift");
-            println!("{} {}", "✓".green(), "Hardware acceleration (HVF, KVM, WHPX)");
+            println!(
+                "{} {}",
+                "✓".green(),
+                "Multi-architecture VM (RISC-V 97.5%, x86_64/ARM64 45%)"
+            );
+            println!(
+                "{} {}",
+                "✓".green(),
+                "JIT and AOT compilation with Cranelift"
+            );
+            println!(
+                "{} {}",
+                "✓".green(),
+                "Hardware acceleration (HVF, KVM, WHPX)"
+            );
             println!("{} {}", "✓".green(), "GPU support (WGPU, CUDA, ROCm)");
-            println!("{} {}", "✓".green(), "Advanced TLB with dynamic prefetching");
-            println!("{} {}", "✓".green(), "Cross-architecture binary translation");
+            println!(
+                "{} {}",
+                "✓".green(),
+                "Advanced TLB with dynamic prefetching"
+            );
+            println!(
+                "{} {}",
+                "✓".green(),
+                "Cross-architecture binary translation"
+            );
 
             println!("\n{}", "Quick Start\n".bold());
-            println!("{} {}", "•".cyan(), "Run 'vm-cli info' for system information");
-            println!("{} {}", "•".cyan(), "Run 'vm-cli examples' for usage examples");
-            println!("{} {}", "•".cyan(), "Run 'vm-cli run --help' for all options");
-            println!("{} {}", "•".cyan(), "Run 'vm-cli --version' for version info");
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Run 'vm-cli info' for system information"
+            );
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Run 'vm-cli examples' for usage examples"
+            );
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Run 'vm-cli run --help' for all options"
+            );
+            println!(
+                "{} {}",
+                "•".cyan(),
+                "Run 'vm-cli --version' for version info"
+            );
         }
 
         Commands::Examples => {
             println!("{}", "VM CLI - Usage Examples\n".bold().cyan());
 
             println!("{}", "Quick Start\n".bold());
-            println!("{} {}", "# First time? Run this to see what's available".green(), "vm-cli info".cyan());
-            println!("{} {}", "# Run a simple test program (no kernel needed)".green(), "vm-cli run".cyan());
-            println!("{} {}", "# Run with your own kernel".green(), "vm-cli run --kernel ./my-kernel.bin".cyan());
+            println!(
+                "{} {}",
+                "# First time? Run this to see what's available".green(),
+                "vm-cli info".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Run a simple test program (no kernel needed)".green(),
+                "vm-cli run".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Run with your own kernel".green(),
+                "vm-cli run --kernel ./my-kernel.bin".cyan()
+            );
 
             println!("\n{}", "Basic Usage\n".bold());
-            println!("{} {}", "# Run with default settings (RISC-V, interpreter)".green(), "vm-cli run --kernel ./kernel.bin".cyan());
-            println!("{} {}", "# Specify architecture (x86_64, ARM64, RISC-V)".green(), "vm-cli --arch x8664 run --kernel ./kernel-x86.bin".cyan());
-            println!("{} {}", "# Adjust memory and CPUs".green(), "vm-cli run --memory 512M --vcpus 2 --kernel ./kernel.bin".cyan());
+            println!(
+                "{} {}",
+                "# Run with default settings (RISC-V, interpreter)".green(),
+                "vm-cli run --kernel ./kernel.bin".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Specify architecture (x86_64, ARM64, RISC-V)".green(),
+                "vm-cli --arch x8664 run --kernel ./kernel-x86.bin".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Adjust memory and CPUs".green(),
+                "vm-cli run --memory 512M --vcpus 2 --kernel ./kernel.bin".cyan()
+            );
 
             println!("\n{}", "Execution Modes\n".bold());
-            println!("{} {}", "# Interpreter (slowest, most compatible)".green(), "vm-cli run --mode interpreter --kernel ./kernel.bin".cyan());
-            println!("{} {}", "# JIT (fast, requires hot code detection)".green(), "vm-cli run --mode jit --kernel ./kernel.bin".cyan());
-            println!("{} {}", "# Hardware acceleration (fastest, requires HVF/KVM)".green(), "vm-cli run --accel --kernel ./kernel.bin".cyan());
+            println!(
+                "{} {}",
+                "# Interpreter (slowest, most compatible)".green(),
+                "vm-cli run --mode interpreter --kernel ./kernel.bin".cyan()
+            );
+            println!(
+                "{} {}",
+                "# JIT (fast, requires hot code detection)".green(),
+                "vm-cli run --mode jit --kernel ./kernel.bin".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Hardware acceleration (fastest, requires HVF/KVM)".green(),
+                "vm-cli run --accel --kernel ./kernel.bin".cyan()
+            );
 
             println!("\n{}", "Real-World Scenarios\n".bold());
-            println!("{} {}", "# Development: verbose output for debugging".green(), "vm-cli run --verbose --kernel ./test.bin".cyan());
-            println!("{} {}", "# Benchmarking: measure execution time".green(), "vm-cli run --timing --kernel ./bench.bin".cyan());
-            println!("{} {}", "# CI/CD: quiet mode, only show errors".green(), "vm-cli run --quiet --kernel ./build.bin".cyan());
-            println!("{} {}", "# Full detail: verbose + timing".green(), "vm-cli run --verbose --timing --kernel ./kernel.bin".cyan());
+            println!(
+                "{} {}",
+                "# Development: verbose output for debugging".green(),
+                "vm-cli run --verbose --kernel ./test.bin".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Benchmarking: measure execution time".green(),
+                "vm-cli run --timing --kernel ./bench.bin".cyan()
+            );
+            println!(
+                "{} {}",
+                "# CI/CD: quiet mode, only show errors".green(),
+                "vm-cli run --quiet --kernel ./build.bin".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Full detail: verbose + timing".green(),
+                "vm-cli run --verbose --timing --kernel ./kernel.bin".cyan()
+            );
 
             println!("\n{}", "Advanced Configuration\n".bold());
             println!("{} {}", "# Custom JIT thresholds for tuning".green(), "vm-cli run --jit-min-threshold 1000 --jit-max-threshold 10000 --kernel ./kernel.bin".cyan());
             println!("{} {}", "# Adjust JIT compilation weights".green(), "vm-cli run --jit-compile-weight 0.3 --jit-benefit-weight 0.7 --kernel ./kernel.bin".cyan());
-            println!("{} {}", "# Enable shared code pool".green(), "vm-cli run --jit-share-pool true --kernel ./kernel.bin".cyan());
+            println!(
+                "{} {}",
+                "# Enable shared code pool".green(),
+                "vm-cli run --jit-share-pool true --kernel ./kernel.bin".cyan()
+            );
 
             println!("\n{}", "Information & Help\n".bold());
-            println!("{} {}", "# See system information".green(), "vm-cli info".cyan());
-            println!("{} {}", "# See version information".green(), "vm-cli version".cyan());
-            println!("{} {}", "# Detect hardware capabilities".green(), "vm-cli detect-hw".cyan());
-            println!("{} {}", "# List supported architectures".green(), "vm-cli list-arch".cyan());
-            println!("{} {}", "# Generate shell completions".green(), "vm-cli completions bash".cyan());
-            println!("{} {}", "# View/generate configuration".green(), "vm-cli config --generate".cyan());
+            println!(
+                "{} {}",
+                "# See system information".green(),
+                "vm-cli info".cyan()
+            );
+            println!(
+                "{} {}",
+                "# See version information".green(),
+                "vm-cli version".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Detect hardware capabilities".green(),
+                "vm-cli detect-hw".cyan()
+            );
+            println!(
+                "{} {}",
+                "# List supported architectures".green(),
+                "vm-cli list-arch".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Generate shell completions".green(),
+                "vm-cli completions bash".cyan()
+            );
+            println!(
+                "{} {}",
+                "# View/generate configuration".green(),
+                "vm-cli config --generate".cyan()
+            );
 
             println!("\n{}", "Tips & Tricks\n".bold());
-            println!("{} {}", "# Use config file for persistent defaults".green(), "vm-cli config --generate && vim ~/.vm-cli.toml".cyan());
-            println!("{} {}", "# Enable tab completion in bash".green(), "echo 'source <(vm-cli completions bash)' >> ~/.bashrc".cyan());
-            println!("{} {}", "# Combine flags for maximum visibility".green(), "vm-cli run -v --timing --kernel ./kernel.bin".cyan());
+            println!(
+                "{} {}",
+                "# Use config file for persistent defaults".green(),
+                "vm-cli config --generate && vim ~/.vm-cli.toml".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Enable tab completion in bash".green(),
+                "echo 'source <(vm-cli completions bash)' >> ~/.bashrc".cyan()
+            );
+            println!(
+                "{} {}",
+                "# Combine flags for maximum visibility".green(),
+                "vm-cli run -v --timing --kernel ./kernel.bin".cyan()
+            );
         }
     }
 }

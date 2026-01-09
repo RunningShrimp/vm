@@ -28,7 +28,7 @@
 use vm_core::{GuestRegs, MMU, VmError};
 
 use super::vcpu_common::{VcpuOps, VcpuResult};
-use super::{Accel, AccelKind, AccelError};
+use super::{Accel, AccelError, AccelKind};
 
 // Import platform-specific implementations
 #[cfg(target_os = "linux")]
@@ -283,13 +283,7 @@ impl Accel for PlatformBackend {
         }
     }
 
-    fn map_memory(
-        &mut self,
-        gpa: u64,
-        hva: u64,
-        size: u64,
-        flags: u32,
-    ) -> Result<(), AccelError> {
+    fn map_memory(&mut self, gpa: u64, hva: u64, size: u64, flags: u32) -> Result<(), AccelError> {
         match self {
             #[cfg(target_os = "linux")]
             PlatformBackend::Kvm(backend) => backend.map_memory(gpa, hva, size, flags),

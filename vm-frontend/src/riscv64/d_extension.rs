@@ -1237,7 +1237,7 @@ mod tests {
 
         assert!(max > 1.7e308);
         // f64::MIN_POSITIVE = 2.2250738585072014e-308, which is > 2.2e-308
-        assert!(min > 2.2e-308);  // Changed assertion to match actual value
+        assert!(min > 2.2e-308); // Changed assertion to match actual value
         assert!(min > 0.0);
     }
 
@@ -1274,8 +1274,8 @@ mod tests {
 
         // Double precision has more precision digits than single precision
         // The key difference is in the mantissa, not just the bit pattern
-        assert!(double_val != single_val);  // They should differ
-        assert!(double_val.to_bits() != single_val.to_bits());  // Different representations
+        assert!(double_val != single_val); // They should differ
+        assert!(double_val.to_bits() != single_val.to_bits()); // Different representations
     }
 
     #[test]

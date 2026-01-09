@@ -49,6 +49,10 @@ pub struct VmService {
     exec_mode: ExecMode,
     /// 服务容器（管理所有领域服务的依赖注入）
     service_container: ServiceContainer,
+    /// AHCI SATA控制器（用于磁盘I/O）
+    ahci_controller: Option<vm_device::ahci::AhciController>,
+    /// ATAPI CD-ROM设备（用于ISO访问）
+    atapi_cdrom: Option<vm_device::atapi::AtapiCdRom>,
 }
 
 // 实现Send和Sync特性，使VmService可以在多线程环境中安全共享
@@ -82,8 +86,12 @@ impl VmService {
             _ => PagingMode::Bare,
         };
         mmu.set_paging_mode(paging_mode);
-        info!("MMU paging mode set to {:?} for guest architecture {:?} (physical memory: {} MB)",
-              paging_mode, config.guest_arch, mmu_memory_size / (1024 * 1024));
+        info!(
+            "MMU paging mode set to {:?} for guest architecture {:?} (physical memory: {} MB)",
+            paging_mode,
+            config.guest_arch,
+            mmu_memory_size / (1024 * 1024)
+        );
 
         let mmu = Arc::new(mmu);
         let vm_state: VirtualMachineState<IRBlock> =
@@ -155,6 +163,8 @@ impl VmService {
             jit_compiler,
             exec_mode: config.exec_mode,
             service_container,
+            ahci_controller: None,
+            atapi_cdrom: None,
         };
 
         Ok(result)
@@ -181,6 +191,38 @@ impl VmService {
         info!("Loading kernel from {} to {:#x}", path, addr);
         self.vm_service
             .load_kernel_file(path, vm_core::GuestAddr(addr))
+    }
+
+    /// Load bzImage kernel with proper setup/protected mode separation
+    ///
+    /// This method properly loads bzImage kernels by:
+    /// 1. Splitting the kernel into setup code and protected mode code
+    /// 2. Loading setup code at 0x10000
+    /// 3. Loading protected mode code at 0x100000
+    ///
+    /// # Arguments
+    /// * `data` - Kernel file data
+    /// * `setup_load_addr` - Where to load setup code (typically 0x10000)
+    /// * `pm_load_addr` - Where to load protected mode code (typically 0x100000)
+    ///
+    /// # Returns
+    /// Entry point for the kernel (setup code address)
+    pub fn load_bzimage_kernel(
+        &mut self,
+        data: &[u8],
+        setup_load_addr: u64,
+        pm_load_addr: u64,
+    ) -> Result<u64, VmError> {
+        info!(
+            "Loading bzImage kernel: setup={:#x}, pm={:#x}",
+            setup_load_addr, pm_load_addr
+        );
+        let entry_point = self.vm_service.load_bzimage_kernel(
+            data,
+            vm_core::GuestAddr(setup_load_addr),
+            vm_core::GuestAddr(pm_load_addr),
+        )?;
+        Ok(entry_point.0)
     }
 
     /// Boot x86 kernel using real-mode boot executor
@@ -375,7 +417,11 @@ impl VmService {
     ///
     /// # 返回
     /// 成功返回磁盘信息,失败返回错误
-    pub fn create_disk(&self, path: &str, size_gb: u64) -> Result<vm_device::disk_image::DiskInfo, String> {
+    pub fn create_disk(
+        &self,
+        path: &str,
+        size_gb: u64,
+    ) -> Result<vm_device::disk_image::DiskInfo, String> {
         use vm_device::disk_image::DiskImageCreator;
 
         log::info!("Creating {}GB disk image at: {}", size_gb, path);
@@ -387,8 +433,11 @@ impl VmService {
 
         match creator.create() {
             Ok(info) => {
-                log::info!("Disk created successfully: {} sectors, {} MB",
-                          info.sector_count, info.size_mb());
+                log::info!(
+                    "Disk created successfully: {} sectors, {} MB",
+                    info.sector_count,
+                    info.size_mb()
+                );
                 Ok(info)
             }
             Err(e) => {
@@ -434,8 +483,8 @@ impl VmService {
             return Err(format!("ISO file not found: {}", iso_path));
         }
 
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| format!("Failed to get ISO metadata: {}", e))?;
+        let metadata =
+            std::fs::metadata(path).map_err(|e| format!("Failed to get ISO metadata: {}", e))?;
 
         let size_bytes = metadata.len();
         let size_mb = size_bytes as f64 / (1024.0 * 1024.0);
@@ -461,8 +510,8 @@ impl VmService {
             return Err(format!("ISO file not found: {}", iso_path));
         }
 
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| format!("Failed to get ISO metadata: {}", e))?;
+        let metadata =
+            std::fs::metadata(path).map_err(|e| format!("Failed to get ISO metadata: {}", e))?;
 
         let size_bytes = metadata.len();
         let size_mb = (size_bytes as f64 / (1024.0 * 1024.0)) as u64;
@@ -473,6 +522,512 @@ impl VmService {
             size_mb,
         })
     }
+
+    /// 获取VGA显示内容
+    ///
+    /// 返回格式化的VGA文本显示(80x25)
+    pub fn get_vga_display(&self) -> Result<String, String> {
+        use std::sync::Arc;
+        use vm_service::vga;
+
+        // 从vm_state获取MMU
+        let state = self
+            .vm_state
+            .lock()
+            .map_err(|_| "Failed to acquire state lock".to_string())?;
+
+        let mmu_arc: Arc<std::sync::Mutex<Box<dyn vm_core::MMU>>> = state.mmu();
+        let mmu_mutex = mmu_arc
+            .lock()
+            .map_err(|_| "Failed to acquire MMU lock".to_string())?;
+        let mmu = mmu_mutex.as_ref();
+
+        let vga_output = vga::vga_format_border(mmu);
+
+        // 同时保存到文件
+        let _ = vga::vga_save_to_file(mmu, "/tmp/debian_vga_output.txt");
+
+        Ok(vga_output)
+    }
+
+    /// 保存VGA显示到文件
+    ///
+    /// # 参数
+    /// - `path`: 输出文件路径
+    pub fn save_vga_display(&self, path: &str) -> Result<(), String> {
+        use std::sync::Arc;
+        use vm_service::vga;
+
+        let state = self
+            .vm_state
+            .lock()
+            .map_err(|_| "Failed to acquire state lock".to_string())?;
+
+        let mmu_arc: Arc<std::sync::Mutex<Box<dyn vm_core::MMU>>> = state.mmu();
+        let mmu_mutex = mmu_arc
+            .lock()
+            .map_err(|_| "Failed to acquire MMU lock".to_string())?;
+        let mmu = mmu_mutex.as_ref();
+
+        vga::vga_save_to_file(mmu, path)
+    }
+
+    /// 获取VESA framebuffer内容 (图形模式)
+    ///
+    /// 返回VESA线性framebuffer的原始数据
+    /// 用于捕获Ubuntu graphical installer的显示内容
+    ///
+    /// # 返回
+    /// 成功返回(framebuffer地址, 宽度, 高度, bits_per_pixel, 数据)
+    /// 失败返回错误信息
+    pub fn get_vesa_framebuffer(&self) -> Result<(u64, u16, u16, u8, Vec<u8>), String> {
+        use std::sync::Arc;
+
+        // 从vm_state获取MMU
+        let state = self
+            .vm_state
+            .lock()
+            .map_err(|_| "Failed to acquire state lock".to_string())?;
+
+        let mmu_arc: Arc<std::sync::Mutex<Box<dyn vm_core::MMU>>> = state.mmu();
+        let mmu_mutex = mmu_arc
+            .lock()
+            .map_err(|_| "Failed to acquire MMU lock".to_string())?;
+        let mmu = mmu_mutex.as_ref();
+
+        // VESA framebuffer地址 (标准LFB地址: 0xE0000000)
+        let fb_addr = 0xE0000000u64;
+
+        // 尝试不同的分辨率和格式
+        // Ubuntu installer typically uses 1024x768x24 or 1024x768x32
+        let resolutions = vec![
+            (1024, 768, 32), // Most common for Ubuntu
+            (1024, 768, 24),
+            (800, 600, 32),
+            (800, 600, 24),
+            (1920, 1080, 32),
+            (1920, 1080, 24),
+        ];
+
+        for (width, height, bpp) in resolutions {
+            let bytes_per_pixel = bpp / 8;
+            let fb_size = width as usize * height as usize * bytes_per_pixel;
+
+            log::debug!(
+                "Trying VESA mode: {}x{}x{}bpp @ {:#010X}, size: {} bytes",
+                width,
+                height,
+                bpp,
+                fb_addr,
+                fb_size
+            );
+
+            let mut framebuffer_data = Vec::with_capacity(fb_size);
+
+            // 读取framebuffer数据
+            let mut valid_data = true;
+            for i in 0..fb_size {
+                let addr = vm_core::GuestAddr(fb_addr + i as u64);
+                match mmu.read(addr, 1) {
+                    Ok(byte) => framebuffer_data.push(byte as u8),
+                    Err(_) => {
+                        valid_data = false;
+                        break;
+                    }
+                }
+            }
+
+            if valid_data && framebuffer_data.len() == fb_size {
+                // 检查是否全黑 (未初始化)
+                let is_all_black = framebuffer_data.iter().all(|&b| b == 0);
+
+                if !is_all_black {
+                    log::info!(
+                        "✓ Valid VESA framebuffer found: {}x{}x{}bpp",
+                        width,
+                        height,
+                        bpp
+                    );
+                    return Ok((fb_addr, width, height, bpp as u8, framebuffer_data));
+                }
+            }
+        }
+
+        // 如果所有分辨率都失败,返回第一个全黑的framebuffer
+        let (width, height, bpp) = (1024, 768, 32);
+        let bytes_per_pixel = bpp / 8;
+        let fb_size = width as usize * height as usize * bytes_per_pixel;
+
+        let mut framebuffer_data = vec![0u8; fb_size];
+        for i in 0..fb_size {
+            let addr = vm_core::GuestAddr(fb_addr + i as u64);
+            if let Ok(byte) = mmu.read(addr, 1) {
+                framebuffer_data[i] = byte as u8;
+            }
+        }
+
+        log::info!(
+            "VESA framebuffer (may be uninitialized): {}x{}x{}bpp",
+            width,
+            height,
+            bpp
+        );
+        Ok((fb_addr, width, height, bpp as u8, framebuffer_data))
+    }
+
+    /// 保存VESA framebuffer到PPM图像文件
+    ///
+    /// PPM (Portable Pixel Map) is a simple image format that's easy to generate
+    ///
+    /// # 参数
+    /// - `path`: 输出文件路径 (不带扩展名)
+    ///
+    /// # 返回
+    /// 成功返回保存的文件路径,失败返回错误信息
+    pub fn save_vesa_framebuffer(&self, path: &str) -> Result<String, String> {
+        let (fb_addr, width, height, bpp, data) = self.get_vesa_framebuffer()?;
+
+        let bytes_per_pixel = (bpp / 8) as usize;
+        let output_path = if path.ends_with(".ppm") {
+            path.to_string()
+        } else {
+            format!("{}.ppm", path)
+        };
+
+        log::info!("Saving VESA framebuffer to: {}", output_path);
+        log::info!(
+            "  Framebuffer: {:#010X}, {}x{}x{}bpp, {} bytes",
+            fb_addr,
+            width,
+            height,
+            bpp,
+            data.len()
+        );
+
+        // 生成PPM文件 (P6格式 = binary)
+        let mut ppm_content = format!("P6\n{} {}\n255\n", width, height);
+
+        match bpp {
+            32 => {
+                // RGBA/BGRX format - extract RGB
+                for i in 0..(width as usize * height as usize) {
+                    let offset = i * 4;
+                    if offset + 3 <= data.len() {
+                        // BGRX format (little-endian) -> RGB
+                        let r = data[offset + 2] as char;
+                        let g = data[offset + 1] as char;
+                        let b = data[offset] as char;
+                        ppm_content.push(r);
+                        ppm_content.push(g);
+                        ppm_content.push(b);
+                    }
+                }
+            }
+            24 => {
+                // BGR format -> RGB
+                for i in 0..(width as usize * height as usize) {
+                    let offset = i * 3;
+                    if offset + 3 <= data.len() {
+                        let r = data[offset + 2] as char;
+                        let g = data[offset + 1] as char;
+                        let b = data[offset] as char;
+                        ppm_content.push(r);
+                        ppm_content.push(g);
+                        ppm_content.push(b);
+                    }
+                }
+            }
+            16 => {
+                // RGB565 format
+                for i in 0..(width as usize * height as usize) {
+                    let offset = i * 2;
+                    if offset + 2 <= data.len() {
+                        let pixel = u16::from_le_bytes([data[offset], data[offset + 1]]);
+                        let r = ((pixel >> 11) & 0x1F) * 255 / 31;
+                        let g = ((pixel >> 5) & 0x3F) * 255 / 63;
+                        let b = (pixel & 0x1F) * 255 / 31;
+                        ppm_content.push(r as u8 as char);
+                        ppm_content.push(g as u8 as char);
+                        ppm_content.push(b as u8 as char);
+                    }
+                }
+            }
+            _ => {
+                return Err(format!("Unsupported bpp: {}", bpp));
+            }
+        }
+
+        std::fs::write(&output_path, ppm_content)
+            .map_err(|e| format!("Failed to write PPM file: {}", e))?;
+
+        log::info!("✓ VESA framebuffer saved to: {}", output_path);
+        Ok(output_path)
+    }
+
+    // ============================================================
+    // Keyboard Input Support
+    // ============================================================
+
+    /// Send keyboard input to VM (for installer interaction)
+    ///
+    /// This allows sending keystrokes to the Ubuntu installer
+    ///
+    /// # 参数
+    /// - `key`: Character to send
+    ///
+    /// # 返回
+    /// 成功返回(),失败返回错误信息
+    pub fn send_key(&self, key: char) -> Result<(), String> {
+        log::info!("Sending keyboard input: '{}' ({:04X})", key, key as u32);
+
+        // For now, we'll save keystrokes to a file that the boot executor can read
+        // This is a simplified approach - full implementation requires direct BIOS access
+        let keyboard_file = "/tmp/vm_keyboard_input.txt";
+
+        // Append keystroke to keyboard input file
+        if let Ok(mut existing) = std::fs::read_to_string(keyboard_file) {
+            existing.push(key);
+            std::fs::write(keyboard_file, existing)
+                .map_err(|e| format!("Failed to write keyboard input: {}", e))?;
+        } else {
+            std::fs::write(keyboard_file, key.to_string())
+                .map_err(|e| format!("Failed to write keyboard input: {}", e))?;
+        }
+
+        log::info!("  Keystroke queued to: {}", keyboard_file);
+
+        Ok(())
+    }
+
+    /// Send string as keyboard input
+    ///
+    /// # 参数
+    /// - `text`: String to send
+    ///
+    /// # 返回
+    /// 成功返回(),失败返回错误信息
+    pub fn send_string(&self, text: &str) -> Result<(), String> {
+        log::info!("Sending keyboard string: '{}'", text);
+        for ch in text.chars() {
+            self.send_key(ch)?;
+        }
+        Ok(())
+    }
+
+    /// Send special key (Enter, Escape, etc.)
+    ///
+    /// # 参数
+    /// - `key`: Special key name
+    ///
+    /// # 返回
+    /// 成功返回(),失败返回错误信息
+    pub fn send_special_key(&self, key: &str) -> Result<(), String> {
+        let ch = match key.to_uppercase().as_str() {
+            "ENTER" | "RETURN" => '\n',
+            "ESC" | "ESCAPE" => '\x1B',
+            "TAB" => '\t',
+            "SPACE" => ' ',
+            "UP" | "DOWN" | "LEFT" | "RIGHT" => {
+                // Arrow keys - use escape sequences
+                return self.send_string(&match key {
+                    "UP" => "\x1B[A",
+                    "DOWN" => "\x1B[B",
+                    "LEFT" => "\x1B[D",
+                    "RIGHT" => "\x1B[C",
+                    _ => return Err(format!("Unknown key: {}", key)),
+                });
+            }
+            "F1" => '\x1B',
+            _ => {
+                // Check for F2-F12
+                if key.starts_with('F') {
+                    return Err(format!("Function key {} not implemented", key));
+                }
+                return Err(format!("Unknown special key: {}", key));
+            }
+        };
+
+        self.send_key(ch)
+    }
+
+    /// Convert character to keyboard scancode
+    fn char_to_scancode(ch: char) -> u8 {
+        match ch {
+            'a'..='z' => (ch as u8) - b'a' + 0x1E,
+            'A'..='Z' => (ch as u8) - b'A' + 0x1E,
+            '0'..='9' => (ch as u8) - b'0' + 0x02,
+            '\n' | '\r' => 0x1C, // Enter
+            '\t' => 0x0F,        // Tab
+            ' ' => 0x39,         // Space
+            '\x1B' => 0x01,      // Escape
+            _ => 0x00,           // Unknown
+        }
+    }
+
+    // ============================================================
+    // AHCI SATA控制器管理
+    // ============================================================
+
+    /// 初始化AHCI SATA控制器
+    ///
+    /// # 返回
+    /// 成功返回(),失败返回错误信息
+    pub fn init_ahci_controller(&mut self) -> Result<(), String> {
+        log::info!("Initializing AHCI SATA controller");
+
+        let mut ahci = vm_device::ahci::AhciController::new();
+        ahci.init()
+            .map_err(|e| format!("Failed to initialize AHCI controller: {:?}", e))?;
+
+        self.ahci_controller = Some(ahci);
+
+        log::info!("AHCI controller initialized successfully");
+        Ok(())
+    }
+
+    /// 附加磁盘到AHCI端口
+    ///
+    /// # 参数
+    /// - `port_num`: 端口号(0-31)
+    /// - `disk_path`: 磁盘镜像文件路径
+    ///
+    /// # 返回
+    /// 成功返回(),失败返回错误信息
+    pub fn attach_disk_to_ahci(&mut self, port_num: usize, disk_path: &str) -> Result<(), String> {
+        use std::path::Path;
+
+        log::info!("Attaching disk {} to AHCI port {}", disk_path, port_num);
+
+        let ahci = self
+            .ahci_controller
+            .as_mut()
+            .ok_or_else(|| "AHCI controller not initialized".to_string())?;
+
+        // 检查磁盘文件是否存在
+        let path = Path::new(disk_path);
+        if !path.exists() {
+            return Err(format!("Disk file not found: {}", disk_path));
+        }
+
+        // 创建块设备
+        let disk = vm_device::block_device::RawBlockDevice::new(disk_path)
+            .map_err(|e| format!("Failed to create block device: {:?}", e))?;
+
+        // 附加到AHCI端口
+        ahci.attach_disk(port_num, Box::new(disk))
+            .map_err(|e| format!("Failed to attach disk: {:?}", e))?;
+
+        log::info!("Disk attached successfully to port {}", port_num);
+        Ok(())
+    }
+
+    /// 获取AHCI控制器引用
+    ///
+    /// # 返回
+    /// 成功返回AHCI控制器引用,失败返回错误信息
+    pub fn get_ahci_controller(&self) -> Result<&vm_device::ahci::AhciController, String> {
+        self.ahci_controller
+            .as_ref()
+            .ok_or_else(|| "AHCI controller not initialized".to_string())
+    }
+
+    /// 获取AHCI控制器可变引用
+    ///
+    /// # 返回
+    /// 成功返回AHCI控制器可变引用,失败返回错误信息
+    pub fn get_ahci_controller_mut(
+        &mut self,
+    ) -> Result<&mut vm_device::ahci::AhciController, String> {
+        self.ahci_controller
+            .as_mut()
+            .ok_or_else(|| "AHCI controller not initialized".to_string())
+    }
+
+    // ============================================================
+    // ATAPI CD-ROM设备管理
+    // ============================================================
+
+    /// 初始化ATAPI CD-ROM设备
+    ///
+    /// # 参数
+    /// - `iso_path`: ISO镜像文件路径
+    ///
+    /// # 返回
+    /// 成功返回(),失败返回错误信息
+    pub fn init_atapi_cdrom(&mut self, iso_path: &str) -> Result<(), String> {
+        log::info!("Initializing ATAPI CD-ROM with ISO: {}", iso_path);
+
+        let mut cdrom = vm_device::atapi::AtapiCdRom::new(iso_path)
+            .map_err(|e| format!("Failed to create ATAPI CD-ROM: {:?}", e))?;
+
+        cdrom
+            .init()
+            .map_err(|e| format!("Failed to initialize ATAPI CD-ROM: {:?}", e))?;
+
+        self.atapi_cdrom = Some(cdrom);
+
+        log::info!("ATAPI CD-ROM initialized successfully");
+        Ok(())
+    }
+
+    /// 获取ATAPI CD-ROM引用
+    ///
+    /// # 返回
+    /// 成功返回ATAPI CD-ROM引用,失败返回错误信息
+    pub fn get_atapi_cdrom(&self) -> Result<&vm_device::atapi::AtapiCdRom, String> {
+        self.atapi_cdrom
+            .as_ref()
+            .ok_or_else(|| "ATAPI CD-ROM not initialized".to_string())
+    }
+
+    /// 获取ATAPI CD-ROM可变引用
+    ///
+    /// # 返回
+    /// 成功返回ATAPI CD-ROM可变引用,失败返回错误信息
+    pub fn get_atapi_cdrom_mut(&mut self) -> Result<&mut vm_device::atapi::AtapiCdRom, String> {
+        self.atapi_cdrom
+            .as_mut()
+            .ok_or_else(|| "ATAPI CD-ROM not initialized".to_string())
+    }
+
+    // ============================================================
+    // 设备状态信息
+    // ============================================================
+
+    /// 获取存储设备状态信息
+    ///
+    /// # 返回
+    /// 返回AHCI和ATAPI设备的状态信息
+    pub fn get_storage_devices_info(&self) -> StorageDevicesInfo {
+        let ahci_info = self.ahci_controller.as_ref().map(|ahci| {
+            format!(
+                "AHCI Controller: {} ports implemented",
+                ahci.ports_implemented()
+            )
+        });
+
+        let atapi_info = self.atapi_cdrom.as_ref().map(|cdrom| {
+            format!(
+                "ATAPI CD-ROM: {} sectors ({} MB)",
+                cdrom.capacity(),
+                cdrom.size() / (1024 * 1024)
+            )
+        });
+
+        StorageDevicesInfo {
+            ahci_controller: ahci_info.unwrap_or_else(|| "Not initialized".to_string()),
+            atapi_cdrom: atapi_info.unwrap_or_else(|| "Not initialized".to_string()),
+        }
+    }
+}
+
+/// 存储设备信息
+#[derive(Debug, Clone)]
+pub struct StorageDevicesInfo {
+    /// AHCI控制器信息
+    pub ahci_controller: String,
+    /// ATAPI CD-ROM信息
+    pub atapi_cdrom: String,
 }
 
 /// ISO镜像信息

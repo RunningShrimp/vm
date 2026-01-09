@@ -69,7 +69,7 @@ impl VgaChar {
 
     /// Get default attribute (light gray on black)
     fn default_attr() -> u8 {
-        0x0F  // Light gray (15) on black (0)
+        0x0F // Light gray (15) on black (0)
     }
 
     /// Convert to u16 for storage
@@ -272,6 +272,66 @@ pub fn vga_to_string() -> String {
             String::new()
         }
     }
+}
+
+/// Read VGA buffer from MMU and format for display
+pub fn vga_read_from_mmu(mmu: &dyn MMU) -> String {
+    let base_addr = GuestAddr(VGA_BUFFER_ADDR);
+    let mut result = String::new();
+
+    result.push_str("╔");
+    result.push_str(&"═".repeat(78));
+    result.push_str("╗\n");
+
+    for y in 0..VGA_HEIGHT {
+        result.push_str("║");
+        for x in 0..VGA_WIDTH {
+            let offset = (y * VGA_WIDTH + x) * 2;
+            let addr = GuestAddr(base_addr.0 + offset as u64);
+
+            // 读取attribute和character
+            let attr_val = mmu.read(addr, 1).unwrap_or(0);
+            let ch_val = mmu.read(GuestAddr(addr.0 + 1), 1).unwrap_or(0);
+            let attr = attr_val as u8;
+            let ch = ch_val as u8;
+
+            // 只显示可打印字符
+            if ch >= 32 && ch <= 126 {
+                result.push(ch as char);
+            } else if ch == 0 {
+                result.push(' ');
+            } else {
+                result.push('·');
+            }
+        }
+        result.push_str("║\n");
+    }
+
+    result.push_str("╚");
+    result.push_str(&"═".repeat(78));
+    result.push_str("╝\n");
+
+    result
+}
+
+/// Save VGA display to file
+pub fn vga_save_to_file(mmu: &dyn MMU, path: &str) -> Result<(), String> {
+    let content = vga_read_from_mmu(mmu);
+    std::fs::write(path, content).map_err(|e| format!("Failed to save VGA display: {}", e))?;
+
+    log::info!("VGA display saved to: {}", path);
+    Ok(())
+}
+
+/// Print VGA display to console (for debugging)
+pub fn vga_print(mmu: &dyn MMU) {
+    let content = vga_read_from_mmu(mmu);
+    log::info!("VGA Display:\n{}", content);
+}
+
+/// Get VGA display as formatted string with border
+pub fn vga_format_border(mmu: &dyn MMU) -> String {
+    vga_read_from_mmu(mmu)
 }
 
 #[cfg(test)]

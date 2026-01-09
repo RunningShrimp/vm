@@ -207,7 +207,7 @@ impl GpuDeviceManager {
     ///
     /// 自动检测所有可用的GPU设备。
     pub fn new() -> Self {
-        let manager = Self {
+        let mut manager = Self {
             devices: Vec::new(),
             default_device: None,
         };
@@ -253,53 +253,27 @@ impl GpuDeviceManager {
     /// 检测CUDA设备
     ///
     /// 当启用"cuda" feature时可用
+    /// 注意：实际GPU检测功能在 vm-passthrough crate 中实现
     #[cfg(feature = "cuda")]
     #[allow(dead_code)] // 仅在启用cuda feature时使用
     fn detect_cuda_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
-        // 使用vm-passthrough crate实现CUDA设备检测
-        #[cfg(feature = "cuda")]
-        {
-            use vm_passthrough::CudaAccelerator;
-
-            // 尝试创建CUDA加速器
-            match CudaAccelerator::new() {
-                Ok(accelerator) => {
-                    log::info!("CUDA设备检测成功: {:?}", accelerator.device_info());
-                    // ✅ 已实现: CudaAccelerator现在实现了GpuCompute trait
-                    Ok(Box::new(accelerator) as Box<dyn GpuCompute>)
-                }
-                Err(e) => {
-                    log::warn!("CUDA设备检测失败: {:?}", e);
-                    Err(GpuError::NoDeviceAvailable)
-                }
-            }
-        }
+        // TODO: 通过 vm-passthrough crate 实现GPU设备检测
+        // 由于循环依赖限制，暂时返回错误
+        log::warn!("CUDA设备检测暂未实现 - 需要通过vm-passthrough crate");
+        Err(GpuError::NoDeviceAvailable)
     }
 
     /// 检测ROCm设备
     ///
     /// 当启用"rocm" feature时可用
+    /// 注意：实际GPU检测功能在 vm-passthrough crate 中实现
     #[cfg(feature = "rocm")]
     #[allow(dead_code)] // 仅在启用rocm feature时使用
     fn detect_rocm_device(&self) -> Result<Box<dyn GpuCompute>, GpuError> {
-        // 使用vm-passthrough crate实现ROCm设备检测
-        #[cfg(feature = "rocm")]
-        {
-            use vm_passthrough::RocmAccelerator;
-
-            // 尝试创建ROCm加速器
-            match RocmAccelerator::new() {
-                Ok(accelerator) => {
-                    log::info!("ROCm设备检测成功: {:?}", accelerator.device_info());
-                    // ✅ 已实现: RocmAccelerator现在实现了GpuCompute trait
-                    Ok(Box::new(accelerator) as Box<dyn GpuCompute>)
-                }
-                Err(e) => {
-                    log::warn!("ROCm设备检测失败: {:?}", e);
-                    Err(GpuError::NoDeviceAvailable)
-                }
-            }
-        }
+        // TODO: 通过 vm-passthrough crate 实现GPU设备检测
+        // 由于循环依赖限制，暂时返回错误
+        log::warn!("ROCm设备检测暂未实现 - 需要通过vm-passthrough crate");
+        Err(GpuError::NoDeviceAvailable)
     }
 
     #[cfg(not(feature = "cuda"))]

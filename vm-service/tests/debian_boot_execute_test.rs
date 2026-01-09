@@ -3,10 +3,10 @@
 //! This test actually boots the Debian kernel using the real-mode emulator
 //! and verifies that the boot sequence works correctly.
 
-use vm_service::vm_service::x86_boot_exec::X86BootExecutor;
-use vm_service::VmService;
-use vm_core::{VmConfig, GuestArch, ExecMode};
 use std::sync::{Arc, Mutex};
+use vm_core::{ExecMode, GuestArch, VmConfig};
+use vm_service::VmService;
+use vm_service::vm_service::x86_boot_exec::X86BootExecutor;
 
 #[tokio::test]
 async fn test_debian_kernel_boot_execution() {
@@ -26,7 +26,9 @@ async fn test_debian_kernel_boot_execution() {
     };
 
     // Create VM service
-    let mut service = VmService::new(config, None).await.expect("Failed to create VM service");
+    let mut service = VmService::new(config, None)
+        .await
+        .expect("Failed to create VM service");
 
     log::info!("VM service created successfully");
     log::info!("  Architecture: X86_64");
@@ -37,7 +39,9 @@ async fn test_debian_kernel_boot_execution() {
     let kernel_path = "/tmp/debian_iso_extracted/debian_bzImage";
     let load_addr = 0x10000;
 
-    service.load_kernel(kernel_path, load_addr).expect("Failed to load bzImage kernel");
+    service
+        .load_kernel(kernel_path, load_addr)
+        .expect("Failed to load bzImage kernel");
 
     log::info!("Kernel loaded successfully!");
     log::info!("  Kernel path: {}", kernel_path);
@@ -74,7 +78,10 @@ async fn test_boot_executor_creation() {
 
     log::info!("✅ Boot executor created successfully");
     log::info!("  Current mode: {:?}", executor.current_mode());
-    log::info!("  Instructions executed: {}", executor.instructions_executed());
+    log::info!(
+        "  Instructions executed: {}",
+        executor.instructions_executed()
+    );
 
     assert_eq!(executor.instructions_executed(), 0);
 

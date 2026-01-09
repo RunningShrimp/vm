@@ -99,11 +99,11 @@ macro_rules! impl_reg_accessors {
                         let mut val = 0u64;
                         // Call platform-specific get function
                         self.$get_reg_fn(reg_mapping.kvm_reg, &mut val)
-                            .map_err(|e| vm_core::VmError::Platform(
-                                vm_core::PlatformError::AccessDenied(format!(
-                                    "Failed to get register: {}", e
+                            .map_err(|e| {
+                                vm_core::VmError::Platform(vm_core::PlatformError::AccessDenied(
+                                    format!("Failed to get register: {}", e),
                                 ))
-                            ))?;
+                            })?;
                         val
                     };
                     gpr[reg_mapping.index] = value;
@@ -133,11 +133,11 @@ macro_rules! impl_reg_accessors {
                     unsafe {
                         // Call platform-specific set function
                         self.$set_reg_fn(reg_mapping.kvm_reg, regs.gpr[reg_mapping.index])
-                            .map_err(|e| vm_core::VmError::Platform(
-                                vm_core::PlatformError::AccessDenied(format!(
-                                    "Failed to set register: {}", e
+                            .map_err(|e| {
+                                vm_core::VmError::Platform(vm_core::PlatformError::AccessDenied(
+                                    format!("Failed to set register: {}", e),
                                 ))
-                            ))?;
+                            })?;
                     }
                 }
 
@@ -246,16 +246,18 @@ macro_rules! impl_vcpu_new {
 
                 // Create vCPU
                 let vcpu = vm.create_vcpu(id as u64).map_err(|e| {
-                    VmError::Platform(vm_core::PlatformError::ResourceAllocationFailed(
-                        format!("Platform create_vcpu failed: {}", e),
-                    ))
+                    VmError::Platform(vm_core::PlatformError::ResourceAllocationFailed(format!(
+                        "Platform create_vcpu failed: {}",
+                        e
+                    )))
                 })?;
 
                 // Get mmap size
                 let run_mmap_size = vm.$mmap_size_fn().map_err(|e| {
-                    VmError::Platform(vm_core::PlatformError::ResourceAllocationFailed(
-                        format!("Failed to get mmap size: {}", e),
-                    ))
+                    VmError::Platform(vm_core::PlatformError::ResourceAllocationFailed(format!(
+                        "Failed to get mmap size: {}",
+                        e
+                    )))
                 })?;
 
                 Ok(Self {
@@ -286,9 +288,10 @@ macro_rules! impl_vcpu_new_simple {
                 use vm_core::VmError;
 
                 let vcpu = vm.$create_fn(id).map_err(|e| {
-                    VmError::Platform(vm_core::PlatformError::ResourceAllocationFailed(
-                        format!("Platform vCPU creation failed: {}", e),
-                    ))
+                    VmError::Platform(vm_core::PlatformError::ResourceAllocationFailed(format!(
+                        "Platform vCPU creation failed: {}",
+                        e
+                    )))
                 })?;
 
                 Ok(Self {

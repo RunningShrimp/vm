@@ -50,11 +50,7 @@ pub enum VcpuExit {
         size: u8,
     },
     /// Memory-mapped IO
-    Mmio {
-        addr: u64,
-        size: u8,
-        is_write: bool,
-    },
+    Mmio { addr: u64, size: u8, is_write: bool },
     /// System call (syscall/sysenter)
     SystemCall,
     /// Debug exception (breakpoint, single-step)

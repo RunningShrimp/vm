@@ -6,7 +6,7 @@
 
 // Imports are used in macro expansions (expanded at call site)
 #[allow(unused_imports)]
-use vm_core::{VmError, PlatformError, ExecutionError};
+use vm_core::{ExecutionError, PlatformError, VmError};
 
 /// Add context to an error for better debugging
 ///
@@ -64,7 +64,9 @@ macro_rules! platform_error {
 #[macro_export]
 macro_rules! resource_error {
     ($message:expr) => {
-        VmError::Platform(PlatformError::ResourceAllocationFailed($message.to_string()))
+        VmError::Platform(PlatformError::ResourceAllocationFailed(
+            $message.to_string(),
+        ))
     };
 }
 
@@ -129,7 +131,10 @@ mod tests {
     #[test]
     fn test_resource_error_macro() {
         let err = resource_error!("Test resource");
-        assert!(matches!(err, VmError::Platform(PlatformError::ResourceAllocationFailed(_))));
+        assert!(matches!(
+            err,
+            VmError::Platform(PlatformError::ResourceAllocationFailed(_))
+        ));
     }
 
     #[test]

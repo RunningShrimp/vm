@@ -144,6 +144,64 @@ impl<B: 'static> VirtualMachineService<B> {
         super::kernel_loader::load_kernel(mmu, data, load_addr)
     }
 
+    /// Load bzImage kernel with proper setup/protected mode separation
+    ///
+    /// This method properly loads bzImage kernels by:
+    /// 1. Splitting the kernel into setup code and protected mode code
+    /// 2. Loading setup code at 0x10000
+    /// 3. Loading protected mode code at 0x100000
+    ///
+    /// # Arguments
+    /// * `data` - Kernel file data
+    /// * `setup_load_addr` - Where to load setup code (typically 0x10000)
+    /// * `pm_load_addr` - Where to load protected mode code (typically 0x100000)
+    ///
+    /// # Returns
+    /// Entry point for the kernel (setup code address)
+    pub fn load_bzimage_kernel(
+        &mut self,
+        data: &[u8],
+        setup_load_addr: GuestAddr,
+        pm_load_addr: GuestAddr,
+    ) -> VmResult<GuestAddr> {
+        // 业务逻辑：验证内核数据
+        if data.is_empty() {
+            return Err(VmError::Core(vm_core::CoreError::Config {
+                message: "Kernel data cannot be empty".to_string(),
+                path: Some("kernel_data".to_string()),
+            }));
+        }
+
+        // 业务逻辑：验证加载地址
+        if setup_load_addr == vm_core::GuestAddr(0) || pm_load_addr == vm_core::GuestAddr(0) {
+            return Err(VmError::Core(vm_core::CoreError::Config {
+                message: "Load address cannot be zero".to_string(),
+                path: Some("load_addr".to_string()),
+            }));
+        }
+
+        // 业务逻辑：检查虚拟机状态是否允许加载内核
+        let state = self.state.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire state lock".to_string(),
+            })
+        })?;
+
+        if state.state() == VmLifecycleState::Running {
+            return Err(VmError::Core(vm_core::CoreError::InvalidState {
+                message: "Cannot load kernel while VM is running".to_string(),
+                current: "running".to_string(),
+                expected: "stopped".to_string(),
+            }));
+        }
+
+        let mmu = state.mmu();
+        drop(state);
+
+        // 调用基础设施层进行实际加载
+        super::kernel_loader::load_bzimage_kernel_properly(mmu, data, setup_load_addr, pm_load_addr)
+    }
+
     /// 从文件加载内核
     pub fn load_kernel_file(&self, path: &str, load_addr: GuestAddr) -> VmResult<()> {
         let data = super::kernel_loader::load_kernel_file(path, load_addr)?;
@@ -168,7 +226,11 @@ impl<B: 'static> VirtualMachineService<B> {
     /// 1. Loads the kernel at the specified address
     /// 2. Parses the boot protocol header
     /// 3. Returns the correct entry point (bypassing real-mode setup)
-    pub fn load_bzimage_kernel_file(&self, path: &str, load_addr: GuestAddr) -> VmResult<GuestAddr> {
+    pub fn load_bzimage_kernel_file(
+        &self,
+        path: &str,
+        load_addr: GuestAddr,
+    ) -> VmResult<GuestAddr> {
         let data = super::kernel_loader::load_kernel_file(path, load_addr)?;
 
         // Get MMU from state
@@ -504,16 +566,19 @@ impl<B: 'static> VirtualMachineService<B> {
         Ok(state.mmu())
     }
 
-    /// 启动x86内核（使用real-mode启动器）
+    /// 启动x86内核（使用real-mode启动器和正确的boot protocol）
     ///
     /// 此方法专门用于x86_64内核的启动流程：
-    /// 1. 使用X86BootExecutor执行real-mode启动代码
-    /// 2. 处理模式转换（Real → Protected → Long）
-    /// 3. 返回64位内核入口点或启动结果
+    /// 1. 设置Linux boot protocol参数
+    /// 2. 计算正确的入口点
+    /// 3. 使用X86BootExecutor执行real-mode启动代码
+    /// 4. 处理模式转换（Real → Protected → Long）
+    /// 5. 返回64位内核入口点或启动结果
     pub fn boot_x86_kernel(&mut self) -> VmResult<super::x86_boot_exec::X86BootResult> {
         use super::x86_boot_exec::X86BootExecutor;
+        use super::x86_boot_setup::BootConfig;
 
-        log::info!("=== Starting x86 Boot Sequence ===");
+        log::info!("=== Starting x86 Boot Sequence with Boot Protocol ===");
 
         // Get MMU access
         let mmu_arc = self.mmu_arc()?;
@@ -523,20 +588,59 @@ impl<B: 'static> VirtualMachineService<B> {
             })
         })?;
 
+        // Install ACPI tables for hardware discovery
+        use super::acpi::AcpiManager;
+        let mut acpi_manager = AcpiManager::new();
+        acpi_manager.install_tables(&mut **mmu_guard)?;
+        log::info!("✓ ACPI tables installed for hardware discovery");
+
         // Create boot executor
         let mut executor = X86BootExecutor::new();
 
-        // Execute boot sequence from real-mode entry point (0x10000)
-        let entry_point = 0x10000;
-        log::info!("Boot entry point: {:#010X}", entry_point);
+        // Initialize EFI runtime for framebuffer support
+        log::info!("=== Initializing EFI Runtime ===");
+        let mut efi_runtime = super::efi::EfiRuntime::new();
+        efi_runtime.initialize(&mut **mmu_guard)?;
 
-        let result = executor.boot(&mut **mmu_guard, entry_point)?;
+        // Get framebuffer info
+        let (fb_addr, fb_width, fb_height, fb_bpp) = efi_runtime.get_framebuffer_info();
+        let fb_stride = fb_width * (fb_bpp / 8);
+
+        log::info!(
+            "EFI Framebuffer: {:#010X} - {}x{}x{} (stride: {})",
+            fb_addr,
+            fb_width,
+            fb_height,
+            fb_bpp,
+            fb_stride
+        );
+
+        // Configure boot protocol parameters with EFI framebuffer
+        // This tells the kernel to use the EFI framebuffer for display
+        let config = BootConfig {
+            vid_mode: 0xFFFF, // Normal VGA text mode (80x25)
+            root_dev: 0,      // Use default
+            // Ubuntu installer boot parameters with EFI framebuffer
+            cmdline: "boot=casper debug ignore_loglevel --".to_string(),
+            initrd_addr: None,
+            initrd_size: None,
+            // EFI framebuffer configuration
+            efifb_addr: Some(fb_addr),
+            efifb_width: Some(fb_width),
+            efifb_height: Some(fb_height),
+            efifb_stride: Some(fb_stride),
+        };
+
+        // Kernel is loaded at 0x10000 by install-debian command
+        let kernel_load_addr = 0x10000;
+        log::info!("Kernel load address: {:#010X}", kernel_load_addr);
+
+        // Execute boot sequence with proper boot protocol setup
+        let result = executor.boot_with_protocol(&mut **mmu_guard, kernel_load_addr, &config)?;
 
         log::info!("=== Boot Sequence Complete ===");
         Ok(result)
     }
-
-
 
     /// 列出所有快照
     pub fn list_snapshots(&self) -> VmResult<Vec<String>> {

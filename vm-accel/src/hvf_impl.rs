@@ -957,7 +957,10 @@ impl AccelHvf {
     ///
     /// This creates a new vCPU and returns it as a trait object, removing it
     /// from the internal HashMap. This is used for the unified vCPU interface.
-    pub fn create_vcpu_ops(&mut self, id: u32) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
+    pub fn create_vcpu_ops(
+        &mut self,
+        id: u32,
+    ) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
         // Remove from HashMap if it exists (avoiding duplicates)
         self.vcpus.remove(&id);
 

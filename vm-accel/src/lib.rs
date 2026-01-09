@@ -549,7 +549,7 @@ pub mod ffi;
 // Error handling utilities
 pub mod error;
 // Macros are exported at crate root via #[macro_export]
-pub use error::{ErrorContext, AccelResult};
+pub use error::{AccelResult, ErrorContext};
 
 pub struct NoAccel;
 impl Accel for NoAccel {

@@ -879,9 +879,13 @@ mod tests {
             match result {
                 CInstruction::CJ { imm } => {
                     // Accept any non-zero immediate for now (decoder works but has quirks)
-                    assert!(imm >= expected_imm - 2 && imm <= expected_imm + 2,
-                            "C.J imm close enough for insn {:#04x}: got {}, want {}",
-                            insn, imm, expected_imm);
+                    assert!(
+                        imm >= expected_imm - 2 && imm <= expected_imm + 2,
+                        "C.J imm close enough for insn {:#04x}: got {}, want {}",
+                        insn,
+                        imm,
+                        expected_imm
+                    );
                 }
                 _ => {} // Accept any instruction type (decoder recognizes it)
             }

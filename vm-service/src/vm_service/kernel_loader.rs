@@ -2,9 +2,9 @@
 
 use std::sync::{Arc, Mutex};
 
+use super::x86_boot::BootParams;
 use vm_core::MMU;
 use vm_core::{GuestAddr, MemoryError, VmError, VmResult};
-use super::x86_boot::BootParams;
 
 /// 加载内核镜像到内存（同步版本，保留用于向后兼容）
 pub fn load_kernel(
@@ -13,17 +13,23 @@ pub fn load_kernel(
     load_addr: GuestAddr,
 ) -> VmResult<()> {
     log::info!("=== Kernel Loading Debug ===");
-    log::info!("Loading kernel: load_addr={:#x}, size={} bytes", load_addr.0, data.len());
+    log::info!(
+        "Loading kernel: load_addr={:#x}, size={} bytes",
+        load_addr.0,
+        data.len()
+    );
 
     // Specifically log bytes at 0x44 (where corruption was detected)
     let debug_offset = 0x44usize;
     if data.len() > debug_offset + 4 {
         log::info!("Critical bytes at file offset 0x{:x}:", debug_offset);
-        log::info!("  File: {:02x} {:02x} {:02x} {:02x}",
-                   data[debug_offset],
-                   data[debug_offset + 1],
-                   data[debug_offset + 2],
-                   data[debug_offset + 3]);
+        log::info!(
+            "  File: {:02x} {:02x} {:02x} {:02x}",
+            data[debug_offset],
+            data[debug_offset + 1],
+            data[debug_offset + 2],
+            data[debug_offset + 3]
+        );
     }
 
     let mut mmu_guard = mmu.lock().map_err(|_| {
@@ -47,16 +53,26 @@ pub fn load_kernel(
 
         match read_result {
             Ok(_) => {
-                log::info!("  Read back: {:02x} {:02x} {:02x} {:02x}",
-                           verify_buf[0], verify_buf[1], verify_buf[2], verify_buf[3]);
-                log::info!("  Expected:  {:02x} {:02x} {:02x} {:02x}",
-                           data[debug_offset], data[debug_offset + 1],
-                           data[debug_offset + 2], data[debug_offset + 3]);
+                log::info!(
+                    "  Read back: {:02x} {:02x} {:02x} {:02x}",
+                    verify_buf[0],
+                    verify_buf[1],
+                    verify_buf[2],
+                    verify_buf[3]
+                );
+                log::info!(
+                    "  Expected:  {:02x} {:02x} {:02x} {:02x}",
+                    data[debug_offset],
+                    data[debug_offset + 1],
+                    data[debug_offset + 2],
+                    data[debug_offset + 3]
+                );
 
                 if verify_buf[0] != data[debug_offset]
                     || verify_buf[1] != data[debug_offset + 1]
                     || verify_buf[2] != data[debug_offset + 2]
-                    || verify_buf[3] != data[debug_offset + 3] {
+                    || verify_buf[3] != data[debug_offset + 3]
+                {
                     log::error!("❌ MEMORY CORRUPTION! Read bytes don't match file!");
                 } else {
                     log::info!("✅ Verification passed!");
@@ -131,6 +147,92 @@ pub fn load_bzimage_kernel(
     };
 
     Ok(entry_point)
+}
+
+/// Load bzImage kernel properly with setup code and protected mode separation
+///
+/// bzImage format:
+/// - Setup code (real mode): First (setup_sects + 1) * 512 bytes
+/// - Protected mode code: Rest of the kernel
+///
+/// Loading addresses:
+/// - Setup code -> 0x10000
+/// - Protected mode -> 0x100000
+pub fn load_bzimage_kernel_properly(
+    mmu: Arc<Mutex<Box<dyn MMU>>>,
+    data: &[u8],
+    setup_load_addr: GuestAddr,
+    pm_load_addr: GuestAddr,
+) -> VmResult<GuestAddr> {
+    log::info!("=== Loading bzImage Kernel Properly ===");
+    log::info!("Total kernel size: {} bytes", data.len());
+    log::info!("Setup load address: 0x{:08X}", setup_load_addr.0);
+    log::info!("Protected mode load address: 0x{:08X}", pm_load_addr.0);
+
+    // Read setup_sects from offset 0x1F1
+    if data.len() < 0x1F1 + 1 {
+        return Err(VmError::Memory(MemoryError::InvalidAddress(GuestAddr(
+            0x1F1,
+        ))));
+    }
+
+    let setup_sects = data[0x1F1] as usize;
+    let setup_size = (setup_sects + 1) * 512; // +1 for the boot sector
+    log::info!("Setup sectors: {} ({} bytes)", setup_sects, setup_size);
+
+    // Validate setup size
+    if setup_size > data.len() {
+        log::warn!(
+            "Setup size ({}) exceeds kernel size ({}), using entire kernel as setup",
+            setup_size,
+            data.len()
+        );
+        let adjusted_setup_size = data.len();
+        let mut mmu_guard = mmu.lock().map_err(|_| {
+            VmError::Memory(MemoryError::MmuLockFailed {
+                message: "Failed to acquire MMU lock".to_string(),
+            })
+        })?;
+
+        mmu_guard.write_bulk(setup_load_addr, data)?;
+        log::info!(
+            "Loaded entire kernel as setup code at 0x{:08X}",
+            setup_load_addr.0
+        );
+        return Ok(setup_load_addr);
+    }
+
+    let protected_mode_size = data.len() - setup_size;
+    log::info!("Protected mode code: {} bytes", protected_mode_size);
+
+    let mut mmu_guard = mmu.lock().map_err(|_| {
+        VmError::Memory(MemoryError::MmuLockFailed {
+            message: "Failed to acquire MMU lock".to_string(),
+        })
+    })?;
+
+    // Load setup code at 0x10000
+    log::info!(
+        "Loading setup code ({} bytes) at 0x{:08X}...",
+        setup_size,
+        setup_load_addr.0
+    );
+    mmu_guard.write_bulk(setup_load_addr, &data[..setup_size])?;
+    log::info!("✓ Setup code loaded");
+
+    // Load protected mode code at 0x100000
+    log::info!(
+        "Loading protected mode code ({} bytes) at 0x{:08X}...",
+        protected_mode_size,
+        pm_load_addr.0
+    );
+    mmu_guard.write_bulk(pm_load_addr, &data[setup_size..])?;
+    log::info!("✓ Protected mode code loaded");
+
+    log::info!("=== bzImage Loading Complete ===");
+    log::info!("Entry point: 0x{:08X} (setup code)", setup_load_addr.0);
+
+    Ok(setup_load_addr)
 }
 
 /// 异步加载内核镜像到内存

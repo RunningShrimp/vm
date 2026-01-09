@@ -2,8 +2,8 @@
 //!
 //! This test loads the Debian kernel and uses the X86BootExecutor
 
+use vm_core::{ExecMode, GuestArch, VmConfig};
 use vm_service::VmService;
-use vm_core::{VmConfig, GuestArch, ExecMode};
 
 #[tokio::test]
 async fn test_debian_x86_boot() {
@@ -23,7 +23,8 @@ async fn test_debian_x86_boot() {
     };
 
     println!("Creating VM service...");
-    let mut service = VmService::new(config, None).await
+    let mut service = VmService::new(config, None)
+        .await
         .expect("Failed to create VM service");
 
     println!("✅ VM service created");
@@ -32,9 +33,10 @@ async fn test_debian_x86_boot() {
     // Load kernel
     println!("Loading kernel...");
     let kernel_path = "/tmp/debian_iso_extracted/debian_bzImage";
-    let load_addr = 0x10000;  // x86 real-mode entry
+    let load_addr = 0x10000; // x86 real-mode entry
 
-    service.load_kernel(kernel_path, load_addr)
+    service
+        .load_kernel(kernel_path, load_addr)
         .expect("Failed to load kernel");
 
     println!("✅ Kernel loaded at {:#010X}", load_addr);
@@ -47,7 +49,9 @@ async fn test_debian_x86_boot() {
         Ok(result) => {
             println!("Boot result: {:?}", result);
             match result {
-                vm_service::vm_service::x86_boot_exec::X86BootResult::LongModeReady { entry_point } => {
+                vm_service::vm_service::x86_boot_exec::X86BootResult::LongModeReady {
+                    entry_point,
+                } => {
                     println!("✅ Long mode ready! 64-bit entry at {:#010X}", entry_point);
                     println!("   The Debian installer should now be displayed on VGA!");
                 }

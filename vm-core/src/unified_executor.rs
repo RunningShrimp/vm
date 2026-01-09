@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::{ExecResult, ExecStats, ExecutionEngine, GuestAddr, MMU, VmError};
+use crate::{ExecResult, ExecutionEngine, GuestAddr, MMU, VmError};
 
 // IR 类型定义 - 需要与 vm-irm 的类型对齐
 pub struct IRBlock {
@@ -82,8 +82,6 @@ pub struct UnifiedExecutor {
     policy: ExecutionPolicy,
     /// 块统计信息 (地址 -> 统计)
     block_stats: HashMap<GuestAddr, BlockStats>,
-    /// 全局统计
-    stats: ExecStats,
     /// 启动时间
     start_time: std::time::Instant,
 }
@@ -161,7 +159,6 @@ impl UnifiedExecutor {
             aot_cache,
             policy,
             block_stats: HashMap::new(),
-            stats: ExecStats::default(),
             start_time: std::time::Instant::now(),
         }
     }
@@ -176,19 +173,20 @@ impl UnifiedExecutor {
     /// 根据块地址和执行统计，自动选择最优执行引擎
     fn select_engine(&mut self, block_addr: GuestAddr) -> EngineType {
         // 1. 检查 AOT 缓存
-        if let Some(ref mut cache) = self.aot_cache {
-            if cache.lookup(block_addr).is_some() {
-                return EngineType::AOT;
-            }
+        if let Some(ref mut cache) = self.aot_cache
+            && cache.lookup(block_addr).is_some()
+        {
+            return EngineType::AOT;
         }
 
         // 2. 检查块统计
         if let Some(stats) = self.block_stats.get(&block_addr) {
             // 热点检测：执行次数超过阈值，使用 JIT
-            if stats.execution_count >= self.policy.hotspot_threshold {
-                if self.policy.enable_jit && self.jit_engine.is_some() {
-                    return EngineType::JIT;
-                }
+            if stats.execution_count >= self.policy.hotspot_threshold
+                && self.policy.enable_jit
+                && self.jit_engine.is_some()
+            {
+                return EngineType::JIT;
             }
 
             // 保持当前引擎

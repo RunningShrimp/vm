@@ -656,7 +656,10 @@ impl AccelWhpx {
     /// Create vCPU and return VcpuOps trait object
     ///
     /// This creates a new vCPU and returns it as a trait object with the partition handle.
-    pub fn create_vcpu_ops(&mut self, id: u32) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
+    pub fn create_vcpu_ops(
+        &mut self,
+        id: u32,
+    ) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
         #[cfg(all(target_os = "windows", feature = "whpx"))]
         {
             let partition = self.partition.as_ref().ok_or_else(|| {

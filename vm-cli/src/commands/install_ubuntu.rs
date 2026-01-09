@@ -1,33 +1,33 @@
-//! # Debian Installation Command
+//! # Ubuntu Installation Command
 //!
-//! CLI command to install Debian from ISO with virtual disk
+//! CLI command to install Ubuntu from ISO with virtual disk
 
 use std::path::{Path, PathBuf};
 use vm_core::{ExecMode, GuestArch, VmConfig};
 use vm_service::VmService;
 
-/// Debian Installer Command
-pub struct DebianInstallCommand {
+/// Ubuntu Installer Command
+pub struct UbuntuInstallCommand {
     /// ISO path
     iso_path: PathBuf,
     /// Disk path (optional, auto-generated if not provided)
     disk_path: Option<PathBuf>,
-    /// Disk size in GB (default: 20)
+    /// Disk size in GB (default: 30)
     disk_size_gb: u64,
-    /// Memory size in MB (default: 3072)
+    /// Memory size in MB (default: 4096)
     memory_mb: usize,
     /// Number of VCPUs (default: 1)
     vcpus: usize,
 }
 
-impl DebianInstallCommand {
-    /// Create new Debian install command
+impl UbuntuInstallCommand {
+    /// Create new Ubuntu install command
     pub fn new<P: AsRef<Path>>(iso_path: P) -> Self {
         Self {
             iso_path: iso_path.as_ref().to_path_buf(),
             disk_path: None,
-            disk_size_gb: 20,
-            memory_mb: 3072, // 3GB for Debian installer
+            disk_size_gb: 30, // Ubuntu needs more space
+            memory_mb: 4096,  // 4GB for Ubuntu desktop
             vcpus: 1,
         }
     }
@@ -56,10 +56,10 @@ impl DebianInstallCommand {
         self
     }
 
-    /// Run Debian installation
+    /// Run Ubuntu installation
     pub async fn run(&self) -> Result<InstallResult, String> {
         println!("===========================================");
-        println!("    Debian Installation");
+        println!("    Ubuntu Installation");
         println!("===========================================");
         println!();
 
@@ -183,7 +183,7 @@ impl DebianInstallCommand {
 
         // Step 12: Extract kernel from ISO
         println!("Step 10: Extracting kernel from ISO...");
-        let kernel_path = "/tmp/debian_iso_extracted/debian_bzImage";
+        let kernel_path = "/tmp/ubuntu_iso_extracted/ubuntu_vmlinuz";
         let kernel_path_display = kernel_path;
 
         if !Path::new(kernel_path).exists() {
@@ -197,11 +197,25 @@ impl DebianInstallCommand {
 
         // Step 13: Load kernel
         println!("Step 11: Loading kernel...");
-        let load_addr = 0x10000;
-        service
-            .load_kernel(kernel_path, load_addr)
-            .map_err(|e| format!("Failed to load kernel: {}", e))?;
-        println!("✓ Kernel loaded at {:#010X}", load_addr);
+        let setup_load_addr = 0x10000u64;
+        let pm_load_addr = 0x100000u64;
+
+        // Read kernel file
+        let kernel_data =
+            std::fs::read(kernel_path).map_err(|e| format!("Failed to read kernel file: {}", e))?;
+
+        println!("  Kernel size: {} bytes", kernel_data.len());
+        println!("  Loading as bzImage (split setup/protected mode)...");
+
+        // Use proper bzImage loading
+        let entry_point = service
+            .load_bzimage_kernel(&kernel_data, setup_load_addr, pm_load_addr)
+            .map_err(|e| format!("Failed to load bzImage kernel: {}", e))?;
+
+        println!("✓ bzImage loaded properly");
+        println!("  Setup code: {:#010X}", setup_load_addr);
+        println!("  Protected mode: {:#010X}", pm_load_addr);
+        println!("  Entry point: {:#010X}", entry_point);
         println!();
 
         // Step 14: Boot sequence
@@ -251,13 +265,16 @@ impl DebianInstallCommand {
                 println!("  - ATAPI CD-ROM (ISO access)");
                 println!("  - VGA display (installer interface)");
                 println!();
-                println!("The Debian installer interface should be visible");
+                println!("The Ubuntu installer interface should be visible");
                 println!("above in the VGA Display Output section.");
                 println!();
                 println!("If you see a boot menu or installer interface:");
                 println!("  - Press Enter to start installation");
                 println!("  - Follow the on-screen instructions");
-                println!("  - The 20GB disk is ready for installation");
+                println!(
+                    "  - The {}GB disk is ready for installation",
+                    self.disk_size_gb
+                );
                 println!("  - All hardware properly configured");
                 println!();
                 println!("If VGA display is empty:");
@@ -281,70 +298,148 @@ impl DebianInstallCommand {
         }
     }
 
-    /// Extract kernel from Debian ISO
+    /// Extract kernel from Ubuntu ISO
     fn extract_kernel(&self) -> Result<(), String> {
         use std::process::Command;
 
         // Create extraction directory
-        let extract_dir = "/tmp/debian_iso_extracted";
+        let extract_dir = "/tmp/ubuntu_iso_extracted";
         std::fs::create_dir_all(extract_dir)
             .map_err(|e| format!("Failed to create directory: {}", e))?;
 
-        // Mount ISO (macOS)
-        println!("  Mounting ISO...");
-        let mount_output = Command::new("hdiutil")
-            .args(&[
-                "attach",
-                "-readonly",
-                "-mountpoint",
-                "/tmp/debian_iso_mounted",
-                self.iso_path.to_str().unwrap(),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to mount ISO: {}", e))?;
+        // Try using 7z if available (more reliable for ISO extraction)
+        println!("  Attempting to extract kernel using 7z...");
 
-        if !mount_output.status.success() {
-            return Err(format!(
-                "Failed to mount ISO: {:?}",
-                String::from_utf8_lossy(&mount_output.stderr)
-            ));
-        }
+        // First check if 7z is available
+        let seven_z_check = Command::new("7z").arg("-h").output();
 
-        // Extract kernel
-        println!("  Extracting kernel files...");
-        let kernel_src = "/tmp/debian_iso_mounted/install.amd/vmlinuz";
-        let kernel_dst = "/tmp/debian_iso_extracted/debian_bzImage";
+        let use_7z = seven_z_check.is_ok();
 
-        let copy_result = Command::new("cp")
-            .args(&[kernel_src, kernel_dst])
-            .output()
-            .map_err(|e| format!("Failed to copy kernel: {}", e))?;
+        if use_7z {
+            // Use 7z to extract kernel
+            let kernel_dst = "/tmp/ubuntu_iso_extracted/ubuntu_vmlinuz";
 
-        if !copy_result.status.success() {
-            // Try alternative path
-            let kernel_src_alt = "/tmp/debian_iso_mounted/install.amd/linux";
-            if Path::new(kernel_src_alt).exists() {
-                Command::new("cp")
-                    .args(&[kernel_src_alt, kernel_dst])
-                    .output()
-                    .map_err(|e| format!("Failed to copy kernel (alt): {}", e))?;
+            // List files to find kernel
+            let list_output = Command::new("7z")
+                .args(&["l", self.iso_path.to_str().unwrap()])
+                .output()
+                .map_err(|e| format!("Failed to list ISO contents: {}", e))?;
+
+            let list_str = String::from_utf8_lossy(&list_output.stdout);
+
+            // Look for casper/vmlinuz
+            let kernel_path_in_iso = if list_str.contains("casper/vmlinuz") {
+                "casper/vmlinuz"
+            } else if list_str.contains("casper/vmlinuz.efi") {
+                "casper/vmlinuz.efi"
+            } else if list_str.contains("casper/linux") {
+                "casper/linux"
             } else {
-                // Unmount and return error
-                let _ = Command::new("hdiutil")
-                    .args(&["detach", "/tmp/debian_iso_mounted"])
-                    .output();
+                return Err("Kernel not found in ISO. Expected casper/vmlinuz, casper/vmlinuz.efi, or casper/linux".to_string());
+            };
 
-                return Err("Kernel not found in ISO".to_string());
+            println!("  Found kernel at: {}", kernel_path_in_iso);
+
+            // Extract the kernel
+            let extract_output = Command::new("7z")
+                .args(&[
+                    "e",
+                    "-y",
+                    self.iso_path.to_str().unwrap(),
+                    "-o/tmp/ubuntu_iso_extracted",
+                    kernel_path_in_iso,
+                ])
+                .output()
+                .map_err(|e| format!("Failed to extract kernel: {}", e))?;
+
+            if !extract_output.status.success() {
+                return Err(format!(
+                    "Failed to extract kernel: {:?}",
+                    String::from_utf8_lossy(&extract_output.stderr)
+                ));
             }
-        }
 
-        // Unmount
-        println!("  Unmounting ISO...");
-        let _ = Command::new("hdiutil")
-            .args(&["detach", "/tmp/debian_iso_mounted"])
-            .output();
+            // 7z extracts to the filename directly, might need to rename
+            let extracted_name = kernel_path_in_iso.split('/').last().unwrap();
+            let extracted_path = format!("/tmp/ubuntu_iso_extracted/{}", extracted_name);
+
+            if Path::new(&extracted_path).exists() && extracted_name != "ubuntu_vmlinuz" {
+                std::fs::rename(&extracted_path, kernel_dst)
+                    .map_err(|e| format!("Failed to rename kernel: {}", e))?;
+            }
+        } else {
+            // Fallback to hdiutil method
+            println!("  7z not available, using hdiutil...");
+
+            // Mount ISO (macOS)
+            println!("  Mounting ISO...");
+            let mount_output = Command::new("hdiutil")
+                .args(&[
+                    "attach",
+                    "-readonly",
+                    "-mountpoint",
+                    "/tmp/ubuntu_iso_mounted",
+                    self.iso_path.to_str().unwrap(),
+                ])
+                .output()
+                .map_err(|e| format!("Failed to mount ISO: {}", e))?;
+
+            if !mount_output.status.success() {
+                return Err(format!(
+                    "Failed to mount ISO: {:?}",
+                    String::from_utf8_lossy(&mount_output.stderr)
+                ));
+            }
+
+            // Extract kernel - Ubuntu uses /casper/ directory
+            println!("  Extracting kernel files...");
+            let kernel_src = "/tmp/ubuntu_iso_mounted/casper/vmlinuz";
+            let kernel_dst = "/tmp/ubuntu_iso_extracted/ubuntu_vmlinuz";
+
+            let copy_result = Command::new("cp")
+                .args(&[kernel_src, kernel_dst])
+                .output()
+                .map_err(|e| format!("Failed to copy kernel: {}", e))?;
+
+            if !copy_result.status.success() {
+                // Try alternative path (some Ubuntu versions use different names)
+                let alternatives = vec![
+                    "/tmp/ubuntu_iso_mounted/casper/vmlinuz.efi",
+                    "/tmp/ubuntu_iso_mounted/casper/linux",
+                ];
+
+                let mut found = false;
+                for alt_path in alternatives {
+                    if Path::new(alt_path).exists() {
+                        Command::new("cp")
+                            .args(&[alt_path, kernel_dst])
+                            .output()
+                            .map_err(|e| format!("Failed to copy kernel (alt): {}", e))?;
+                        found = true;
+                        println!("  Using alternative kernel path: {}", alt_path);
+                        break;
+                    }
+                }
+
+                if !found {
+                    // Unmount and return error
+                    let _ = Command::new("hdiutil")
+                        .args(&["detach", "/tmp/ubuntu_iso_mounted"])
+                        .output();
+
+                    return Err("Kernel not found in ISO. Tried /casper/vmlinuz, /casper/vmlinuz.efi, /casper/linux".to_string());
+                }
+            }
+
+            // Unmount
+            println!("  Unmounting ISO...");
+            let _ = Command::new("hdiutil")
+                .args(&["detach", "/tmp/ubuntu_iso_mounted"])
+                .output();
+        }
 
         // Verify
+        let kernel_dst = "/tmp/ubuntu_iso_extracted/ubuntu_vmlinuz";
         let metadata =
             std::fs::metadata(kernel_dst).map_err(|e| format!("Failed to verify kernel: {}", e))?;
         println!("  Kernel size: {} MB", metadata.len() / 1024 / 1024);

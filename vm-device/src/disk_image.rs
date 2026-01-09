@@ -3,7 +3,7 @@
 //! 提供虚拟磁盘镜像创建功能,支持多种格式和大小
 
 use std::fs::File;
-use std::io::{self, Write, Seek, SeekFrom};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::Path;
 
 /// 磁盘镜像格式
@@ -106,8 +106,8 @@ impl DiskImageCreator {
         }
 
         // 创建文件
-        let mut file = File::create(path)
-            .map_err(|e| format!("Failed to create disk image: {}", e))?;
+        let mut file =
+            File::create(path).map_err(|e| format!("Failed to create disk image: {}", e))?;
 
         // 设置文件大小
         let sector_count = self.size / self.sector_size as u64;
@@ -162,8 +162,8 @@ impl DiskImageCreator {
             return Err("Disk image does not exist".to_string());
         }
 
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| format!("Failed to get file metadata: {}", e))?;
+        let metadata =
+            std::fs::metadata(path).map_err(|e| format!("Failed to get file metadata: {}", e))?;
 
         let size = metadata.len();
         let sector_count = size / self.sector_size as u64;

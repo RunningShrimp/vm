@@ -88,25 +88,21 @@ impl MonitoringService {
         let metrics = self.metrics.lock().map_err(|e| e.to_string())?;
 
         let total_vms = metrics.len() as u32;
-        let running_vms = metrics.values()
-            .filter(|m| m.cpu_usage > 0.0)
-            .count() as u32;
+        let running_vms = metrics.values().filter(|m| m.cpu_usage > 0.0).count() as u32;
 
-        let total_cpu_usage = metrics.values()
-            .map(|m| m.cpu_usage)
-            .sum::<f32>();
+        let total_cpu_usage = metrics.values().map(|m| m.cpu_usage).sum::<f32>();
 
-        let total_memory_mb = metrics.values()
-            .map(|m| m.memory_usage_mb)
-            .sum::<u32>();
+        let total_memory_mb = metrics.values().map(|m| m.memory_usage_mb).sum::<u32>();
 
         let used_memory_mb = total_memory_mb; // Simplified - actual VMs allocate their memory
 
-        let total_disk_io_mb_s = metrics.values()
+        let total_disk_io_mb_s = metrics
+            .values()
             .map(|m| m.disk_io_read_mb_s + m.disk_io_write_mb_s)
             .sum::<f32>();
 
-        let total_network_mb_s = metrics.values()
+        let total_network_mb_s = metrics
+            .values()
             .map(|m| m.network_rx_mb_s + m.network_tx_mb_s)
             .sum::<f32>();
 

@@ -309,7 +309,10 @@ impl AccelVz {
     /// Create vCPU and return VcpuOps trait object
     ///
     /// This creates a new vCPU and returns it as a trait object.
-    pub fn create_vcpu_ops(&mut self, id: u32) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
+    pub fn create_vcpu_ops(
+        &mut self,
+        id: u32,
+    ) -> Result<Box<dyn crate::vcpu_common::VcpuOps>, AccelError> {
         if id >= self.cpu_count {
             return Err(AccelError::CreateVcpuFailed(format!(
                 "vCPU {} exceeds configured count {}",

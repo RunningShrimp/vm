@@ -34,9 +34,7 @@ mod tests {
     #[test]
     fn test_arm64_specialized_units() {
         // 测试3: 验证ARM64特殊加速单元存在
-        use vm_frontend::arm64::{
-            AmxDecoder, NpuDecoder, ApuDecoder, HexagonDecoder,
-        };
+        use vm_frontend::arm64::{AmxDecoder, ApuDecoder, HexagonDecoder, NpuDecoder};
         // 这些解码器类型应该能被引用
         let _ = std::marker::PhantomData::<AmxDecoder>;
         let _ = std::marker::PhantomData::<NpuDecoder>;
@@ -68,12 +66,12 @@ mod tests {
         // vm-frontend/src/arm64/mod.rs:38-71定义了Arm64Instruction
         // 包含: mnemonic, next_pc, has_memory_op, is_branch
 
-        use vm_frontend::arm64::Arm64Instruction;
         use vm_core::GuestAddr;
+        use vm_frontend::arm64::Arm64Instruction;
 
         let insn = Arm64Instruction {
             mnemonic: "MOV",
-            next_pc: GuestAddr(0x1004),  // 使用正确的类型
+            next_pc: GuestAddr(0x1004), // 使用正确的类型
             has_memory_op: false,
             is_branch: false,
         };
@@ -121,10 +119,10 @@ mod tests {
         // 华为麒麟NPU (Neural Processing Unit)
         // 用于神经网络推理加速
 
-        use vm_frontend::arm64::{NpuDecoder, NpuActType};
+        use vm_frontend::arm64::{NpuActType, NpuDecoder};
 
         let _decoder = NpuDecoder::new();
-        let _act_type = NpuActType::Relu;  // 使用正确的枚举名 (Relu而非ReLU)
+        let _act_type = NpuActType::Relu; // 使用正确的枚举名 (Relu而非ReLU)
 
         // 验证NPU类型可用
         let _ = (_decoder, _act_type);
@@ -137,10 +135,10 @@ mod tests {
         // 联发科APU (AI Processing Unit)
         // 用于AI加速计算
 
-        use vm_frontend::arm64::{ApuDecoder, ApuActType, ApuPoolType};
+        use vm_frontend::arm64::{ApuActType, ApuDecoder, ApuPoolType};
 
         let _decoder = ApuDecoder::new();
-        let _act_type = ApuActType::Relu;  // 使用正确的枚举名
+        let _act_type = ApuActType::Relu; // 使用正确的枚举名
         let _pool_type = ApuPoolType::Max;
 
         // 验证APU类型可用
@@ -197,13 +195,13 @@ mod tests {
 
         // ARM64支持多种扩展
         let extensions = vec![
-            "base",      // 基础指令集
-            "neon",      // Advanced SIMD
-            "sve",       // Scalable Vector Extension
-            "amx",       // Apple AMX
-            "npu",       // HiSilicon NPU
-            "apu",       // MediaTek APU
-            "hexagon",   // Qualcomm Hexagon
+            "base",    // 基础指令集
+            "neon",    // Advanced SIMD
+            "sve",     // Scalable Vector Extension
+            "amx",     // Apple AMX
+            "npu",     // HiSilicon NPU
+            "apu",     // MediaTek APU
+            "hexagon", // Qualcomm Hexagon
         ];
 
         assert_eq!(extensions.len(), 7, "应支持7个架构扩展类别");
@@ -248,4 +246,3 @@ mod tests {
 // 下一步优化:
 // - 实际机器码解码测试 (需要MMU Mock)
 // - 其他架构测试扩展 (如果存在)
-

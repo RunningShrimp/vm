@@ -205,7 +205,10 @@ impl MemoryAccess for QueueMmu {
 
     fn memory_size(&self) -> usize {
         // Total size: desc_table + avail_ring + used_ring + data_buffer
-        self.desc_table.len() + self.avail_ring.len() + self.used_ring.len() + self.data_buffer.len()
+        self.desc_table.len()
+            + self.avail_ring.len()
+            + self.used_ring.len()
+            + self.data_buffer.len()
     }
 
     fn dump_memory(&self) -> Vec<u8> {
@@ -219,9 +222,16 @@ impl MemoryAccess for QueueMmu {
 
     fn restore_memory(&mut self, data: &[u8]) -> Result<(), String> {
         // Simple mock implementation - just verify data fits
-        let total_size = self.desc_table.len() + self.avail_ring.len() + self.used_ring.len() + self.data_buffer.len();
+        let total_size = self.desc_table.len()
+            + self.avail_ring.len()
+            + self.used_ring.len()
+            + self.data_buffer.len();
         if data.len() != total_size {
-            return Err(format!("Data size mismatch: expected {}, got {}", total_size, data.len()));
+            return Err(format!(
+                "Data size mismatch: expected {}, got {}",
+                total_size,
+                data.len()
+            ));
         }
         // For simplicity, we won't actually restore (tests don't need this)
         Ok(())

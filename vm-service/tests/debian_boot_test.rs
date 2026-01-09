@@ -3,8 +3,8 @@
 //! Integration test that loads the Debian ISO and boots the kernel
 //! to display the installer interface.
 
+use vm_core::{ExecMode, GuestArch, VmConfig};
 use vm_service::VmService;
-use vm_core::{VmConfig, GuestArch, ExecMode};
 
 #[tokio::test]
 async fn test_debian_iso_boot() {
@@ -24,7 +24,9 @@ async fn test_debian_iso_boot() {
     };
 
     // Create VM service
-    let mut service = VmService::new(config, None).await.expect("Failed to create VM service");
+    let mut service = VmService::new(config, None)
+        .await
+        .expect("Failed to create VM service");
 
     log::info!("VM service created successfully");
     log::info!("  Architecture: X86_64");
@@ -35,7 +37,9 @@ async fn test_debian_iso_boot() {
     let kernel_path = "/tmp/debian_iso_extracted/debian_bzImage";
     let load_addr = 0x10000;
 
-    service.load_kernel(kernel_path, load_addr).expect("Failed to load bzImage kernel");
+    service
+        .load_kernel(kernel_path, load_addr)
+        .expect("Failed to load bzImage kernel");
 
     log::info!("Kernel loaded successfully!");
     log::info!("  Kernel path: {}", kernel_path);

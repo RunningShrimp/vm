@@ -24,9 +24,8 @@ mod kvm_x86_64 {
     // x86_64 GPR register mapping (uses macro-generated code)
     // This declarative mapping eliminates ~40 lines of manual code
     const X86_64_GPR_MAP: &[&str] = &[
-        "rax", "rcx", "rdx", "rbx", "rsp", "rbp",
-        "rsi", "rdi", "r8", "r9", "r10", "r11",
-        "r12", "r13", "r14", "r15",
+        "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
+        "r13", "r14", "r15",
     ];
 
     /// x86_64 vCPU 实现
@@ -126,29 +125,26 @@ mod kvm_x86_64 {
 
         fn run(&mut self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::VcpuExit> {
             // Call the existing run method and convert the error type
-            self.run()
-                .map_err(|e| match e {
-                    AccelError::Vm(vm_err) => vm_err,
-                    AccelError::Platform(plat_err) => VmError::Platform(plat_err),
-                })
+            self.run().map_err(|e| match e {
+                AccelError::Vm(vm_err) => vm_err,
+                AccelError::Platform(plat_err) => VmError::Platform(plat_err),
+            })
         }
 
         fn get_regs(&self) -> crate::vcpu_common::VcpuResult<vm_core::GuestRegs> {
             // Call the existing get_regs method and convert the error type
-            self.get_regs()
-                .map_err(|e| match e {
-                    AccelError::Vm(vm_err) => vm_err,
-                    AccelError::Platform(plat_err) => VmError::Platform(plat_err),
-                })
+            self.get_regs().map_err(|e| match e {
+                AccelError::Vm(vm_err) => vm_err,
+                AccelError::Platform(plat_err) => VmError::Platform(plat_err),
+            })
         }
 
         fn set_regs(&mut self, regs: &vm_core::GuestRegs) -> crate::vcpu_common::VcpuResult<()> {
             // Call the existing set_regs method and convert the error type
-            self.set_regs(regs)
-                .map_err(|e| match e {
-                    AccelError::Vm(vm_err) => vm_err,
-                    AccelError::Platform(plat_err) => VmError::Platform(plat_err),
-                })
+            self.set_regs(regs).map_err(|e| match e {
+                AccelError::Vm(vm_err) => vm_err,
+                AccelError::Platform(plat_err) => VmError::Platform(plat_err),
+            })
         }
 
         fn get_fpu_regs(&self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::FpuRegs> {
@@ -172,13 +168,20 @@ mod kvm_x86_64 {
             })
         }
 
-        fn set_fpu_regs(&mut self, regs: &crate::vcpu_common::FpuRegs) -> crate::vcpu_common::VcpuResult<()> {
+        fn set_fpu_regs(
+            &mut self,
+            regs: &crate::vcpu_common::FpuRegs,
+        ) -> crate::vcpu_common::VcpuResult<()> {
             // Convert unified FPU format to KVM format
-            let mut xmm_regs = [kvm_bindings::kvm_xmm_reg { ..Default::default() }; 32];
+            let mut xmm_regs = [kvm_bindings::kvm_xmm_reg {
+                ..Default::default()
+            }; 32];
             for (i, xmm_bytes) in regs.xmm.iter().enumerate().take(32) {
                 xmm_regs[i] = kvm_bindings::kvm_xmm_reg {
                     // Convert bytes to u128
-                    value: u128::from_le_bytes(*xmm_bytes.as_slice().try_into().unwrap_or([0u8; 16])),
+                    value: u128::from_le_bytes(
+                        *xmm_bytes.as_slice().try_into().unwrap_or([0u8; 16]),
+                    ),
                 };
             }
 
@@ -217,7 +220,6 @@ mod kvm_aarch64 {
     vm_accel::impl_vcpu_new!(KvmVcpuAarch64, VmFd, get_vcpu_mmap_size);
 
     impl KvmVcpuAarch64 {
-
         pub fn get_regs(&self) -> Result<GuestRegs, AccelError> {
             let mut regs = kvm_bindings::kvm_regs::default();
             self.fd.get_regs(&mut regs).map_err(|e| {
@@ -272,34 +274,29 @@ mod kvm_aarch64 {
         }
 
         fn run(&mut self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::VcpuExit> {
-            self.run()
-                .map_err(|e| match e {
-                    AccelError::Vm(vm_err) => vm_err,
-                    AccelError::Platform(plat_err) => VmError::Platform(plat_err),
-                })
+            self.run().map_err(|e| match e {
+                AccelError::Vm(vm_err) => vm_err,
+                AccelError::Platform(plat_err) => VmError::Platform(plat_err),
+            })
         }
 
         fn get_regs(&self) -> crate::vcpu_common::VcpuResult<vm_core::GuestRegs> {
-            self.get_regs()
-                .map_err(|e| match e {
-                    AccelError::Vm(vm_err) => vm_err,
-                    AccelError::Platform(plat_err) => VmError::Platform(plat_err),
-                })
+            self.get_regs().map_err(|e| match e {
+                AccelError::Vm(vm_err) => vm_err,
+                AccelError::Platform(plat_err) => VmError::Platform(plat_err),
+            })
         }
 
         fn set_regs(&mut self, regs: &vm_core::GuestRegs) -> crate::vcpu_common::VcpuResult<()> {
-            self.set_regs(regs)
-                .map_err(|e| match e {
-                    AccelError::Vm(vm_err) => vm_err,
-                    AccelError::Platform(plat_err) => VmError::Platform(plat_err),
-                })
+            self.set_regs(regs).map_err(|e| match e {
+                AccelError::Vm(vm_err) => vm_err,
+                AccelError::Platform(plat_err) => VmError::Platform(plat_err),
+            })
         }
 
         fn get_fpu_regs(&self) -> crate::vcpu_common::VcpuResult<crate::vcpu_common::FpuRegs> {
             // ARM64 SIMD/FP registers
-            let mut fp_regs = kvm_bindings::kvm_arm_copy_fp_regs {
-                regs: [0u128; 32],
-            };
+            let mut fp_regs = kvm_bindings::kvm_arm_copy_fp_regs { regs: [0u128; 32] };
 
             self.fd.get_fp_regs(&mut fp_regs).map_err(|e| {
                 VmError::Platform(PlatformError::AccessDenied(format!(
@@ -320,16 +317,16 @@ mod kvm_aarch64 {
             })
         }
 
-        fn set_fpu_regs(&mut self, regs: &crate::vcpu_common::FpuRegs) -> crate::vcpu_common::VcpuResult<()> {
+        fn set_fpu_regs(
+            &mut self,
+            regs: &crate::vcpu_common::FpuRegs,
+        ) -> crate::vcpu_common::VcpuResult<()> {
             // Convert from unified format
-            let mut fp_regs = kvm_bindings::kvm_arm_copy_fp_regs {
-                regs: [0u128; 32],
-            };
+            let mut fp_regs = kvm_bindings::kvm_arm_copy_fp_regs { regs: [0u128; 32] };
 
             for (i, xmm_bytes) in regs.xmm.iter().enumerate().take(32) {
-                fp_regs.regs[i] = u128::from_le_bytes(
-                    xmm_bytes.as_slice().try_into().unwrap_or([0u8; 16])
-                );
+                fp_regs.regs[i] =
+                    u128::from_le_bytes(xmm_bytes.as_slice().try_into().unwrap_or([0u8; 16]));
             }
 
             self.fd.set_fp_regs(&fp_regs).map_err(|e| {

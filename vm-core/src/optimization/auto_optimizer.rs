@@ -446,7 +446,7 @@ impl AutoOptimizer {
 
         // 记录优化策略应用 (仅在启用优化应用时)
         #[cfg(feature = "optimization_application")]
-        log_optimization_strategy(&strategy);
+        log_optimization_strategy(strategy);
     }
 
     /// 记录性能指标

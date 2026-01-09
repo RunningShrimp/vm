@@ -4,8 +4,8 @@
 //! - Real mode (16-bit) → Protected mode (32-bit)
 //! - Protected mode (32-bit) → Long mode (64-bit)
 
-use vm_core::{GuestAddr, MMU, VmResult};
 use super::realmode::{RealModeRegs, RealModeStep};
+use vm_core::{GuestAddr, MMU, VmResult};
 
 /// x86 CPU operating mode
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,7 +34,7 @@ pub struct ControlRegisters {
 impl ControlRegisters {
     pub fn new() -> Self {
         Self {
-            cr0: 0x60000010,  // ET, NE set
+            cr0: 0x60000010, // ET, NE set
             cr2: 0,
             cr3: 0,
             cr4: 0,
@@ -58,19 +58,19 @@ impl ControlRegisters {
 
     /// Enable protected mode
     pub fn enable_protected_mode(&mut self) {
-        self.cr0 |= 0x00000001;  // Set PE bit
+        self.cr0 |= 0x00000001; // Set PE bit
         log::info!("Protected mode enabled (CR0.PE = 1)");
     }
 
     /// Enable paging
     pub fn enable_paging(&mut self) {
-        self.cr0 |= 0x80000000;  // Set PG bit
+        self.cr0 |= 0x80000000; // Set PG bit
         log::info!("Paging enabled (CR0.PG = 1)");
     }
 
     /// Enable PAE
     pub fn enable_pae(&mut self) {
-        self.cr4 |= 0x00000020;  // Set PAE bit
+        self.cr4 |= 0x00000020; // Set PAE bit
         log::info!("PAE enabled (CR4.PAE = 1)");
     }
 }
@@ -85,8 +85,8 @@ impl Default for ControlRegisters {
 pub const MSR_EFER: u32 = 0xC0000080;
 
 /// EFER bits
-pub const EFER_LME: u64 = 0x00000100;  // Long Mode Enable
-pub const EFER_LMA: u64 = 0x00000400;  // Long Mode Active
+pub const EFER_LME: u64 = 0x00000100; // Long Mode Enable
+pub const EFER_LMA: u64 = 0x00000400; // Long Mode Active
 
 /// Global Descriptor Table Entry
 #[derive(Debug, Clone, Copy)]
@@ -119,20 +119,20 @@ impl GdtEntry {
             limit_low: 0xFFFF,
             base_low: 0,
             base_middle: 0,
-            access: 0x92,  // Present, Ring 0, Data, Writable
-            flags_limit_high: 0xCF,  // 32-bit, 4GB limit
+            access: 0x92,           // Present, Ring 0, Data, Writable
+            flags_limit_high: 0xCF, // 32-bit, 4GB limit
             base_high: 0,
         }
     }
 
     /// Create a flat code segment descriptor (base=0, limit=4GB)
     pub fn code_segment(is_64bit: bool) -> Self {
-        let flags = if is_64bit { 0xAF } else { 0x9F };  // L=1 for 64-bit
+        let flags = if is_64bit { 0xAF } else { 0x9F }; // L=1 for 64-bit
         Self {
             limit_low: 0xFFFF,
             base_low: 0,
             base_middle: 0,
-            access: 0x9A,  // Present, Ring 0, Code, Readable
+            access: 0x9A, // Present, Ring 0, Code, Readable
             flags_limit_high: flags,
             base_high: 0,
         }
@@ -181,6 +181,17 @@ impl ModeTransition {
         self.current_mode
     }
 
+    /// Force set current mode (aggressive intervention)
+    pub fn set_current_mode(&mut self, mode: X86Mode) {
+        log::warn!(
+            "Forcing mode transition: {:?} -> {:?}",
+            self.current_mode,
+            mode
+        );
+        self.current_mode = mode;
+        log::warn!("Mode forced to: {:?}", self.current_mode);
+    }
+
     /// Initialize GDT with flat segments
     pub fn init_gdt(&mut self) {
         // Entry 0: Null descriptor (required)
@@ -221,8 +232,7 @@ impl ModeTransition {
         // For now, just log it - actual GDTR load would be done by LGDT instruction
         let limit = gdtr.limit;
         let base = gdtr.base;
-        log::info!("GDT loaded: base={:#010X}, limit={:#06X}",
-                  base, limit);
+        log::info!("GDT loaded: base={:#010X}, limit={:#06X}", base, limit);
 
         self.gdt_loaded = true;
         Ok(())
@@ -239,7 +249,7 @@ impl ModeTransition {
         // For simplicity, use identity mapping
         // In a real implementation, this would create proper page tables
 
-        let pml4_addr = GuestAddr(0x10000);  // Place at 64KB
+        let pml4_addr = GuestAddr(0x10000); // Place at 64KB
         let _pdpt_addr = GuestAddr(0x11000);
         let _pd_addr = GuestAddr(0x12000);
 
@@ -282,8 +292,13 @@ impl ModeTransition {
         regs.gs = 0x10;
 
         log::info!("Segment registers reloaded for protected mode:");
-        log::info!("  CS={:#06X}, DS={:#06X}, ES={:#06X}, SS={:#06X}",
-                  regs.cs, regs.ds, regs.es, regs.ss);
+        log::info!(
+            "  CS={:#06X}, DS={:#06X}, ES={:#06X}, SS={:#06X}",
+            regs.cs,
+            regs.ds,
+            regs.es,
+            regs.ss
+        );
 
         // Step 5: Clear direction flag
         regs.eflags &= !0x0400;
@@ -320,20 +335,29 @@ impl ModeTransition {
 
         // Step 6: Reload CS with 64-bit code selector (0x18 = entry 3 * 8)
         regs.cs = 0x18;
-        regs.ds = 0x20;  // Entry 4 * 8
+        regs.ds = 0x20; // Entry 4 * 8
         regs.es = 0x20;
         regs.ss = 0x20;
 
         log::info!("Segment registers reloaded for long mode:");
-        log::info!("  CS={:#06X}, DS={:#06X}, ES={:#06X}, SS={:#06X}",
-                  regs.cs, regs.ds, regs.es, regs.ss);
+        log::info!(
+            "  CS={:#06X}, DS={:#06X}, ES={:#06X}, SS={:#06X}",
+            regs.cs,
+            regs.ds,
+            regs.es,
+            regs.ss
+        );
 
         self.current_mode = X86Mode::Long;
 
         log::info!("=== Long Mode Active ===");
         log::info!("PML4 table at: {:#010X}", pml4_addr.0);
-        log::info!("CR0={:#010X}, CR4={:#010X}, EFER={:#018X}",
-                  self.cr.cr0, self.cr.cr4, self.efer);
+        log::info!(
+            "CR0={:#010X}, CR4={:#010X}, EFER={:#018X}",
+            self.cr.cr0,
+            self.cr.cr4,
+            self.efer
+        );
 
         Ok(RealModeStep::SwitchMode)
     }
@@ -393,7 +417,8 @@ impl ModeTransition {
             }
             X86Mode::Protected => {
                 // Check if long mode is being enabled
-                if self.cr.paging_enabled() && self.cr.pae_enabled() && (self.efer & EFER_LME) != 0 {
+                if self.cr.paging_enabled() && self.cr.pae_enabled() && (self.efer & EFER_LME) != 0
+                {
                     return Ok(Some(self.switch_to_long_mode(regs, mmu)?));
                 }
             }

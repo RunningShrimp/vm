@@ -533,10 +533,15 @@ pub fn run_sync(
     ctx.run_flag.store(true, Ordering::Relaxed);
     ctx.pause_flag.store(false, Ordering::Relaxed);
 
-    let max_steps = 1_000_000;
+    // REMOVED INSTRUCTION LIMIT - Allow unlimited execution for complete OS installation
+    // Timeout is enforced by x86_boot_executor (2 hours)
+    let max_steps = usize::MAX;
     let pc = start_pc;
 
-    info!("Starting execution from PC={:#x}", pc);
+    info!(
+        "Starting execution from PC={:#x} (unlimited steps, timeout enforced by boot executor)",
+        pc
+    );
 
     if vcpu_count <= 1 {
         run_single_vcpu_sync(ctx, start_pc, base_mmu, debug, max_steps)
@@ -953,9 +958,14 @@ pub async fn run_async(
     ctx.run_flag.store(true, Ordering::Relaxed);
     ctx.pause_flag.store(false, Ordering::Relaxed);
 
-    let max_steps = 1_000_000;
+    // REMOVED INSTRUCTION LIMIT - Allow unlimited execution for complete OS installation
+    // Timeout is enforced by x86_boot_executor (2 hours)
+    let max_steps = usize::MAX;
     let pc = start_pc;
-    info!("Starting async execution from PC={:#x}", pc);
+    info!(
+        "Starting async execution from PC={:#x} (unlimited steps, timeout enforced by boot executor)",
+        pc
+    );
     tinfo!(pc=?pc, "service:run_async_start");
 
     if vcpu_count <= 1 {

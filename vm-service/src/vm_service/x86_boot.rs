@@ -4,8 +4,8 @@
 //! This module handles the Linux boot protocol and provides the necessary
 //! data structures for kernel booting.
 
-use vm_core::{GuestAddr, MMU, VmError, VmResult};
 use std::mem::size_of;
+use vm_core::{GuestAddr, MMU, VmError, VmResult};
 
 /// Linux boot protocol header (at offset 0x202 in bzImage)
 #[repr(C, packed)]
@@ -85,9 +85,7 @@ impl BootParams {
         }
 
         // Convert to BootParams
-        let params = unsafe {
-            std::ptr::read(words.as_ptr() as *const _ as *const BootParams)
-        };
+        let params = unsafe { std::ptr::read(words.as_ptr() as *const _ as *const BootParams) };
 
         // Verify signature
         if &params.header != b"HdrS" {
@@ -150,7 +148,7 @@ impl RealModeContext {
     /// Create new real-mode context
     pub fn new() -> Self {
         Self {
-            cs: 0x07C0,  // Typical BIOS boot segment
+            cs: 0x07C0, // Typical BIOS boot segment
             ds: 0x07C0,
             es: 0x07C0,
             ss: 0x07C0,
@@ -161,9 +159,9 @@ impl RealModeContext {
             esi: 0,
             edi: 0,
             ebp: 0,
-            esp: 0x7C00,  // Stack top
+            esp: 0x7C00, // Stack top
             eip: 0,
-            eflags: 0x2,  // Reserved bit set
+            eflags: 0x2, // Reserved bit set
             mode: X86Mode::RealMode,
         }
     }
@@ -183,8 +181,8 @@ impl RealModeContext {
         self.mode = X86Mode::ProtectedMode;
         // In protected mode, segments become selectors
         // For now, use flat segments
-        self.cs = 0x08;  // Kernel code selector
-        self.ds = 0x10;  // Kernel data selector
+        self.cs = 0x08; // Kernel code selector
+        self.ds = 0x10; // Kernel data selector
         self.es = 0x10;
         self.ss = 0x10;
     }
@@ -193,7 +191,7 @@ impl RealModeContext {
     pub fn switch_to_long(&mut self) {
         self.mode = X86Mode::LongMode;
         // In long mode, CS must have L=1 and D=0 bits
-        self.cs = 0x08;  // 64-bit code selector
+        self.cs = 0x08; // 64-bit code selector
     }
 }
 
@@ -224,11 +222,7 @@ pub fn load_bzimage(
     let boot_params = BootParams::from_bzimage(mmu, load_addr)?;
 
     let (major, minor) = boot_params.protocol_version();
-    log::info!(
-        "bzImage boot protocol version: {}.{}",
-        major,
-        minor
-    );
+    log::info!("bzImage boot protocol version: {}.{}", major, minor);
     log::info!("Kernel entry point: 0x{:x}", boot_params.code32_start());
 
     // Calculate entry point
