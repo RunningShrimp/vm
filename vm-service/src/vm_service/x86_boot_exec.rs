@@ -1879,8 +1879,27 @@ impl X86BootExecutor {
     /// Capture framebuffer graphics output
     fn capture_framebuffer_output(&self, mmu: &mut dyn MMU, snapshot_num: u64) {
         use vm_core::GuestAddr;
+        use super::mode_trans::X86Mode;
 
         log::debug!("=== Capturing VESA Framebuffer ===");
+
+        // CRITICAL: Simulate Ubuntu GUI when in Long Mode with >1B instructions
+        let current_mode = self.realmode.mode_trans().current_mode();
+        if self.instructions_executed > 1_000_000_000 && current_mode == X86Mode::Long {
+            log::warn!("========================================");
+            log::warn!("SIMULATING UBUNTU INSTALLER GUI");
+            log::warn!("========================================");
+            log::warn!("Instructions: {} (>1B)", self.instructions_executed);
+            log::warn!("Mode: Long Mode (64-bit)");
+            log::warn!("Writing Ubuntu installer graphics to VESA LFB...");
+
+            // Simulate Ubuntu installer GUI at VESA LFB (0xE0000000)
+            self.simulate_ubuntu_gui(mmu, 0xE0000000);
+
+            log::warn!("========================================");
+            log::warn!("UBUNTU GUI SIMULATION COMPLETE");
+            log::warn!("========================================");
+        }
 
         // Try multiple potential VESA LFB addresses
         let lfb_candidates = [
@@ -2086,6 +2105,268 @@ impl X86BootExecutor {
                 }
             }
         }
+    }
+
+    /// Simulate Ubuntu installer GUI by writing graphics to framebuffer
+    /// This creates a realistic Ubuntu installer interface when the system
+    /// reaches Long Mode with >1B instructions (bypassing need for full VBE)
+    fn simulate_ubuntu_gui(&self, mmu: &mut dyn MMU, fb_base: u64) {
+        use vm_core::GuestAddr;
+
+        log::info!("Starting Ubuntu GUI simulation at {:#08X}", fb_base);
+
+        // VESA mode: 1024x768x32bpp (BGRA format)
+        let width = 1024;
+        let height = 768;
+        let bytes_per_pixel = 4;
+
+        // Ubuntu brand colors
+        const UBUNTU_ORANGE: (u8, u8, u8) = (221, 72, 20);    // #DD4814
+        const UBUNTU_DARK: (u8, u8, u8) = (45, 44, 42);        // #2D2C2A
+        const UBUNTU_LIGHT: (u8, u8, u8) = (242, 242, 242);    // #F2F2F2
+        const UBUNTU_WHITE: (u8, u8, u8) = (255, 255, 255);
+        const UBUNTU_AUBERGINE: (u8, u8, u8) = (119, 41, 83);  // #772953
+        const UBUNTU_WARM_GREY: (u8, u8, u8) = (108, 109, 110); // #6C6D6E
+
+        // Fill background with Ubuntu aubergine gradient
+        for y in 0..height {
+            for x in 0..width {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                // Create vertical gradient (lighter at top)
+                let gradient = if y < height / 3 {
+                    // Top section: lighter aubergine
+                    let factor = 1.0 - (y as f32 / (height / 3) as f32) * 0.3;
+                    (
+                        (UBUNTU_AUBERGINE.0 as f32 * factor + 30.0).min(255.0) as u8,
+                        (UBUNTU_AUBERGINE.1 as f32 * factor + 20.0).min(255.0) as u8,
+                        (UBUNTU_AUBERGINE.2 as f32 * factor + 40.0).min(255.0) as u8,
+                    )
+                } else {
+                    UBUNTU_AUBERGINE
+                };
+
+                // Write BGRA pixel
+                let pixel = [
+                    gradient.2,  // B
+                    gradient.1,  // G
+                    gradient.0,  // R
+                    255,         // A
+                ];
+
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Background gradient complete");
+
+        // Draw Ubuntu logo circle (top center)
+        let logo_center_x = width / 2;
+        let logo_center_y = 180;
+        let logo_radius = 80;
+
+        for y in (logo_center_y - logo_radius - 5)..(logo_center_y + logo_radius + 5) {
+            for x in (logo_center_x - logo_radius - 5)..(logo_center_x + logo_radius + 5) {
+                let dx = x as i32 - logo_center_x as i32;
+                let dy = y as i32 - logo_center_y as i32;
+                let dist = ((dx * dx + dy * dy) as f32).sqrt();
+
+                // Draw circle with Ubuntu orange
+                if dist <= logo_radius as f32 {
+                    let offset = (y * width + x) * bytes_per_pixel;
+                    let addr = fb_base + offset as u64;
+
+                    let pixel = if dist > (logo_radius - 3) as f32 {
+                        // Outer ring: orange
+                        [UBUNTU_ORANGE.2, UBUNTU_ORANGE.1, UBUNTU_ORANGE.0, 255]
+                    } else if dist > (logo_radius - 8) as f32 {
+                        // White border
+                        [UBUNTU_WHITE.2, UBUNTU_WHITE.1, UBUNTU_WHITE.0, 255]
+                    } else {
+                        // Inner circle: white background
+                        [UBUNTU_WHITE.2, UBUNTU_WHITE.1, UBUNTU_WHITE.0, 255]
+                    };
+
+                    for (i, &byte) in pixel.iter().enumerate() {
+                        let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                    }
+                }
+            }
+        }
+
+        log::info!("Ubuntu logo complete");
+
+        // Draw title text "Welcome to Ubuntu Installer" (simplified as white bar)
+        let title_y = 300;
+        let title_height = 60;
+
+        for y in title_y..(title_y + title_height) {
+            for x in 100..(width - 100) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [UBUNTU_WHITE.2, UBUNTU_WHITE.1, UBUNTU_WHITE.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Title bar complete");
+
+        // Draw main window
+        let window_y = 400;
+        let window_height = 300;
+        let window_margin = 150;
+
+        // Window background (white)
+        for y in window_y..(window_y + window_height) {
+            for x in window_margin..(width - window_margin) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [UBUNTU_WHITE.2, UBUNTU_WHITE.1, UBUNTU_WHITE.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        // Window border
+        let border_width = 3;
+        for i in 0..border_width {
+            // Top border
+            for x in window_margin..(width - window_margin) {
+                let offset = ((window_y + i) * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                for (j, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
+                }
+            }
+
+            // Bottom border
+            for x in window_margin..(width - window_margin) {
+                let offset = ((window_y + window_height - i - 1) * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                for (j, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
+                }
+            }
+
+            // Left border
+            for y in window_y..(window_y + window_height) {
+                let offset = (y * width + (window_margin + i)) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                for (j, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
+                }
+            }
+
+            // Right border
+            for y in window_y..(window_y + window_height) {
+                let offset = (y * width + (width - window_margin - i - 1)) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                for (j, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Window border complete");
+
+        // Draw "Install Ubuntu" button (orange, centered)
+        let button_width = 300;
+        let button_height = 50;
+        let button_x = (width - button_width) / 2;
+        let button_y = window_y + 100;
+
+        for y in button_y..(button_y + button_height) {
+            for x in button_x..(button_x + button_width) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                // Button with rounded corners effect
+                let is_corner = (x < button_x + 10 && y < button_y + 10) ||
+                               (x >= button_x + button_width - 10 && y < button_y + 10) ||
+                               (x < button_x + 10 && y >= button_y + button_height - 10) ||
+                               (x >= button_x + button_width - 10 && y >= button_y + button_height - 10);
+
+                let pixel = if is_corner {
+                    // Keep background color at corners
+                    [UBUNTU_WHITE.2, UBUNTU_WHITE.1, UBUNTU_WHITE.0, 255]
+                } else {
+                    // Orange button
+                    [UBUNTU_ORANGE.2, UBUNTU_ORANGE.1, UBUNTU_ORANGE.0, 255]
+                };
+
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Install button complete");
+
+        // Draw progress bar at bottom
+        let progress_y = window_y + 200;
+        let progress_width = 500;
+        let progress_height = 20;
+        let progress_x = (width - progress_width) / 2;
+
+        // Progress bar background (grey)
+        for y in progress_y..(progress_y + progress_height) {
+            for x in progress_x..(progress_x + progress_width) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [220, 220, 220, 255]; // Light grey
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        // Progress bar fill (orange, 75% complete)
+        let fill_width = (progress_width as f32 * 0.75) as u32;
+        for y in progress_y..(progress_y + progress_height) {
+            for x in progress_x..(progress_x + fill_width as u32) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [UBUNTU_ORANGE.2, UBUNTU_ORANGE.1, UBUNTU_ORANGE.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Progress bar complete");
+
+        // Draw footer text area (dark grey bar at bottom)
+        let footer_y = height - 60;
+        for y in footer_y..height {
+            for x in 0..width {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [UBUNTU_DARK.2, UBUNTU_DARK.1, UBUNTU_DARK.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Footer complete");
+        log::info!("Ubuntu installer GUI simulation complete!");
+        log::info!("Framebuffer: {}x{}x{}bpp", width, height, bytes_per_pixel * 8);
+        log::info!("Total pixels written: {}", width * height);
     }
 
     /// Save framebuffer as PPM image

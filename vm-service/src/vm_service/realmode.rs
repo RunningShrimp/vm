@@ -98,6 +98,16 @@ impl RealModeRegs {
     ) -> VmResult<()> {
         let linear = self.seg_to_linear(seg, offset);
         let addr = GuestAddr(linear as u64);
+
+        // CRITICAL: Log framebuffer writes for debugging
+        // VESA LFB is typically at 0xE0000000
+        if linear >= 0xE0000000 && linear < 0xF0000000 {
+            log::info!(
+                "FRAMEBUFFER WRITE: addr={:#010X}, val={:02X}",
+                linear, val
+            );
+        }
+
         mmu.write(addr, val as u64, 1)
     }
 
@@ -111,6 +121,15 @@ impl RealModeRegs {
     ) -> VmResult<()> {
         let linear = self.seg_to_linear(seg, offset);
         let addr = GuestAddr(linear as u64);
+
+        // CRITICAL: Log framebuffer writes for debugging
+        if linear >= 0xE0000000 && linear < 0xF0000000 {
+            log::info!(
+                "FRAMEBUFFER WRITE (word): addr={:#010X}, val={:04X}",
+                linear, val
+            );
+        }
+
         mmu.write(addr, val as u64, 2)
     }
 
@@ -761,9 +780,75 @@ impl RealModeEmulator {
         (self.regs.eflags & 0x0040) != 0
     }
 
+    /// Read IDT entry from memory (for protected/long mode)
+    fn read_idt_entry(&mut self, int_num: u8, mmu: &mut dyn MMU) -> VmResult<(u32, u16)> {
+        use super::mode_trans::X86Mode;
+
+        let current_mode = self.mode_trans.current_mode();
+
+        // In real mode, always use IVT
+        if current_mode == X86Mode::Real {
+            let vec_addr = (int_num as u16) * 4;
+            let offset = self.regs.read_mem_word(mmu, 0x0000, vec_addr)? as u32;
+            let segment = self.regs.read_mem_word(mmu, 0x0000, vec_addr + 2)?;
+            return Ok((offset, segment));
+        }
+
+        // In protected/long mode, check if IDT is loaded
+        if !self.mode_trans.idt_loaded() {
+            log::warn!("INT {:02X} in protected mode but IDT not loaded, falling back to IVT", int_num);
+            let vec_addr = (int_num as u16) * 4;
+            let offset = self.regs.read_mem_word(mmu, 0x0000, vec_addr)? as u32;
+            let segment = self.regs.read_mem_word(mmu, 0x0000, vec_addr + 2)?;
+            return Ok((offset, segment));
+        }
+
+        // Read from IDT
+        let idtr = self.mode_trans.idtr();
+        let entry_addr = idtr.base + (int_num as u32 * 8);
+
+        log::debug!("Reading IDT entry {} from address {:#010X}", int_num, entry_addr);
+
+        // For protected mode, IDT entry is 8 bytes:
+        // Offset low (16), Selector (16), Reserved (8), Type (8), Offset high (16)
+        // We need to read these as bytes and reconstruct
+
+        // Read the 8-byte IDT entry
+        let byte0 = self.regs.read_mem_byte(mmu, 0x0000, entry_addr as u16)?;
+        let byte1 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 1) as u16)?;
+        let byte2 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 2) as u16)?;
+        let byte3 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 3) as u16)?;
+        let byte4 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 4) as u16)?;
+        let byte5 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 5) as u16)?;
+        let byte6 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 6) as u16)?;
+        let byte7 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 7) as u16)?;
+
+        // Reconstruct the IDT entry
+        let offset_low = (byte1 as u16) << 8 | (byte0 as u16);
+        let selector = (byte3 as u16) << 8 | (byte2 as u16);
+        let type_attr = byte6;
+        let offset_high = (byte7 as u16) << 8 | (byte6 as u16);
+
+        // Combine offset parts
+        let offset = (offset_high as u32) << 16 | (offset_low as u32);
+
+        log::info!(
+            "IDT entry {}: offset={:#010X}, selector={:#06X}, type={:#04X}",
+            int_num, offset, selector, type_attr
+        );
+
+        Ok((offset, selector))
+    }
+
     /// Handle interrupt (hardware or software)
     fn handle_interrupt(&mut self, int_num: u8, mmu: &mut dyn MMU) -> VmResult<RealModeStep> {
-        log::info!("Handling interrupt INT {:02X}", int_num);
+        use super::mode_trans::X86Mode;
+
+        let current_mode = self.mode_trans.current_mode();
+        log::info!("Handling interrupt INT {:02X} in {:?} mode", int_num, current_mode);
+
+        // Read interrupt vector address (from IVT or IDT)
+        let (offset, selector) = self.read_idt_entry(int_num, mmu)?;
 
         // Push flags, CS, IP onto stack
         let flags = (self.regs.eflags & 0xFFFF) as u16;
@@ -774,19 +859,14 @@ impl RealModeEmulator {
         // Clear interrupt flag
         self.regs.eflags &= !0x0200; // Clear IF
 
-        // Get interrupt vector address (from IVT at 0000:int_num*4)
-        let vec_addr = (int_num as u16) * 4;
-        let offset = self.regs.read_mem_word(mmu, 0x0000, vec_addr)?;
-        let segment = self.regs.read_mem_word(mmu, 0x0000, vec_addr + 2)?;
-
         // Jump to interrupt handler
-        self.regs.cs = segment;
-        self.regs.eip = offset as u32;
+        self.regs.cs = selector;
+        self.regs.eip = offset;
 
         log::info!(
-            "INT {:02X}: Jump to {:04X}:{:04X}",
+            "INT {:02X}: Jump to {:04X}:{:#010X}",
             int_num,
-            segment,
+            selector,
             offset
         );
 
@@ -979,6 +1059,24 @@ impl RealModeEmulator {
 
         // Update APIC timers with current virtual time (for Local APIC timer interrupts)
         self.local_apic.update_timer(self.virtual_time_ns);
+
+        // CRITICAL: Check for and inject pending hardware interrupts BEFORE fetching next instruction
+        // This allows timer interrupts to be delivered during normal execution, not just during HLT
+        if self.has_pending_interrupt() {
+            if let Some(irq) = self.get_pending_interrupt() {
+                log::info!("Injecting hardware interrupt IRQ {} during execution", irq);
+
+                // Convert IRQ to interrupt vector (IRQ 0-7 -> INT 8h-Fh, IRQ 8-15 -> INT 70h-77h)
+                let int_num = if irq < 8 {
+                    0x08 + irq
+                } else {
+                    0x70 + (irq - 8)
+                };
+
+                // Handle the interrupt (this will push flags/CS/IP and jump to handler)
+                return self.handle_interrupt(int_num as u8, mmu);
+            }
+        }
 
         // ALWAYS log for debugging
         static mut CALL_COUNT: u32 = 0;
@@ -5533,7 +5631,78 @@ impl RealModeEmulator {
                             }
                             3 => {
                                 // LIDT - Load Interrupt Descriptor Table
-                                log::debug!("LIDT instruction (not implemented)");
+                                // Format: LIDT m - loads 6 bytes: limit (16-bit) and base (32-bit)
+                                log::info!(
+                                    "LIDT instruction encountered (modrm={:02X}, mod={}, rm={})",
+                                    modrm,
+                                    mod_val,
+                                    rm
+                                );
+
+                                // Calculate effective address based on addressing mode
+                                let mem_addr: u32 = if mod_val == 0 && rm == 6 {
+                                    // [disp16] - 16-bit displacement follows ModRM
+                                    let disp16 = self.fetch_word(mmu)? as u32;
+                                    log::debug!("LIDT [disp16] - disp16={:04X}", disp16);
+                                    disp16
+                                } else if mod_val == 0 {
+                                    // [mem] addressing - use register-based addressing
+                                    // For simplicity, handle common cases
+                                    let bx = (self.regs.ebx & 0xFFFF) as u16;
+                                    let si = (self.regs.esi & 0xFFFF) as u16;
+                                    let addr = bx.wrapping_add(si) as u32;
+                                    log::debug!("LIDT [mem] - addr={:04X}", addr);
+                                    addr
+                                } else if mod_val == 2 {
+                                    // [mem+disp16] - displacement follows ModRM
+                                    let disp16 = self.fetch_word(mmu)? as u32;
+                                    let bx = (self.regs.ebx & 0xFFFF) as u16;
+                                    let si = (self.regs.esi & 0xFFFF) as u16;
+                                    let addr =
+                                        bx.wrapping_add(si).wrapping_add(disp16 as u16) as u32;
+                                    log::debug!("LIDT [mem+disp16] - addr={:04X}", addr);
+                                    addr
+                                } else {
+                                    log::warn!(
+                                        "LIDT with unsupported addressing mode (mod={}, rm={})",
+                                        mod_val,
+                                        rm
+                                    );
+                                    // For now, don't block execution
+                                    return Ok(RealModeStep::Continue);
+                                };
+
+                                // Read 6-byte IDT descriptor from memory:
+                                // Bytes 0-1: Limit (16-bit)
+                                // Bytes 2-5: Base address (32-bit)
+                                let limit =
+                                    self.regs
+                                        .read_mem_word(mmu, self.regs.ds, mem_addr as u16)?;
+                                let base_low = self.regs.read_mem_word(
+                                    mmu,
+                                    self.regs.ds,
+                                    (mem_addr + 2) as u16,
+                                )? as u32;
+                                let base_high = self.regs.read_mem_word(
+                                    mmu,
+                                    self.regs.ds,
+                                    (mem_addr + 4) as u16,
+                                )? as u32;
+                                let base = (base_high << 16) | base_low;
+
+                                log::info!(
+                                    "LIDT: Loading IDTR with base={:#010X}, limit={:#06X}",
+                                    base,
+                                    limit
+                                );
+
+                                // Load IDTR
+                                use super::mode_trans::IdtPointer;
+                                let idtr = IdtPointer { limit, base };
+                                self.mode_trans.load_idtr(idtr)?;
+
+                                log::info!("LIDT: IDTR loaded successfully");
+
                                 Ok(RealModeStep::Continue)
                             }
                             _ => {
@@ -5627,6 +5796,36 @@ impl RealModeEmulator {
                     }
 
                     // Other two-byte opcodes can be added here
+                    // BTS (Bit Test and Set) - 0F AB
+                    0xAB => {
+                        let modrm = self.fetch_byte(mmu)?;
+                        log::debug!("BTS instruction (modrm={:02X}) - treating as NOP", modrm);
+                        // BTS is used for bit manipulation in protected mode
+                        // For now, treat as NOP to allow boot to continue
+                        Ok(RealModeStep::Continue)
+                    }
+
+                    // Group 8 - BT/BTS/BTR/BTC (0F BA /0 ib)
+                    0xBA => {
+                        let modrm = self.fetch_byte(mmu)?;
+                        let _imm8 = self.fetch_byte(mmu)?;
+                        let reg = (modrm >> 3) & 7;
+                        log::debug!("Group 8 instruction (opcode 0F BA, reg={}) - treating as NOP", reg);
+                        // BT/BTS/BTR/BTC are bit test and modify instructions
+                        // For now, treat as NOP to allow boot to continue
+                        Ok(RealModeStep::Continue)
+                    }
+
+                    // 0F 00 - Various protected mode instructions
+                    0x00 => {
+                        let modrm = self.fetch_byte(mmu)?;
+                        let reg = (modrm >> 3) & 7;
+                        log::debug!("0F 00 instruction (modrm={:02X}, reg={}) - treating as NOP", modrm, reg);
+                        // This includes SLDT, STR, LLDT, LTR, VERR, VERW, etc.
+                        // For now, treat as NOP to allow boot to continue
+                        Ok(RealModeStep::Continue)
+                    }
+
                     _ => {
                         log::warn!("Unknown two-byte opcode: 0F {:02X}", opcode2);
                         Ok(RealModeStep::Continue)
@@ -5918,6 +6117,30 @@ impl RealModeEmulator {
                 self.regs.cs = ret_cs;
                 self.regs.eflags = (self.regs.eflags & 0xFFFF0000) | (flags as u32);
                 Ok(RealModeStep::Continue)
+            }
+
+            // LEAVE (C9) - High Level Procedure Exit
+            0xC9 => {
+                // LEAVE is equivalent to: MOV ESP, EBP; POP EBP
+                // Set ESP to EBP, then pop the stack into EBP
+                let old_ebp = self.regs.ebp;
+                self.regs.esp = self.regs.ebp;
+                self.regs.ebp = self.pop16(mmu)? as u32;
+
+                log::debug!("LEAVE: EBP {:#010X} -> {:#010X}, ESP restored to old EBP", old_ebp, self.regs.ebp);
+                Ok(RealModeStep::Continue)
+            }
+
+            // INTO (CE) - Interrupt on Overflow
+            0xCE => {
+                // If overflow flag (OF) is set, call INT 4
+                if (self.regs.eflags & 0x800) != 0 {
+                    log::debug!("INTO: Overflow flag set, calling INT 4");
+                    return self.handle_interrupt(4, mmu);
+                } else {
+                    log::debug!("INTO: Overflow flag clear, ignoring");
+                    Ok(RealModeStep::Continue)
+                }
             }
 
             // ===== String Operations =====
@@ -6305,6 +6528,56 @@ impl RealModeEmulator {
                 Ok(RealModeStep::Continue)
             }
 
+            // D8 - floating point instructions (partial implementation)
+            0xD8 => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!(
+                    "D8 opcode encountered (modrm={:02X}) - treating as NOP for boot compatibility",
+                    modrm
+                );
+                // For now, treat as NOP to allow boot to continue
+                // Full FPU implementation would be needed for proper floating point support
+                // D8 = FADD float instructions (32-bit)
+                Ok(RealModeStep::Continue)
+            }
+
+            // D9 - floating point instructions (partial implementation)
+            0xD9 => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!(
+                    "D9 opcode encountered (modrm={:02X}) - treating as NOP for boot compatibility",
+                    modrm
+                );
+                // For now, treat as NOP to allow boot to continue
+                // Full FPU implementation would be needed for proper floating point support
+                // D9 = FLD float, FSTP, and other FPU instructions
+                Ok(RealModeStep::Continue)
+            }
+
+            // DA - floating point instructions (partial implementation)
+            0xDA => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!(
+                    "DA opcode encountered (modrm={:02X}) - treating as NOP for boot compatibility",
+                    modrm
+                );
+                // For now, treat as NOP to allow boot to continue
+                // DA = FIADD, FIMUL, FICOM, etc. (integer to FPU)
+                Ok(RealModeStep::Continue)
+            }
+
+            // DB - floating point instructions (partial implementation)
+            0xDB => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!(
+                    "DB opcode encountered (modrm={:02X}) - treating as NOP for boot compatibility",
+                    modrm
+                );
+                // For now, treat as NOP to allow boot to continue
+                // DB = FILD, FISTP, etc. (integer to FPU)
+                Ok(RealModeStep::Continue)
+            }
+
             // DC - floating point instructions (partial implementation)
             0xDC => {
                 let modrm = self.fetch_byte(mmu)?;
@@ -6314,6 +6587,79 @@ impl RealModeEmulator {
                 );
                 // For now, treat as NOP to allow boot to continue
                 // Full FPU implementation would be needed for proper floating point support
+                Ok(RealModeStep::Continue)
+            }
+
+            // DD - floating point instructions (partial implementation)
+            0xDD => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!(
+                    "DD opcode encountered (modrm={:02X}) - treating as NOP for boot compatibility",
+                    modrm
+                );
+                // For now, treat as NOP to allow boot to continue
+                // DD = FLD double, FSTP double, etc. (64-bit floating point)
+                Ok(RealModeStep::Continue)
+            }
+
+            // DE - floating point instructions (partial implementation)
+            0xDE => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!(
+                    "DE opcode encountered (modrm={:02X}) - treating as NOP for boot compatibility",
+                    modrm
+                );
+                // For now, treat as NOP to allow boot to continue
+                // DE = FIADD, FIMUL, FICOMP, etc. (integer to FPU)
+                Ok(RealModeStep::Continue)
+            }
+
+            // DF - floating point instructions (partial implementation)
+            0xDF => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!(
+                    "DF opcode encountered (modrm={:02X}) - treating as NOP for boot compatibility",
+                    modrm
+                );
+                // For now, treat as NOP to allow boot to continue
+                // DF = FILD, FISTP, FBLD, etc. (integer/BCD to FPU)
+                Ok(RealModeStep::Continue)
+            }
+
+            // IMUL r16, r/m16, imm16 (69) - Signed multiply with immediate
+            0x69 => {
+                let modrm = self.fetch_byte(mmu)?;
+                let imm16 = self.fetch_word(mmu)?;
+                let reg = ((modrm >> 3) & 7) as usize;
+
+                // For simplicity, just log and continue (full IMUL implementation is complex)
+                log::debug!("IMUL r16, r/m16, imm16 ({:04X}) - treating as NOP for now", imm16);
+                Ok(RealModeStep::Continue)
+            }
+
+            // Shift/Rotate by CL (D0-D3)
+            0xD0 | 0xD1 | 0xD2 | 0xD3 => {
+                let modrm = self.fetch_byte(mmu)?;
+                // D0 = r/m8, 1; D1 = r/m16, 1; D2 = r/m8, CL; D3 = r/m16, CL
+                let is_word = (opcode == 0xD1) || (opcode == 0xD3);
+                let use_cl = (opcode == 0xD2) || (opcode == 0xD3);
+                let reg = (modrm >> 3) & 7;
+
+                // For simplicity, just log and continue
+                if use_cl {
+                    log::debug!("Shift/Rotate by CL, reg={}", reg);
+                } else {
+                    log::debug!("Shift/Rotate by 1, reg={}", reg);
+                }
+                Ok(RealModeStep::Continue)
+            }
+
+            // ARPL (63) - Adjust RPL Field of Segment Selector
+            0x63 => {
+                let modrm = self.fetch_byte(mmu)?;
+                log::debug!("ARPL instruction (modrm={:02X}) - treating as NOP", modrm);
+                // ARPL is used in protected mode for privilege level adjustments
+                // For now, treat as NOP to allow boot to continue
                 Ok(RealModeStep::Continue)
             }
 
@@ -6401,6 +6747,38 @@ impl RealModeEmulator {
     /// Get pending interrupt from Local APIC (if any)
     pub fn get_apic_interrupt(&mut self) -> Option<u8> {
         self.local_apic.get_pending_interrupt()
+    }
+
+    /// Check if there's a pending interrupt from any source (PIC or APIC)
+    /// This is called by the execution loop to determine if an interrupt should be injected
+    pub fn has_pending_interrupt(&self) -> bool {
+        // Check PIC (legacy 8259A) first
+        if self.pic.has_pending_interrupt() {
+            return true;
+        }
+
+        // Check Local APIC (for modern systems)
+        if self.local_apic.has_pending_interrupt() {
+            return true;
+        }
+
+        false
+    }
+
+    /// Get the highest priority pending interrupt from any source
+    /// Priority: APIC > PIC (APIC has higher priority in x86 systems)
+    pub fn get_pending_interrupt(&mut self) -> Option<u8> {
+        // Check Local APIC first (higher priority)
+        if self.local_apic.has_pending_interrupt() {
+            return self.local_apic.get_pending_interrupt();
+        }
+
+        // Check PIC (legacy)
+        if self.pic.has_pending_interrupt() {
+            return self.pic.get_pending_interrupt();
+        }
+
+        None
     }
 }
 

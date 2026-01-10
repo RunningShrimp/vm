@@ -147,6 +147,30 @@ pub struct GdtPointer {
     pub base: u32,
 }
 
+/// Interrupt Descriptor Table Entry (Protected Mode)
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+pub struct IdtEntry {
+    /// Offset low 16 bits
+    pub offset_low: u16,
+    /// Segment selector
+    pub selector: u16,
+    /// Reserved (should be 0)
+    pub reserved: u8,
+    /// Type and attributes
+    pub type_attr: u8,
+    /// Offset high 16 bits
+    pub offset_high: u16,
+}
+
+/// IDT Pointer (for IDTR load)
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+pub struct IdtPointer {
+    pub limit: u16,
+    pub base: u32,
+}
+
 /// Mode transition manager
 pub struct ModeTransition {
     /// Current CPU mode
@@ -161,6 +185,10 @@ pub struct ModeTransition {
     gdt_loaded: bool,
     /// Page tables (for PAE/paging)
     page_tables: Option<GuestAddr>,
+    /// Interrupt Descriptor Table Register (IDTR)
+    idtr: IdtPointer,
+    /// IDT loaded flag
+    idt_loaded: bool,
 }
 
 impl ModeTransition {
@@ -173,6 +201,8 @@ impl ModeTransition {
             gdt: [GdtEntry::null(); 8],
             gdt_loaded: false,
             page_tables: None,
+            idtr: IdtPointer { limit: 0, base: 0 },
+            idt_loaded: false,
         }
     }
 
@@ -242,6 +272,33 @@ impl ModeTransition {
     pub fn mark_gdt_loaded(&mut self) {
         self.gdt_loaded = true;
         log::info!("GDT loaded flag set to true (via LGDT)");
+    }
+
+    /// Load IDTR (called by LIDT instruction)
+    pub fn load_idtr(&mut self, idtr: IdtPointer) -> VmResult<()> {
+        // Copy packed struct fields to local variables to avoid alignment issues
+        let base = idtr.base;
+        let limit = idtr.limit;
+        log::info!("Loading IDTR: base={:#010X}, limit={:#06X}", base, limit);
+        self.idtr = idtr;
+        self.idt_loaded = true;
+        Ok(())
+    }
+
+    /// Get IDTR (for reading)
+    pub fn idtr(&self) -> IdtPointer {
+        self.idtr
+    }
+
+    /// Check if IDT has been loaded
+    pub fn idt_loaded(&self) -> bool {
+        self.idt_loaded
+    }
+
+    /// Mark that IDT has been loaded (called by LIDT instruction)
+    pub fn mark_idt_loaded(&mut self) {
+        self.idt_loaded = true;
+        log::info!("IDT loaded flag set to true (via LIDT)");
     }
 
     /// Initialize page tables for PAE/paging
