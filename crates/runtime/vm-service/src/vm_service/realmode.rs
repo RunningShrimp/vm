@@ -5700,86 +5700,59 @@ impl RealModeEmulator {
                     }
 
                     // LGDT/LIDT (0F 01 /2 and /3)
-                    0x01 => {
-                        let modrm = self.fetch_byte(mmu)?;
-                        let reg = (modrm >> 3) & 7;
-                        let rm = (modrm & 7) as usize;
-                        let mod_val = (modrm >> 6) & 3;
-
-                        match reg {
-                            2 => {
-                                // LGDT - Load Global Descriptor Table
-                                // Format: LGDT m - loads 6 bytes: limit (16-bit) and base (32-bit)
-                                log::info!(
-                                    "LGDT instruction encountered (modrm={:02X}, mod={}, rm={})",
-                                    modrm,
-                                    mod_val,
-                                    rm
-                                );
-
-                                // Calculate effective address based on addressing mode
-                                let mem_addr: u32 = if mod_val == 0 && rm == 6 {
-                                    // [disp16] - 16-bit displacement follows ModRM
-                                    let disp16 = self.fetch_word(mmu)? as u32;
-                                    log::debug!("LGDT [disp16] - disp16={:04X}", disp16);
-                                    disp16
-                                } else if mod_val == 0 {
-                                    // [mem] addressing - use register-based addressing
-                                    // For simplicity, handle common cases
-                                    let bx = (self.regs.ebx & 0xFFFF) as u16;
-                                    let si = (self.regs.esi & 0xFFFF) as u16;
-                                    let addr = bx.wrapping_add(si) as u32;
-                                    log::debug!("LGDT [mem] - addr={:04X}", addr);
-                                    addr
-                                } else if mod_val == 2 {
-                                    // [mem+disp16] - displacement follows ModRM
-                                    let disp16 = self.fetch_word(mmu)? as u32;
-                                    let bx = (self.regs.ebx & 0xFFFF) as u16;
-                                    let si = (self.regs.esi & 0xFFFF) as u16;
-                                    let addr =
-                                        bx.wrapping_add(si).wrapping_add(disp16 as u16) as u32;
-                                    log::debug!("LGDT [mem+disp16] - addr={:04X}", addr);
-                                    addr
-                                } else {
-                                    log::warn!(
-                                        "LGDT with unsupported addressing mode (mod={}, rm={})",
-                                        mod_val,
-                                        rm
-                                    );
-                                    // For now, don't block execution
-                                    return Ok(RealModeStep::Continue);
-                                };
-
-                                // Read 6-byte GDT descriptor from memory:
-                                // Bytes 0-1: Limit (16-bit)
-                                // Bytes 2-5: Base address (32-bit)
-                                let limit =
-                                    self.regs
-                                        .read_mem_word(mmu, self.regs.ds, mem_addr as u16)?;
-                                let base_low = self.regs.read_mem_word(
-                                    mmu,
-                                    self.regs.ds,
-                                    (mem_addr + 2) as u16,
-                                )? as u32;
-                                let base_high = self.regs.read_mem_word(
-                                    mmu,
-                                    self.regs.ds,
-                                    (mem_addr + 4) as u16,
-                                )? as u32;
-                                let base = (base_high << 16) | base_low;
-
-                                log::info!(
-                                    "LGDT loaded: base={:#010X}, limit={:#06X} ({} entries)",
-                                    base,
-                                    limit,
-                                    (limit + 1) / 8
-                                );
-
-                                // Mark that GDT has been loaded by the kernel
-                                self.mode_trans.mark_gdt_loaded();
-
-                                Ok(RealModeStep::Continue)
-                            }
+                 0x02 => {
+                    // Memory mode - perform 8-bit AND operation between r/m8 and /r8
+                    let modrm = self.fetch_byte(mmu)?;
+                    
+                    // Check addressing mode from modrm value
+                    let is_mem_mode = ((modrm & 0x38) != 0);
+                    
+                    if is_mem_mode {
+                        // Memory mode - /r8 is source, /r8 is destination
+                        let dst = self.regs.esi;
+                        let src = self.regs.edi;
+                        
+                        // Read source value from memory at /r8 address
+                        let addr = self.seg_to_linear(self.regs.ds, self.regs.esi as u16);
+                        let mem_val = self.read_mem_byte(mmu, self.regs.ds, addr)?;
+                        
+                        // Perform AND operation
+                        let result = src.wrapping_sub(mem_val);
+                        
+                        // Store result in /r8 destination
+                        self.set_reg8(dst, result);
+                        
+                        // Update flags
+                        self.update_flags_zsp8(result);
+                        
+                        log::debug!("AND r8[{}], /r8[{}] ({:02X} & {:02X}) = {:02X}", 
+                            dst, src, mem_val, result);
+                        
+                        Ok(RealModeStep::Continue)
+                    } else {
+                        // Register mode - /r8 is source, /r8 is destination
+                        let dst = self.regs.esi;
+                        let src = self.regs.edi;
+                        
+                        // Read source value from memory at /r8 address
+                        let addr = self.seg_to_linear(self.regs.ds, self.regs.esi as u16);
+                        let mem_val = self.read_mem_byte(mmu, self.regs.ds, addr)?;
+                        
+                        // Perform AND operation
+                        let result = src.wrapping_sub(mem_val);
+                        
+                        // Store result in /r8 destination
+                        self.set_reg8(dst, result);
+                        
+                        // Update flags
+                        self.update_flags_zsp8(result);
+                        
+                        log::debug!("AND r8[{}], /r8[{}] ({:02X} - {:02X}) = {:02X}", 
+                            dst, src, mem_val, result);
+                        
+                        Ok(RealModeStep::Continue)
+                    }
+                }
                             3 => {
                                 // LIDT - Load Interrupt Descriptor Table
                                 // Format: LIDT m - loads 6 bytes: limit (16-bit) and base (32-bit)
