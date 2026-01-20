@@ -3626,9 +3626,12 @@ impl RealModeEmulator {
                             result
                         }
                         _ => {
-                            log::debug!("AND [mem], r8[{}] - memory operand not implemented", reg);
-                            // TODO: Implement memory AND operation
-                            result
+                            // Memory mode - unsupported addressing mode in real mode
+                            log::debug!("AND [mem], r8[{}] - addressing mode 0x{:02X} not implemented in real mode", opcode, reg);
+                            return Err(VmError::Execution(ExecutionError::InvalidOpcode {
+                                message: format!("Unsupported addressing mode in real mode: {}", modrm),
+                                pc: self.get_pc_linear(),
+                            }));
                         }
                     };
                     Ok(RealModeStep::Continue)
@@ -4184,9 +4187,14 @@ impl RealModeEmulator {
                 if (self.regs.eflags & 0x800) == 0 {
                     self.regs.eip = self.regs.eip.wrapping_add(offset as u32);
                     log::debug!("JNO rel8={:02X} (jump taken, OF=0)", offset);
-                } else {
-                    log::debug!("JNO rel8={:02X} (not taken, OF=1)", offset);
-                }
+                 } else {
+                            // Memory mode - unsupported addressing mode
+                            log::debug!("AND [mem], r8[{}] - addressing mode 0x{:02X} not implemented in real mode", opcode, reg);
+                            return Err(VmError::Execution(ExecutionError::InvalidOpcode {
+                                message: format!("Unsupported addressing mode in real mode: {}", modrm),
+                                pc: self.get_pc_linear(),
+                            }));
+                        }
                 Ok(RealModeStep::Continue)
             }
 
