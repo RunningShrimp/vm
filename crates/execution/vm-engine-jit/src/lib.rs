@@ -3370,7 +3370,7 @@ impl Jit {
             // Create metadata entry (not the actual code, just statistics)
             let compiled_block = crate::aot_cache::CompiledBlock {
                 ir_hash,
-                size: 0,          // TODO: Get actual compiled code size from Cranelift
+                size: block.ops.len(), // IR block size (operation count)
                 last_compiled: 0, // Will be set by store()
                 compile_count: 0, // Will be incremented by store()
             };

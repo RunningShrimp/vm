@@ -8,7 +8,7 @@ use super::bios::BiosInt;
 use super::mode_trans::{ModeTransition, X86Mode};
 use super::pic::Pic;
 use super::pit::Pit;
-use vm_core::{AccessType, GuestAddr, MMU, MemoryError, VmError, VmResult};
+use vm_core::{AccessType, GuestAddr, MemoryError, VmError, VmResult, MMU};
 
 /// Real-mode x86 register file
 #[derive(Debug, Clone, Default)]
@@ -3614,9 +3614,24 @@ impl RealModeEmulator {
                         result
                     );
                 } else {
-                    // Memory mode - log for now
-                    log::debug!("AND [mem], r8[{}] - memory operation not implemented", reg);
-                    // TODO: Implement memory AND operation
+                    // Memory mode - perform memory AND operation
+                    let src_val = match opcode {
+                        // AND r8, r/m8 (20 /r)
+                        0x20 | 0x22 => {
+                            let src_val = self.read_mem_byte(mmu, self.regs.ds, rm as u16)?;
+                            let reg_val = self.get_reg8(reg);
+                            let result = reg_val & src_val;
+                            self.set_reg8(reg, result);
+                            self.update_flags_zsp8(result);
+                            result
+                        }
+                        _ => {
+                            log::debug!("AND [mem], r8[{}] - memory operand not implemented", reg);
+                            // TODO: Implement memory AND operation
+                            result
+                        }
+                    };
+                    Ok(RealModeStep::Continue)
                 }
                 Ok(RealModeStep::Continue)
             }
@@ -3725,9 +3740,24 @@ impl RealModeEmulator {
                         result
                     );
                 } else {
-                    // Memory mode - log for now
-                    log::debug!("AND r16[{}], [mem] - memory operation not implemented", reg);
-                    // TODO: Implement memory AND operation
+                    // Memory mode - perform 16-bit memory AND operation
+                    let src_val = match opcode {
+                        // AND r16, r/m16 (23 /r)
+                        0x23 => {
+                            let src_val = self.read_mem_word(mmu, self.regs.ds, rm as u16)?;
+                            let reg_val = self.get_reg16(reg);
+                            let result = reg_val & src_val;
+                            self.set_reg16(reg, result);
+                            self.update_flags_zsp16(result);
+                            result
+                        }
+                        _ => {
+                            log::debug!("AND r16[{}], [mem] - memory operand not implemented", reg);
+                            // TODO: Implement memory AND operation
+                            result
+                        }
+                    };
+                    Ok(RealModeStep::Continue)
                 }
                 Ok(RealModeStep::Continue)
             }
@@ -3790,16 +3820,75 @@ impl RealModeEmulator {
                 match reg {
                     // INC r/m8 (FE /0)
                     0 => {
-                        log::debug!("  INC r/m8 (modrm={:02X}, reg={})", modrm, reg);
-                        // TODO: Implement actual INC for memory/registers
+                        // [EAX] - increment memory byte
+                        let addr = (self.regs.eax & 0xFFFF) as u16;
+                        let old_val = self.read_mem_byte(mmu, self.regs.ds, addr)?;
+                        let new_val = old_val.wrapping_add(1);
+                        self.regs.write_mem_byte(mmu, self.regs.ds, addr, new_val)?;
+
+                        // Update zero flag
+                        if new_val == 0 {
+                            self.regs.eflags |= 0x40; // ZF
+                        } else {
+                            self.regs.eflags &= !0x40;
+                        }
+
+                        // Update sign flag (MSB)
+                        if (new_val as i8).is_negative() {
+                            self.regs.eflags |= 0x80; // SF
+                        } else {
+                            self.regs.eflags &= !0x80;
+                        }
+
+                        // Update parity flag
+                        let parity = new_val.count_ones() % 2 == 0;
+                        if parity {
+                            self.regs.eflags |= 0x04; // PF
+                        } else {
+                            self.regs.eflags &= !0x04;
+                        }
+
+                        log::debug!(
+                            "  INC DS:[{:04X}] = {:02X} -> {:02X}",
+                            addr,
+                            old_val,
+                            new_val
+                        );
                         Ok(RealModeStep::Continue)
                     }
-                    // DEC r/m8 (FE /1)
-                    1 => {
-                        log::debug!("  DEC r/m8 (modrm={:02X}, reg={})", modrm, reg);
-                        // TODO: Implement actual DEC for memory/registers
-                        Ok(RealModeStep::Continue)
-                    }
+                     // DEC r/m8 (FE /1)
+                     1 => {
+                         // [EAX] - decrement memory byte
+                         let addr = (self.regs.eax & 0xFFFF) as u16;
+                         let old_val = self.read_mem_byte(mmu, self.regs.ds, addr)?;
+                         let new_val = old_val.wrapping_sub(1);
+                         self.regs.write_mem_byte(mmu, self.regs.ds, addr, new_val)?
+                         
+                         // Update zero flag
+                         if new_val == 0 {
+                             self.regs.eflags |= 0x40; // ZF
+                         } else {
+                             self.regs.eflags &= !0x40;
+                         }
+                         
+                         // Update sign flag (MSB)
+                         if (new_val as i8).is_negative() {
+                             self.regs.eflags |= 0x80; // SF
+                         } else {
+                             self.regs.eflags &= !0x80;
+                         }
+                         
+                         // Update parity flag
+                         let parity = new_val.count_ones() % 2 == 0;
+                         if parity {
+                             self.regs.eflags |= 0x04; // PF
+                         } else {
+                             self.regs.eflags &= !0x04;
+                         }
+                         
+                         log::debug!("  DEC DS:[{:04X}] = {:02X} -> {:02X}", addr, old_val, new_val);
+                         Ok(RealModeStep::Continue)
+                     }
                     _ => {
                         log::warn!("  Reserved Group 5 (FE) operation - treating as NOP");
                         Ok(RealModeStep::Continue)
@@ -5001,10 +5090,21 @@ impl RealModeEmulator {
                         reg_val,
                         rm_val
                     );
-                } else {
-                    // Memory exchange - log for now
-                    log::debug!("XCHG [mem], r8[{}] - memory exchange not implemented", reg);
-                    // TODO: Implement memory-register exchange
+                 } else {
+                    // Memory-to-register exchange (memory-register exchange)
+                    let mem_val = self.read_mem_byte(mmu, self.regs.ds, rm as u16)?;
+                    let reg_val = self.get_reg8(reg);
+                    
+                    // Store reg value in memory
+                    self.write_mem_byte(mmu, self.regs.ds, rm as u16, reg_val)?;
+                    
+                    // Load memory value into register
+                    self.set_reg8(reg, mem_val);
+                    
+                    log::debug!("XCHG [mem], r8[{}] - DS:[{:04X}] <-> r8[{}] (reg={:02X} <-> mem={:02X})", 
+                        rm, reg, mem_val, reg);
+                    
+                    Ok(RealModeStep::Continue)
                 }
                 Ok(RealModeStep::Continue)
             }
@@ -6393,7 +6493,7 @@ impl RealModeEmulator {
             // IN AL, DX (EC) / IN AX, DX (ED)
             0xEC | 0xED => {
                 let _dx = self.get_reg16(2); // DX
-                // For now, return 0
+                                             // For now, return 0
                 if opcode == 0xEC {
                     self.regs.eax = (self.regs.eax & 0xFFFFFF00) | 0x00;
                 } else {
@@ -6413,7 +6513,7 @@ impl RealModeEmulator {
             // OUT DX, AL (EE) / OUT DX, AX (EF)
             0xEE | 0xEF => {
                 let _dx = self.get_reg16(2); // DX
-                // For now, just ignore
+                                             // For now, just ignore
                 log::debug!("OUT to DX port (ignored)");
                 Ok(RealModeStep::Continue)
             }
