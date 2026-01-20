@@ -3668,10 +3668,24 @@ impl RealModeEmulator {
                         src,
                         result
                     );
-                } else {
-                    // Memory mode - log for now
-                    log::debug!("AND [mem], r16[{}] - memory operation not implemented", reg);
-                    // TODO: Implement memory AND operation
+                 } else {
+                    // Memory mode - perform AND operation between r16 and memory
+                    let mem_val = self.read_mem_word(mmu, self.regs.ds, self.regs.ebx as u16)?;
+                    
+                    // Read destination register
+                    let dst = self.get_reg16(rm);
+                    let result = dst & mem_val;
+                    
+                    // Store result in memory
+                    self.regs.write_mem_word(mmu, self.regs.ds, self.regs.ebx as u16, result)?;
+                    
+                    // Update flags (zero, sign, parity)
+                    self.update_flags_zsp16(result);
+                    
+                    log::debug!("AND [mem], r16[{}] DS:[{:04X}] (dst={:04X}) = {:04X}", 
+                        rm, self.regs.ebx, result, result);
+                    
+                    Ok(RealModeStep::Continue)
                 }
                 Ok(RealModeStep::Continue)
             }
