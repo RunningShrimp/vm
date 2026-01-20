@@ -5161,10 +5161,21 @@ impl RealModeEmulator {
                         reg_val,
                         rm_val
                     );
-                } else {
-                    // Memory exchange - log for now
-                    log::debug!("XCHG [mem], r16[{}] - memory exchange not implemented", reg);
-                    // TODO: Implement memory-register exchange
+                 } else {
+                    // Memory-to-register exchange
+                    let mem_val = self.read_mem_word(mmu, self.regs.ds, rm as u16)?;
+                    let reg_val = self.get_reg16(reg);
+                    
+                    // Store register value in memory
+                    self.regs.write_mem_word(mmu, self.regs.ds, rm as u16, reg_val)?;
+                    
+                    // Load memory value into register
+                    self.set_reg16(reg, mem_val);
+                    
+                    log::debug!("XCHG [mem], r16[{}] DS:[{:04X}] <-> r16[{}] ({:04X})",
+                        reg, rm, mem_val, reg_val);
+                    
+                    Ok(RealModeStep::Continue)
                 }
                 Ok(RealModeStep::Continue)
             }
@@ -5890,28 +5901,96 @@ impl RealModeEmulator {
                         Ok(RealModeStep::Continue)
                     }
 
-                    // MOVSX r16, r/m8 (0F BE /r) - Move with Sign-Extension
-                    0xBE => {
+                     // MOVSX r16, r/m8 (0F BE /r) - Move with Sign-Extension
+                     0xBE => {
                         let modrm = self.fetch_byte(mmu)?;
                         let reg = ((modrm >> 3) & 7) as usize;
                         let _rm = (modrm & 7) as usize;
-
-                        log::debug!("MOVSX r16, r/m8 (modrm={:02X}, reg={})", modrm, reg);
-                        // TODO: Implement actual sign-extended move
+                        
+                        // Read 16-bit source value from memory
+                        let src_val = self.read_mem_word(mmu, self.regs.ds, self.regs.ebx as u16)?;
+                        
+                        // Sign-extend to 32-bit
+                        let src_extended = (src_val as i16) as i32 as u32;
+                        
+                        // Store in 8-bit destination register (sign-extended)
+                        self.set_reg8(reg, (src_extended & 0xFF) as u8);
+                        
+                        // Update flags (zero, sign, parity, overflow)
+                        let result = src_extended & 0xFF;
+                        if result == 0 {
+                            self.regs.eflags |= 0x40; // ZF
+                        } else {
+                            self.regs.eflags &= !0x40;
+                        }
+                        
+                        if (src_extended as i32) < 0 {
+                            self.regs.eflags |= 0x80; // SF
+                        } else {
+                            self.regs.eflags &= !0x80;
+                        }
+                        
+                        let parity = (src_extended as u8).count_ones() % 2 == 0;
+                        if parity {
+                            self.regs.eflags |= 0x04; // PF
+                        } else {
+                            self.regs.eflags &= !0x04;
+                        }
+                        
+                        // Overflow flag for sign extension
+                        if (src_val as i16) < 0 && (src_extended as i32) < 0 {
+                            self.regs.eflags |= 0x800; // OF
+                        } else {
+                            self.regs.eflags &= !0x800;
+                        }
+                        
+                        log::debug!("MOVSX r8[{}], DS:[{:04X}] (sign-ext {:08X})", reg, src_val, src_extended);
                         Ok(RealModeStep::Continue)
                     }
 
                     // MOVSX r32, r/m8 (0F BE /r) with 0x66 prefix
                     // Handled by 0x66 prefix processing
 
-                    // MOVZX r16, r/m8 (0F B6 /r) - Move with Zero-Extension
-                    0xB6 => {
+                     // MOVZX r16, r/m8 (0F B6 /r) - Move with Zero-Extension
+                     0xB6 => {
                         let modrm = self.fetch_byte(mmu)?;
                         let reg = ((modrm >> 3) & 7) as usize;
                         let _rm = (modrm & 7) as usize;
-
-                        log::debug!("MOVZX r16, r/m8 (modrm={:02X}, reg={})", modrm, reg);
-                        // TODO: Implement actual zero-extended move
+                        
+                        // Read 16-bit source value from memory
+                        let src_val = self.read_mem_word(mmu, self.regs.ds, self.regs.ebx as u16)?;
+                        
+                        // Zero-extend to 32-bit
+                        let src_extended = src_val as u32;
+                        
+                        // Store in 8-bit destination register (zero-extended)
+                        self.set_reg8(reg, src_extended as u8);
+                        
+                        // Update flags (zero, sign, parity)
+                        let result = src_extended & 0xFF;
+                        if result == 0 {
+                            self.regs.eflags |= 0x40; // ZF
+                        } else {
+                            self.regs.eflags &= !0x40;
+                        }
+                        
+                        if (result as i8).is_negative() {
+                            self.regs.eflags |= 0x80; // SF
+                        } else {
+                            self.regs.eflags &= !0x80;
+                        }
+                        
+                        let parity = result.count_ones() % 2 == 0;
+                        if parity {
+                            self.regs.eflags |= 0x04; // PF
+                        } else {
+                            self.regs.eflags &= !0x04;
+                        }
+                        
+                        // Zero-extension never sets overflow flag
+                        // Sign-extended values are always positive
+                        
+                        log::debug!("MOVZX r8[{}], DS:[{:04X}] (zero-ext {:08X})", reg, src_val, src_extended);
                         Ok(RealModeStep::Continue)
                     }
 
