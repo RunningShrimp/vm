@@ -3997,11 +3997,20 @@ impl RealModeEmulator {
                         }
                         Ok(RealModeStep::Continue)
                     }
-                    // CALL r/m16 (FF /2) - NEAR call
-                    2 => {
-                        log::debug!("  CALL r/m16 - pushing return address and jumping");
-                        // TODO: Push return address to stack
-                        // For now, just continue without actual call
+                     // CALL r/m16 (FF /2) - NEAR call
+                     2 => {
+                        // Read target address from r/m16
+                        let target = self.fetch_word(mmu)?;
+                        
+                        // Push current IP to stack (return address)
+                        let sp = (self.regs.ss as u32).wrapping_sub(2);
+                        self.regs.write_mem_word(mmu, self.regs.ss, sp as u16, self.regs.eip as u16)?;
+                        self.regs.esp = sp;
+                        
+                        // Jump to target address
+                        log::debug!("CALL r/m16[{:04X}] - pushing IP to stack and jumping to target", target);
+                        self.regs.eip = target as u32;
+                        
                         Ok(RealModeStep::Continue)
                     }
                     // CALL r/m32 (FF /3) - FAR call (not in real mode)
@@ -4966,14 +4975,12 @@ impl RealModeEmulator {
                                 log::error!("Failed to write to memory at {:08X}: {:?}", addr, e);
                             }
                         }
-                    } else {
-                        // Other memory addressing modes - for now just log
-                        log::debug!(
-                            "MOV [mem], imm8 (modrm={:02X}, imm={:02X}) - addressing mode not implemented",
-                            modrm,
-                            imm
-                        );
-                        // TODO: Implement all 16-bit addressing modes
+                     } else {
+                        // Unsupported addressing mode for 8-bit MOV
+                        return Err(VmError::Execution(ExecutionError::InvalidOpcode {
+                            message: format!("Unsupported addressing mode in MOV r/m8, imm8: modrm={:02X}", modrm),
+                            pc: self.get_pc_linear(),
+                        }));
                     }
                 } else {
                     log::warn!("Invalid C6 extension (reg={})", reg);
