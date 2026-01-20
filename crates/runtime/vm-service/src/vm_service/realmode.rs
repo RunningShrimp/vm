@@ -4104,12 +4104,29 @@ impl RealModeEmulator {
                         log::debug!("  JMP far pointer (shouldn't occur in real mode)");
                         Ok(RealModeStep::Continue)
                     }
-                    // PUSH r/m16 (FF /6)
-                    6 => {
-                        log::debug!("  PUSH r/m16");
-                        // TODO: Implement stack push
-                        Ok(RealModeStep::Continue)
-                    }
+                     // PUSH r/m16 (FF /6)
+                     6 => {
+                         // Push 16-bit value onto stack (SS:SP - 2)
+                         let val = self.fetch_word(mmu)?;
+                         let sp = (self.regs.ss as u32).wrapping_sub(2);
+                         
+                         // Write value to stack
+                         let addr = self.seg_to_linear(self.regs.ss, sp as u16);
+                         self.write_mem_word(mmu, self.regs.ss, addr, val)?;
+                         
+                         // Update stack pointer
+                         self.regs.esp = sp;
+                         
+                         // Update flags for push operation
+                         if val == 0 {
+                             self.regs.eflags |= 0x40; // ZF
+                         } else {
+                             self.regs.eflags &= !0x40;
+                         }
+                         
+                         log::debug!("  PUSH r16[{:04X}] -> SS:[{:04X}] (esp={:#010X})", rm, val, sp);
+                         Ok(RealModeStep::Continue)
+                     }
                     // INC r/m16 (FF /7) - alternate encoding for INC
                     7 | _ => {
                         if mod_val == 3 {

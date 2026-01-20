@@ -118,8 +118,15 @@ impl DomainEventBus for PersistentDomainEventBus {
     }
 
     fn subscribe(&self, _handler: Arc<dyn super::events::DomainEventHandler>) {
-        // TODO: Implement handler subscription
-        log::warn!("Handler subscription not yet implemented for PersistentDomainEventBus");
+        // Register handler for event notifications
+        // Store handler in handlers list for event distribution
+        self.handlers.write().push(_handler);
+
+        log::info!(
+            "Handler subscribed to PersistentDomainEventBus: handlers count = {}",
+            self.handlers.read().len()
+        );
+        Ok(())
     }
 }
 
