@@ -3756,25 +3756,23 @@ impl RealModeEmulator {
                         src,
                         result
                     );
-                } else {
-                    // Memory mode - perform 16-bit memory AND operation
-                    let src_val = match opcode {
-                        // AND r16, r/m16 (23 /r)
-                        0x23 => {
-                            let src_val = self.read_mem_word(mmu, self.regs.ds, rm as u16)?;
-                            let reg_val = self.get_reg16(reg);
-                            let result = reg_val & src_val;
-                            self.set_reg16(reg, result);
-                            self.update_flags_zsp16(result);
-                            result
-                        }
-                        _ => {
-                            log::debug!("AND r16[{}], [mem] - memory operand not implemented", reg);
-                            // TODO: Implement memory AND operation
-                            result
-                        }
-                    };
-                    Ok(RealModeStep::Continue)
+                 } else {
+                    // Memory mode - perform 16-bit AND operation between r16 and memory
+                    let mem_val = self.read_mem_word(mmu, self.regs.ds, self.regs.esi as u16)?;
+                    
+                    // Read destination register
+                    let dst = self.get_reg16(rm);
+                    
+                    // Perform AND operation
+                    let result = dst & mem_val;
+                    
+                    // Store result in memory
+                    self.regs.write_mem_word(mmu, self.regs.ds, self.regs.esi as u16, result)?;
+                    
+                    // Update flags (zero, sign, parity)
+                    self.update_flags_zsp16(result);
+                    
+                    result
                 }
                 Ok(RealModeStep::Continue)
             }
