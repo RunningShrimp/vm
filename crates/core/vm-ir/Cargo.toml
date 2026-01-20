@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Hakari-managed dependencies - temporarily removed to fix build issues
-# vm-build-deps = { path = "../../architecture/vm-build-deps" }
-# vm-core = { path = "../../core/vm-core" }
+# Hakari-managed dependencies
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

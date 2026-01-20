@@ -60,7 +60,7 @@ members = [
     # Tools
     # ============================================================================
     "tools/cli",
-    "tools/desktop",
+    # "tools/desktop",  # Temporarily disabled - Tauri config issues
     "tools/debug",
     "tools/passthrough",
 ]
