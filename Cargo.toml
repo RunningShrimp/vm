@@ -84,7 +84,7 @@ thiserror = "2.0.17"
 anyhow = "1.0"
 
 # Async runtime
-tokio = { version = "1.48", features = ["sync", "rt", "rt-multi-thread", "macros", "time", "io-util", "fs"] }
+tokio = { version = "1.49", features = ["sync", "rt", "rt-multi-thread", "macros", "time", "io-util", "fs"] }
 tokio-uring = { version = "0.5" }
 
 # Serialization
@@ -112,7 +112,7 @@ async-trait = "0.1"
 
 # CPU utilities
 num_cpus = { version = "1.16" }
-raw-cpuid = { version = "11" }
+raw-cpuid = { version = "11.2" }
 
 # System libraries
 libc = "0.2"
@@ -149,12 +149,13 @@ lru = "0.12"
 # Crossbeam
 crossbeam-queue = "0.3"
 
-# Cranelift (JIT) - Pinned to 0.110.3 for stability and compatibility
-cranelift-codegen = "=0.110.3"
-cranelift-frontend = "=0.110.3"
-cranelift-module = "=0.110.3"
-cranelift-native = "=0.110.3"
-cranelift-control = "=0.110.3"
+# Cranelift (JIT) - Reverted to 0.123.4 due to API incompatibility
+cranelift-entity = "0.123.4"
+cranelift-codegen = "0.123.4"
+cranelift-frontend = "0.123.4"
+cranelift-module = "0.123.4"
+cranelift-native = "0.123.4"
+cranelift-control = "0.123.4"
 target-lexicon = "0.12"
 
 # System utilities

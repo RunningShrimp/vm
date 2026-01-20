@@ -43,216 +43,10 @@ use std::time::Instant;
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    AbiParam, Function, InstBuilder, Signature, TrapCode, UserFuncName, types,
+    AbiParam, Function, InstBuilder, UserFuncName,
+    types,
+    TrapCode,
 };
-use cranelift_codegen::{
-    Context,
-    isa::{CallConv, TargetIsa},
-    settings,
-};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_native;
-use vm_core::{ExecutionError, VmError, VmResult};
-use vm_ir::{IRBlock, IROp, RegId};
-
-use super::{CompiledCode, JITBackend, JITConfig, JITStats, OptLevel};
-
-/// Cranelift JIT 后端
-///
-/// 完整的 Cranelift JIT 实现，支持真实的机器码生成。
-pub struct CraneliftBackend {
-    /// 配置
-    config: JITConfig,
-    /// 统计信息
-    stats: JITStats,
-    /// 符号表（函数地址映射）
-    symbols: HashMap<String, u64>,
-    /// Cranelift ISA
-    isa: Arc<dyn TargetIsa>,
-    /// 寄存器到变量的映射
-    var_map: HashMap<RegId, Variable>,
-    /// 下一个可用的变量索引
-    next_var: u32,
-}
-
-impl CraneliftBackend {
-    /// 创建新的 Cranelift 后端
-    pub fn new(config: JITConfig) -> VmResult<Self> {
-        // 获取目标 ISA
-        let isa = Self::create_isa(&config)?;
-
-        Ok(Self {
-            config,
-            stats: JITStats::default(),
-            symbols: HashMap::new(),
-            isa,
-            var_map: HashMap::new(),
-            next_var: 0,
-        })
-    }
-
-    /// 创建目标 ISA
-    fn create_isa(_config: &JITConfig) -> VmResult<Arc<dyn TargetIsa>> {
-        // 使用 builder_with_options 创建 ISA builder
-        // Cranelift 0.110 的 API 需要传入 Flags
-        let isa_builder = cranelift_native::builder_with_options(true).map_err(|e| {
-            VmError::Execution(ExecutionError::JitError {
-                message: format!("Failed to create ISA builder: {}", e),
-                function_addr: None,
-            })
-        })?;
-
-        // 创建默认的 Flags
-        let flags = settings::Flags::new(settings::builder());
-
-        // 完成构建，传入 flags - 返回 Arc<dyn TargetIsa>
-        isa_builder.finish(flags).map_err(|e| {
-            VmError::Execution(ExecutionError::JitError {
-                message: format!("Failed to create ISA: {}", e),
-                function_addr: None,
-            })
-        })
-    }
-
-    /// 创建函数签名
-    fn create_signature() -> Signature {
-        let mut sig = Signature::new(CallConv::SystemV);
-
-        // 返回值
-        sig.returns.push(AbiParam::new(types::I64));
-
-        sig
-    }
-
-    /// 获取或创建变量
-    fn get_or_create_variable(&mut self, reg: RegId) -> Variable {
-        if let Some(&var) = self.var_map.get(&reg) {
-            return var;
-        }
-
-        let var = Variable::from_u32(self.next_var);
-        self.next_var += 1;
-        self.var_map.insert(reg, var);
-        var
-    }
-
-    /// 编译函数块
-    fn compile_function(&mut self, block: &IRBlock) -> VmResult<Vec<u8>> {
-        // 创建函数上下文
-        let mut ctx = Context::new();
-        ctx.func =
-            Function::with_name_signature(UserFuncName::user(0, 0), Self::create_signature());
-
-        // 创建函数构建器上下文
-        let mut builder_ctx = FunctionBuilderContext::new();
-
-        // 创建函数构建器
-        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
-
-        // 创建入口块 - 使用 FunctionBuilder 的方法
-        let entry_block = builder.create_block();
-        builder.switch_to_block(entry_block);
-        builder.seal_block(entry_block);
-
-        // 重置变量映射
-        self.var_map.clear();
-        self.next_var = 0;
-
-        // 编译每个 IR 操作到 Cranelift IR
-        for op in &block.ops {
-            self.compile_op(&mut builder, op)?;
-        }
-
-        // 处理终结符
-        self.compile_terminator(&mut builder, &block.term)?;
-
-        // 完成构建 - 使用 FunctionBuilder 的 finalize
-        builder.finalize();
-
-        // 编译到机器码 - 需要传入 code_buffer 和 ControlPlane
-        use cranelift_control::ControlPlane;
-        let mut code_buffer = Vec::new();
-        let mut control_plane = ControlPlane::default();
-        ctx.compile_and_emit(&*self.isa, &mut code_buffer, &mut control_plane)
-            .map_err(|e| {
-                VmError::Execution(ExecutionError::JitError {
-                    message: format!("Cranelift compilation failed: {:?}", e),
-                    function_addr: None,
-                })
-            })?;
-
-        Ok(code_buffer)
-    }
-
-    /// 编译单个 IR 操作到 Cranelift IR
-    fn compile_op(&mut self, builder: &mut FunctionBuilder, op: &IROp) -> VmResult<()> {
-        match op {
-            IROp::Nop => {
-                // 空操作
-            }
-
-            // 整数加载立即数
-            IROp::MovImm { dst, imm } => {
-                let var = self.get_or_create_variable(*dst);
-                let val = builder.ins().iconst(types::I64, *imm as i64);
-                builder.def_var(var, val);
-            }
-
-            // 寄存器移动
-            IROp::Mov { dst, src } => {
-                let dst_var = self.get_or_create_variable(*dst);
-                let src_var = self.get_or_create_variable(*src);
-                let val = builder.use_var(src_var);
-                builder.def_var(dst_var, val);
-            }
-
-            // 算术操作
-            IROp::Add { dst, src1, src2 } => {
-                let dst_var = self.get_or_create_variable(*dst);
-                let src1_var = self.get_or_create_variable(*src1);
-                let src2_var = self.get_or_create_variable(*src2);
-                let val1 = builder.use_var(src1_var);
-                let val2 = builder.use_var(src2_var);
-                let result = builder.ins().iadd(val1, val2);
-                builder.def_var(dst_var, result);
-            }
-
-            IROp::Sub { dst, src1, src2 } => {
-                let dst_var = self.get_or_create_variable(*dst);
-                let src1_var = self.get_or_create_variable(*src1);
-                let src2_var = self.get_or_create_variable(*src2);
-                let val1 = builder.use_var(src1_var);
-                let val2 = builder.use_var(src2_var);
-                let result = builder.ins().isub(val1, val2);
-                builder.def_var(dst_var, result);
-            }
-
-            IROp::Mul { dst, src1, src2 } => {
-                let dst_var = self.get_or_create_variable(*dst);
-                let src1_var = self.get_or_create_variable(*src1);
-                let src2_var = self.get_or_create_variable(*src2);
-                let val1 = builder.use_var(src1_var);
-                let val2 = builder.use_var(src2_var);
-                let result = builder.ins().imul(val1, val2);
-                builder.def_var(dst_var, result);
-            }
-
-            IROp::Div {
-                dst,
-                src1,
-                src2,
-                signed,
-            } => {
-                let dst_var = self.get_or_create_variable(*dst);
-                let src1_var = self.get_or_create_variable(*src1);
-                let src2_var = self.get_or_create_variable(*src2);
-                let val1 = builder.use_var(src1_var);
-                let val2 = builder.use_var(src2_var);
-                let result = if *signed {
-                    builder.ins().sdiv(val1, val2)
-                } else {
-                    builder.ins().udiv(val1, val2)
-                };
                 builder.def_var(dst_var, result);
             }
 
@@ -509,6 +303,7 @@ impl CraneliftBackend {
             // 系统调用
             IROp::SysCall => {
                 // 系统调用需要宿主机集成
+                // Create trap code for user trap (user vector cause)
                 builder.ins().trap(TrapCode::User(0u16));
             }
 
@@ -564,11 +359,11 @@ impl CraneliftBackend {
             }
 
             vm_ir::Terminator::Fault { cause } => {
-                builder.ins().trap(TrapCode::User(*cause as u16));
+                builder.ins().trap(TrapCode::user(cause));
             }
 
             vm_ir::Terminator::Interrupt { vector } => {
-                builder.ins().trap(TrapCode::User(*vector as u16));
+                builder.ins().trap(TrapCode::User(vector as u16));
             }
 
             vm_ir::Terminator::JmpReg { .. } => {

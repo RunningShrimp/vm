@@ -207,7 +207,7 @@ impl GpuDeviceManager {
     ///
     /// 自动检测所有可用的GPU设备。
     pub fn new() -> Self {
-        let mut manager = Self {
+        let manager = Self {
             devices: Vec::new(),
             default_device: None,
         };

@@ -19,7 +19,7 @@ path = "bin/simd_capabilities.rs"
 vm-build-deps = { path = "../../architecture/vm-build-deps" }
 vm-core = { path = "../../core/vm-core" }
 libc = { workspace = true }
-lru = "0.16"
+lru = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = "6.1"
 crossbeam = "0.8"
@@ -32,7 +32,7 @@ thiserror = { workspace = true }
 rustc-hash = "2.0"  # 用于FxHashMap，优化TLB性能
 
 [dev-dependencies]
-criterion = "0.8"
+criterion = { workspace = true }
 tokio = { workspace = true }
 proptest = "1.0"
 loom = "0.7"
