@@ -5,13 +5,13 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
 raw-cpuid = { workspace = true, optional = true }
 num_cpus = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
-vm-core = { path = "../vm-core" }
-vm-smmu = { path = "../vm-smmu", optional = true }
+vm-core = { path = "../../core/vm-core" }
+vm-smmu = { path = "../../devices/vm-smmu", optional = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 

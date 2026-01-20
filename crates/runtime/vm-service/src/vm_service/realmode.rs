@@ -102,10 +102,7 @@ impl RealModeRegs {
         // CRITICAL: Log framebuffer writes for debugging
         // VESA LFB is typically at 0xE0000000
         if linear >= 0xE0000000 && linear < 0xF0000000 {
-            log::info!(
-                "FRAMEBUFFER WRITE: addr={:#010X}, val={:02X}",
-                linear, val
-            );
+            log::info!("FRAMEBUFFER WRITE: addr={:#010X}, val={:02X}", linear, val);
         }
 
         mmu.write(addr, val as u64, 1)
@@ -126,7 +123,8 @@ impl RealModeRegs {
         if linear >= 0xE0000000 && linear < 0xF0000000 {
             log::info!(
                 "FRAMEBUFFER WRITE (word): addr={:#010X}, val={:04X}",
-                linear, val
+                linear,
+                val
             );
         }
 
@@ -796,7 +794,10 @@ impl RealModeEmulator {
 
         // In protected/long mode, check if IDT is loaded
         if !self.mode_trans.idt_loaded() {
-            log::warn!("INT {:02X} in protected mode but IDT not loaded, falling back to IVT", int_num);
+            log::warn!(
+                "INT {:02X} in protected mode but IDT not loaded, falling back to IVT",
+                int_num
+            );
             let vec_addr = (int_num as u16) * 4;
             let offset = self.regs.read_mem_word(mmu, 0x0000, vec_addr)? as u32;
             let segment = self.regs.read_mem_word(mmu, 0x0000, vec_addr + 2)?;
@@ -807,7 +808,11 @@ impl RealModeEmulator {
         let idtr = self.mode_trans.idtr();
         let entry_addr = idtr.base + (int_num as u32 * 8);
 
-        log::debug!("Reading IDT entry {} from address {:#010X}", int_num, entry_addr);
+        log::debug!(
+            "Reading IDT entry {} from address {:#010X}",
+            int_num,
+            entry_addr
+        );
 
         // For protected mode, IDT entry is 8 bytes:
         // Offset low (16), Selector (16), Reserved (8), Type (8), Offset high (16)
@@ -815,13 +820,27 @@ impl RealModeEmulator {
 
         // Read the 8-byte IDT entry
         let byte0 = self.regs.read_mem_byte(mmu, 0x0000, entry_addr as u16)?;
-        let byte1 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 1) as u16)?;
-        let byte2 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 2) as u16)?;
-        let byte3 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 3) as u16)?;
-        let byte4 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 4) as u16)?;
-        let byte5 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 5) as u16)?;
-        let byte6 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 6) as u16)?;
-        let byte7 = self.regs.read_mem_byte(mmu, 0x0000, (entry_addr + 7) as u16)?;
+        let byte1 = self
+            .regs
+            .read_mem_byte(mmu, 0x0000, (entry_addr + 1) as u16)?;
+        let byte2 = self
+            .regs
+            .read_mem_byte(mmu, 0x0000, (entry_addr + 2) as u16)?;
+        let byte3 = self
+            .regs
+            .read_mem_byte(mmu, 0x0000, (entry_addr + 3) as u16)?;
+        let byte4 = self
+            .regs
+            .read_mem_byte(mmu, 0x0000, (entry_addr + 4) as u16)?;
+        let byte5 = self
+            .regs
+            .read_mem_byte(mmu, 0x0000, (entry_addr + 5) as u16)?;
+        let byte6 = self
+            .regs
+            .read_mem_byte(mmu, 0x0000, (entry_addr + 6) as u16)?;
+        let byte7 = self
+            .regs
+            .read_mem_byte(mmu, 0x0000, (entry_addr + 7) as u16)?;
 
         // Reconstruct the IDT entry
         let offset_low = (byte1 as u16) << 8 | (byte0 as u16);
@@ -834,7 +853,10 @@ impl RealModeEmulator {
 
         log::info!(
             "IDT entry {}: offset={:#010X}, selector={:#06X}, type={:#04X}",
-            int_num, offset, selector, type_attr
+            int_num,
+            offset,
+            selector,
+            type_attr
         );
 
         Ok((offset, selector))
@@ -845,7 +867,11 @@ impl RealModeEmulator {
         use super::mode_trans::X86Mode;
 
         let current_mode = self.mode_trans.current_mode();
-        log::info!("Handling interrupt INT {:02X} in {:?} mode", int_num, current_mode);
+        log::info!(
+            "Handling interrupt INT {:02X} in {:?} mode",
+            int_num,
+            current_mode
+        );
 
         // Read interrupt vector address (from IVT or IDT)
         let (offset, selector) = self.read_idt_entry(int_num, mmu)?;
@@ -5810,7 +5836,10 @@ impl RealModeEmulator {
                         let modrm = self.fetch_byte(mmu)?;
                         let _imm8 = self.fetch_byte(mmu)?;
                         let reg = (modrm >> 3) & 7;
-                        log::debug!("Group 8 instruction (opcode 0F BA, reg={}) - treating as NOP", reg);
+                        log::debug!(
+                            "Group 8 instruction (opcode 0F BA, reg={}) - treating as NOP",
+                            reg
+                        );
                         // BT/BTS/BTR/BTC are bit test and modify instructions
                         // For now, treat as NOP to allow boot to continue
                         Ok(RealModeStep::Continue)
@@ -5820,7 +5849,11 @@ impl RealModeEmulator {
                     0x00 => {
                         let modrm = self.fetch_byte(mmu)?;
                         let reg = (modrm >> 3) & 7;
-                        log::debug!("0F 00 instruction (modrm={:02X}, reg={}) - treating as NOP", modrm, reg);
+                        log::debug!(
+                            "0F 00 instruction (modrm={:02X}, reg={}) - treating as NOP",
+                            modrm,
+                            reg
+                        );
                         // This includes SLDT, STR, LLDT, LTR, VERR, VERW, etc.
                         // For now, treat as NOP to allow boot to continue
                         Ok(RealModeStep::Continue)
@@ -6127,7 +6160,11 @@ impl RealModeEmulator {
                 self.regs.esp = self.regs.ebp;
                 self.regs.ebp = self.pop16(mmu)? as u32;
 
-                log::debug!("LEAVE: EBP {:#010X} -> {:#010X}, ESP restored to old EBP", old_ebp, self.regs.ebp);
+                log::debug!(
+                    "LEAVE: EBP {:#010X} -> {:#010X}, ESP restored to old EBP",
+                    old_ebp,
+                    self.regs.ebp
+                );
                 Ok(RealModeStep::Continue)
             }
 
@@ -6633,7 +6670,10 @@ impl RealModeEmulator {
                 let reg = ((modrm >> 3) & 7) as usize;
 
                 // For simplicity, just log and continue (full IMUL implementation is complex)
-                log::debug!("IMUL r16, r/m16, imm16 ({:04X}) - treating as NOP for now", imm16);
+                log::debug!(
+                    "IMUL r16, r/m16, imm16 ({:04X}) - treating as NOP for now",
+                    imm16
+                );
                 Ok(RealModeStep::Continue)
             }
 

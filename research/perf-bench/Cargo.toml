@@ -5,13 +5,13 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-engine = { path = "../vm-engine", features = ["executor", "jit"] }
-vm-mem = { path = "../vm-mem" }
-vm-ir = { path = "../vm-ir" }
-vm-core = { path = "../vm-core" }
-vm-cross-arch-support = { path = "../vm-cross-arch-support" }
-vm-frontend = { path = "../vm-frontend" }
+vm-build-deps = { path = "../crates/architecture/vm-build-deps" }
+vm-engine = { path = "../crates/execution/vm-engine", features = ["executor", "jit"] }
+vm-mem = { path = "../crates/memory/vm-mem" }
+vm-ir = { path = "../crates/core/vm-ir" }
+vm-core = { path = "../crates/core/vm-core" }
+vm-cross-arch-support = { path = "../crates/architecture/vm-cross-arch-support" }
+vm-frontend = { path = "../crates/execution/vm-frontend" }
 
 [dev-dependencies]
 criterion = { workspace = true }

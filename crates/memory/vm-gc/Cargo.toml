@@ -12,7 +12,7 @@ categories.workspace = true
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
 # Core types and error handling
 # vm-gc is independent - no dependency on vm-core to avoid circular dependency
 thiserror = { workspace = true }

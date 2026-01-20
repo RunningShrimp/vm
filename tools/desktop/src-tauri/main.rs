@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use tauri::State;
 use vm_desktop::{
-    AppState, MonitoringService, VmController,
+    AppState, MonitoringService, VmController, CliIntegrationService, InstallConfig, Distribution, InstallProgress, DistroInfo,
     ipc::{SystemMetrics, VmConfig, VmInstance, VmMetrics},
 };
 
@@ -146,10 +146,64 @@ async fn get_console_output(
     state.vm_controller.get_console_output(&id)
 }
 
+// CLI Integration Commands
+
+#[tauri::command]
+async fn list_distributions(state: State<'_, Arc<AppState>>) -> Result<Vec<DistroInfo>, String> {
+    Ok(state.cli_integration.list_distributions())
+}
+
+#[tauri::command]
+async fn get_default_config(
+    state: State<'_, Arc<AppState>>,
+    distribution_id: String,
+) -> Result<InstallConfig, String> {
+    let distro = match distribution_id.to_lowercase().as_str() {
+        "ubuntu" => Distribution::Ubuntu,
+        "debian" => Distribution::Debian,
+        "arch" => Distribution::Arch,
+        "manjaro" => Distribution::Manjaro,
+        "fedora" => Distribution::Fedora,
+        "centos" => Distribution::CentOS,
+        "windows" => Distribution::Windows,
+        "linuxmint" | "mint" => Distribution::LinuxMint,
+        "popos" | "pop" => Distribution::PopOS,
+        "opensuse" | "suse" => Distribution::OpenSUSE,
+        _ => return Err("Unknown distribution".to_string()),
+    };
+
+    Ok(state.cli_integration.get_default_config(distro))
+}
+
+#[tauri::command]
+async fn start_installation(
+    state: State<'_, Arc<AppState>>,
+    config: InstallConfig,
+) -> Result<String, String> {
+    state.cli_integration.start_installation(config).await
+}
+
+#[tauri::command]
+async fn get_installation_progress(
+    state: State<'_, Arc<AppState>>,
+    install_id: String,
+) -> Result<InstallProgress, String> {
+    state.cli_integration.get_installation_progress(&install_id).await
+}
+
+#[tauri::command]
+async fn cancel_installation(
+    state: State<'_, Arc<AppState>>,
+    install_id: String,
+) -> Result<(), String> {
+    state.cli_integration.cancel_installation(&install_id).await
+}
+
 fn main() {
     let app_state = Arc::new(AppState {
         vm_controller: VmController::new(),
         monitoring: MonitoringService::new(),
+        cli_integration: CliIntegrationService::new(),
     });
 
     tauri::Builder::default()
@@ -173,6 +227,12 @@ fn main() {
             restore_snapshot,
             list_snapshots,
             get_console_output,
+            // CLI integration commands
+            list_distributions,
+            get_default_config,
+            start_installation,
+            get_installation_progress,
+            cancel_installation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

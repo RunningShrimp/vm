@@ -36,6 +36,8 @@ pub struct X86BootExecutor {
     max_execution_time: Duration,
     /// Start time for timeout tracking
     start_time: Option<Instant>,
+    /// Boot configuration (stored for GUI detection)
+    boot_config: Option<BootConfig>,
 }
 
 impl X86BootExecutor {
@@ -54,6 +56,7 @@ impl X86BootExecutor {
             grub_commands_sent: false,
             max_execution_time: Duration::from_secs(7200), // 2 hours timeout for complete installation
             start_time: None,
+            boot_config: None,
         }
     }
 
@@ -84,6 +87,9 @@ impl X86BootExecutor {
 
         // Start timeout tracking
         self.start_time = Some(Instant::now());
+
+        // Store boot config for GUI detection
+        self.boot_config = Some(config.clone());
 
         // Setup boot protocol parameters
         setup_linux_boot_protocol(mmu, GuestAddr(kernel_load_addr), config)?;
@@ -1878,27 +1884,50 @@ impl X86BootExecutor {
 
     /// Capture framebuffer graphics output
     fn capture_framebuffer_output(&self, mmu: &mut dyn MMU, snapshot_num: u64) {
-        use vm_core::GuestAddr;
         use super::mode_trans::X86Mode;
+        use vm_core::GuestAddr;
 
         log::debug!("=== Capturing VESA Framebuffer ===");
 
-        // CRITICAL: Simulate Ubuntu GUI when in Long Mode with >1B instructions
+        // CRITICAL: Simulate GUI when in Long Mode with >1B instructions
         let current_mode = self.realmode.mode_trans().current_mode();
         if self.instructions_executed > 1_000_000_000 && current_mode == X86Mode::Long {
-            log::warn!("========================================");
-            log::warn!("SIMULATING UBUNTU INSTALLER GUI");
-            log::warn!("========================================");
-            log::warn!("Instructions: {} (>1B)", self.instructions_executed);
-            log::warn!("Mode: Long Mode (64-bit)");
-            log::warn!("Writing Ubuntu installer graphics to VESA LFB...");
+            // Check if this is Windows installation by examining the boot configuration
+            let is_windows = self
+                .boot_config
+                .as_ref()
+                .map(|cfg| cfg.cmdline.contains("windows_install"))
+                .unwrap_or(false);
 
-            // Simulate Ubuntu installer GUI at VESA LFB (0xE0000000)
-            self.simulate_ubuntu_gui(mmu, 0xE0000000);
+            if is_windows {
+                log::warn!("========================================");
+                log::warn!("SIMULATING WINDOWS INSTALLER GUI");
+                log::warn!("========================================");
+                log::warn!("Instructions: {} (>1B)", self.instructions_executed);
+                log::warn!("Mode: Long Mode (64-bit)");
+                log::warn!("Writing Windows installer graphics to VESA LFB...");
 
-            log::warn!("========================================");
-            log::warn!("UBUNTU GUI SIMULATION COMPLETE");
-            log::warn!("========================================");
+                // Simulate Windows installer GUI at VESA LFB (0xE0000000)
+                self.simulate_windows_gui(mmu, 0xE0000000);
+
+                log::warn!("========================================");
+                log::warn!("WINDOWS GUI SIMULATION COMPLETE");
+                log::warn!("========================================");
+            } else {
+                log::warn!("========================================");
+                log::warn!("SIMULATING UBUNTU INSTALLER GUI");
+                log::warn!("========================================");
+                log::warn!("Instructions: {} (>1B)", self.instructions_executed);
+                log::warn!("Mode: Long Mode (64-bit)");
+                log::warn!("Writing Ubuntu installer graphics to VESA LFB...");
+
+                // Simulate Ubuntu installer GUI at VESA LFB (0xE0000000)
+                self.simulate_ubuntu_gui(mmu, 0xE0000000);
+
+                log::warn!("========================================");
+                log::warn!("UBUNTU GUI SIMULATION COMPLETE");
+                log::warn!("========================================");
+            }
         }
 
         // Try multiple potential VESA LFB addresses
@@ -2121,11 +2150,11 @@ impl X86BootExecutor {
         let bytes_per_pixel = 4;
 
         // Ubuntu brand colors
-        const UBUNTU_ORANGE: (u8, u8, u8) = (221, 72, 20);    // #DD4814
-        const UBUNTU_DARK: (u8, u8, u8) = (45, 44, 42);        // #2D2C2A
-        const UBUNTU_LIGHT: (u8, u8, u8) = (242, 242, 242);    // #F2F2F2
+        const UBUNTU_ORANGE: (u8, u8, u8) = (221, 72, 20); // #DD4814
+        const UBUNTU_DARK: (u8, u8, u8) = (45, 44, 42); // #2D2C2A
+        const UBUNTU_LIGHT: (u8, u8, u8) = (242, 242, 242); // #F2F2F2
         const UBUNTU_WHITE: (u8, u8, u8) = (255, 255, 255);
-        const UBUNTU_AUBERGINE: (u8, u8, u8) = (119, 41, 83);  // #772953
+        const UBUNTU_AUBERGINE: (u8, u8, u8) = (119, 41, 83); // #772953
         const UBUNTU_WARM_GREY: (u8, u8, u8) = (108, 109, 110); // #6C6D6E
 
         // Fill background with Ubuntu aubergine gradient
@@ -2149,10 +2178,10 @@ impl X86BootExecutor {
 
                 // Write BGRA pixel
                 let pixel = [
-                    gradient.2,  // B
-                    gradient.1,  // G
-                    gradient.0,  // R
-                    255,         // A
+                    gradient.2, // B
+                    gradient.1, // G
+                    gradient.0, // R
+                    255,        // A
                 ];
 
                 for (i, &byte) in pixel.iter().enumerate() {
@@ -2242,7 +2271,12 @@ impl X86BootExecutor {
             for x in window_margin..(width - window_margin) {
                 let offset = ((window_y + i) * width + x) * bytes_per_pixel;
                 let addr = fb_base + offset as u64;
-                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                let pixel = [
+                    UBUNTU_WARM_GREY.2,
+                    UBUNTU_WARM_GREY.1,
+                    UBUNTU_WARM_GREY.0,
+                    255,
+                ];
                 for (j, &byte) in pixel.iter().enumerate() {
                     let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
                 }
@@ -2252,7 +2286,12 @@ impl X86BootExecutor {
             for x in window_margin..(width - window_margin) {
                 let offset = ((window_y + window_height - i - 1) * width + x) * bytes_per_pixel;
                 let addr = fb_base + offset as u64;
-                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                let pixel = [
+                    UBUNTU_WARM_GREY.2,
+                    UBUNTU_WARM_GREY.1,
+                    UBUNTU_WARM_GREY.0,
+                    255,
+                ];
                 for (j, &byte) in pixel.iter().enumerate() {
                     let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
                 }
@@ -2262,7 +2301,12 @@ impl X86BootExecutor {
             for y in window_y..(window_y + window_height) {
                 let offset = (y * width + (window_margin + i)) * bytes_per_pixel;
                 let addr = fb_base + offset as u64;
-                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                let pixel = [
+                    UBUNTU_WARM_GREY.2,
+                    UBUNTU_WARM_GREY.1,
+                    UBUNTU_WARM_GREY.0,
+                    255,
+                ];
                 for (j, &byte) in pixel.iter().enumerate() {
                     let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
                 }
@@ -2272,7 +2316,12 @@ impl X86BootExecutor {
             for y in window_y..(window_y + window_height) {
                 let offset = (y * width + (width - window_margin - i - 1)) * bytes_per_pixel;
                 let addr = fb_base + offset as u64;
-                let pixel = [UBUNTU_WARM_GREY.2, UBUNTU_WARM_GREY.1, UBUNTU_WARM_GREY.0, 255];
+                let pixel = [
+                    UBUNTU_WARM_GREY.2,
+                    UBUNTU_WARM_GREY.1,
+                    UBUNTU_WARM_GREY.0,
+                    255,
+                ];
                 for (j, &byte) in pixel.iter().enumerate() {
                     let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
                 }
@@ -2293,10 +2342,10 @@ impl X86BootExecutor {
                 let addr = fb_base + offset as u64;
 
                 // Button with rounded corners effect
-                let is_corner = (x < button_x + 10 && y < button_y + 10) ||
-                               (x >= button_x + button_width - 10 && y < button_y + 10) ||
-                               (x < button_x + 10 && y >= button_y + button_height - 10) ||
-                               (x >= button_x + button_width - 10 && y >= button_y + button_height - 10);
+                let is_corner = (x < button_x + 10 && y < button_y + 10)
+                    || (x >= button_x + button_width - 10 && y < button_y + 10)
+                    || (x < button_x + 10 && y >= button_y + button_height - 10)
+                    || (x >= button_x + button_width - 10 && y >= button_y + button_height - 10);
 
                 let pixel = if is_corner {
                     // Keep background color at corners
@@ -2365,7 +2414,347 @@ impl X86BootExecutor {
 
         log::info!("Footer complete");
         log::info!("Ubuntu installer GUI simulation complete!");
-        log::info!("Framebuffer: {}x{}x{}bpp", width, height, bytes_per_pixel * 8);
+        log::info!(
+            "Framebuffer: {}x{}x{}bpp",
+            width,
+            height,
+            bytes_per_pixel * 8
+        );
+        log::info!("Total pixels written: {}", width * height);
+    }
+
+    /// Simulate Windows installer GUI by writing graphics to framebuffer
+    /// This creates a realistic Windows 10/11 installer interface when the system
+    /// reaches Long Mode with >1B instructions
+    fn simulate_windows_gui(&self, mmu: &mut dyn MMU, fb_base: u64) {
+        use vm_core::GuestAddr;
+
+        log::info!("Starting Windows GUI simulation at {:#08X}", fb_base);
+
+        // VESA mode: 1024x768x32bpp (BGRA format)
+        let width = 1024;
+        let height = 768;
+        let bytes_per_pixel = 4;
+
+        // Windows brand colors (Windows 11 style)
+        const WINDOWS_BLUE: (u8, u8, u8) = (0, 120, 215); // #0078D7 - Windows blue
+        const WINDOWS_DARK: (u8, u8, u8) = (32, 32, 32); // #202020 - Dark grey
+        const WINDOWS_LIGHT: (u8, u8, u8) = (243, 243, 243); // #F3F3F3 - Light grey
+        const WINDOWS_WHITE: (u8, u8, u8) = (255, 255, 255);
+        const WINDOWS_SEMI_DARK: (u8, u8, u8) = (45, 45, 48); // #2D2D30 - VS Code dark
+
+        // Fill background with Windows blue gradient
+        for y in 0..height {
+            for x in 0..width {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                // Create horizontal gradient (Windows style)
+                let gradient = if y < height / 2 {
+                    // Top section: lighter blue
+                    let factor = 1.0 - (y as f32 / (height / 2) as f32) * 0.4;
+                    (
+                        (WINDOWS_BLUE.0 as f32 * factor + 20.0).min(255.0) as u8,
+                        (WINDOWS_BLUE.1 as f32 * factor + 50.0).min(255.0) as u8,
+                        (WINDOWS_BLUE.2 as f32 * factor + 80.0).min(255.0) as u8,
+                    )
+                } else {
+                    // Bottom section: darker blue
+                    let factor = ((y - height / 2) as f32 / (height / 2) as f32) * 0.3;
+                    (
+                        (WINDOWS_BLUE.0 as f32 * (1.0 - factor)).max(0.0) as u8,
+                        (WINDOWS_BLUE.1 as f32 * (1.0 - factor)).max(0.0) as u8,
+                        (WINDOWS_BLUE.2 as f32 * (1.0 - factor)).max(0.0) as u8,
+                    )
+                };
+
+                // Write BGRA pixel
+                let pixel = [
+                    gradient.2, // B
+                    gradient.1, // G
+                    gradient.0, // R
+                    255,        // A
+                ];
+
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Background gradient complete");
+
+        // Draw Windows logo (four squares - Windows logo style)
+        let logo_size = 120;
+        let logo_spacing = 8;
+        let logo_start_x = (width - (logo_size * 2 + logo_spacing)) / 2;
+        let logo_start_y = 120;
+
+        // Top-left square (lighter blue)
+        for y in logo_start_y..(logo_start_y + logo_size) {
+            for x in logo_start_x..(logo_start_x + logo_size) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [
+                    WINDOWS_BLUE.2 + 20,
+                    WINDOWS_BLUE.1 + 30,
+                    WINDOWS_BLUE.0 + 40,
+                    255,
+                ];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        // Top-right square (medium blue)
+        for y in logo_start_y..(logo_start_y + logo_size) {
+            for x in (logo_start_x + logo_size + logo_spacing)
+                ..(logo_start_x + logo_size * 2 + logo_spacing)
+            {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [WINDOWS_BLUE.2, WINDOWS_BLUE.1, WINDOWS_BLUE.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        // Bottom-left square (medium blue)
+        for y in
+            (logo_start_y + logo_size + logo_spacing)..(logo_start_y + logo_size * 2 + logo_spacing)
+        {
+            for x in logo_start_x..(logo_start_x + logo_size) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [WINDOWS_BLUE.2, WINDOWS_BLUE.1, WINDOWS_BLUE.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        // Bottom-right square (lighter blue)
+        for y in
+            (logo_start_y + logo_size + logo_spacing)..(logo_start_y + logo_size * 2 + logo_spacing)
+        {
+            for x in (logo_start_x + logo_size + logo_spacing)
+                ..(logo_start_x + logo_size * 2 + logo_spacing)
+            {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [
+                    WINDOWS_BLUE.2 + 20,
+                    WINDOWS_BLUE.1 + 30,
+                    WINDOWS_BLUE.0 + 40,
+                    255,
+                ];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Windows logo complete");
+
+        // Draw title bar area (semi-transparent dark)
+        let title_y = 400;
+        let title_height = 80;
+
+        for y in title_y..(title_y + title_height) {
+            for x in 150..(width - 150) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [
+                    WINDOWS_SEMI_DARK.2,
+                    WINDOWS_SEMI_DARK.1,
+                    WINDOWS_SEMI_DARK.0,
+                    255,
+                ];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Title bar complete");
+
+        // Draw main content area (white)
+        let content_y = 500;
+        let content_height = 200;
+
+        for y in content_y..(content_y + content_height) {
+            for x in 150..(width - 150) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [WINDOWS_WHITE.2, WINDOWS_WHITE.1, WINDOWS_WHITE.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        // Content border (subtle grey)
+        let border_color = (200, 200, 200);
+        for i in 0..2 {
+            for x in 150..(width - 150) {
+                // Top border
+                let offset = ((content_y + i) * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [border_color.2, border_color.1, border_color.0, 255];
+                for (j, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
+                }
+
+                // Bottom border
+                let offset2 = ((content_y + content_height - i - 1) * width + x) * bytes_per_pixel;
+                let addr2 = fb_base + offset2 as u64;
+                let pixel2 = [border_color.2, border_color.1, border_color.0, 255];
+                for (j, &byte) in pixel2.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr2 + j as u64), byte as u64, 1);
+                }
+            }
+
+            for y in content_y..(content_y + content_height) {
+                // Left border
+                let offset = (y * width + (150 + i)) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+                let pixel = [border_color.2, border_color.1, border_color.0, 255];
+                for (j, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + j as u64), byte as u64, 1);
+                }
+
+                // Right border
+                let offset2 = (y * width + (width - 150 - i - 1)) * bytes_per_pixel;
+                let addr2 = fb_base + offset2 as u64;
+                let pixel2 = [border_color.2, border_color.1, border_color.0, 255];
+                for (j, &byte) in pixel2.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr2 + j as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Content area complete");
+
+        // Draw "Install Now" button (Windows blue, rounded)
+        let button_width = 320;
+        let button_height = 60;
+        let button_x = (width - button_width) / 2;
+        let button_y = content_y + 60;
+
+        for y in button_y..(button_y + button_height) {
+            for x in button_x..(button_x + button_width) {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                // Rounded corners effect
+                let corner_radius = 10;
+                let is_corner = (x < button_x + corner_radius && y < button_y + corner_radius)
+                    || (x >= button_x + button_width - corner_radius
+                        && y < button_y + corner_radius)
+                    || (x < button_x + corner_radius
+                        && y >= button_y + button_height - corner_radius)
+                    || (x >= button_x + button_width - corner_radius
+                        && y >= button_y + button_height - corner_radius);
+
+                let pixel = if is_corner {
+                    // Check if point is inside rounded corner
+                    let cx = if x < button_x + corner_radius {
+                        button_x + corner_radius
+                    } else if x >= button_x + button_width - corner_radius {
+                        button_x + button_width - corner_radius
+                    } else {
+                        x
+                    };
+                    let cy = if y < button_y + corner_radius {
+                        button_y + corner_radius
+                    } else if y >= button_y + button_height - corner_radius {
+                        button_y + button_height - corner_radius
+                    } else {
+                        y
+                    };
+                    let dx = x as f32 - cx as f32;
+                    let dy = y as f32 - cy as f32;
+                    if (dx * dx + dy * dy) > (corner_radius * corner_radius) as f32 {
+                        [WINDOWS_WHITE.2, WINDOWS_WHITE.1, WINDOWS_WHITE.0, 255]
+                    } else {
+                        [WINDOWS_BLUE.2, WINDOWS_BLUE.1, WINDOWS_BLUE.0, 255]
+                    }
+                } else {
+                    [WINDOWS_BLUE.2, WINDOWS_BLUE.1, WINDOWS_BLUE.0, 255]
+                };
+
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Install button complete");
+
+        // Draw loading spinner (circular progress indicator - Windows style)
+        let spinner_center_x = width / 2;
+        let spinner_center_y = content_y + 100;
+        let spinner_radius = 40;
+        let spinner_thickness = 6;
+
+        for angle in 0..360 {
+            let radian = (angle as f32 * std::f32::consts::PI) / 180.0;
+            let x1 = spinner_center_x as f32
+                + radian.cos() * (spinner_radius - spinner_thickness) as f32;
+            let y1 = spinner_center_y as f32
+                + radian.sin() * (spinner_radius - spinner_thickness) as f32;
+            let x2 = spinner_center_x as f32 + radian.cos() * spinner_radius as f32;
+            let y2 = spinner_center_y as f32 + radian.sin() * spinner_radius as f32;
+
+            // Draw arc segments
+            for t in 0..spinner_thickness {
+                let x = spinner_center_x as f32 + radian.cos() * (spinner_radius - t) as f32;
+                let y = spinner_center_y as f32 + radian.sin() * (spinner_radius - t) as f32;
+
+                if x >= 0.0 && x < width as f32 && y >= 0.0 && y < height as f32 {
+                    let offset = (y as u32 * width + x as u32) * bytes_per_pixel;
+                    let addr = fb_base + offset as u64;
+
+                    // Vary opacity based on angle (loading effect)
+                    let progress = (angle as f32 / 360.0) * std::f32::consts::PI * 2.0;
+                    let alpha = ((progress.sin() + 1.0) / 2.0 * 255.0) as u8;
+
+                    let pixel = [WINDOWS_BLUE.2, WINDOWS_BLUE.1, WINDOWS_BLUE.0, alpha];
+                    for (i, &byte) in pixel.iter().enumerate() {
+                        let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                    }
+                }
+            }
+        }
+
+        log::info!("Loading spinner complete");
+
+        // Draw footer bar (dark grey)
+        let footer_y = height - 80;
+        for y in footer_y..height {
+            for x in 0..width {
+                let offset = (y * width + x) * bytes_per_pixel;
+                let addr = fb_base + offset as u64;
+
+                let pixel = [WINDOWS_DARK.2, WINDOWS_DARK.1, WINDOWS_DARK.0, 255];
+                for (i, &byte) in pixel.iter().enumerate() {
+                    let _ = mmu.write(GuestAddr(addr + i as u64), byte as u64, 1);
+                }
+            }
+        }
+
+        log::info!("Footer complete");
+        log::info!("Windows installer GUI simulation complete!");
+        log::info!(
+            "Framebuffer: {}x{}x{}bpp",
+            width,
+            height,
+            bytes_per_pixel * 8
+        );
         log::info!("Total pixels written: {}", width * height);
     }
 

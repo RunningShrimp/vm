@@ -7,6 +7,7 @@ use std::mem::size_of;
 use vm_core::{GuestAddr, MMU, VmError, VmResult};
 
 /// Boot protocol setup configuration
+#[derive(Clone)]
 pub struct BootConfig {
     /// Video mode (0xFFFF = normal, 0xFFFE = ext, 0xFFFD = ask)
     pub vid_mode: u16,

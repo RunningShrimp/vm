@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
-vm-ir = { path = "../vm-ir" }
+vm-build-deps = { path = "../../crates/architecture/vm-build-deps" }
+vm-core = { path = "../../crates/core/vm-core" }
+vm-ir = { path = "../../crates/core/vm-ir" }
 log = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -6,8 +6,8 @@ publish = false
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
+vm-build-deps = { path = "../crates/architecture/vm-build-deps" }
 parking_lot = "0.12"
-vm-engine = { path = "../vm-engine", features = ["executor"] }
+vm-engine = { path = "../crates/execution/vm-engine", features = ["executor"] }
 
 [dev-dependencies]

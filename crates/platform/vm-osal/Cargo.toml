@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
 num_cpus = { workspace = true }
-vm-core = { path = "../vm-core" }
+vm-core = { path = "../../core/vm-core" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

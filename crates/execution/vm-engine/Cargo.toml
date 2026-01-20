@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
 # Async runtime - must be first to ensure availability
 tokio = { workspace = true, features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }
 
@@ -32,14 +32,14 @@ lru = { workspace = true }
 crossbeam-queue = { workspace = true }
 
 # VM Core dependencies
-vm-core = { path = "../vm-core" }
-vm-mem = { path = "../vm-mem" }
-vm-ir = { path = "../vm-ir" }
-# vm-optimizers = { path = "../vm-optimizers" }  # Temporarily disabled due to merge conflicts
+vm-core = { path = "../../core/vm-core" }
+vm-mem = { path = "../../memory/vm-mem" }
+vm-ir = { path = "../../core/vm-ir" }
+# vm-optimizers = { path = "../../memory/vm-optimizers" }  # Temporarily disabled due to merge conflicts
 
 # Optional external dependencies
-vm-accel = { path = "../vm-accel", optional = true }
-vm-engine-jit = { path = "../vm-engine-jit", optional = true }
+vm-accel = { path = "../../platform/vm-accel", optional = true }
+vm-engine-jit = { path = "../../execution/vm-engine-jit", optional = true }
 
 # Build dependencies
 # cfg-if 保留直接版本，因为它是构建时依赖且版本稳定
@@ -95,7 +95,7 @@ experimental = ["executor"]
 criterion = { workspace = true }
 rand = "0.8"
 proptest = "1.0"
-vm-cross-arch-support = { path = "../vm-cross-arch-support" }
+vm-cross-arch-support = { path = "../../architecture/vm-cross-arch-support" }
 
 [[bench]]
 name = "jit_compilation_bench"

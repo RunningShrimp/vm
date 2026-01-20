@@ -1,69 +1,68 @@
 [workspace]
 members = [
-    # Core
-    "vm-core",
+    # ============================================================================
+    # Core Libraries
+    # ============================================================================
+    "crates/core/vm-core",
+    "crates/core/vm-ir",
+    "crates/core/vm-boot",
 
-    # Cross-architecture
-#     "vm-cross-arch",
-    "vm-cross-arch-support",
-    "vm-ir",
-    "vm-frontend",
+    # ============================================================================
+    # Execution Engines
+    # ============================================================================
+    "crates/execution/vm-engine",
+    "crates/execution/vm-engine-jit",
+    "crates/execution/vm-frontend",
 
-    # Memory
-    "vm-mem",
+    # ============================================================================
+    # Memory Management
+    # ============================================================================
+    "crates/memory/vm-mem",
+    "crates/memory/vm-gc",
+    "crates/memory/vm-optimizers",
 
-    # Devices
-    "vm-device",
-    "vm-accel",
+    # ============================================================================
+    # Platform Abstraction
+    # ============================================================================
+    "crates/platform/vm-accel",
+    "crates/platform/vm-osal",
+    "crates/platform/vm-platform",
 
-    # Execution engines (unified)
-    "vm-engine",
-    "vm-engine-jit",
+    # ============================================================================
+    # Device Emulation
+    # ============================================================================
+    "crates/devices/vm-device",
+    "crates/devices/vm-graphics",
+    "crates/devices/vm-smmu",
+    "crates/devices/vm-soc",
 
-    # Optimizers
-    "vm-optimizers",
-    "vm-gc",
+    # ============================================================================
+    # Runtime Services
+    # ============================================================================
+    "crates/runtime/vm-service",
+    "crates/runtime/vm-plugin",
+    "crates/runtime/vm-monitor",
 
-    # Runtime
-    "vm-boot",
+    # ============================================================================
+    # Compatibility Layer
+    # ============================================================================
+    "crates/compatibility/security-sandbox",
+    "crates/compatibility/syscall-compat",
 
-    # Services
-    "vm-service",
+    # ============================================================================
+    # Architecture Support
+    # ============================================================================
+    "crates/architecture/vm-build-deps",
+    "crates/architecture/vm-codegen",
+    "crates/architecture/vm-cross-arch-support",
 
-    # Platform
-    "vm-platform",
-    "vm-smmu",
-    "vm-passthrough",
-    "vm-soc",
-    "vm-graphics",
-
-    # Other
-    "vm-plugin",
-    "vm-osal",
-
-    # Testing and benchmarking (disabled - depend on removed vm-cross-arch)
-#     "vm-perf-regression-detector",  # TODO: depends on removed vm-cross-arch, needs refactor
-
-    # Additional packages
-    "vm-codegen",
-    "vm-cli",
-    "vm-monitor",
-    "vm-debug",
-    "vm-desktop",
-
-    # External compatibility
-    "security-sandbox",
-    "syscall-compat",
-
-    # Benchmark suites
-    "perf-bench",
-    "tiered-compiler",
-    "parallel-jit",
-#     "benches",  # TODO: depends on removed vm-cross-arch, needs refactor
-#     "vm-perf-regression-detector",  # Disabled: depends on removed vm-cross-arch
-
-    # Build optimization (managed by cargo-hakari)
-    "vm-build-deps",
+    # ============================================================================
+    # Tools
+    # ============================================================================
+    "tools/cli",
+    "tools/desktop",
+    "tools/debug",
+    "tools/passthrough",
 ]
 resolver = "2"
 

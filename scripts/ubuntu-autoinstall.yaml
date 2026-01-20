@@ -1,0 +1,66 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  # Interactive sections default to 'interactive-sections'
+  # Setting all to non-interactive for automated installation
+  interactive-sections: []
+
+  # Locale and keyboard
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ''
+
+  # Network configuration (will use DHCP by default)
+  network:
+    version: 2
+    ethernets:
+      any:
+        match:
+          name: "en*"
+        dhcp4: true
+
+  # APT configuration
+  apt:
+    preserve_sources_list: false
+    primary:
+      - arches: [default]
+        uri: http://archive.ubuntu.com/ubuntu
+    security:
+      - arches: [default]
+        uri: http://security.ubuntu.com/ubuntu
+
+  # Storage configuration
+  storage:
+    layout:
+      name: direct
+      sizing-policy: scaled
+      reset-partition-size: true
+
+  # Identity
+  identity:
+    hostname: ubuntu-desktop
+    username: ubuntu
+    password: "$6$rounds=4096$Vpq/j.kPVlQ7L$NfUc2W3F3E5G6X7Y8Z9a0B1c2D3e4F5g6H7i8J9k0L1m2N3o4P5q6R7s8T9u0V1w" # "ubuntu"
+    realname: Ubuntu User
+
+  # SSH configuration
+  ssh:
+    install-server: true
+    allow-pw: true
+
+  # Package selection
+  packages:
+    - ubuntu-desktop
+    - openssh-server
+    - build-essential
+    - git
+    - vim
+    - curl
+    - wget
+
+  # Late commands (run after installation)
+  late-commands:
+    - curtin in-target --target=/target -- sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub
+    - curtin in-target --target=/target -- update-grub

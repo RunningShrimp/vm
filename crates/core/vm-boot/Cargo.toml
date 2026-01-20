@@ -5,12 +5,12 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
-vm-mem = { path = "../vm-mem" }
-vm-device = { path = "../vm-device" }
-vm-accel = { path = "../vm-accel" }
-vm-gc = { path = "../vm-gc" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
+vm-mem = { path = "../../memory/vm-mem" }
+vm-device = { path = "../../devices/vm-device" }
+vm-accel = { path = "../../platform/vm-accel" }
+vm-gc = { path = "../../memory/vm-gc" }
 log = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }

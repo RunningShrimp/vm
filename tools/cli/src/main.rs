@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::process;
 use std::time::Instant;
 
-use clap::{Parser, Subcommand, ValueEnum, command};
+use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell as ClapShell, generate};
 use colored::Colorize;
-use log::{error, info, warn};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use vm_core::{ExecMode, GuestArch, VmConfig};
 use vm_device::hw_detect::HardwareDetector;
@@ -16,8 +16,15 @@ use vm_service::VmService;
 
 // Command modules
 mod commands {
+    pub mod download_iso;
+    pub mod install_arch;
+    pub mod install_centos;
     pub mod install_debian;
+    pub mod install_fedora;
+    pub mod install_linux;
+    pub mod install_manjaro;
     pub mod install_ubuntu;
+    pub mod install_windows;
 }
 
 /// Validation helper for CLI parameters
@@ -245,6 +252,163 @@ enum Commands {
         /// Number of VCPUs [default: 1]
         #[arg(long, default_value = "1")]
         vcpus: usize,
+    },
+
+    /// Install Windows from ISO
+    InstallWindows {
+        /// Windows ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 50]
+        #[arg(long, default_value = "50")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 8192]
+        #[arg(long, default_value = "8192")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 2]
+        #[arg(long, default_value = "2")]
+        vcpus: usize,
+    },
+
+    /// Install Fedora from ISO
+    InstallFedora {
+        /// Fedora ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 30]
+        #[arg(long, default_value = "30")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 4096]
+        #[arg(long, default_value = "4096")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 1]
+        #[arg(long, default_value = "1")]
+        vcpus: usize,
+    },
+
+    /// Install CentOS/RHEL from ISO
+    InstallCentos {
+        /// CentOS/RHEL ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 25]
+        #[arg(long, default_value = "25")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 4096]
+        #[arg(long, default_value = "4096")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 1]
+        #[arg(long, default_value = "1")]
+        vcpus: usize,
+    },
+
+    /// Install any Linux distribution from ISO
+    InstallLinux {
+        /// Linux ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Distribution name (for logging)
+        #[arg(long, default_value = "Linux")]
+        distro: String,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 30]
+        #[arg(long, default_value = "30")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 4096]
+        #[arg(long, default_value = "4096")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 1]
+        #[arg(long, default_value = "1")]
+        vcpus: usize,
+    },
+
+    /// Install Arch Linux from ISO
+    InstallArch {
+        /// Arch Linux ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 20]
+        #[arg(long, default_value = "20")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 2048]
+        #[arg(long, default_value = "2048")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 1]
+        #[arg(long, default_value = "1")]
+        vcpus: usize,
+    },
+
+    /// Install Manjaro Linux from ISO
+    InstallManjaro {
+        /// Manjaro ISO path
+        #[arg(long, short = 'i')]
+        iso: PathBuf,
+
+        /// Disk image path (auto-generated if not specified)
+        #[arg(long, short = 'd')]
+        disk: Option<PathBuf>,
+
+        /// Disk size in GB [default: 30]
+        #[arg(long, default_value = "30")]
+        disk_size_gb: u64,
+
+        /// Memory size in MB [default: 4096]
+        #[arg(long, default_value = "4096")]
+        memory_mb: usize,
+
+        /// Number of VCPUs [default: 1]
+        #[arg(long, default_value = "1")]
+        vcpus: usize,
+    },
+
+    /// Download OS ISO image
+    DownloadIso {
+        /// Distribution to download
+        #[arg(long, short = 'd')]
+        distro: String,
+
+        /// Output path (defaults to current directory)
+        #[arg(long, short = 'o')]
+        output: Option<PathBuf>,
+
+        /// List available distributions
+        #[arg(long)]
+        list: bool,
     },
 
     /// Run a VM with the specified kernel
@@ -559,6 +723,350 @@ async fn main() {
                 }
                 Err(e) => {
                     eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::InstallWindows {
+            iso,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            // Use install_windows command
+            use commands::install_windows::WindowsInstallCommand;
+
+            // Validate ISO exists
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid Windows ISO path");
+                eprintln!("  Example: --iso /Users/Downloads/Windows11.iso");
+                process::exit(1);
+            }
+
+            // Create and run installer
+            let mut installer = WindowsInstallCommand::new(&iso);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Boot files loaded: {}", result.boot_files_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                    println!("  Instructions executed: {}", result.instructions_executed);
+                    println!("  Final mode: {}", result.final_mode);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::InstallFedora {
+            iso,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            use commands::install_fedora::FedoraInstallCommand;
+
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid Fedora ISO path");
+                eprintln!("  Example: --iso /Users/Downloads/Fedora.iso");
+                process::exit(1);
+            }
+
+            let mut installer = FedoraInstallCommand::new(&iso);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Kernel loaded: {}", result.kernel_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::InstallCentos {
+            iso,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            use commands::install_centos::CentosInstallCommand;
+
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid CentOS/RHEL ISO path");
+                eprintln!("  Example: --iso /Users/Downloads/CentOS.iso");
+                process::exit(1);
+            }
+
+            let mut installer = CentosInstallCommand::new(&iso);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Kernel loaded: {}", result.kernel_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::InstallLinux {
+            iso,
+            distro,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            use commands::install_linux::LinuxInstallCommand;
+
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid Linux ISO path");
+                eprintln!("  Example: --iso /Users/Downloads/linux.iso --distro Arch");
+                process::exit(1);
+            }
+
+            let mut installer = LinuxInstallCommand::new(&iso).distro_name(&distro);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Kernel loaded: {}", result.kernel_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::InstallArch {
+            iso,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            use commands::install_arch::ArchInstallCommand;
+
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid Arch Linux ISO path");
+                eprintln!("  Example: --iso /Users/Downloads/archlinux.iso");
+                process::exit(1);
+            }
+
+            let mut installer = ArchInstallCommand::new(&iso);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Kernel loaded: {}", result.kernel_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::InstallManjaro {
+            iso,
+            disk,
+            disk_size_gb,
+            memory_mb,
+            vcpus,
+        } => {
+            use commands::install_manjaro::ManjaroInstallCommand;
+
+            if !iso.exists() {
+                eprintln!("{} ISO file not found: {}", "Error:".red(), iso.display());
+                eprintln!("  Please provide a valid Manjaro ISO path");
+                eprintln!("  Example: --iso /Users/Downloads/manjaro.iso");
+                process::exit(1);
+            }
+
+            let mut installer = ManjaroInstallCommand::new(&iso);
+
+            if let Some(disk_path) = disk {
+                installer = installer.disk_path(&disk_path);
+            }
+
+            installer = installer
+                .disk_size_gb(disk_size_gb)
+                .memory_mb(memory_mb)
+                .vcpus(vcpus);
+
+            match installer.run().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Installation completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Disk: {} ({} GB)", result.disk_path, result.disk_size_gb);
+                    println!("  ISO: {} MB", result.iso_size_mb);
+                    println!("  Kernel loaded: {}", result.kernel_loaded);
+                    println!("  Boot complete: {}", result.boot_complete);
+                }
+                Err(e) => {
+                    eprintln!("{} Installation failed: {}", "Error:".red(), e);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Commands::DownloadIso {
+            distro,
+            output,
+            list,
+        } => {
+            use commands::download_iso::{Distribution, IsoDownloader, list_distributions};
+
+            if list {
+                list_distributions();
+                return;
+            }
+
+            let distro_lower = distro.to_lowercase();
+            let distribution = match distro_lower.as_str() {
+                "ubuntu" => Distribution::Ubuntu,
+                "debian" => Distribution::Debian,
+                "arch" | "archlinux" | "arch linux" => Distribution::Arch,
+                "manjaro" => Distribution::Manjaro,
+                "fedora" => Distribution::Fedora,
+                "centos" => Distribution::CentOS,
+                "windows" => Distribution::Windows,
+                "mint" | "linuxmint" | "linux mint" => Distribution::LinuxMint,
+                "pop" | "popos" | "pop_os" | "pop!_os" => Distribution::PopOS,
+                "opensuse" | "suse" | "opensuse" => Distribution::OpenSUSE,
+                _ => {
+                    eprintln!("{} Unknown distribution: {}", "Error:".red(), distro);
+                    eprintln!();
+                    eprintln!("Available distributions:");
+                    for d in Distribution::all() {
+                        eprintln!("  - {}", d.name().to_lowercase());
+                    }
+                    eprintln!();
+                    eprintln!("Use 'vm-cli download-iso --list' to see all available distributions.");
+                    process::exit(1);
+                }
+            };
+
+            let output_path = if let Some(path) = output {
+                path
+            } else {
+                let filename = format!("{}.iso", distribution.name().replace(' ', "_").to_lowercase());
+                PathBuf::from("./").join(filename)
+            };
+
+            let downloader = IsoDownloader::new(distribution, output_path);
+
+            match downloader.download().await {
+                Ok(result) => {
+                    println!();
+                    println!("{} Download completed successfully!", "✓".green());
+                    println!();
+                    println!("Summary:");
+                    println!("  Path: {}", result.path.display());
+                    println!("  Size: {} MB", result.size_mb());
+                    println!("  Duration: {:.2}s", result.duration_secs);
+                    println!();
+                    println!("You can now install using:");
+                    println!("  vm-cli install-{} --iso {}",
+                        distribution.name().to_lowercase().replace(' ', "-"),
+                        result.path.display());
+                }
+                Err(e) => {
+                    eprintln!("{} Download failed: {}", "Error:".red(), e);
                     process::exit(1);
                 }
             }

@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
-vm-service = { path = "../vm-service" }
-vm-osal = { path = "../vm-osal" }
-vm-device = { path = "../vm-device" } # For HardwareDetector if needed
+vm-build-deps = { path = "../../crates/architecture/vm-build-deps" }
+vm-core = { path = "../../crates/core/vm-core" }
+vm-service = { path = "../../crates/runtime/vm-service" }
+vm-osal = { path = "../../crates/platform/vm-osal" }
+vm-device = { path = "../../crates/devices/vm-device" } # For HardwareDetector if needed
 # vm-cli uses: macros (tokio::main), rt-multi-thread (for async main)
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 env_logger = "0.11"

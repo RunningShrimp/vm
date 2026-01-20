@@ -236,6 +236,17 @@ impl VmService {
         self.vm_service.boot_x86_kernel()
     }
 
+    /// Boot Windows from ISO with BIOS emulation
+    ///
+    /// This method handles Windows ISO boot process with specific configuration
+    /// for Windows 10/11 installation
+    pub fn boot_windows_iso(
+        &mut self,
+    ) -> Result<vm_service::x86_boot_exec::X86BootResult, VmError> {
+        info!("Booting Windows ISO with BIOS emulation");
+        self.vm_service.boot_windows_iso()
+    }
+
     pub fn load_test_program(&mut self, code_base: u64) -> Result<(), VmError> {
         #[cfg(feature = "frontend")]
         Self::encode_test_program();

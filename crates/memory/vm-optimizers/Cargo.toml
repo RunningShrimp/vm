@@ -10,8 +10,8 @@ default = []
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
 parking_lot = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
@@ -25,7 +25,7 @@ num_cpus = { version = "1.16", optional = true }
 crossbeam-utils = "0.8"
 
 # GC crate - resolves circular dependency with vm-core
-vm-gc = { path = "../vm-gc" }
+vm-gc = { path = "../../memory/vm-gc" }
 crossbeam-epoch = "0.9"
 crossbeam-queue = "0.3"
 

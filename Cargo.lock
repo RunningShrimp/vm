@@ -4360,16 +4360,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parallel-jit"
-version = "0.1.0"
-dependencies = [
- "parking_lot",
- "tiered-compiler",
- "vm-build-deps",
- "vm-engine",
-]
-
-[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4409,21 +4399,6 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
-
-[[package]]
-name = "perf-bench"
-version = "0.1.0"
-dependencies = [
- "criterion 0.5.1",
- "rand 0.8.5",
- "vm-build-deps",
- "vm-core",
- "vm-cross-arch-support",
- "vm-engine",
- "vm-frontend",
- "vm-ir",
- "vm-mem",
-]
 
 [[package]]
 name = "phf"
@@ -6512,15 +6487,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tiered-compiler"
-version = "0.1.0"
-dependencies = [
- "parking_lot",
- "vm-build-deps",
- "vm-engine",
-]
-
-[[package]]
 name = "tiff"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7312,8 +7278,6 @@ dependencies = [
  "tokio",
  "toml 0.8.2",
  "uuid",
- "vm-build-deps",
- "vm-gc",
 ]
 
 [[package]]
@@ -7525,8 +7489,6 @@ dependencies = [
  "parking_lot",
  "serde",
  "thiserror 2.0.17",
- "vm-build-deps",
- "vm-core",
 ]
 
 [[package]]

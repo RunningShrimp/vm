@@ -16,8 +16,8 @@ path = "bin/simd_capabilities.rs"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
 libc = { workspace = true }
 lru = "0.16"
 parking_lot = { workspace = true }

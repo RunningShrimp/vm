@@ -1093,3 +1093,21 @@ mod tests {
         assert_eq!(atomic, AccessType::Atomic);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_guestaddr_creation() {
+        let addr = GuestAddr(0x1000);
+        assert_eq!(addr.0, 0x1000);
+    }
+
+    #[test]
+    fn test_guestaddr_add() {
+        let addr1 = GuestAddr(0x1000);
+        let addr2 = GuestAddr(addr1.0 + 0x100);
+        assert_eq!(addr2.0, 0x1100);
+    }
+}

@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
+# Hakari-managed dependencies - temporarily removed for build stability
 log = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
@@ -22,8 +21,8 @@ backtrace = { workspace = true }
 num_cpus = { workspace = true }
 dashmap = "6.0"
 
-# GC crate - resolves circular dependency with vm-optimizers
-vm-gc = { path = "../vm-gc" }
+# GC crate
+vm-gc = { path = "../../memory/vm-gc" }
 
 tokio = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }

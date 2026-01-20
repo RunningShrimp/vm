@@ -5,13 +5,13 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core", features = ["std"] }
-vm-ir = { path = "../vm-ir" }
-vm-engine = { path = "../vm-engine", features = ["interpreter", "jit"], optional = true }
-vm-mem = { path = "../vm-mem" }
-vm-device = { path = "../vm-device", optional = true }
-vm-frontend = { path = "../vm-frontend", optional = true }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core", features = ["std"] }
+vm-ir = { path = "../../core/vm-ir" }
+vm-engine = { path = "../../execution/vm-engine", features = ["interpreter", "jit"], optional = true }
+vm-mem = { path = "../../memory/vm-mem" }
+vm-device = { path = "../../devices/vm-device", optional = true }
+vm-frontend = { path = "../../execution/vm-frontend", optional = true }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread", "time"] }
 thiserror = { workspace = true }
@@ -20,8 +20,8 @@ parking_lot = { workspace = true }
 bincode = { workspace = true }
 
 # Optional dependencies for JIT and device support
-vm-accel = { path = "../vm-accel", optional = true }
-vm-smmu = { path = "../vm-smmu", optional = true }
+vm-accel = { path = "../../platform/vm-accel", optional = true }
+vm-smmu = { path = "../../devices/vm-smmu", optional = true }
 
 [features]
 default = ["std", "devices", "performance"]
@@ -58,6 +58,6 @@ accel = ["vm-accel"]
 smmu = ["vm-accel/smmu", "devices", "vm-device/smmu", "vm-smmu"]
 
 [dev-dependencies]
-vm-mem = { path = "../vm-mem" }
+vm-mem = { path = "../../memory/vm-mem" }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread", "time", "macros"] }
 env_logger = "0.11"

@@ -16,13 +16,13 @@ smmu = ["dep:vm-smmu", "vm-accel/smmu"]
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
-vm-osal = { path = "../vm-osal" }
-vm-passthrough = { path = "../vm-passthrough" }
-vm-mem = { path = "../vm-mem" }
-vm-accel = { path = "../vm-accel", optional = true }
-vm-smmu = { path = "../vm-smmu", optional = true }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
+vm-osal = { path = "../../platform/vm-osal" }
+vm-passthrough = { path = "../../../tools/passthrough" }
+vm-mem = { path = "../../memory/vm-mem" }
+vm-accel = { path = "../../platform/vm-accel", optional = true }
+vm-smmu = { path = "../../devices/vm-smmu", optional = true }
 bincode = { workspace = true }
 serde = { workspace = true }
 wgpu = { workspace = true }

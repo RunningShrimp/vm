@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # vm-plugin uses: sync (types in API), macros (tokio::test), rt-multi-thread (for tests)

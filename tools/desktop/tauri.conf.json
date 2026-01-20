@@ -3,9 +3,8 @@
   "version": "0.1.0",
   "identifier": "com.vmproject.desktop",
   "build": {
-    "beforeDevCommand": "cd src-ui && npm run dev",
-    "beforeBuildCommand": "cd src-ui && npm run build",
-    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
     "frontendDist": "../dist"
   },
   "app": {

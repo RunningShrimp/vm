@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
 parking_lot = "0.12"

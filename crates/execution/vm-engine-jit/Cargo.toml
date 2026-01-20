@@ -9,12 +9,12 @@ required-features = ["jit"]
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
-vm-ir = { path = "../vm-ir" }
-vm-mem = { path = "../vm-mem" }
-vm-accel = { path = "../vm-accel" }
-vm-monitor = { path = "../vm-monitor" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
+vm-ir = { path = "../../core/vm-ir" }
+vm-mem = { path = "../../memory/vm-mem" }
+vm-accel = { path = "../../platform/vm-accel" }
+vm-monitor = { path = "../../runtime/vm-monitor" }
 # vm-engine-interpreter = { path = "../vm-engine-interpreter" }  # TODO: missing crate
 log = { workspace = true }
 cranelift = "=0.110.3"

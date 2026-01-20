@@ -7,12 +7,14 @@
 //! - Real-time monitoring and data collection
 //! - IPC communication with the frontend
 
+pub mod cli_integration;
 pub mod config;
 pub mod display;
 pub mod ipc;
 pub mod monitoring;
 pub mod vm_controller;
 
+pub use cli_integration::*;
 pub use config::*;
 pub use display::*;
 pub use ipc::*;
@@ -23,4 +25,5 @@ pub use vm_controller::*;
 pub struct AppState {
     pub vm_controller: vm_controller::VmController,
     pub monitoring: monitoring::MonitoringService,
+    pub cli_integration: cli_integration::CliIntegrationService,
 }

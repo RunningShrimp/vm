@@ -6,9 +6,9 @@ publish = false
 
 [dependencies]
 # 核心依赖
-vm-core = { path = "../vm-core" }
-vm-mem = { path = "../vm-mem" }
-vm-monitor = { path = "../vm-monitor" }
+vm-core = { path = "../crates/core/vm-core" }
+vm-mem = { path = "../crates/memory/vm-mem" }
+vm-monitor = { path = "../crates/runtime/vm-monitor" }
 
 # 性能测试框架
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # vm-monitor uses: sync (RwLock, broadcast), rt-multi-thread (tokio::spawn), time (sleep, interval), macros (tokio::test), net (TcpListener), fs (create_dir_all, write)

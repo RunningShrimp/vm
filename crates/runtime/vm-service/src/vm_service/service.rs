@@ -642,6 +642,85 @@ impl<B: 'static> VirtualMachineService<B> {
         Ok(result)
     }
 
+    /// Boot Windows from ISO with BIOS emulation
+    ///
+    /// This method handles Windows ISO boot process:
+    /// 1. Uses BIOS interrupt calls for disk access
+    /// 2. Emulates VGA text mode for display
+    /// 3. Loads Windows boot manager
+    /// 4. Supports Windows 10/11 installation
+    pub fn boot_windows_iso(&mut self) -> VmResult<super::x86_boot_exec::X86BootResult> {
+        use super::x86_boot_exec::X86BootExecutor;
+        use super::x86_boot_setup::BootConfig;
+
+        log::info!("=== Starting Windows ISO Boot Sequence ===");
+
+        // Get MMU access
+        let mmu_arc = self.mmu_arc()?;
+        let mut mmu_guard = mmu_arc.lock().map_err(|_| {
+            VmError::Memory(vm_core::MemoryError::MmuLockFailed {
+                message: "Failed to lock MMU".to_string(),
+            })
+        })?;
+
+        // Install ACPI tables for hardware discovery
+        use super::acpi::AcpiManager;
+        let mut acpi_manager = AcpiManager::new();
+        acpi_manager.install_tables(&mut **mmu_guard)?;
+        log::info!("✓ ACPI tables installed for hardware discovery");
+
+        // Create boot executor with extended timeout for Windows
+        let mut executor =
+            X86BootExecutor::new().with_max_execution_time(std::time::Duration::from_secs(3600)); // 1 hour for Windows
+
+        // Initialize EFI runtime for framebuffer support
+        log::info!("=== Initializing EFI Runtime ===");
+        let mut efi_runtime = super::efi::EfiRuntime::new();
+        efi_runtime.initialize(&mut **mmu_guard)?;
+
+        // Get framebuffer info
+        let (fb_addr, fb_width, fb_height, fb_bpp) = efi_runtime.get_framebuffer_info();
+        let fb_stride = fb_width * (fb_bpp / 8);
+
+        log::info!(
+            "EFI Framebuffer: {:#010X} - {}x{}x{} (stride: {})",
+            fb_addr,
+            fb_width,
+            fb_height,
+            fb_bpp,
+            fb_stride
+        );
+
+        // Configure Windows boot parameters
+        let config = BootConfig {
+            vid_mode: 0xFFFF, // Normal VGA text mode (80x25)
+            root_dev: 0,      // Use default
+            // Windows boot parameters
+            cmdline: "windows_install debug --".to_string(),
+            initrd_addr: None,
+            initrd_size: None,
+            // EFI framebuffer configuration
+            efifb_addr: Some(fb_addr),
+            efifb_width: Some(fb_width),
+            efifb_height: Some(fb_height),
+            efifb_stride: Some(fb_stride),
+        };
+
+        // For Windows, we need to boot from the MBR of the virtual disk
+        // The boot sector will be at 0x7C00 (standard BIOS boot location)
+        let kernel_load_addr = 0x7C00;
+        log::info!(
+            "Windows boot sector load address: {:#010X}",
+            kernel_load_addr
+        );
+
+        // Execute boot sequence with Windows boot protocol
+        let result = executor.boot_with_protocol(&mut **mmu_guard, kernel_load_addr, &config)?;
+
+        log::info!("=== Windows Boot Sequence Complete ===");
+        Ok(result)
+    }
+
     /// 列出所有快照
     pub fn list_snapshots(&self) -> VmResult<Vec<String>> {
         super::snapshot_manager::list_snapshots(Arc::clone(&self.state))

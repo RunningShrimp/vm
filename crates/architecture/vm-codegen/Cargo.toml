@@ -12,9 +12,9 @@ categories.workspace = true
 
 [dependencies]
 # Hakari-managed dependencies
-vm-build-deps = { path = "../vm-build-deps" }
-vm-core = { path = "../vm-core" }
-vm-ir = { path = "../vm-ir" }
+vm-build-deps = { path = "../../architecture/vm-build-deps" }
+vm-core = { path = "../../core/vm-core" }
+vm-ir = { path = "../../core/vm-ir" }
 
 bincode = { version = "2.0.1", features = ["serde"] }
 miniz_oxide = { version = "0.7" }
