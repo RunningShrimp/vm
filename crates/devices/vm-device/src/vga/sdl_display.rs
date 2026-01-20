@@ -2,7 +2,6 @@
 //!
 //! 使用SDL2显示VGA文本模式(80x25字符)
 
-use std::sync::{Arc, Mutex};
 
 /// VGA文本模式显示前端
 pub struct SdlDisplayFrontend {
@@ -88,20 +87,20 @@ impl SdlDisplayFrontend {
     /// 格式化VGA文本 (用于日志输出)
     fn format_vga_text(&self) -> String {
         let mut output = String::new();
-        output.push_str("┌");
+        output.push('┌');
         output.push_str(&"─".repeat(78));
         output.push_str("┐\n");
 
         for row in 0..25 {
-            output.push_str("│");
+            output.push('│');
             for col in 0..80 {
                 let idx = row * 80 + col;
                 let cell = self.vga_buffer[idx];
                 let ch = (cell & 0xFF) as u8;
-                let attr = ((cell >> 8) & 0xFF) as u8;
+                let _attr = ((cell >> 8) & 0xFF) as u8;
 
                 // 只渲染可打印字符
-                if ch >= 32 && ch <= 126 {
+                if (32..=126).contains(&ch) {
                     output.push(ch as char);
                 } else if ch == 0 {
                     output.push(' ');
@@ -112,7 +111,7 @@ impl SdlDisplayFrontend {
             output.push_str("│\n");
         }
 
-        output.push_str("└");
+        output.push('└');
         output.push_str(&"─".repeat(78));
         output.push_str("┘\n");
 
@@ -133,7 +132,7 @@ impl SdlDisplayFrontend {
     fn load_default_font() -> Vec<u8> {
         // 简单的8x16 bitmap字体数据 (只包含ASCII 32-126)
         // 在实际实现中，应该从文件加载完整的字体数据
-        let mut font = vec![0u8; 128 * 16]; // 128字符 x 16行
+        let font = vec![0u8; 128 * 16]; // 128字符 x 16行
 
         // 这里可以添加实际的字体数据
         font
@@ -183,18 +182,18 @@ impl VgaSnapshot {
     /// 保存到文件
     pub fn save(&self, path: &str) -> Result<(), String> {
         let mut output = String::new();
-        output.push_str("┌");
+        output.push('┌');
         output.push_str(&"─".repeat(78));
         output.push_str("┐\n");
 
         for row in 0..25 {
-            output.push_str("│");
+            output.push('│');
             for col in 0..80 {
                 let idx = row * 80 + col;
                 if idx < self.vga_buffer.len() {
                     let cell = self.vga_buffer[idx];
                     let ch = (cell & 0xFF) as u8;
-                    if ch >= 32 && ch <= 126 {
+                    if (32..=126).contains(&ch) {
                         output.push(ch as char);
                     } else if ch == 0 {
                         output.push(' ');
@@ -206,7 +205,7 @@ impl VgaSnapshot {
             output.push_str("│\n");
         }
 
-        output.push_str("└");
+        output.push('└');
         output.push_str(&"─".repeat(78));
         output.push_str("┘\n");
 

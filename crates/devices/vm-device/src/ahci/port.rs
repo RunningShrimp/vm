@@ -5,7 +5,6 @@
 use super::{AhciError, commands::AhciCommand};
 use crate::block_device::BlockDevice;
 use log::{debug, info};
-use std::sync::{Arc, Mutex};
 
 /// SATA port signature values
 pub const SATA_SIG_SATA: u32 = 0x00000101; // SATA disk
@@ -80,7 +79,7 @@ impl AhciPort {
         let disk = self
             .disk
             .as_ref()
-            .ok_or_else(|| AhciError::NoDiskAttached(self.port_num))?;
+            .ok_or(AhciError::NoDiskAttached(self.port_num))?;
 
         // Execute command based on type
         match cmd {
@@ -202,7 +201,7 @@ impl AhciPort {
         let disk = self
             .disk
             .as_ref()
-            .ok_or_else(|| AhciError::NoDiskAttached(self.port_num))?;
+            .ok_or(AhciError::NoDiskAttached(self.port_num))?;
 
         Ok(disk.sectors())
     }

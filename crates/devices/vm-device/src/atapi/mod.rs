@@ -28,7 +28,7 @@
 pub mod commands;
 pub mod iso9660;
 
-use log::{debug, info, warn};
+use log::{debug, info};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;

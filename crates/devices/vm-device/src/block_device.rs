@@ -134,7 +134,7 @@ impl BlockDevice for RawBlockDevice {
             return Err(BlockDeviceError::InvalidLba(lba));
         }
 
-        if buffer.len() % 512 != 0 {
+        if !buffer.len().is_multiple_of(512) {
             return Err(BlockDeviceError::InvalidSectorCount(buffer.len()));
         }
 
@@ -155,7 +155,7 @@ impl BlockDevice for RawBlockDevice {
             return Err(BlockDeviceError::InvalidLba(lba));
         }
 
-        if data.len() % 512 != 0 {
+        if !data.len().is_multiple_of(512) {
             return Err(BlockDeviceError::InvalidSectorCount(data.len()));
         }
 

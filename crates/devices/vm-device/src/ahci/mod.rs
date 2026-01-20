@@ -35,8 +35,7 @@ pub mod commands;
 pub mod port;
 pub mod regs;
 
-use log::{debug, error, info, warn};
-use std::sync::{Arc, Mutex};
+use log::{debug, info};
 use thiserror::Error;
 
 pub use commands::AhciCommand;
@@ -238,7 +237,7 @@ impl AhciController {
     /// controller.write(0, 0, &my_mbr_data)?;
     /// ```
     pub fn write(&mut self, port_num: usize, lba: u64, data: &[u8]) -> Result<(), AhciError> {
-        if data.len() % 512 != 0 {
+        if !data.len().is_multiple_of(512) {
             return Err(AhciError::InvalidSectorCount(data.len()));
         }
 
@@ -267,7 +266,7 @@ impl AhciController {
 
         self.ports[port_num]
             .as_mut()
-            .ok_or_else(|| AhciError::NoDiskAttached(port_num))
+            .ok_or(AhciError::NoDiskAttached(port_num))
     }
 
     /// Get reference to port
@@ -278,13 +277,13 @@ impl AhciController {
 
         self.ports[port_num]
             .as_ref()
-            .ok_or_else(|| AhciError::NoDiskAttached(port_num))
+            .ok_or(AhciError::NoDiskAttached(port_num))
     }
 
     /// Get disk size in sectors
     pub fn get_disk_size(&self, port_num: usize) -> Result<u64, AhciError> {
         let port = self.get_port(port_num)?;
-        Ok(port.get_disk_size()?)
+        port.get_disk_size()
     }
 
     /// Check if port has disk attached
@@ -326,12 +325,11 @@ impl AhciController {
 
         // Check each port for pending interrupts
         for (i, port) in self.ports.iter_mut().enumerate() {
-            if let Some(p) = port {
-                if p.has_pending_interrupt() {
+            if let Some(p) = port
+                && p.has_pending_interrupt() {
                     debug!("Clearing interrupt on port {}", i);
                     p.clear_interrupt();
                 }
-            }
         }
     }
 

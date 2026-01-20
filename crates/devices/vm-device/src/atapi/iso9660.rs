@@ -2,7 +2,7 @@
 //!
 //! Basic ISO 9660 filesystem parser for reading ISO images.
 
-use log::{debug, warn};
+use log::debug;
 use std::collections::HashMap;
 
 /// ISO 9660 Volume Descriptor
@@ -120,7 +120,7 @@ impl Iso9660 {
             return Err("Directory entry too short".to_string());
         }
 
-        let ext_attr_length = data[1];
+        let _ext_attr_length = data[1];
         let extent_location = u32::from_le_bytes([data[2], data[3], data[4], data[5]]);
         let size = u32::from_le_bytes([data[10], data[11], data[12], data[13]]);
 

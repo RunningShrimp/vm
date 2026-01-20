@@ -3,7 +3,7 @@
 //! 提供虚拟磁盘镜像创建功能,支持多种格式和大小
 
 use std::fs::File;
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::Path;
 
 /// 磁盘镜像格式
@@ -77,7 +77,7 @@ impl DiskImageCreator {
             return Err("Disk size cannot be zero".to_string());
         }
 
-        if self.size % 512 != 0 {
+        if !self.size.is_multiple_of(512) {
             return Err("Disk size must be multiple of 512 bytes".to_string());
         }
 
@@ -98,12 +98,11 @@ impl DiskImageCreator {
         }
 
         // 创建父目录
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
+        if let Some(parent) = path.parent()
+            && !parent.exists() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("Failed to create parent directory: {}", e))?;
             }
-        }
 
         // 创建文件
         let mut file =

@@ -159,7 +159,7 @@ impl AhciRegs {
 
     /// IS: Set interrupt for port
     pub fn is_set_port_interrupt(&mut self, port: u32) {
-        self.is |= (1 << port);
+        self.is |= 1 << port;
     }
 
     /// IS: Clear interrupt for port
